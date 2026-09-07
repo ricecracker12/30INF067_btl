@@ -2,17 +2,17 @@ using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Serilog;
 using Serilog.Formatting.Compact;
+using SocialApp.Modules.Identity.DependencyInjection;
+using SocialApp.Modules.Identity.Infrastructure;
 using SocialApp.SharedKernel.DependencyInjection;
 
-// Service `migrate` (one-shot, chạy ở bước deploy) gọi với cờ --migrate. GĐ0 chưa có DbContext nên
-// đây là no-op thoát 0 — tránh treo container. Từ GĐ1 sẽ apply EF migration tại đây rồi thoát.
-if (args.Contains("--migrate"))
-{
-    Console.WriteLine("[migrate] GĐ0: chưa có migration nào để áp dụng. Thoát 0.");
-    return;
-}
+// Service `migrate` (one-shot, chạy ở bước deploy) gọi với cờ --migrate: apply EF migration cho
+// mọi module context rồi thoát 0. Lọc cờ khỏi args vì CommandLine config provider không hiểu cờ
+// không có giá trị.
+var isMigrate = args.Contains("--migrate");
+var hostArgs = args.Where(a => a != "--migrate").ToArray();
 
-var builder = WebApplication.CreateBuilder(args);
+var builder = WebApplication.CreateBuilder(hostArgs);
 
 // --- Logging: Serilog JSON (compact) + correlation id qua LogContext ---
 builder.Host.UseSerilog((context, services, configuration) => configuration
@@ -41,11 +41,22 @@ var postgres = builder.Configuration.GetConnectionString("Postgres")
     ?? "Host=localhost;Port=5432;Database=socialapp;Username=socialapp;Password=socialapp";
 var redis = builder.Configuration.GetConnectionString("Redis") ?? "localhost:6379";
 
+// --- Module Identity: DbContext riêng, schema "identity" (ADR-001) ---
+builder.Services.AddIdentityModule(postgres);
+
 builder.Services.AddHealthChecks()
     .AddNpgSql(postgres, name: "postgres", tags: ["ready"])
     .AddRedis(redis, name: "redis", tags: ["ready"]);
 
 var app = builder.Build();
+
+// Thoát ngay sau khi migrate: container `migrate` không phục vụ request nào.
+if (isMigrate)
+{
+    await app.Services.MigrateIdentityModuleAsync();
+    Console.WriteLine($"[migrate] Đã áp dụng migration cho schema \"{IdentityDbContext.Schema}\". Thoát 0.");
+    return;
+}
 
 app.UseSerilogRequestLogging();
 app.UseSharedKernel();
