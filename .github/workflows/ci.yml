@@ -17,5 +17,14 @@ jobs:
         run: dotnet restore SocialApp.sln
       - name: Build
         run: dotnet build SocialApp.sln -c Release --no-restore
-      - name: Test
-        run: dotnet test SocialApp.sln -c Release --no-build --verbosity normal
+      - name: Test (unit + integration)
+        run: dotnet test SocialApp.sln -c Release --no-build --filter "Category!=AuthZ" --verbosity normal
+
+      # CI GATE (GOAL-03, Muc 10.2): tach rieng de log chi thang nguyen nhan fail, fail la chan merge.
+      # Chua co test nao mang trait Category=AuthZ nen buoc nay dang xanh (dotnet test tra 0 khi
+      # filter khong khop). Khoi B GD1 them TC-A01/TC-A02.
+      # NGAY KHI co test AuthZ dau tien, them vao cuoi lenh:
+      #     -- RunConfiguration.TreatNoTestsAsError=true
+      # neu khong, go sai trait se lam cong chan xanh voi 0 test ma khong ai biet.
+      - name: AuthZ matrix (CI GATE)
+        run: dotnet test SocialApp.sln -c Release --no-build --filter "Category=AuthZ"
