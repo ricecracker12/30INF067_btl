@@ -1013,6 +1013,9 @@ GĐ0 đã giao lại một khung chắc chắn (RFC 7807, correlation ID, rate l
 health check Postgres + Redis, hook `--migrate`, `public partial class Program`). Nhưng còn **bốn
 khoản nợ** phải dọn trước khi viết dòng entity đầu tiên. Cả bốn nằm gọn trong khối A.
 
+> **Trạng thái: đã dọn xong trước khi khối A bắt đầu.** Mục này giữ lại làm hồ sơ quyết định; phần
+> ghi bằng chữ nghiêng *(thực tế)* là chỗ hiện thực khác với dự kiến ban đầu.
+
 #### Nợ 1 — Identity module chưa có EF Core *(chặn mọi thứ)*
 
 Hiện `SocialApp.Modules.Identity.csproj` chỉ tham chiếu SharedKernel.
@@ -1025,8 +1028,25 @@ Hiện `SocialApp.Modules.Identity.csproj` chỉ tham chiếu SharedKernel.
 
 `Design` là gói riêng, chỉ phục vụ `dotnet ef migrations add` — thiếu nó lệnh báo lỗi rất khó đoán.
 
+*(thực tế)* **Đặt `Design` ở module là chưa đủ.** EF tools đòi gói này ở **startup project**, mà
+`Design` luôn đi kèm `<PrivateAssets>all</PrivateAssets>` nên **không chảy** từ Identity sang Api.
+Hệ quả: lệnh `migrations add` với `--startup-project src/SocialApp.Api` báo *"Your startup project
+'SocialApp.Api' doesn't reference Microsoft.EntityFrameworkCore.Design"* — đúng cái lỗi khó đoán vừa
+nói tới.
+
+Cách gỡ đã chọn: thêm `DesignTimeIdentityDbContextFactory` (`IDesignTimeDbContextFactory<>`) trong
+`Identity/Infrastructure/`, rồi lấy **chính project Identity làm startup project**. Api nhờ vậy
+không phải kéo EF vào — đúng ADR-001 — và GĐ2–GĐ6 mỗi module lặp lại đúng khuôn này cho context của
+mình. Lệnh đầy đủ nằm ở `AGENTS.md` Mục 13.
+
+Cấu hình Npgsql (chuỗi kết nối + bảng lịch sử migration) để ở **một chỗ duy nhất**
+(`IdentityDbContextOptions.UseIdentityNpgsql`) vì giờ có hai đường dựng context — DI lúc chạy và
+factory lúc design-time. Hai đường lệch nhau là lỗi câm: migration ghi lịch sử vào bảng khác với
+bảng runtime đọc, EF tưởng chưa chạy và áp lại từ đầu.
+
 > **Ràng buộc kiến trúc:** chỉ tầng `Infrastructure` được chạm EF. `Domain` và `Application` phải
-> sạch, nếu không ArchUnitNET bắt (ADR-001).
+> sạch, nếu không ArchUnitNET bắt (ADR-001) — luật này đã có test giữ:
+> `PersistenceBoundaryTests`.
 
 #### Nợ 2 — Chưa có `DbContext` nào trong toàn solution
 
@@ -1049,9 +1069,12 @@ Bảng lịch sử migration cũng để riêng mỗi schema, tránh hai module 
 **Nối vào hook `--migrate`** đã có sẵn ở `Program.cs` (hiện là no-op): apply migration → chạy
 seeder → kiểm tra vai trò hệ thống (Mục 5.5) → thoát 0.
 
-#### Nợ 3 — Thiếu 5 package
+#### Nợ 3 — Thiếu 5 package *(thực tế: 4)*
 
 Ghim phiên bản chính xác, **không dùng dải** — CI phải dựng lại được y hệt.
+
+*(thực tế)* `Testcontainers.PostgreSql` đã có sẵn từ GĐ0 ở **4.0.0**, nên chỉ thêm 4 gói. Giữ 4.0.0
+chứ không hạ về 3.10.0: 4.x đổi API, hạ version là phải sửa lại harness đang chạy tốt.
 
 | Gói | Version | Project | Dùng cho |
 |---|---|---|---|
@@ -1059,7 +1082,7 @@ Ghim phiên bản chính xác, **không dùng dải** — CI phải dựng lại
 | `BCrypt.Net-Next` | 4.0.3 | Identity | Băm mật khẩu cost 12 |
 | `FluentValidation.AspNetCore` | 11.3.0 | Identity | Validator → RFC 7807 |
 | `UUIDNext` | 4.x | **SharedKernel** | UUID v7 — .NET 8 chưa có `Guid.CreateVersion7()`; đặt ở SharedKernel vì mọi module đều cần |
-| `Testcontainers.PostgreSql` | 3.10.0 | IntegrationTests | Test trên Postgres thật |
+| `Testcontainers.PostgreSql` | ~~3.10.0~~ **4.0.0** | IntegrationTests | Test trên Postgres thật |
 
 #### Nợ 4 — CI chưa tách AuthZ matrix thành cổng chặn
 
@@ -1080,6 +1103,10 @@ giới hạn CI ≤ 10 phút.
 > **Kiểm tra ngay ở lần push đầu tiên của GĐ1:** integration test dùng Testcontainers cần Docker
 > daemon trên runner. `ubuntu-latest` có sẵn, nhưng phải xác nhận sớm — phát hiện lúc gần deadline
 > thì không còn đường lùi.
+>
+> *(thực tế)* **Đã xác nhận, rủi ro này đóng.** `IdentityDbContextSchemaTests` chạy thật trên CI:
+> log có `Docker image postgres:16-alpine created` và ryuk khởi động, cả job dưới 60 giây. Cổng
+> AuthZ của GOAL-03 đứng được trên nền này.
 
 ### Ngày 3
 
@@ -1254,6 +1281,7 @@ là đủ, cột chỉ lặp lại thông tin đã cố định; và nó canh sa
 | Seeder ghi đè cấu hình quyền trên production | Admin gỡ quyền xong bị cấp lại âm thầm | `ON CONFLICT DO NOTHING` + test SEED-02 |
 | BCrypt cost 12 ≈ 250ms/lần → login tốn CPU | Chậm khi tải cao | Rate limit 10 req/phút nhóm auth đã có; theo dõi ở GĐ7 |
 | Quên tầng 3 khi sang GĐ2 | IDOR — hỏng GOAL-03 | Quy ước Mục 6.3: endpoint không có dòng AuthZ matrix = chưa xong |
+| Đặt `UseAuthentication()` **sau** rate limiter | Limiter phân vùng theo IP thay vì theo user: nhiều user sau cùng một NAT ăn chung hạn mức. Hỏng câm, không log | Tách sẵn `UseSharedKernelRateLimiter()` thành lệnh riêng để thứ tự hiện ra ở `Program.cs`; comment tại chỗ chèn |
 | Đọc `role` từ token nên đổi vai trò trễ 15 phút | Dễ hiểu nhầm thành bug ở GĐ6 | Cơ chế `revoked:user` + `iat` (Mục 7.5); ghi rõ trong Swagger và tài liệu bàn giao |
 | Đảo thứ tự thu hồi (Redis trước DB) | User giữ vai trò cũ thêm 15 phút, **không gì chặn được** | Code review bắt buộc; ghi rõ ở Mục 7.5. Không test tự động nào bắt được lỗi này |
 | TTL `revoked:user` lệch TTL access token | Lỗ hổng câm — token đã thu hồi được chấp nhận lại | Cùng một hằng số cấu hình cho cả hai; có dòng trong checklist Mục 12 |

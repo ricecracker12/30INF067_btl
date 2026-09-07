@@ -127,6 +127,13 @@ dotnet build SocialApp.sln
 dotnet test
 dotnet run --project src/SocialApp.Api        # dev
 
+# Tạo migration cho MỘT module (ví dụ Identity). Startup project = chính project module đó, nhờ
+# IDesignTimeDbContextFactory trong Infrastructure/ — Api không phải kéo EF vào (ADR-001).
+dotnet ef migrations add <Ten> \
+  --project src/Modules/Identity/SocialApp.Modules.Identity.csproj \
+  --startup-project src/Modules/Identity/SocialApp.Modules.Identity.csproj \
+  --output-dir Infrastructure/Migrations
+
 # Local infra (compose dev — Postgres/Redis/MinIO/Mailpit): sẽ tạo ở deploy/ hoặc gốc
 docker compose -f docker-compose.dev.yml up -d
 
@@ -135,6 +142,9 @@ cd frontend && npm run dev
 ```
 - **Migration:** EF Core, versioned, expand–contract (backward-compatible 1 phiên bản). **KHÔNG
   auto-migrate lúc app start** — chạy ở bước deploy (service `migrate`, cờ `--migrate`).
+  Mỗi module một `DbContext` + schema riêng, migration nằm trong `Infrastructure/Migrations` của
+  module. Lệnh có chạm DB thật (`database update`, `migrations remove`) cần biến
+  `ConnectionStrings__Postgres` trỏ đúng Postgres đang chạy — mặc định là compose dev ở localhost.
 - **CD:** push `develop` → GitHub Actions build arm64 → GHCR → SSH deploy staging. Chi tiết
   `docs/oci-setup.md`.
 

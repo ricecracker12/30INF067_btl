@@ -10,15 +10,16 @@ namespace SocialApp.Modules.Identity.DependencyInjection;
 /// </summary>
 public static class IdentityModuleExtensions
 {
-    public static IServiceCollection AddIdentityModule(this IServiceCollection services, string connectionString)
-    {
-        services.AddDbContext<IdentityDbContext>(options =>
-            options.UseNpgsql(connectionString, npgsql =>
-                // Migration history riêng schema — tránh tranh chấp khi GĐ2 thêm context thứ hai.
-                npgsql.MigrationsHistoryTable("__EFMigrationsHistory", IdentityDbContext.Schema)));
+    /// <summary>
+    /// Schema Postgres của module, công bố lại ở tầng DI để host không phải <c>using</c> vào
+    /// namespace Infrastructure chỉ để lấy một hằng số (ADR-001: host chỉ biết bề mặt DI của module).
+    /// </summary>
+    public const string Schema = IdentityDbContext.Schema;
 
-        return services;
-    }
+    public static IServiceCollection AddIdentityModule(this IServiceCollection services, string connectionString)
+        // Cấu hình Npgsql + bảng lịch sử migration nằm ở IdentityDbContextOptions — dùng chung với
+        // design-time factory để hai đường không lệch nhau.
+        => services.AddDbContext<IdentityDbContext>(options => options.UseIdentityNpgsql(connectionString));
 
     /// <summary>
     /// Chạy ở hook <c>--migrate</c> (service `migrate` one-shot lúc deploy), KHÔNG chạy khi api khởi động.

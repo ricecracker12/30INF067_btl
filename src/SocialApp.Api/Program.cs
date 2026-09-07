@@ -3,7 +3,6 @@ using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Serilog;
 using Serilog.Formatting.Compact;
 using SocialApp.Modules.Identity.DependencyInjection;
-using SocialApp.Modules.Identity.Infrastructure;
 using SocialApp.SharedKernel.DependencyInjection;
 
 // Service `migrate` (one-shot, chạy ở bước deploy) gọi với cờ --migrate: apply EF migration cho
@@ -54,12 +53,16 @@ var app = builder.Build();
 if (isMigrate)
 {
     await app.Services.MigrateIdentityModuleAsync();
-    Console.WriteLine($"[migrate] Đã áp dụng migration cho schema \"{IdentityDbContext.Schema}\". Thoát 0.");
+    Console.WriteLine($"[migrate] Đã áp dụng migration cho schema \"{IdentityModuleExtensions.Schema}\". Thoát 0.");
     return;
 }
 
 app.UseSerilogRequestLogging();
 app.UseSharedKernel();
+
+// GĐ1 chèn app.UseAuthentication() + app.UseAuthorization() vào ĐÂY — trước rate limiter, xem
+// UseSharedKernelRateLimiter: limiter phân vùng theo user nên phải chạy sau khi User được dựng.
+app.UseSharedKernelRateLimiter();
 
 // Swagger bật ở Development + Staging (để demo/test trên staging); TẮT ở Production.
 if (app.Environment.IsDevelopment() || app.Environment.IsStaging())
