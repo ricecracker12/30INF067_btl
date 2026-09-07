@@ -11,7 +11,10 @@ Mạng xã hội kiểu Facebook (quy mô nhỏ, đồ án), **triển khai th�
 nhập, hồ sơ, đăng bài (text + ảnh) theo quyền riêng tư, News Feed, bình luận 3 cấp + cảm xúc, kết
 bạn/theo dõi, nhắn tin 1-1 realtime, thông báo, báo cáo & kiểm duyệt, quản trị.
 
-**Đội:** 3 người · ~25 ngày · backend là trọng tâm chấm điểm.
+**Đội:** 3 người · ~26 ngày · backend là trọng tâm chấm điểm.
+**Nhịp thi công:** lát cắt dọc — mỗi giai đoạn mở bằng cổng hợp đồng API (OpenAPI stub commit vào
+repo), chạy hai lane song song (2 backend + 1 frontend từ Ngày 3), đóng bằng cổng ráp thật trên
+staging. Chi tiết: `docs/ke-hoach-trien-khai.md` Mục 0C.
 
 ## 2. Mục tiêu đo được (đừng làm hỏng các ngưỡng này)
 | ID | Mục tiêu | Ngưỡng |

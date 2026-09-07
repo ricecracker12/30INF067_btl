@@ -1,4 +1,4 @@
-# GĐ 1 — Identity & Access (UC-01, UC-02) · Ngày 3–5
+# GĐ 1 — Identity & Access (UC-01, UC-02) · Ngày 3–6
 
 > Tài liệu thi công chi tiết cho Giai đoạn 1. Đọc kèm `ke-hoach-trien-khai.md` (lộ trình tổng)
 > và `BaoCao_Nhom4_v5.pdf` (Mục 5.5 schema, 6.7 security design, 7.2 verification plan).
@@ -65,8 +65,11 @@ bị chặn đúng mã lỗi.
   động (Mục 5.5)
 - Đăng ký, xác minh email, đăng nhập, refresh, đăng xuất
 - **CORS** cho origin frontend + refresh token trong `httpOnly` cookie (Mục 8)
-- **Một trang HTML tối giản (~1 giờ)** kiểm chứng luồng refresh trong trình duyệt thật — công cụ
-  đo, không phải sản phẩm; xóa khi frontend thật thay thế
+- **Lane frontend chạy song song từ Ngày 3** (1 người — `ke-hoach-trien-khai.md` Mục 0C): scaffold
+  Next.js 14, màn đăng ký/đăng nhập/xác minh email, app shell + route guard, **interceptor
+  401→refresh**. Đây là thay đổi so với bản A của kế hoạch tổng, nơi frontend hoãn tới GĐ2
+- **Cổng mở / cổng đóng hợp đồng API** — OpenAPI stub chốt ở đầu giai đoạn, ráp thật trên staging ở
+  cuối giai đoạn (Mục 9)
 - Lockout 5 lần / 15 phút
 - `[RequirePermission]` + policy handler trong SharedKernel (dùng chung cho mọi module sau)
 - Quy ước kiểm tra ownership (tầng 3) + khuôn test AuthZ matrix
@@ -85,7 +88,7 @@ bị chặn đúng mã lỗi.
 | Đẩy invalidate cache quyền khi Admin sửa role | **GĐ6** | GĐ1 quyền chưa sửa được lúc runtime; cache TTL 60s là đủ |
 | Trigger **ghi** vào `revoked:user` khi nâng/hạ vai trò, khóa tài khoản | **GĐ6** | GĐ1 chưa có endpoint nào đổi vai trò hay khóa tài khoản. Bên đọc đã sẵn sàng từ GĐ1 nên GĐ6 chỉ việc gọi (Mục 7.5) |
 | Trigger ghi khi user tự xóa tài khoản | **GĐ8** | Đi kèm quyền xóa tài khoản theo NĐ 13/2023 |
-| Frontend Next.js (màn đăng ký/đăng nhập, app shell, interceptor 401→refresh) | **GĐ2** | GĐ1 cả 3 người làm backend. *CORS và quyết định lưu token đã kéo về GĐ1* vì thuộc hợp đồng API. GĐ1 nghiệm thu bằng integration test + Swagger + trang HTML tối giản |
+| ~~Frontend Next.js~~ | **Đã kéo về GĐ1** | Kế hoạch chuyển sang **lát cắt dọc**: mỗi giai đoạn giao trọn cả backend lẫn frontend của cùng một tính năng. Nhân lực GĐ1 thành **2 backend + 1 frontend**, và **trang HTML tối giản của bản A bị loại bỏ** — interceptor 401→refresh thật làm đúng việc đó mà không phải xóa đi sau. Chi tiết và bảng đối chiếu bản A/bản B: `ke-hoach-trien-khai.md` Mục 0C |
 | Đổi mật khẩu / quên mật khẩu | Sau MVP | Không nằm trong FR-001..003 |
 | Đăng nhập mạng xã hội (OAuth) | Ngoài MVP | — |
 
@@ -919,10 +922,14 @@ quyền mod thêm 15 phút và lần này không gì chặn được. **DB trư�
 `/auth/refresh` một lần rồi thử lại request. Không có nó thì người dùng chỉ thấy màn hình lỗi và
 phải đăng nhập tay — vẫn an toàn, chỉ là trải nghiệm tệ.
 
-> **Ai làm:** GĐ1 **không** có frontend (cả 3 người làm backend). Interceptor này thuộc nhánh
-> frontend, khởi động ở **GĐ2** — xem `ke-hoach-trien-khai.md` Mục 0C. Nghĩa là toàn bộ thiết kế
-> thu hồi token ở mục này chỉ được kiểm chứng trong trình duyệt thật từ GĐ2; ở GĐ1 nghiệm thu
-> bằng integration test (RV-01…RV-04) và Swagger.
+> **Ai làm:** lane frontend của **chính GĐ1** (Mục 9, Ngày 5) — kế hoạch đã chuyển sang lát cắt
+> dọc nên interceptor xong cùng giai đoạn với backend, không còn hoãn tới GĐ2. Nghĩa là thiết kế
+> thu hồi token ở mục này được kiểm chứng **trong trình duyệt thật ngay ở cổng đóng GĐ1** (E2E-01),
+> bên cạnh integration test RV-01…RV-04.
+>
+> **Bắt buộc single-flight:** nhiều request nhận 401 cùng lúc chỉ được gọi `/auth/refresh` **một
+> lần**, số còn lại xếp hàng chờ. Gọi song song là tự kích hoạt reuse detection ở Mục 7.3 và người
+> dùng bị đăng xuất oan — ân hạn 10 giây che được phần lớn nhưng không phải tất cả (test E2E-02).
 
 **3. `iat` có độ phân giải giây.** Thu hồi lúc `T` rồi user đăng nhập lại ngay trong cùng giây đó
 thì token mới cũng có `iat = T`. Dùng so sánh **chặt** `iat < revoked_at` (không phải `<=`) thì
@@ -1000,12 +1007,14 @@ policy.WithOrigins(allowedOrigins)   // localhost:3000 (dev) + domain thật (st
 của chuẩn CORS: dùng `AllowCredentials()` thì **không được** dùng `AllowAnyOrigin()` — phải liệt
 kê origin cụ thể.
 
-> **Đóng băng hợp đồng này trước cuối Ngày 4.** GĐ2 khởi động Ngày 5 và người làm Content
-> không thể chờ. Sau khi đóng băng, mọi thay đổi phải báo cả nhóm.
+> **Hợp đồng này được chốt ở cổng mở (Ngày 3 sáng) dưới dạng OpenAPI stub commit vào repo**, không
+> phải đóng băng dần tới cuối giai đoạn. Người làm frontend dựng mock từ chính stub đó và bắt đầu
+> ngay Ngày 3 — không có stub thì không ai code. Mọi thay đổi sau đó phải báo cả nhóm và **cập nhật
+> stub trong cùng commit**. Cổng đóng (Ngày 6) là lúc hợp đồng đóng băng thật sự cho GĐ2.
 
 ---
 
-## 9. Kế hoạch thi công (3 người · Ngày 3–5)
+## 9. Kế hoạch thi công (2 backend + 1 frontend · Ngày 3–6)
 
 ### 9.0 Dọn nợ kỹ thuật trước — nửa ngày đầu Ngày 3
 
@@ -1108,40 +1117,77 @@ giới hạn CI ≤ 10 phút.
 > log có `Docker image postgres:16-alpine created` và ryuk khởi động, cả job dưới 60 giây. Cổng
 > AuthZ của GOAL-03 đứng được trên nền này.
 
+### Cổng mở — Ngày 3 sáng, cả nhóm, ~2 giờ
+
+Chốt 7 quyết định ở Mục 3 + thống nhất hợp đồng token và danh sách endpoint, rồi **viết ra thành
+OpenAPI stub cho 6 endpoint auth** (kèm mã lỗi 400/401/403/409/410/423) và **commit vào repo**.
+
+Đây là sản phẩm bắt buộc, không phải thủ tục: người làm frontend sinh type TypeScript và mock MSW
+từ chính stub này để bắt đầu ngay trong ngày, thay vì chờ backend chạy được. **Không có stub thì
+không ai gõ dòng code nào.**
+
+**Tiếp theo — dọn nợ kỹ thuật (Mục 9.0).** *(Đã xong trước khi khối A bắt đầu.)*
+
+### Bốn khối — chỉ A là chặn
+
+| Khối | Nội dung | Người | Phụ thuộc |
+|---|---|---|---|
+| **A. Nền dữ liệu** | Entity + EF config + migration đầu + seeder idempotent + kiểm tra khởi động | BE | chặn C, D |
+| **B. Hạ tầng test** | Testcontainers harness + bảng AuthZ matrix (viết TC-A01/A02 cho **đỏ** trước) | BE | không chặn — làm ngay |
+| **C. SharedKernel AuthZ** | `RequirePermissionAttribute` + policy provider + handler + `IPermissionCache` | BE | chỉ cần interface, stub repository |
+| **E. Lane frontend** | Scaffold Next.js + màn auth + interceptor 401→refresh | FE | chỉ cần **OpenAPI stub**, không cần backend chạy |
+
+Khối **D (endpoint)** ghép sau khi A và C xong.
+
 ### Ngày 3
 
-**Sáng — cả nhóm, ~1 giờ:** chốt 7 quyết định Mục 3 + `ke-hoach-trien-khai.md` GĐ1, thống nhất
-hợp đồng token và danh sách endpoint. Không ai code trước khi xong việc này.
-
-**Tiếp theo — dọn nợ kỹ thuật (Mục 9.0), nửa ngày.** Xong mới sang ba khối bên dưới.
-
-Sau đó chia ba khối — chỉ khối A là chặn, B và C chạy song song ngay:
-
-| Khối | Nội dung | Phụ thuộc |
-|---|---|---|
-| **A. Nền dữ liệu** | Entity + EF config + migration đầu + seeder idempotent | chặn B, C |
-| **B. Hạ tầng test** | Testcontainers harness + bảng AuthZ matrix (viết TC-A01/A02 cho **đỏ** trước) | không chặn — làm ngay |
-| **C. SharedKernel AuthZ** | `RequirePermissionAttribute` + policy provider + handler + `IPermissionCache` | chỉ cần interface, stub repository |
+- **BE — khối A:** 6 entity + `IEntityTypeConfiguration` + migration đầu + seeder + kiểm tra vai
+  trò hệ thống + nối hook `--migrate`.
+- **BE — khối C:** `RequirePermissionAttribute` + policy provider + `PermissionHandler` +
+  `IPermissionCache` (dùng stub repository, nối repo thật ở Ngày 4) + JwtBearer + fallback policy.
+- **BE — khối B:** bảng AuthZ matrix data-driven, viết TC-A01/A02/RBAC-01/RBAC-02 **cho đỏ trước**.
+- **FE — khối E:** scaffold Next.js 14 App Router · design token + primitive · sinh type từ
+  OpenAPI stub · api client bọc `fetch` với `credentials: 'include'` · mock MSW.
 
 ### Ngày 4
 
-- **A:** `POST /auth/register` + luồng xác minh email qua Mailpit
-- **C:** `POST /auth/login` + lockout + phát JWT; nối handler tầng 2 vào repository thật
-- **B:** integration test AC-01 → AC-04 chạy trên Postgres thật
-- **Cuối ngày: ĐÓNG BĂNG hợp đồng API** và thông báo cho người làm GĐ2
+- **BE:** `POST /auth/register` + luồng xác minh email qua Mailpit · `POST /auth/login` + lockout +
+  phát JWT · nối handler tầng 2 vào repository thật.
+- **BE — test:** integration AC-01 → AC-04 chạy trên Postgres thật.
+- **FE:** màn đăng ký (validation client **khớp đúng validator server**) · màn đăng nhập (dịch
+  401/403/423 thành thông điệp người đọc hiểu, **không tiết lộ email có tồn tại hay không**) · màn
+  xác minh email nhận token từ link Mailpit.
 
 ### Ngày 5
 
-- **Refresh rotation + reuse detection + logout** — phần khó nhất, giao cho người chắc tay nhất
-- `ITokenRevocationStore` + hook `OnTokenValidated` (Mục 7.5) — khoảng 2 giờ; nối trigger ghi
-  cho reuse detection. Nếu Ngày 5 quá tải thì đây là phần cắt được, đẩy sang GĐ6 cùng bên ghi
-- Hoàn thiện RFC 7807 cho toàn bộ nhóm auth + cập nhật Swagger
-- CORS + cookie refresh + **trang HTML tối giản** kiểm chứng luồng refresh trong trình duyệt
-- Deploy staging, **test bằng tài khoản thật** qua domain HTTPS
-- Rà Definition of Done (Mục 11), tick checklist nghiệm thu (Mục 12)
+- **BE:** **refresh rotation + reuse detection + logout** — phần khó nhất, giao cho người chắc tay
+  nhất.
+- **BE:** `ITokenRevocationStore` + hook `OnTokenValidated` (Mục 7.5) — khoảng 2 giờ; nối trigger
+  ghi cho reuse detection. Nếu Ngày 5 quá tải thì đây là phần cắt được, đẩy sang GĐ6 cùng bên ghi.
+- **BE:** hoàn thiện RFC 7807 cho toàn bộ nhóm auth + cập nhật Swagger cho khớp stub · CORS +
+  cookie refresh.
+- **FE:** app shell + route guard · **access token giữ trong memory, không `localStorage`** ·
+  **interceptor 401→refresh** · trang `/me`.
 
-> **Lưu ý lịch:** kế hoạch tổng ghi GĐ1 Ngày 3–5 nhưng GĐ2 cũng bắt đầu Ngày 5 → có **1 ngày
-> chồng lấn**. Đây là lý do hợp đồng API phải đóng băng từ cuối Ngày 4.
+> ⚠️ **Interceptor phải single-flight.** Nhiều request nhận 401 cùng lúc chỉ được gọi
+> `/auth/refresh` **một lần**, số còn lại xếp hàng chờ kết quả. Không làm vậy thì chính frontend tự
+> kích hoạt reuse detection của Ngày 5 và người dùng bị đăng xuất oan — triệu chứng trông hệt như
+> lỗi backend. Ân hạn 10 giây (Mục 7.3) che được phần lớn nhưng không phải tất cả.
+
+### Ngày 6 — cổng đóng
+
+- Deploy staging; **frontend bỏ mock, trỏ thẳng domain HTTPS thật**.
+- **E2E lát cắt:** đăng ký → nhận mail Mailpit → xác minh → đăng nhập → `GET /me` → ép hết hạn
+  access token → interceptor refresh → gọi lại thành công.
+  Đây là chỗ cookie `httpOnly`, `SameSite`, `Path=/api/v1/auth` và CORS preflight được kiểm chứng —
+  integration test không chạm tới được. *(Bản A của kế hoạch tổng dùng một trang HTML tạm cho đúng
+  việc này; bản B không cần vì UI thật đã có.)*
+- Rà Definition of Done (Mục 11), tick checklist nghiệm thu (Mục 12).
+- **Đóng băng hợp đồng API** và thông báo cho cả nhóm — GĐ2 khởi động ngay sau đây.
+
+> **Lưu ý lịch:** GĐ1 kéo dài 1 ngày so với bản A (Ngày 3–5 → Ngày 3–6) để hấp thụ việc backend chỉ
+> còn 2 người trong khi khối A vẫn đang chặn C và D. Mọi giai đoạn sau dịch theo, tổng 26 ngày —
+> nhưng GĐ7 nhẹ đi vì không còn backlog frontend nên nhiều khả năng vẫn về đúng 25.
 
 ### Thư viện cần thêm
 
@@ -1171,6 +1217,8 @@ Xem bảng đầy đủ (kèm version ghim và project đích) ở **Mục 9.0 �
 | SEED-02 | Gỡ 1 quyền của MODERATOR rồi chạy lại seeder | **Không bị cấp lại** |
 | SEED-03 | `UPDATE roles SET code='ROOT' WHERE code='ADMIN'` rồi khởi động lại app | **App từ chối khởi động**, thông báo nêu tên vai trò thiếu (Mục 5.5) |
 | FK-01 | Xóa vai trò đang có user | Lỗi RESTRICT |
+| E2E-01 | Đăng ký → Mailpit → verify → login → `/me` → ép 401 → refresh → gọi lại, **trên trình duyệt thật qua HTTPS** | Xuyên suốt không lỗi. Kiểm chứng cookie `httpOnly`, `SameSite`, `Path` scoping, CORS preflight — integration test không chạm tới |
+| E2E-02 | 3 request nhận 401 cùng lúc | Interceptor chỉ gọi `/auth/refresh` **một lần**; không kích hoạt reuse detection; không ai bị đăng xuất |
 
 ### 10.2 AuthZ matrix — CI gate từ GĐ1
 
@@ -1212,8 +1260,9 @@ Theo Mục 3.5 của tài liệu PTTK — cả 6 mục phải tick:
 - [ ] Có kiểm tra RBAC **và** ownership (tầng 2 + tầng 3, kể cả khi tầng 3 mới chỉ là khuôn)
 - [ ] Validation trả đúng RFC 7807 Problem Details có `traceId`
 - [ ] **Đã chạy thử trên staging bằng tài khoản thật** — không phải chỉ trên máy local
-- [ ] Swagger cập nhật đầy đủ cho cả 6 endpoint
+- [ ] Swagger cập nhật đầy đủ cho cả 6 endpoint **và khớp OpenAPI stub đã chốt ở cổng mở**
 - [ ] Không lộ secret/PII trong log, response, hay image
+- [ ] **Lát cắt chạy được đầu-cuối trên trình duyệt thật** — frontend đã bỏ mock, trỏ staging
 
 ---
 
@@ -1245,6 +1294,9 @@ Theo Mục 3.5 của tài liệu PTTK — cả 6 mục phải tick:
 **Vận hành**
 - [ ] Deploy lên staging qua CD tự động, không thao tác tay
 - [ ] Đăng ký → nhận mail Mailpit → xác minh → đăng nhập, toàn bộ trên domain HTTPS thật
+- [ ] **Frontend đã bỏ mock MSW, trỏ staging thật** — không giai đoạn nào được nghiệm thu trên mock
+- [ ] **Interceptor 401→refresh single-flight** — mở 3 tab, ép hết hạn token, không ai bị đăng xuất
+- [ ] Access token **không** nằm trong `localStorage` — kiểm bằng DevTools
 - [ ] CI xanh: unit + integration + AuthZ matrix + ArchUnitNET
 - [ ] **AuthZ matrix chạy thành bước riêng** trong CI, fail là chặn merge (Mục 9.0 — Nợ 4)
 - [ ] Testcontainers chạy được trên CI runner (Docker daemon sẵn sàng)
@@ -1286,3 +1338,7 @@ là đủ, cột chỉ lặp lại thông tin đã cố định; và nó canh sa
 | Đảo thứ tự thu hồi (Redis trước DB) | User giữ vai trò cũ thêm 15 phút, **không gì chặn được** | Code review bắt buộc; ghi rõ ở Mục 7.5. Không test tự động nào bắt được lỗi này |
 | TTL `revoked:user` lệch TTL access token | Lỗ hổng câm — token đã thu hồi được chấp nhận lại | Cùng một hằng số cấu hình cho cả hai; có dòng trong checklist Mục 12 |
 | Redis chết → bỏ qua kiểm tra thu hồi (fail-open) | Token đã thu hồi sống lại, cửa sổ ≤ 15 phút | Quyết định có ý thức (Mục 7.5); alert khi Redis mất kết nối; refresh token vẫn bị chặn ở DB |
+| **Interceptor 401→refresh không single-flight** | Nhiều tab refresh cùng lúc tự kích hoạt reuse detection → người dùng bị đăng xuất oan. Triệu chứng trông hệt lỗi backend, debug nhầm chỗ rất tốn thời gian | Single-flight bắt buộc ở lane frontend (Mục 9, Ngày 5) + ân hạn 10 giây phía server (Mục 7.3) + test E2E-02 |
+| **Backend chỉ còn 2 người** trong khi khối A vẫn chặn C và D | Trễ ngay ở giai đoạn nền, kéo theo mọi giai đoạn sau | GĐ1 kéo dài thêm 1 ngày (Ngày 3–6); khối B và E không phụ thuộc A nên vẫn chạy hết công suất |
+| **Bỏ qua cổng mở khi gấp** | Frontend dựng trên API đang viết dở → phải sửa lại, mất sạch lợi ích của lát cắt dọc | OpenAPI stub là artifact bắt buộc; không có stub thì không ai bắt đầu (Mục 9) |
+| **Mock MSW trôi xa khỏi hiện thực thật** | Frontend xanh trên mock, đỏ trên staging, phát hiện muộn ở cổng đóng | Sinh type từ stub nên đổi hợp đồng là compile lỗi; cổng đóng cấm nghiệm thu trên mock |
