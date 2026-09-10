@@ -1,9 +1,19 @@
 name: ci
 on:
   push:
-    branches: [main, develop]
+    # loveart1210: nhanh lam viec, bat CI de biet do/xanh truoc khi mo PR thay vi doi toi luc do.
+    # Go ten nhanh nay ra khi nhanh duoc merge va xoa.
+    # Sua trigger tren CHINH nhanh do la du: voi su kien push, GitHub dung file workflow cua commit
+    # duoc push, khong phai ban tren nhanh mac dinh.
+    branches: [main, develop, loveart1210]
   pull_request:
     branches: [main, develop]
+
+# Khi da mo PR loveart1210 -> develop, mot lan push kich hoat CA push LAN pull_request tren cung mot
+# commit. Nhom theo ref + huy lan chay cu de khong ton 2 lan chay va khong phai doc 2 ket qua.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-test:
