@@ -1462,13 +1462,15 @@ Còn hai `Skip` đang chờ được gỡ, mỗi cái là một dòng việc c�
 | Khối | Nội dung | Người | Số việc | Cần trước | Chặn |
 |---|---|---|---|---|---|
 | **A. Nền dữ liệu** | Entity → migration → seeder → kiểm tra khởi động | BE-1 | 7 | — | C5·, D, B5 |
-| **B. Hạ tầng test** | Harness + khung AuthZ matrix + test seeder | BE-2 | 5 | — | B4 siết cổng CI |
-| **C. SharedKernel AuthZ** | `[RequirePermission]` + handler + JwtBearer + default deny | BE-2 | 5 | — (dùng stub) | D |
+| **B. Hạ tầng test** | Harness + khung AuthZ matrix + test seeder | BE-2 | 5 | B3 cần C·· | — |
+| **C. SharedKernel AuthZ** | `[RequirePermission]` + handler + JwtBearer + default deny + khuôn tầng 3 | BE-2 | 6 | — (dùng stub) | D, B3 |
 | **D. Endpoint** | 6 endpoint auth + revocation + CORS | BE-1 + BE-2 | 11 | A, C | F |
-| **E. Lane frontend** | Next.js + 3 màn auth + interceptor single-flight | FE | 7 | chỉ cần hợp đồng | F |
+| **E. Lane frontend** | Next.js + 3 màn auth + interceptor single-flight | FE | 7 | chỉ cần hợp đồng··· | F |
 | **F. Cổng đóng** | Staging + E2E + checklist + đóng băng hợp đồng | cả nhóm | 7 | D, E | GĐ2 |
 
 *· Khối C viết được ngay với repository stub; chỉ bước `C5` nối vào dữ liệu thật mới cần A xong.
+·· Khối B khởi động ngay, nhưng riêng `B3` cần `C1`+`C4` mới có `[RequirePermission]` để gọi thử.
+··· `E1`–`E6` chỉ cần hợp đồng; riêng `E7` cần `D4` (cookie + CORS) mới kiểm chứng được thật.
 
 **Ba lane chạy song song ngay từ đầu:** A (BE-1) · B rồi C (BE-2) · E (FE). Chỉ D mới cần chờ.
 
@@ -1689,6 +1691,24 @@ Còn hai `Skip` đang chờ được gỡ, mỗi cái là một dòng việc c�
   handler từ đầu đến cuối chỉ làm việc với chuỗi (Mục 3.1).
 - **Xong là:** RBAC-02 xanh với dữ liệu seed thật, không phải dữ liệu dựng trong fixture.
 - **Chặn / Cần:** cần A4, C2.
+
+### C6 — Khuôn kiểm tra ownership (tầng 3)
+
+- **Mục tiêu:** đặt **khuôn** cho tầng 3 ngay bây giờ, dù GĐ1 gần như chưa có tài nguyên nào để sở
+  hữu. Không đặt khuôn thì từ GĐ2 mỗi module tự nghĩ ra một kiểu, và IDOR lọt qua đúng những khe đó
+  — lỗi phổ biến nhất với loại ứng dụng này, và là thứ GOAL-03 tồn tại để chặn. Đây cũng là một dòng
+  bắt buộc của Definition of Done (Mục 11): *"kể cả khi tầng 3 mới chỉ là khuôn"*.
+- **Cách thực thi:** hiện thực bốn quy ước ở Mục 6.3 thành thứ dùng được, không phải thành đoạn văn:
+  (1) chỗ kiểm tra nằm ở **tầng service**, không ở controller và không ở attribute — vì nó phải truy
+  vấn dữ liệu thật; (2) service trả `Result.Forbidden(...)`, middleware SharedKernel map sang **403
+  RFC 7807**, **không ném exception cho luồng nghiệp vụ bình thường**; (3) thông điệp 403 **không
+  tiết lộ tài nguyên có tồn tại hay không**; (4) ghi thành luật trong `AGENTS.md`: **endpoint chạm
+  tài nguyên có chủ sở hữu mà không có dòng tương ứng trong bảng AuthZ matrix thì coi như chưa xong**.
+  Dùng `GET /me` làm ví dụ mẫu — nó "sở hữu" chính hồ sơ người gọi, đủ để khuôn có một chỗ bám thật
+  thay vì chỉ là quy ước trên giấy.
+- **Xong là:** `Result.Forbidden` map đúng sang 403 RFC 7807 (có test); luật (4) đã nằm trong
+  `AGENTS.md`; TC-A03 của GĐ2 chỉ việc **thêm một dòng** vào bảng AuthZ matrix, không phải dựng khung.
+- **Chặn / Cần:** cần C4, B2. **Bỏ việc này thì GĐ1 không đạt DoD**, dù 6 endpoint đều chạy.
 
 ---
 
@@ -1961,7 +1981,7 @@ Còn hai `Skip` đang chờ được gỡ, mỗi cái là một dòng việc c�
 
 ## B.9 Thứ tự thực thi và đường găng
 
-**Đường găng:** `A1 → A2 → A3 → A4 → A5 → A6` · `C5` · `D3 → D4 → D5 → D8` · `D9 → D11` ·
+**Đường găng:** `A1 → A2 → A3 → A4 → A5 → A6` · `C5` · `D1 → D2 → D3 → D4 → D5 → D8` · `D9 → D11` ·
 `F1 → F2 → F3 → F6 → F7`
 
 Khối **B** và **E** không nằm trên đường găng — nên chúng phải chạy **hết công suất song song ngay
@@ -1993,7 +2013,7 @@ không đổi kể cả khi lịch trượt.
 |---|---|---|
 | **A** | Dữ liệu nền đúng, tự bảo vệ, tái lập được ở mọi môi trường | Không có gì để phân quyền; và mất khả năng phát hiện dữ liệu nền bị sửa sai |
 | **B** | GOAL-03 thành cổng chặn merge, có khung để GĐ2–GĐ8 thêm dòng | IDOR chỉ được phát hiện ở GĐ8, khi sửa đã đắt |
-| **C** | Cơ chế phân quyền viết **một lần** cho cả dự án, dữ liệu hóa | Mỗi module tự chế cách riêng; RBAC hard-code, sai lời hứa Mục 6.7.2 |
+| **C** | Cơ chế phân quyền tầng 2 viết **một lần** cho cả dự án, dữ liệu hóa, **kèm khuôn tầng 3** | Mỗi module tự chế cách riêng; RBAC hard-code, sai lời hứa Mục 6.7.2; và IDOR lọt qua khe giữa các module từ GĐ2 |
 | **D** | Hợp đồng thành hệ thống chạy thật, khớp từng mã lỗi | Không có sản phẩm |
 | **E** | Lát cắt dọc chạm tới người dùng thật | Backend đúng nhưng không ai dùng được; và GĐ7 gánh toàn bộ backlog frontend |
 | **F** | Chứng minh trên hệ thống thật, đóng băng nền cho GĐ2 | "Xong" thành cảm giác chứ không phải sự kiện kiểm chứng được |
@@ -2014,7 +2034,7 @@ không đổi kể cả khi lịch trượt.
 | **FR-001** | Đăng ký + xác minh email | D1, D2 | AC-04, E2E-01 |
 | **FR-002** | Đăng nhập cấp JWT + refresh rotation | D3, D5 | AC-01, RT-01→04 |
 | **FR-003** | Khóa tài khoản sau 5 lần sai trong 15 phút | D3 | AC-03 |
-| **Mục 6.7.1** | Ba tầng kiểm soát truy cập chạy đủ | C4 (tầng 1), C1–C3 (tầng 2), khuôn tầng 3 | TC-A01/A02, RBAC-01/02 |
+| **Mục 6.7.1** | Ba tầng kiểm soát truy cập chạy đủ | C4 (tầng 1) · C1–C3, C5 (tầng 2) · **C6** (khuôn tầng 3) | TC-A01/A02, RBAC-01/02 |
 | **Mục 6.7.2** | RBAC **dữ liệu hóa** — ma trận trong DB, không hard-code | A4, C5 | SEED-02, kiểm tay ở Mục 12 |
 | **NFR-SEC-01** | BCrypt cost 12; refresh token lưu băm | D1, D5 | Đọc trực tiếp DB (Mục 12) |
 | **NFR-SEC-03** | Rotation + reuse detection → thu hồi cả chuỗi | D5 | RT-02, RT-04 |
