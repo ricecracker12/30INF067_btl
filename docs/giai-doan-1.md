@@ -7,7 +7,19 @@
 > Làm ẩu ở đây thì mọi giai đoạn sau đều trả giá. "Xong" nghĩa là đạt Definition of Done
 > (Mục 11), không phải "chạy được trên máy local".
 
+## Tài liệu này có hai phần
+
+| | Trả lời câu hỏi | Đọc khi nào |
+|---|---|---|
+| **[Phần A](#phần-a--thiết-kế-và-quyết-định)** — Thiết kế và quyết định (Mục 0–14) | *Hệ thống phải trở thành cái gì, và vì sao chọn như vậy* | Trước khi bắt tay; khi cần tra một quyết định hoặc giải thích nó lúc bảo vệ |
+| **[Phần B](#phần-b--kế-hoạch-triển-khai)** — Kế hoạch triển khai (Mục B.0–B.11) | *Phải làm những việc gì, làm thế nào, và biết là xong bằng cách nào* | Hằng ngày, khi nhận việc và khi đánh dấu việc đã xong |
+
+Phần B **không lặp lại** thiết kế của Phần A — nó trỏ ngược về. Gặp câu "vì sao lại làm thế" trong
+Phần B thì câu trả lời nằm ở mục tương ứng của Phần A.
+
 ---
+
+# Phần A — Thiết kế và quyết định
 
 ## 0. Thuật ngữ
 
@@ -1397,3 +1409,638 @@ là đủ, cột chỉ lặp lại thông tin đã cố định; và nó canh sa
 | **Backend chỉ còn 2 người** trong khi khối A vẫn chặn C và D | Trễ ngay ở giai đoạn nền, kéo theo mọi giai đoạn sau | GĐ1 kéo dài thêm 1 ngày (Ngày 3–6); khối B và E không phụ thuộc A nên vẫn chạy hết công suất |
 | **Bỏ qua cổng mở khi gấp** | Frontend dựng trên API đang viết dở → phải sửa lại, mất sạch lợi ích của lát cắt dọc | OpenAPI stub là artifact bắt buộc; không có stub thì không ai bắt đầu (Mục 9) |
 | **Mock MSW trôi xa khỏi hiện thực thật** | Frontend xanh trên mock, đỏ trên staging, phát hiện muộn ở cổng đóng | Sinh type từ stub nên đổi hợp đồng là compile lỗi; cổng đóng cấm nghiệm thu trên mock |
+
+---
+
+# Phần B — Kế hoạch triển khai
+
+## B.0 Cách đọc phần này
+
+Mỗi công việc được mô tả bằng bốn dòng cố định:
+
+| Dòng | Nghĩa |
+|---|---|
+| **Mục tiêu** | Việc này tồn tại để đạt điều gì. Không phải mô tả thao tác — mà là thứ sẽ mất đi nếu bỏ việc này |
+| **Cách thực thi** | Làm cụ thể ra sao: file nào, lệnh nào, quyết định kỹ thuật nào đã chốt sẵn |
+| **Xong là** | Điều **kiểm chứng được** chứng minh việc đã xong. Không có dòng nào là "chạy thử thấy được" |
+| **Chặn / Cần** | Việc này chặn ai, và cần gì trước đó |
+
+**"Xong" luôn là thứ máy kiểm được**, trừ ba trường hợp đã biết là máy không kiểm được (ghi rõ ở
+B.9). Đây không phải hình thức: GOAL-03 (0 lỗ hổng IDOR) chỉ đạt được bằng cổng chặn tự động từ
+ngày đầu, không phải bằng một đợt rà soát ở GĐ8 khi đã quá muộn để sửa rẻ.
+
+Mã công việc dùng chữ cái khối + số thứ tự trong khối (`A3`, `D7`…). Khối giữ nguyên tên đã đặt ở
+Mục 9 của Phần A.
+
+---
+
+## B.1 Điểm xuất phát — cái gì đã xong
+
+Ba mốc dưới đây đã hoàn thành và đã đẩy lên nhánh; CI xanh cả ba bước (test, cổng hợp đồng API,
+cổng AuthZ).
+
+| Mốc | Kết quả để lại | Bằng chứng |
+|---|---|---|
+| **Cổng mở** (Mục 9) | Hợp đồng API 6 endpoint đủ mã lỗi, đã chốt 7 quyết định thiết kế | `src/Modules/Identity/Presentation/identity-v1.yaml`; `redocly lint` 0 error; `openapi-typescript` sinh type dùng được |
+| **Dọn nợ kỹ thuật** (Mục 9.0) | EF Core cho Identity, `IdentityDbContext` schema riêng, 4 package ghim version, CI tách cổng AuthZ | `IdentityDbContextSchemaTests` chạy thật trên Postgres qua Testcontainers |
+| **Module sở hữu tầng HTTP** (Mục 9.1) | Tầng `Presentation/`, Swagger tách nhóm theo module, ba lưới chặn mới | `PresentationBoundaryTests` (4 test), `IdentityContractTests` (cổng CI `Category=Contract`) |
+
+**Hệ quả cho mọi việc phía sau — đọc kỹ ba dòng này:**
+
+1. **Controller viết vào `src/Modules/Identity/Presentation/`**, không viết vào `SocialApp.Api/Controllers/`.
+2. **Mọi controller phải khai `[ApiExplorerSettings(GroupName = IdentityApiGroup.Name)]`** — thiếu là
+   endpoint biến mất khỏi Swagger trong im lặng, và `PresentationBoundaryTests` sẽ đỏ.
+3. **Đổi hình dạng API là phải sửa `identity-v1.yaml` trong cùng commit** — `IdentityContractTests`
+   chiều 1 đang xanh và sẽ đỏ ngay khi code lộ ra thứ hợp đồng chưa ghi.
+
+Còn hai `Skip` đang chờ được gỡ, mỗi cái là một dòng việc cụ thể trong Phần B: `A7` và `D11`.
+
+---
+
+## B.2 Bản đồ công việc
+
+| Khối | Nội dung | Người | Số việc | Cần trước | Chặn |
+|---|---|---|---|---|---|
+| **A. Nền dữ liệu** | Entity → migration → seeder → kiểm tra khởi động | BE-1 | 7 | — | C5·, D, B5 |
+| **B. Hạ tầng test** | Harness + khung AuthZ matrix + test seeder | BE-2 | 5 | — | B4 siết cổng CI |
+| **C. SharedKernel AuthZ** | `[RequirePermission]` + handler + JwtBearer + default deny | BE-2 | 5 | — (dùng stub) | D |
+| **D. Endpoint** | 6 endpoint auth + revocation + CORS | BE-1 + BE-2 | 11 | A, C | F |
+| **E. Lane frontend** | Next.js + 3 màn auth + interceptor single-flight | FE | 7 | chỉ cần hợp đồng | F |
+| **F. Cổng đóng** | Staging + E2E + checklist + đóng băng hợp đồng | cả nhóm | 7 | D, E | GĐ2 |
+
+*· Khối C viết được ngay với repository stub; chỉ bước `C5` nối vào dữ liệu thật mới cần A xong.
+
+**Ba lane chạy song song ngay từ đầu:** A (BE-1) · B rồi C (BE-2) · E (FE). Chỉ D mới cần chờ.
+
+---
+
+## B.3 Khối A — Nền dữ liệu
+
+> **Mục tiêu khối:** biến schema trên giấy (Mục 4) thành database chạy được, có dữ liệu phân quyền
+> đúng, và **tự từ chối khởi động** nếu dữ liệu nền bị sửa sai.
+
+### A1 — Sáu entity trong `Domain/`
+
+- **Mục tiêu:** có mô hình nghiệp vụ để mọi tầng khác bám vào, và đóng luôn lỗ hổng "rule persistence
+  chạy trong chân không" mà `PersistenceBoundaryTests` đang cảnh báo bằng một `Skip`.
+- **Cách thực thi:** `Role`, `Permission`, `RolePermission`, `User`, `RefreshToken`,
+  `EmailVerificationToken` trong `src/Modules/Identity/Domain/`. Đúng cột theo Mục 4 — **không tự bịa
+  thêm cột**. `roles` tách `code` + `display_name` (Mục 3.3); `refresh_tokens` có **cả**
+  `family_id` lẫn `replaced_by_id` (Mục 3.5). PK sinh bằng `UUIDNext` (UUID v7), **không dùng**
+  `Guid.NewGuid()`. Tầng này tuyệt đối không `using Microsoft.EntityFrameworkCore`.
+- **Xong là:** `PersistenceBoundaryTests` xanh **và** `A7` gỡ được `Skip`.
+- **Chặn / Cần:** chặn A2. Cần: không.
+
+### A2 — `IEntityTypeConfiguration` trong `Infrastructure/`
+
+- **Mục tiêu:** ánh xạ entity xuống Postgres đúng ràng buộc, để những bất biến quan trọng được **DB**
+  giữ chứ không phải code nhớ giữ.
+- **Cách thực thi:** một file cấu hình cho mỗi entity. Bắt buộc có:
+  `modelBuilder.HasPostgresExtension("citext")` cho `users.email`; `users.role_id` FK
+  `.OnDelete(DeleteBehavior.Restrict)` (biện pháp #1 thay cho `is_system` — Mục 3.4); unique index cho
+  `roles.code`, `permissions.code`, `users.email`, `refresh_tokens.token_hash`,
+  `email_verification_tokens.token_hash`; index một phần `idx_refresh_family` dùng
+  `.HasFilter("revoked_at IS NULL")`; `CHECK` cho `users.status`.
+- **Xong là:** `IdentityDbContextSchemaTests` mở rộng, khẳng định 6 bảng nằm trong schema `identity`
+  và FK RESTRICT tồn tại.
+- **Chặn / Cần:** chặn A3. Cần A1.
+
+### A3 — Migration đầu tiên
+
+- **Mục tiêu:** schema thành artifact có version, tái lập được y hệt ở mọi môi trường — không ai
+  "sửa tay trên staging".
+- **Cách thực thi:** startup project là **chính project module** (nhờ `DesignTimeIdentityDbContextFactory`,
+  Api không phải kéo EF vào — ADR-001):
+
+  ```bash
+  dotnet ef migrations add InitialIdentity \
+    --project src/Modules/Identity/SocialApp.Modules.Identity.csproj \
+    --startup-project src/Modules/Identity/SocialApp.Modules.Identity.csproj \
+    --output-dir Infrastructure/Migrations
+  ```
+
+  Đọc lại file migration sinh ra **trước khi commit** — đây là lúc rẻ nhất để phát hiện ánh xạ sai.
+- **Xong là:** `dotnet ef database update` trên compose dev chạy sạch; `IdentityDbContextSchemaTests`
+  xanh trên Postgres thật.
+- **Chặn / Cần:** chặn A4. Cần A2.
+
+### A4 — Seeder idempotent
+
+- **Mục tiêu:** ma trận quyền là **dữ liệu**, không phải code (Mục 6.7.2) — và CD deploy lại 10
+  lần/ngày cũng không nhân bản hay ghi đè cấu hình.
+- **Cách thực thi:** seed 3 vai trò (Mục 5.1), 17 permission (Mục 5.2), gán quyền theo Mục 5.3 —
+  **ADMIN không có dòng nào**, đó là thiết kế (Mục 3.2), không phải thiếu dữ liệu. Dùng
+  `ExecuteSqlRawAsync` với `ON CONFLICT (code) DO NOTHING`, **tuyệt đối không `DO UPDATE`**: từ GĐ6
+  Admin sửa được `role_permissions` lúc runtime, `DO UPDATE` sẽ lặng lẽ cấp lại đúng cái quyền Admin
+  vừa cố tình gỡ. Đẩy tính idempotent xuống **tầng DB** chứ không đọc-rồi-ghi ở tầng app — hai
+  instance khởi động cùng lúc thì đọc-rồi-ghi sẽ chèn trùng.
+- **Xong là:** `SEED-01` (chạy 2 lần, dữ liệu không đổi) và `SEED-02` (gỡ 1 quyền của MODERATOR rồi
+  chạy lại, **không bị cấp lại**) xanh trên Postgres thật.
+- **Chặn / Cần:** chặn A5. Cần A3.
+
+### A5 — Kiểm tra vai trò hệ thống lúc khởi động
+
+- **Mục tiêu:** bắt kịch bản nguy hiểm nhất của toàn GĐ1 — ai đó `UPDATE roles SET code='ROOT'` bằng
+  tay. Khi đó short-circuit `role == "ADMIN"` không khớp nữa, mà Admin lại cố ý không có dòng
+  `role_permissions` nào để rơi về → **mất sạch quyền quản trị, im lặng, không đường phục hồi**.
+- **Cách thực thi:** ~5 dòng theo Mục 5.5, đặt **ngay trong seeder** (nó vốn đã chạy mỗi lần khởi
+  động và vốn đã đọc bảng `roles` — không tốn thêm truy vấn nào và không thể quên gọi). Thiếu bất kỳ
+  `code` nào trong ba cái thì ném `InvalidOperationException` nêu **tên vai trò bị thiếu**.
+- **Xong là:** `SEED-03` xanh — đổi `roles.code` của ADMIN bằng tay rồi khởi động lại thì app **từ
+  chối chạy**, thông báo nêu đúng tên vai trò thiếu.
+- **Chặn / Cần:** chặn A6. Cần A4.
+
+### A6 — Nối vào hook `--migrate`
+
+- **Mục tiêu:** một lệnh duy nhất ở bước deploy làm trọn: nâng schema, nạp dữ liệu nền, tự kiểm tra.
+  Không auto-migrate lúc app start (AGENTS.md Mục 13).
+- **Cách thực thi:** mở rộng `MigrateIdentityModuleAsync` theo đúng thứ tự **apply migration → seed →
+  kiểm tra vai trò → thoát 0**. Service `migrate` trong compose staging đã gọi sẵn
+  `dotnet SocialApp.Api.dll --migrate`.
+- **Xong là:** `dotnet run --project src/SocialApp.Api -- --migrate` trên máy sạch cho exit code 0 và
+  in dòng xác nhận; chạy lần hai vẫn 0 và dữ liệu không đổi.
+- **Chặn / Cần:** chặn F1. Cần A5.
+
+### A7 — Gỡ `Skip` của `Identity_Domain_namespace_must_not_be_empty`
+
+- **Mục tiêu:** đóng cái "lưới giả" mà `PersistenceBoundaryTests` tự cảnh báo về chính nó — rule dùng
+  `WithoutRequiringPositiveResults` nên gõ sai namespace là nó xanh vĩnh viễn mà không kiểm gì cả.
+- **Cách thực thi:** xóa thuộc tính `Skip` trong `tests/SocialApp.ArchitectureTests/PersistenceBoundaryTests.cs`.
+  File đã ghi sẵn điều kiện gỡ.
+- **Xong là:** test chạy thật và xanh (namespace `Identity.Domain` có ≥ 1 type).
+- **Chặn / Cần:** cần A1. **Làm ngay trong cùng commit với A1**, đừng để thành nợ.
+
+---
+
+## B.4 Khối B — Hạ tầng test
+
+> **Mục tiêu khối:** dựng cái khung mà GĐ2–GĐ8 chỉ việc thêm dòng vào, và biến GOAL-03 từ một lời
+> hứa thành cổng chặn merge. **Không phụ thuộc khối A — bắt đầu ngay từ giờ đầu tiên.**
+
+### B1 — Harness Testcontainers dùng chung
+
+- **Mục tiêu:** mọi integration test chạy trên Postgres **thật**, không phải InMemory provider —
+  InMemory không có FK, không có CHECK, không có `ON CONFLICT`, tức là không kiểm được đúng những
+  thứ khối A vừa dựng.
+- **Cách thực thi:** tách phần dựng container trong `IdentityDbContextSchemaTests` thành fixture dùng
+  chung (`ICollectionFixture`), để N test chia một container thay vì mỗi test một cái. Giữ
+  `postgres:16-alpine` và `Testcontainers.PostgreSql` 4.0.0 — **không hạ về 3.x**, 4.x đổi API và
+  harness hiện tại đang chạy tốt.
+- **Xong là:** ít nhất hai test class dùng chung một container; thời gian chạy cả nhóm không tăng
+  tuyến tính theo số test.
+- **Chặn / Cần:** chặn B3, B5, D-test. Cần: Docker daemon.
+
+### B2 — Khung AuthZ matrix data-driven
+
+- **Mục tiêu:** mỗi giai đoạn sau **chỉ thêm dòng dữ liệu**, không sửa khung. Đây là cách GOAL-03 mở
+  rộng được tới GĐ8 mà không phải viết lại.
+- **Cách thực thi:** một bảng dữ liệu (`[Theory]` + `MemberData`), mỗi dòng là một tình huống
+  `(endpoint, vai trò, token, kỳ vọng)`. Gắn `[Trait("Category", "AuthZ")]`.
+- **Xong là:** thêm một dòng mới vào bảng là có thêm một test chạy, không đụng tới code khung.
+- **Chặn / Cần:** chặn B3. Cần B1.
+
+### B3 — TC-A01, TC-A02, RBAC-01, RBAC-02 — **viết cho đỏ trước**
+
+- **Mục tiêu:** bốn dòng đầu của ma trận ở Mục 10.2, và là bằng chứng cổng chặn thật sự chặn được.
+- **Cách thực thi:** TC-A01 (không kèm JWT → 401), TC-A02 (token hết hạn/sai chữ ký → 401), RBAC-01
+  (ADMIN qua được dù `role_permissions` rỗng), RBAC-02 (USER gọi endpoint đòi `post.hide` → 403).
+  Viết **trước** khi có endpoint, để chúng đỏ; xanh dần khi C và D xong. Dùng một endpoint thử
+  nghiệm có `[RequirePermission]` nếu `/me` chưa có.
+- **Xong là:** bốn test tồn tại, và đã **quan sát thấy chúng đỏ** trước khi làm chúng xanh. Test chưa
+  bao giờ đỏ thì không chứng minh được gì.
+- **Chặn / Cần:** chặn B4. Cần B2, C.
+
+### B4 — Siết cổng AuthZ trong CI
+
+- **Mục tiêu:** đóng đúng cái bẫy vừa suýt dính ở cổng hợp đồng — cổng chặn **xanh với 0 test** thì
+  tệ hơn không có cổng, vì nó tạo cảm giác an toàn giả.
+- **Cách thực thi:** khi B3 có test đầu tiên, đổi bước `AuthZ matrix (CI GATE)` sang dạng
+  **nhắm vào project** kèm `-- RunConfiguration.TreatNoTestsAsError=true`, giống bước cổng hợp đồng.
+  **Không** thêm cờ đó vào lệnh chạy `.sln`: cờ xét riêng từng test assembly, nên `.sln` sẽ đỏ vì các
+  project không có test AuthZ chứ không phải vì AuthZ hỏng. `.github/workflows/ci.yml` đã ghi sẵn
+  lệnh mẫu và cảnh báo này ngay tại chỗ.
+- **Xong là:** cố tình gõ sai trait → CI **đỏ**. Đây là bước phải thử tay một lần rồi hoàn tác.
+- **Chặn / Cần:** cần B3.
+
+### B5 — Test dữ liệu nền: SEED-01/02/03, FK-01
+
+- **Mục tiêu:** khóa ba tính chất của khối A mà chỉ Postgres thật mới kiểm được.
+- **Cách thực thi:** SEED-01 (chạy seeder 2 lần), SEED-02 (gỡ quyền rồi seed lại), SEED-03 (đổi
+  `roles.code` rồi khởi động lại → app từ chối chạy), FK-01 (`DELETE FROM roles` khi còn user → lỗi
+  RESTRICT).
+- **Xong là:** bốn test xanh trên Postgres thật.
+- **Chặn / Cần:** cần B1, A4, A5.
+
+---
+
+## B.5 Khối C — SharedKernel AuthZ
+
+> **Mục tiêu khối:** viết **một lần** cho cả dự án cơ chế phân quyền tầng 2, đúng nghĩa "nâng cấp là
+> thay dữ liệu, không thay code". GĐ2–GĐ8 dùng lại nguyên xi, không module nào tự chế cách riêng.
+
+### C1 — `RequirePermissionAttribute` + policy provider
+
+- **Mục tiêu:** khai báo quyền ngay trên endpoint bằng một dòng đọc được, thay vì `if` rải rác trong
+  service.
+- **Cách thực thi:** đặt trong `SocialApp.SharedKernel` (không đặt trong module — mọi module đều
+  dùng). `IAuthorizationPolicyProvider` dựng policy động từ tên quyền trong attribute, tránh phải
+  đăng ký tay 17 policy và mọi quyền thêm ở các giai đoạn sau.
+- **Xong là:** gắn `[RequirePermission("post.hide")]` lên một endpoint thử là policy được tạo và chạy.
+- **Chặn / Cần:** chặn C2.
+
+### C2 — `PermissionHandler` với Admin short-circuit
+
+- **Mục tiêu:** hiện thực đúng Mục 3.2 — và **đặt đúng tầng**. Một dòng `if` này nằm nhầm ở tầng
+  3 là Admin đọc được tin nhắn riêng của bất kỳ ai; đúng cái lỗ IDOR mà GOAL-03 muốn đóng, chỉ khác
+  là nạn nhân đông hơn.
+- **Cách thực thi:** đọc claim `role` (luôn là **chuỗi**, với mọi vai trò — Mục 3.1);
+  `if (role == RoleCodes.Admin) { ctx.Succeed(req); return; }` **chỉ ở đây**; còn lại tra
+  `IPermissionCache`. Mã mẫu ở Mục 6.2.
+- **Xong là:** RBAC-01 và RBAC-02 chuyển từ đỏ sang xanh.
+- **Chặn / Cần:** chặn C5. Cần C1.
+
+### C3 — `IPermissionCache` (TTL 60s)
+
+- **Mục tiêu:** ma trận quyền đọc từ DB nhưng không phải mỗi request một truy vấn.
+- **Cách thực thi:** interface ở SharedKernel, cache theo `role code`, TTL 60 giây. GĐ1 chưa cần đẩy
+  invalidate (quyền chưa sửa được lúc runtime — việc đó ở GĐ6); TTL là đủ và đơn giản hơn.
+- **Xong là:** `DELETE` một dòng `role_permissions` của MODERATOR → hành vi đổi theo **sau khi cache
+  hết hạn**, có test hoặc kiểm tay ghi lại kết quả.
+- **Chặn / Cần:** cần C1.
+
+### C4 — JwtBearer + fallback policy default deny + thứ tự middleware
+
+- **Mục tiêu:** dựng tầng 1, và **mặc định từ chối** — endpoint nào quên khai quyền thì bị chặn chứ
+  không lọt.
+- **Cách thực thi:** `AddAuthentication().AddJwtBearer(...)`, khóa ký đọc từ biến môi trường (**không
+  bao giờ nằm trong repo hay trong image**). `options.FallbackPolicy = new AuthorizationPolicyBuilder()
+  .RequireAuthenticatedUser().Build()`. Chèn `UseAuthentication()` + `UseAuthorization()` vào **đúng
+  chỗ đã đánh dấu sẵn** trong `Program.cs` — **trước** `UseSharedKernelRateLimiter()`. Đặt sai thứ tự
+  là limiter phân vùng theo IP thay vì theo user: nhiều người sau cùng một NAT ăn chung hạn mức, hỏng
+  câm, không log, không test nào bắt.
+- **Xong là:** TC-A01 và TC-A02 chuyển sang xanh; một endpoint không khai policy vẫn bị chặn.
+- **Chặn / Cần:** chặn D. Cần: không (làm song song A).
+
+### C5 — Nối handler vào repository thật
+
+- **Mục tiêu:** bỏ stub, để ma trận quyền thật sự đọc từ bảng `role_permissions`.
+- **Cách thực thi:** repository trong `Identity/Infrastructure/` dịch `role code` (chuỗi) → `role_id`
+  (số) rồi join `role_permissions`. **Phép dịch này nằm gọn trong repository** — token và policy
+  handler từ đầu đến cuối chỉ làm việc với chuỗi (Mục 3.1).
+- **Xong là:** RBAC-02 xanh với dữ liệu seed thật, không phải dữ liệu dựng trong fixture.
+- **Chặn / Cần:** cần A4, C2.
+
+---
+
+## B.6 Khối D — Endpoint
+
+> **Mục tiêu khối:** biến hợp đồng đã chốt ở cổng mở thành 6 endpoint chạy thật, khớp từng mã lỗi.
+> **Ghép sau khi A và C xong.** Mọi controller vào `Modules/Identity/Presentation/`.
+
+### D1 — `POST /auth/register` + gửi mail xác minh
+
+- **Mục tiêu:** FR-001 nửa đầu — người thật tạo được tài khoản.
+- **Cách thực thi:** validator FluentValidation (email đúng định dạng, mật khẩu 8–72 ký tự — trần 72
+  là giới hạn cứng của BCrypt, ký tự thứ 73 bị bỏ qua âm thầm). Băm `BCrypt.HashPassword(pw, workFactor: 12)`.
+  `INSERT users` với `role_id = 1`, `email_verified_at = NULL`. Sinh token 32 byte ngẫu nhiên, lưu
+  **băm SHA-256**, hạn 24 giờ. Gửi qua `IEmailSender` → Mailpit ở dev/staging. Email trùng → **409**
+  (ngoại lệ có ý thức so với quy tắc không lộ email của `/auth/login` — lý do ghi trong hợp đồng).
+- **Xong là:** đăng ký trên dev → mail hiện trong Mailpit; validator trả RFC 7807 có `errors` và `traceId`.
+- **Chặn / Cần:** chặn D2. Cần A, C4.
+
+### D2 — `POST /auth/verify-email`
+
+- **Mục tiêu:** FR-001 nửa sau — tách rõ hai mã lỗi để frontend hiển thị khác nhau.
+- **Cách thực thi:** băm token nhận được, đối chiếu `token_hash`, set `email_verified_at` +
+  `consumed_at`. Token sai/không tồn tại → **400**; hết hạn **hoặc đã dùng** → **410**.
+- **Xong là:** cả hai nhánh lỗi có test; token đã dùng lần hai trả đúng 410.
+- **Chặn / Cần:** chặn D3 (test AC-04). Cần D1.
+
+### D3 — `POST /auth/login` + lockout
+
+- **Mục tiêu:** FR-002 + FR-003, và **không rò rỉ email nào có thật** (AC-02).
+- **Cách thực thi:** đúng thứ tự 6 bước ở Mục 7.2. Hai điểm không được bỏ:
+  (a) email không tồn tại → **vẫn chạy một phép BCrypt giả** rồi mới trả 401, nếu không thời gian
+  phản hồi lộ ra email nào có thật; (b) cập nhật `failed_login_count` bằng `UPDATE ... RETURNING`
+  **nguyên tử**, không đọc-rồi-ghi — tấn công dò mật khẩu bắn song song sẽ làm đọc-rồi-ghi đếm sót và
+  lockout không bao giờ kích hoạt.
+- **Xong là:** AC-01 → AC-04 xanh trên Postgres thật; 401 của "sai mật khẩu" và của "email không tồn
+  tại" giống **hệt** nhau cả nội dung lẫn thời gian phản hồi.
+- **Chặn / Cần:** chặn D5, D7. Cần D2, C.
+
+### D4 — Cookie refresh + CORS
+
+- **Mục tiêu:** hiện thực hai quyết định về cookie refresh và CORS ở Mục 8 — thiếu là lane FE đứng im.
+- **Cách thực thi:** `Set-Cookie: refresh_token=…; HttpOnly; Secure; SameSite=Lax; Path=/api/v1/auth; Max-Age=604800`
+  — **cả năm thuộc tính đều là một phần hợp đồng**, không phải chi tiết cài đặt. CORS:
+  `.WithOrigins(<liệt kê tường minh>).AllowAnyHeader().AllowAnyMethod().AllowCredentials()`. Thiếu
+  `AllowCredentials()` thì trình duyệt **im lặng** không gửi cookie và `/auth/refresh` luôn 401 mà
+  không có thông báo nào chỉ ra nguyên nhân. Chuẩn CORS cấm dùng `AllowCredentials()` kèm
+  `AllowAnyOrigin()`.
+- **Xong là:** gọi từ `localhost:3000` sang API dev, cookie đi và về đúng; kiểm bằng DevTools.
+- **Chặn / Cần:** chặn D5, E7. Cần D3.
+
+### D5 — `POST /auth/refresh`: rotation + reuse detection
+
+- **Mục tiêu:** NFR-SEC-03. **Phần khó nhất của cả giai đoạn — giao cho người chắc tay nhất.**
+- **Cách thực thi:** toàn bộ trong **một transaction**, `SELECT ... FOR UPDATE` trên dòng token (EF:
+  `FromSqlRaw` + `FOR UPDATE`). Năm bước ở Mục 7.3. Thêm **ân hạn 10 giây**: token đã bị thay thế
+  trong vòng 10 giây và chuỗi chưa bị thu hồi thì trả token kế nhiệm thay vì coi là reuse — nếu không,
+  hai tab refresh cùng lúc sẽ tự kích hoạt reuse detection và người dùng bị đăng xuất oan. **Mọi
+  nhánh hỏng đều trả 401** — phân biệt "hết hạn" với "bị thu hồi" là nói cho kẻ tấn công biết token
+  nó đang cầm ở trạng thái nào. Không nhận body: refresh token đọc từ cookie.
+- **Xong là:** RT-01 → RT-04 xanh, đặc biệt **RT-04** (hai tab refresh trong 10 giây, cả hai thành
+  công, chuỗi không bị thu hồi).
+- **Chặn / Cần:** chặn D6, D8. Cần D4.
+
+### D6 — `POST /auth/logout`
+
+- **Mục tiêu:** đáp ứng yêu cầu "đăng xuất thu hồi toàn bộ phiên" (báo cáo Mục 6.7.3).
+- **Cách thực thi:** thu hồi **cả `family_id`**, không chỉ một dòng — một `UPDATE` nhờ `family_id` (Mục 3.5).
+  Xóa cookie trong cùng response (`Path` phải khớp lúc set, nếu không trình duyệt không xóa). Access
+  token đang cầm **vẫn sống tối đa 15 phút** — bản chất stateless của JWT, không phải bug.
+- **Xong là:** sau logout, refresh token cũ **và** mọi token cùng family đều trả 401.
+- **Chặn / Cần:** cần D5.
+
+### D7 — `GET /me`
+
+- **Mục tiêu:** smoke test rẻ nhất chứng minh tầng 1 + tầng 2 chạy thông từ đầu đến cuối. Giữ endpoint
+  này qua mọi giai đoạn sau.
+- **Cách thực thi:** trả `role` (chuỗi `code`, để so logic) **và** `roleDisplayName` (để hiển thị) —
+  đây chính là lý do bảng `roles` tách hai cột.
+- **Xong là:** gọi có token → 200 đúng hình dạng hợp đồng; không token → 401 (TC-A01).
+- **Chặn / Cần:** cần D3, C4.
+
+### D8 — `ITokenRevocationStore` + hook `OnTokenValidated`
+
+- **Mục tiêu:** dựng sẵn **bên đọc** của cơ chế thu hồi access token, để GĐ6 chỉ việc gọi. Không có
+  nó thì hạ quyền / khóa tài khoản trễ tới 15 phút.
+- **Cách thực thi:** store trên Redis; hook `OnTokenValidated` ở tầng 1 kiểm `revoked:user:<id>` so
+  với claim `iat`. **TTL của key phải bằng đúng TTL access token, và cả hai đọc từ cùng một hằng số
+  cấu hình** — lệch nhau là lỗ hổng câm: token đã thu hồi được chấp nhận lại. Redis chết thì
+  **fail-open** + log warning (quyết định có ý thức, Mục 7.5). GĐ1 nối **đúng một** trigger ghi:
+  reuse detection ở D5. Thứ tự thu hồi luôn là **DB trước, Redis sau**.
+- **Xong là:** RV-01 → RV-04 xanh.
+- **Chặn / Cần:** cần D5. **Đây là phần cắt được** nếu phải cắt — đẩy sang GĐ6 cùng bên ghi, nhưng
+  khi đó RV-01→04 và hai dòng trong checklist Mục 12 cũng dời theo, **phải ghi rõ chứ không lặng lẽ bỏ**.
+
+### D9 — RFC 7807 cho toàn nhóm auth + `[ProducesResponseType]`
+
+- **Mục tiêu:** một hình dạng lỗi duy nhất cho cả nhóm, **và** làm cho cổng hợp đồng chiều 2 có thể
+  xanh — Swagger chỉ thấy status code nào action khai ra.
+- **Cách thực thi:** rà từng endpoint, khai `[ProducesResponseType]` cho **mọi** mã trong hợp đồng
+  trừ 429/500 (hai mã cross-cutting do middleware sinh, `IdentityContractTests` đã trừ khỏi cả hai vế).
+  Kiểm lại thông điệp không lộ PII hay chi tiết nội bộ.
+- **Xong là:** `/swagger/identity-v1/swagger.json` khớp `identity-v1.yaml` ở tập status code.
+- **Chặn / Cần:** chặn D11. Cần D1–D7.
+
+### D10 — `[ApiExplorerSettings]` cho mọi controller
+
+- **Mục tiêu:** endpoint không biến mất khỏi Swagger trong im lặng.
+- **Cách thực thi:** `[ApiExplorerSettings(GroupName = IdentityApiGroup.Name)]` trên mỗi controller
+  của module.
+- **Xong là:** `PresentationBoundaryTests.Every_controller_must_declare_a_swagger_group` xanh.
+- **Chặn / Cần:** làm cùng lúc với từng controller, không để dồn.
+
+### D11 — Gỡ `Skip` của `Contract_must_be_fully_implemented`
+
+- **Mục tiêu:** bật nốt chiều thứ hai của cổng hợp đồng — từ lúc này hợp đồng được canh **hai chiều**:
+  code không lộ ra ngoài hợp đồng, và hợp đồng không có phần nào chưa hiện thực.
+- **Cách thực thi:** xóa `Skip` trong `tests/SocialApp.IntegrationTests/IdentityContractTests.cs`.
+- **Xong là:** cổng CI `Category=Contract` chạy 2 test, cả hai xanh.
+- **Chặn / Cần:** cần D9. **Đây là điều kiện vào cổng đóng.**
+
+---
+
+## B.7 Khối E — Lane frontend
+
+> **Mục tiêu khối:** giao trọn lát cắt dọc — người dùng thật thao tác được trên trình duyệt thật.
+> **Không chờ backend:** chỉ cần hợp đồng API, đã có từ cổng mở.
+
+### E1 — Scaffold Next.js 14 + design token
+
+- **Mục tiêu:** có nền để dựng màn, và bộ primitive dùng lại được cho GĐ2–GĐ8.
+- **Cách thực thi:** App Router + TypeScript + Tailwind trong `frontend/`. Design token + primitive
+  (button, input, form field, alert) trước khi dựng màn — dựng màn trước thì mỗi màn một kiểu.
+- **Xong là:** `npm run dev` lên được, có ít nhất một trang dùng primitive.
+- **Chặn / Cần:** chặn E2.
+
+### E2 — Sinh type từ hợp đồng + api client + mock MSW
+
+- **Mục tiêu:** biến "đổi hợp đồng mà quên sửa FE" từ lỗi runtime phát hiện muộn ở staging thành
+  **lỗi compile** ngay trên máy.
+- **Cách thực thi:**
+
+  ```bash
+  # chạy từ frontend/
+  npx openapi-typescript ../src/Modules/Identity/Presentation/identity-v1.yaml \
+      -o src/lib/api/schema.d.ts
+  ```
+
+  Đặt thành script `gen:api` trong `package.json` và **commit file sinh ra vào repo** — nghe ngược
+  đời, nhưng đó là thứ khiến việc đổi hợp đồng mà quên chạy lại codegen hiện ra thành diff trong PR
+  thay vì im lặng tới lúc build ở máy khác. Api client bọc `fetch` với **`credentials: 'include'` ở
+  mọi lời gọi**. Mock MSW dựng từ chính các `example` trong hợp đồng.
+- **Xong là:** `RoleCode` sinh ra là union `'USER' | 'MODERATOR' | 'ADMIN'`; ba màn E3–E5 chạy được
+  hoàn toàn trên mock.
+- **Chặn / Cần:** chặn E3–E7. Cần E1.
+
+### E3 — Màn đăng ký
+
+- **Mục tiêu:** FR-001 phía người dùng, và validation client **khớp đúng** validator server.
+- **Cách thực thi:** cùng ngưỡng với server (8–72 ký tự). Xử lý 409 thành thông điệp rõ ràng. Sau khi
+  thành công, điều hướng sang màn "kiểm tra hộp thư".
+- **Xong là:** chạy được trọn trên mock, mọi nhánh lỗi 400/409 có giao diện.
+- **Chặn / Cần:** cần E2.
+
+### E4 — Màn đăng nhập
+
+- **Mục tiêu:** dịch bốn mã lỗi thành thông điệp người đọc hiểu, **mà không tiết lộ email có tồn tại
+  hay không**.
+- **Cách thực thi:** 401 → "Email hoặc mật khẩu không đúng" (đúng một thông điệp cho cả hai trường
+  hợp); 403 → "Chưa xác minh email"; 423 → "Tạm khóa, thử lại sau 15 phút"; 429 → "Quá nhiều yêu cầu".
+  **Access token giữ trong memory**, không `localStorage`.
+- **Xong là:** bốn nhánh có giao diện; DevTools xác nhận không có token trong `localStorage`.
+- **Chặn / Cần:** cần E2.
+
+### E5 — Màn xác minh email
+
+- **Mục tiêu:** khép vòng đăng ký từ link trong mail.
+- **Cách thực thi:** đọc token từ query string, gọi `/auth/verify-email`. Phân biệt 400 ("liên kết
+  không hợp lệ") với 410 ("liên kết đã hết hiệu lực") — GĐ1 **chưa có** endpoint gửi lại mail nên màn
+  410 chỉ hướng dẫn, không hứa nút gửi lại.
+- **Xong là:** cả ba trạng thái (thành công / 400 / 410) có giao diện.
+- **Chặn / Cần:** cần E2.
+
+### E6 — App shell + route guard + trang `/me`
+
+- **Mục tiêu:** có khu vực cần đăng nhập để interceptor ở E7 có chỗ chứng minh tác dụng.
+- **Cách thực thi:** shell + guard chuyển hướng khi chưa đăng nhập; trang `/me` hiển thị
+  `roleDisplayName` (không hiển thị `role`).
+- **Xong là:** vào `/me` khi chưa đăng nhập thì bị đẩy về màn đăng nhập.
+- **Chặn / Cần:** chặn E7. Cần E4.
+
+### E7 — Interceptor 401→refresh **single-flight**
+
+- **Mục tiêu:** giữ phiên đăng nhập mượt, và **không để chính frontend kích hoạt reuse detection của
+  server**.
+- **Cách thực thi:** nhiều request nhận 401 cùng lúc chỉ được gọi `/auth/refresh` **một lần**, số còn
+  lại xếp hàng chờ kết quả của lần gọi đó (một promise chia sẻ). Nhận 401 **từ chính `/auth/refresh`**
+  thì xóa access token trong memory và chuyển về màn đăng nhập — **không thử refresh lại**.
+- **Xong là:** E2E-02 xanh (3 tab, ép hết hạn token đồng thời, không ai bị đăng xuất).
+- **Chặn / Cần:** cần E6, D4. **Không làm đúng ở đây thì triệu chứng trông hệt lỗi backend và cả
+  nhóm sẽ debug nhầm chỗ rất lâu.**
+
+---
+
+## B.8 Khối F — Cổng đóng
+
+> **Mục tiêu khối:** chứng minh GĐ1 xong **trên hệ thống thật**, không phải trên máy local và không
+> phải trên mock. Đây là ranh giới giữa "code chạy" và "giai đoạn hoàn thành".
+
+### F1 — Deploy staging qua CD tự động
+
+- **Mục tiêu:** loại bỏ "chạy được trên máy tôi" khỏi định nghĩa xong.
+- **Cách thực thi:** merge vào `develop` → CD build arm64 → GHCR → deploy. **Không thao tác tay trên
+  VPS.** Service `migrate` chạy trước `api`.
+- **Xong là:** `/health/ready` xanh trên domain HTTPS thật.
+- **Chặn / Cần:** cần A6, D. ⚠️ Kiểm `deploy/.env` có đủ `ConnectionStrings__Postgres` và `__Redis`
+  **trước khi merge** — app hiện fail-fast khi thiếu, sẽ crash-loop chỗ image cũ vẫn boot được.
+
+### F2 — Frontend bỏ mock, trỏ staging thật
+
+- **Mục tiêu:** đóng rủi ro "mock trôi xa khỏi hiện thực" — xanh trên mock, đỏ trên staging.
+- **Cách thực thi:** tắt MSW, trỏ base URL sang domain HTTPS thật.
+- **Xong là:** ba màn auth chạy trên dữ liệu thật. **Không giai đoạn nào được nghiệm thu trên mock.**
+- **Chặn / Cần:** cần F1, E.
+
+### F3 — E2E-01: lát cắt dọc trên trình duyệt thật
+
+- **Mục tiêu:** kiểm chứng những thứ **integration test không chạm tới được**: cookie `HttpOnly`,
+  `SameSite`, `Path` scoping, CORS preflight.
+- **Cách thực thi:** đăng ký → nhận mail Mailpit → xác minh → đăng nhập → `GET /me` → ép hết hạn
+  access token → interceptor refresh → gọi lại thành công. Trên trình duyệt thật, qua HTTPS.
+- **Xong là:** chạy xuyên suốt không lỗi, có ghi lại kết quả.
+- **Chặn / Cần:** cần F2.
+
+### F4 — E2E-02: single-flight dưới tải đồng thời
+
+- **Mục tiêu:** đóng rủi ro đăng xuất oan — thứ khó tái hiện nhất khi debug.
+- **Cách thực thi:** mở 3 tab, ép token hết hạn, quan sát chỉ **một** lời gọi `/auth/refresh`.
+- **Xong là:** không tab nào bị đăng xuất; reuse detection không kích hoạt.
+- **Chặn / Cần:** cần F2, E7.
+
+### F5 — Checklist nghiệm thu (Mục 12)
+
+- **Mục tiêu:** rà bốn nhóm — Bảo mật / Phân quyền / Dữ liệu / Vận hành — bằng cách **kiểm tận nơi**,
+  không suy đoán.
+- **Cách thực thi:** tick từng dòng ở Mục 12. Có dòng phải mở psql đọc trực tiếp (BCrypt cost 12,
+  không cột nào chứa token bản rõ), có dòng phải mở DevTools (access token không nằm trong
+  `localStorage`).
+- **Xong là:** mọi dòng được tick hoặc được ghi lý do hoãn kèm địa chỉ hoãn tới đâu.
+- **Chặn / Cần:** cần F3, F4.
+
+### F6 — Definition of Done (Mục 11)
+
+- **Mục tiêu:** chốt bằng tiêu chuẩn chung của dự án, không phải cảm giác "chắc xong rồi".
+- **Cách thực thi:** rà đủ 7 mục ở Mục 11.
+- **Xong là:** cả 7 tick.
+- **Chặn / Cần:** cần F5.
+
+### F7 — Đóng băng hợp đồng API + bàn giao
+
+- **Mục tiêu:** GĐ2 khởi động trên nền ổn định, không phải trên hợp đồng còn đang đổi.
+- **Cách thực thi:** thông báo cả nhóm hợp đồng `identity-v1.yaml` đã đóng băng. Ghi lại phần hoãn có
+  địa chỉ (bên ghi `revoked:user` → GĐ6; bất biến "≥ 1 Admin" → GĐ6/GĐ8) và điều dễ hiểu nhầm nhất:
+  **vai trò được đóng dấu vào token nên đổi vai trò không có hiệu lực ngay** — đến GĐ6 mà không nhớ
+  điều này thì sẽ tưởng là bug.
+- **Xong là:** GĐ2 bắt đầu được.
+- **Chặn / Cần:** cần F6.
+
+---
+
+## B.9 Thứ tự thực thi và đường găng
+
+**Đường găng:** `A1 → A2 → A3 → A4 → A5 → A6` · `C5` · `D3 → D4 → D5 → D8` · `D9 → D11` ·
+`F1 → F2 → F3 → F6 → F7`
+
+Khối **B** và **E** không nằm trên đường găng — nên chúng phải chạy **hết công suất song song ngay
+từ giờ đầu**, đó là cách hấp thụ việc backend chỉ có 2 người trong khi khối A đang chặn C và D.
+
+Lịch theo ngày (Ngày 3–6) giữ nguyên như Mục 9 của Phần A; Phần B mô tả **thứ tự phụ thuộc**, thứ
+không đổi kể cả khi lịch trượt.
+
+**Ba điểm dễ mất dứt điểm nhất — kiểm riêng, đừng tin là mặc nhiên:**
+
+| Nguy cơ | Việc canh |
+|---|---|
+| Cổng CI xanh giả với 0 test | `B4` — phải thử gõ sai trait một lần và thấy CI đỏ |
+| Interceptor không single-flight — triệu chứng trông hệt lỗi backend | `E7` + `F4` |
+| Nghiệm thu trên mock hoặc trên máy local | `F2` — Mục 12 cấm |
+
+**Ba thứ không test tự động nào bắt được — bắt buộc code review:**
+
+1. Thứ tự thu hồi **DB trước, Redis sau** (D8). Đảo lại thì user giữ vai trò cũ thêm 15 phút, không
+   gì chặn được.
+2. TTL `revoked:user` **bằng đúng** TTL access token, và cả hai đọc từ **cùng một** hằng số (D8).
+3. `UseAuthentication()` đặt **trước** rate limiter (C4).
+
+---
+
+## B.10 Mục tiêu từng khối — chúng cộng lại thành cái gì
+
+| Khối | Mục tiêu | Thiếu nó thì mất gì |
+|---|---|---|
+| **A** | Dữ liệu nền đúng, tự bảo vệ, tái lập được ở mọi môi trường | Không có gì để phân quyền; và mất khả năng phát hiện dữ liệu nền bị sửa sai |
+| **B** | GOAL-03 thành cổng chặn merge, có khung để GĐ2–GĐ8 thêm dòng | IDOR chỉ được phát hiện ở GĐ8, khi sửa đã đắt |
+| **C** | Cơ chế phân quyền viết **một lần** cho cả dự án, dữ liệu hóa | Mỗi module tự chế cách riêng; RBAC hard-code, sai lời hứa Mục 6.7.2 |
+| **D** | Hợp đồng thành hệ thống chạy thật, khớp từng mã lỗi | Không có sản phẩm |
+| **E** | Lát cắt dọc chạm tới người dùng thật | Backend đúng nhưng không ai dùng được; và GĐ7 gánh toàn bộ backlog frontend |
+| **F** | Chứng minh trên hệ thống thật, đóng băng nền cho GĐ2 | "Xong" thành cảm giác chứ không phải sự kiện kiểm chứng được |
+
+---
+
+## B.11 Mục tiêu của GĐ1
+
+### Phát biểu một câu
+
+> **Người dùng thật đăng ký được trên staging, nhận mail xác minh, đăng nhập lấy token, gọi được
+> endpoint có bảo vệ — và mọi truy cập sai quyền đều bị chặn đúng mã lỗi.**
+
+### Mục tiêu chính thức và khối nào gánh
+
+| Mã | Mục tiêu | Đạt bằng | Kiểm bằng |
+|---|---|---|---|
+| **FR-001** | Đăng ký + xác minh email | D1, D2 | AC-04, E2E-01 |
+| **FR-002** | Đăng nhập cấp JWT + refresh rotation | D3, D5 | AC-01, RT-01→04 |
+| **FR-003** | Khóa tài khoản sau 5 lần sai trong 15 phút | D3 | AC-03 |
+| **Mục 6.7.1** | Ba tầng kiểm soát truy cập chạy đủ | C4 (tầng 1), C1–C3 (tầng 2), khuôn tầng 3 | TC-A01/A02, RBAC-01/02 |
+| **Mục 6.7.2** | RBAC **dữ liệu hóa** — ma trận trong DB, không hard-code | A4, C5 | SEED-02, kiểm tay ở Mục 12 |
+| **NFR-SEC-01** | BCrypt cost 12; refresh token lưu băm | D1, D5 | Đọc trực tiếp DB (Mục 12) |
+| **NFR-SEC-03** | Rotation + reuse detection → thu hồi cả chuỗi | D5 | RT-02, RT-04 |
+| **GOAL-03** | Nền chống IDOR — cổng chặn merge từ ngày đầu | B2, B3, B4 | Cổng CI `Category=AuthZ` |
+
+### Ba điều kiện để tuyên bố GĐ1 xong
+
+Thiếu bất kỳ điều nào thì **chưa xong**, dù code đã chạy:
+
+1. **Chạy trên staging bằng tài khoản thật**, qua domain HTTPS, deploy bằng CD tự động — không phải
+   trên máy local (F1, F3).
+2. **Frontend đã bỏ mock**, thao tác trên dữ liệu thật (F2).
+3. **CI xanh cả bốn nhóm**: unit + integration, AuthZ matrix, cổng hợp đồng API, ArchUnitNET.
+
+### GĐ1 để lại gì cho GĐ2–GĐ8
+
+Đây mới là lý do GĐ1 đáng làm kỹ — nó là nền móng, không phải một tính năng:
+
+| Di sản | Ai thừa hưởng |
+|---|---|
+| `[RequirePermission]` + policy handler + `IPermissionCache` ở SharedKernel | Mọi module từ GĐ2 |
+| Khung AuthZ matrix data-driven — thêm dòng, không sửa khung | TC-A03 (GĐ2) → TC-A07 (GĐ5, GĐ6) |
+| Khuôn module 4 tầng + hợp đồng API + cổng CI đối chiếu | Bảy module còn lại |
+| Harness Testcontainers trên Postgres thật | Mọi integration test sau này |
+| `ITokenRevocationStore` **bên đọc** đã sẵn sàng | GĐ6 chỉ việc nối bên ghi; GĐ8 nối trigger xóa tài khoản |
+| Hợp đồng token + cookie + CORS đã đóng băng | Lane frontend mọi giai đoạn |
+
+**Nguyên tắc mở đầu tài liệu này áp dụng cho đúng chỗ đó:** GĐ1 không phụ thuộc gì, nhưng GĐ2→GĐ8
+đều đứng trên nó. Làm ẩu ở đây thì mọi giai đoạn sau đều trả giá.
