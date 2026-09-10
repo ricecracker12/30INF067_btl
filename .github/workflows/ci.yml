@@ -18,7 +18,14 @@ jobs:
       - name: Build
         run: dotnet build SocialApp.sln -c Release --no-restore
       - name: Test (unit + integration)
-        run: dotnet test SocialApp.sln -c Release --no-build --filter "Category!=AuthZ" --verbosity normal
+        run: dotnet test SocialApp.sln -c Release --no-build --filter "Category!=AuthZ&Category!=Contract" --verbosity normal
+
+      # CONG HOP DONG API: file Modules/<Module>/Presentation/<nhom>.yaml phai khop
+      # /swagger/<nhom>/swagger.json sinh tu code. Tach rieng de log chi thang vao "hop dong lech"
+      # thay vi lan trong hang tram test khac. Day la thu THAY CHO viec doi chieu Swagger voi stub
+      # bang mat o cong dong GD1 (docs/giai-doan-1.md Muc 11).
+      - name: API contract (CI GATE)
+        run: dotnet test SocialApp.sln -c Release --no-build --filter "Category=Contract" -- RunConfiguration.TreatNoTestsAsError=true
 
       # CI GATE (GOAL-03, Muc 10.2): tach rieng de log chi thang nguyen nhan fail, fail la chan merge.
       # Chua co test nao mang trait Category=AuthZ nen buoc nay dang xanh (dotnet test tra 0 khi

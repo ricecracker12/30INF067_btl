@@ -13,6 +13,10 @@
     <PackageReference Include="coverlet.collector" Version="6.0.0" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.0.10" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
+    <!-- Đọc được cả YAML (file hợp đồng) lẫn JSON (Swagger runtime) về CÙNG một OpenApiDocument nên
+         so sánh hai bên không phải tự viết parser. Ghim 1.6.14 = đúng version Swashbuckle 6.6.2 đang
+         kéo về, tránh downgrade conflict. -->
+    <PackageReference Include="Microsoft.OpenApi.Readers" Version="1.6.14" />
     <PackageReference Include="Testcontainers.PostgreSql" Version="4.0.0" />
     <PackageReference Include="xunit" Version="2.5.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.5.3" />
@@ -24,6 +28,16 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\SocialApp.Api\SocialApp.Api.csproj" />
+  </ItemGroup>
+
+  <!-- File hợp đồng của từng module, link vào thư mục output của TEST (không phải của Api) để so
+       với Swagger runtime. Cố ý không khai <Content> trong csproj của module: làm vậy thì file sẽ
+       chảy theo build sang output của Api và bị publish vào image — hợp đồng không có việc gì trong
+       image chạy production. Thêm một dòng ở đây cho mỗi module từ GĐ2. -->
+  <ItemGroup>
+    <Content Include="..\..\src\Modules\Identity\Presentation\identity-v1.yaml"
+             Link="Contracts\identity-v1.yaml"
+             CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

@@ -1126,7 +1126,61 @@ OpenAPI stub cho 6 endpoint auth** (kèm mã lỗi 400/401/403/409/410/423) và 
 từ chính stub này để bắt đầu ngay trong ngày, thay vì chờ backend chạy được. **Không có stub thì
 không ai gõ dòng code nào.**
 
+> **Trạng thái: đã xong.** Stub nằm ở
+> [`src/Modules/Identity/Presentation/identity-v1.yaml`](../src/Modules/Identity/Presentation/identity-v1.yaml)
+> (OpenAPI 3.0.3, 6 endpoint, đủ mã lỗi 400/401/403/409/410/423 + 429/500, `redocly lint` không
+> error). Biên bản cổng mở — 7 quyết định, hợp đồng token, luật sửa hợp đồng — ở
+> [`Presentation/README.md`](../src/Modules/Identity/Presentation/README.md).
+>
+> **Hợp đồng nằm trong module vì module sở hữu tầng HTTP của mình** (Mục 9.1). Và nó không còn được
+> đối chiếu bằng mắt: `IdentityContractTests` so file này với `/swagger/identity-v1/swagger.json`
+> sinh từ code, lệch là CI đỏ ở cổng `Category=Contract`.
+>
+> Đã kiểm chứng bằng `openapi-typescript`: stub sinh ra type dùng được, `RoleCode` thành union
+> `'USER' | 'MODERATOR' | 'ADMIN'` nên đổi hợp đồng mà quên sửa FE là **compile lỗi**, không phải
+> lỗi runtime phát hiện muộn ở staging.
+
 **Tiếp theo — dọn nợ kỹ thuật (Mục 9.0).** *(Đã xong trước khi khối A bắt đầu.)*
+
+### 9.1 Module sở hữu tầng HTTP — làm trước khối A
+
+> **Trạng thái: đã xong.** Làm trước khối A vì nó quyết định **chỗ** mọi người gõ code; để sau thì
+> khối D viết controller vào chỗ sai rồi mới chuyển.
+
+Bản đầu của tài liệu này để controller ở `SocialApp.Api` và hợp đồng API ở một thư mục tài liệu
+riêng. Cả hai đã đổi:
+
+| | Trước | Sau |
+|---|---|---|
+| Controller | `SocialApp.Api/Controllers/` | `Modules/<Module>/Presentation/` |
+| Hợp đồng API | thư mục docs riêng | `Modules/<Module>/Presentation/<nhóm>.yaml` |
+| Swagger | một trang gộp 7 module | một nhóm mỗi module (`identity-v1`, `platform-v1`…) |
+| "Swagger khớp stub" ở cổng đóng | đối chiếu **bằng mắt** | `IdentityContractTests` — cổng CI `Category=Contract` |
+
+**Vì sao:** mã lỗi, hợp đồng và hiện thực của một module là một khối kiến thức; tách chúng ra ba chỗ
+thì sửa một thứ mà quên hai thứ kia là chuyện sớm muộn. Module tự khai nhóm Swagger của mình, host
+chỉ nạp assembly qua `AddApplicationPart` — một dòng mỗi module ở `Program.cs`.
+
+**Cái giá đã trả để việc này an toàn** — ASP.NET Core vốn đã có sẵn trong mọi module (kéo qua
+`SharedKernel` và `FluentValidation.AspNetCore`), nên `return NotFound();` trong một domain service
+compile được từ trước tới nay mà không rule nào bắt. Ba lưới mới đóng lỗ đó:
+
+| Lưới | Bắt gì |
+|---|---|
+| `PresentationBoundaryTests.Inner_layers_must_not_depend_on_AspNetCore_Mvc` | HTTP rò vào Domain/Application/Infrastructure/DependencyInjection |
+| `PresentationBoundaryTests.Every_controller_must_declare_a_swagger_group` | Controller quên `[ApiExplorerSettings]` → biến mất khỏi **mọi** trang Swagger, im lặng, không lỗi |
+| `IdentityContractTests` | Hợp đồng và code lệch nhau (tập `path × method`, tập status code, required field) |
+
+Hai rule đầu đã được kiểm chứng là **đỏ được**: chèn tạm một file vi phạm thì test đỏ đúng chỗ, gỡ
+ra thì xanh lại. Lưới không bao giờ đỏ được là lưới giả — đúng bài học mà `PersistenceBoundaryTests`
+đã ghi sẵn trong comment.
+
+`IdentityContractTests` có hai chiều, cố ý tách:
+
+- **Chiều "code không được lộ ra ngoài hợp đồng"** — xanh ngay từ bây giờ, bắt lỗi thêm endpoint mà
+  quên cập nhật yaml.
+- **Chiều "hợp đồng phải được hiện thực đủ"** — đang `Skip`, đã chạy thử một lần không Skip để xác
+  nhận nó đỏ đúng lý do (liệt kê đủ 6 operation còn thiếu). **Gỡ Skip khi khối D ráp xong 6 endpoint.**
 
 ### Bốn khối — chỉ A là chặn
 
@@ -1316,6 +1370,7 @@ Ghi lại để lúc bảo vệ giải thích được — chắc chắn sẽ c�
 | 4 | `refresh_tokens` có `replaced_by_id` | Bổ sung `family_id` | Thu hồi cả chuỗi bằng một `UPDATE` thay vì lần theo linked list qua N truy vấn |
 | 5 | Không đề cập cách thu hồi access token | Bổ sung cơ chế `revoked:user` + `iat` trên Redis (Mục 7.5) | JWT stateless không thu hồi được; không có cơ chế này thì hạ quyền/khóa tài khoản trễ tới 15 phút. Denylist theo `jti` không dùng được vì server không biết `jti` nào đang lưu hành |
 | 6 | — | Kiểm tra vai trò hệ thống lúc khởi động (Mục 5.5) | Bắt được kịch bản đổi `roles.code` bằng tay — nguy hiểm nhất là `ADMIN` bị đổi tên: short-circuit không khớp nữa, Admin lại không có dòng `role_permissions` nào để rơi về → mất sạch quyền quản trị âm thầm |
+| 7 | Api host giữ toàn bộ controller; module chỉ có Domain/Application/Infrastructure | **Module sở hữu tầng HTTP của mình** (`Presentation/`), host chỉ nạp assembly; Swagger tách nhóm theo module; hợp đồng API nằm cạnh controller và có test CI canh | Mã lỗi, hợp đồng và hiện thực của một module là một khối kiến thức — để ba chỗ thì sửa một mà quên hai là chuyện sớm muộn. Kèm theo là lưới ArchUnitNET chặn HTTP rò vào tầng trong, thứ trước đây **không có** dù ASP.NET Core đã sẵn trong mọi module (Mục 9.1) |
 
 **Phương án đã cân nhắc rồi loại bỏ — không phải bỏ sót:** cột `roles.is_system` + trigger dựa
 trên cột đó. Lý do loại: tập vai trò cần bảo vệ vĩnh viễn chỉ có 3 cái nên trigger gọi thẳng tên

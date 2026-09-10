@@ -42,10 +42,12 @@ mxh/
 ├─ Dockerfile                 # build backend, context = gốc repo, ra SocialApp.Api.dll (arm64, non-root, có curl)
 ├─ .github/workflows/         # CD build→push GHCR→SSH deploy staging (nhánh develop)
 ├─ src/
-│  ├─ SocialApp.Api           # HOST: controllers, SignalR Hubs, DI, middleware, Program.cs
+│  ├─ SocialApp.Api           # HOST: DI, middleware, Program.cs, nhóm Swagger (KHÔNG giữ controller module)
 │  ├─ SocialApp.SharedKernel  # AuthN/AuthZ, RFC7807, correlation ID, rate limit, result types
-│  └─ Modules/                # 7 module, mỗi module = Domain / Application / Infrastructure
+│  └─ Modules/                # 7 module, mỗi module tự chứa cả tầng HTTP của mình
 │     ├─ Identity  Profile  SocialGraph  Content  Messaging  Notification  Moderation
+│     └─ mỗi module: Domain/ Application/ Infrastructure/ Presentation/
+│                    Presentation/ = controller + <nhóm>.yaml (hợp đồng API, build input của lane FE)
 ├─ tests/  (UnitTests · IntegrationTests · ArchitectureTests[ArchUnitNET] · load[k6])
 ├─ deploy/   # docker-compose.staging.yml, Caddyfile (KHÔNG chứa .env)
 └─ frontend/ # Next.js 14
@@ -53,8 +55,15 @@ mxh/
 
 ## 5. Kiến trúc & ranh giới (bắt buộc tuân thủ)
 - **Modular monolith** (ADR-001): deploy 1 khối, nhưng module tách bạch.
-- **3 tầng mỗi module:** `Domain` (entity + business rule) → `Application` (service + DTO + validator +
-  interface) → `Infrastructure` (EF repository).
+- **4 tầng mỗi module:** `Domain` (entity + business rule) → `Application` (service + DTO + validator +
+  interface) → `Infrastructure` (EF repository) → `Presentation` (controller + file hợp đồng OpenAPI).
+- **Module SỞ HỮU tầng HTTP của mình.** Controller nằm ở `Modules/<Module>/Presentation/`, không nằm
+  ở `SocialApp.Api`; host chỉ nạp assembly qua `AddApplicationPart` (1 dòng/module ở `Program.cs`) và
+  dựng một nhóm Swagger riêng cho nó. Nhờ vậy hợp đồng, hiện thực và mã lỗi của module ở cạnh nhau.
+  *(Lệch báo cáo v5.0 — xem `docs/giai-doan-1.md` Mục 13.)*
+- **Chỉ `Presentation` được chạm `Microsoft.AspNetCore.Mvc`**, chỉ `Infrastructure` được chạm EF Core.
+  `PresentationBoundaryTests` + `PersistenceBoundaryTests` chặn vi phạm — cả hai kiểu rò đều compile
+  được và không lộ ra trong code review, vì ASP.NET Core và EF đã có sẵn ở mọi file trong module.
 - **Module KHÔNG tham chiếu chéo trực tiếp** — chỉ giao tiếp qua interface ở tầng Application (vd
   `IAreFriendsQuery` do SocialGraph export cho Content/Messaging dùng). **ArchUnitNET test chặn vi phạm** →
   đừng thêm project reference chéo.
@@ -92,6 +101,12 @@ client_msg_id khử trùng), `notifications`(UQ recipient+group_key), `reports`,
 
 ## 9. Quy ước API
 - REST, tiền tố `/api/v1`; JSON; Bearer JWT; OpenAPI/Swagger (bật ở Development + Staging, TẮT ở Production).
+- **Swagger tách theo module**: mỗi module một nhóm (`<module>-v1`), tên nhóm là hằng số
+  `<Module>ModuleExtensions.ApiGroup` và trùng tên file hợp đồng. Controller **bắt buộc** khai
+  `[ApiExplorerSettings(GroupName = ...)]` — thiếu là endpoint biến mất khỏi mọi trang Swagger, im
+  lặng, không lỗi (`PresentationBoundaryTests` bắt).
+- **Hợp đồng API là `Modules/<Module>/Presentation/<nhóm>.yaml`, không phải Swagger runtime.** Đổi
+  hợp đồng → sửa file đó **trong cùng commit**; `Category=Contract` là cổng CI so hai bên.
 - Lỗi theo **RFC 7807 Problem Details** `{type,title,status,errors,traceId}`.
 - Phân trang **keyset/cursor** (limit 20, tối đa 50), sort ổn định `(created_at, id)` — không OFFSET.
 - Rate limit 100 req/phút/user (10 cho auth). Idempotency: PUT reaction, message theo `client_msg_id`.
@@ -119,7 +134,7 @@ i18n, email digest, app mobile, xếp hạng feed theo quan tâm (chỉ sắp th
 
 ## 12. Testing
 - **Unit** (business rule, validator, JWT/BCrypt) · **Integration** (endpoint + Postgres thật qua
-  Testcontainers, ma trận quyền xem BR-02) · **AuthZ matrix** (IDOR, CI gate) · **E2E** (chat realtime,
+  Testcontainers, ma trận quyền xem BR-02) · **AuthZ matrix** (IDOR, CI gate) · **API contract** (yaml vs Swagger runtime, CI gate) · **E2E** (chat realtime,
   đăng bài→feed) · **Load k6** (feed @1.000 CCU) · **ArchUnitNET** (ranh giới module).
 - Coverage ≥ 70% tầng nghiệp vụ; build+test CI ≤ 10 phút.
 
@@ -148,6 +163,12 @@ cd frontend && npm run dev
   Mỗi module một `DbContext` + schema riêng, migration nằm trong `Infrastructure/Migrations` của
   module. Lệnh có chạm DB thật (`database update`, `migrations remove`) cần biến
   `ConnectionStrings__Postgres` trỏ đúng Postgres đang chạy — mặc định là compose dev ở localhost.
+- **Cấu hình thiếu = app TỪ CHỐI khởi động** (mọi môi trường trừ Development). Thiếu
+  `ConnectionStrings__Postgres` / `__Redis` thì `Program.cs` ném `InvalidOperationException` nêu
+  thẳng key và chỗ sửa, ngay tại dòng đọc config. Cố ý không rơi về `localhost`: app khởi động được
+  rồi hỏng ngầm (health đỏ sau ~95s mà Caddy vẫn proxy vào) khó dò hơn nhiều so với chết ngay lúc
+  deploy. Development vẫn chạy `dotnet run` không cần cấu hình gì. Khóa bằng
+  `StartupConfigurationTests`.
 - **CD:** push `develop` → GitHub Actions build arm64 → GHCR → SSH deploy staging. Chi tiết
   `docs/oci-setup.md`.
 
@@ -166,6 +187,11 @@ cd frontend && npm run dev
 - **PTTK / báo cáo A&D** — yêu cầu, UC, FR/NFR, ERD, ma trận RBAC, ADR, threat model.
 - **docs/ke-hoach-trien-khai.md** — lộ trình build **8 giai đoạn** (GĐ0→GĐ8) ánh xạ GOAL/NFR, kèm
   "làm gì → làm như nào → kiểm tra lại ra sao" từng giai đoạn. **Đây là thứ tự build chính thức.**
+- **src/Modules/<Module>/Presentation/<nhóm>.yaml** — hợp đồng API của module, chốt ở cổng mở từng
+  giai đoạn (`Identity/Presentation/identity-v1.yaml` = nhóm auth + `/me`, GĐ1). Đây là **nguồn sự
+  thật của hợp đồng**, không phải Swagger sinh lúc runtime; lane frontend sinh type + mock MSW từ đó.
+  Đổi hợp đồng → sửa file này **trong cùng commit** với code, và cổng CI `Category=Contract` so hai
+  bên. Xem `src/Modules/Identity/Presentation/README.md`.
 - **docs/oci-setup.md** — hạ tầng OCI, Cloudflare R2, Caddy TLS, CD (lệnh trên VPS Ubuntu).
 
 > Lưu ý: `ROADMAP.md` (bản cũ, tên `SocialMedia`/`socialmedia_api`) **KHÔNG dùng nữa** — đã thay bằng
@@ -174,7 +200,7 @@ cd frontend && npm run dev
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **30INF067_btl** (182 symbols, 194 relationships, 0 execution flows).
+This project is indexed by GitNexus as **30INF067_btl** (363 symbols, 412 relationships, 0 execution flows).
 
 > Index stale? Run `node .gitnexus/run.cjs analyze --index-only` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? Bootstrap with `npx`, `bunx`, or `pnpm dlx` — e.g. `bunx gitnexus@latest analyze` (npm 11 npx crash; #1939).
 

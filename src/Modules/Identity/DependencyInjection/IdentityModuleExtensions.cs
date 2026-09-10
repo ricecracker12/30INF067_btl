@@ -16,6 +16,9 @@ public static class IdentityModuleExtensions
     /// </summary>
     public const string Schema = IdentityDbContext.Schema;
 
+    // Định danh nhóm Swagger KHÔNG nằm ở đây mà ở Presentation/IdentityApiGroup.cs — nó là từ vựng
+    // HTTP, thuộc tầng sở hữu HTTP. Bề mặt DI chỉ nói về việc ráp dịch vụ.
+
     public static IServiceCollection AddIdentityModule(this IServiceCollection services, string connectionString)
         // Cấu hình Npgsql + bảng lịch sử migration nằm ở IdentityDbContextOptions — dùng chung với
         // design-time factory để hai đường không lệch nhau.
