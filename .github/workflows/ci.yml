@@ -24,14 +24,25 @@ jobs:
       # /swagger/<nhom>/swagger.json sinh tu code. Tach rieng de log chi thang vao "hop dong lech"
       # thay vi lan trong hang tram test khac. Day la thu THAY CHO viec doi chieu Swagger voi stub
       # bang mat o cong dong GD1 (docs/giai-doan-1.md Muc 11).
+      #
+      # NHAM VAO PROJECT, KHONG NHAM VAO .sln -- day la dieu kien de cai cong nay dung duoc:
+      # TreatNoTestsAsError xet RIENG TUNG test assembly. Chay tren .sln thi UnitTests.dll va
+      # ArchitectureTests.dll khong co test nao mang trait Contract, moi assembly do tra exit 1 va
+      # buoc nay do DU hop dong hoan toan khop. Da dinh dung loi do mot lan.
+      # Gioi han vao project giu duoc y nghia that cua co: go sai trait / doi ten Category thi
+      # IntegrationTests chay 0 test -> cong DO, dung nhu mong muon.
+      # Them module moi ma test hop dong nam o project khac: them mot buoc nua o day, dung go co.
       - name: API contract (CI GATE)
-        run: dotnet test SocialApp.sln -c Release --no-build --filter "Category=Contract" -- RunConfiguration.TreatNoTestsAsError=true
+        run: dotnet test tests/SocialApp.IntegrationTests/SocialApp.IntegrationTests.csproj -c Release --no-build --filter "Category=Contract" -- RunConfiguration.TreatNoTestsAsError=true
 
       # CI GATE (GOAL-03, Muc 10.2): tach rieng de log chi thang nguyen nhan fail, fail la chan merge.
       # Chua co test nao mang trait Category=AuthZ nen buoc nay dang xanh (dotnet test tra 0 khi
       # filter khong khop). Khoi B GD1 them TC-A01/TC-A02.
-      # NGAY KHI co test AuthZ dau tien, them vao cuoi lenh:
-      #     -- RunConfiguration.TreatNoTestsAsError=true
+      # NGAY KHI co test AuthZ dau tien, doi buoc nay sang dang nham-vao-project giong cong hop
+      # dong o tren:
+      #     dotnet test tests/<Project chua test AuthZ>/<Project>.csproj -c Release --no-build       #       --filter "Category=AuthZ" -- RunConfiguration.TreatNoTestsAsError=true
       # neu khong, go sai trait se lam cong chan xanh voi 0 test ma khong ai biet.
+      # DUNG them TreatNoTestsAsError vao lenh chay .sln nhu duoi day: no xet rieng tung assembly
+      # nen se do vi cac project khong co test AuthZ, chu khong phai vi AuthZ hong.
       - name: AuthZ matrix (CI GATE)
         run: dotnet test SocialApp.sln -c Release --no-build --filter "Category=AuthZ"
