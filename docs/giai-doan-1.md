@@ -98,6 +98,8 @@ bị chặn đúng mã lỗi.
 | CRUD vai trò (`role.create/update/delete`) | **GĐ6** | Thuộc nhóm admin endpoints |
 | Bất biến "luôn còn ≥ 1 Admin hoạt động" | **GĐ6** + **GĐ8** | Chỉ có đường vi phạm khi đã có `role.assign`, `user.lock` (GĐ6) và quyền tự xóa tài khoản (GĐ8) |
 | Đẩy invalidate cache quyền khi Admin sửa role | **GĐ6** | GĐ1 quyền chưa sửa được lúc runtime; cache TTL 60s là đủ |
+| Chặn seeder cấp lại quyền cho vai trò bị gỡ **hết** quyền | **GĐ6** | Chỉ xảy ra khi đã có endpoint sửa quyền. Hai cách: endpoint từ chối để vai trò đã seed về 0 quyền (không đổi schema), hoặc bảng `seed_history` nếu thật sự cần vai trò không có quyền nào. Chọn khi thiết kế endpoint (Mục 5.4) |
+| Mô tả quyền (`permissions.description`) | **GĐ6** | Chỉ màn hình sửa vai trò cần. Thêm bằng **migration `UPDATE`** kèm cột mô tả ở Mục 5.2 — **không** sửa seeder: seeder dùng `DO NOTHING` nên không chạm tới DB đã seed (staging, production) |
 | Trigger **ghi** vào `revoked:user` khi nâng/hạ vai trò, khóa tài khoản | **GĐ6** | GĐ1 chưa có endpoint nào đổi vai trò hay khóa tài khoản. Bên đọc đã sẵn sàng từ GĐ1 nên GĐ6 chỉ việc gọi (Mục 7.5) |
 | Trigger ghi khi user tự xóa tài khoản | **GĐ8** | Đi kèm quyền xóa tài khoản theo NĐ 13/2023 |
 | ~~Frontend Next.js~~ | **Đã kéo về GĐ1** | Kế hoạch chuyển sang **lát cắt dọc**: mỗi giai đoạn giao trọn cả backend lẫn frontend của cùng một tính năng. Nhân lực GĐ1 thành **2 backend + 1 frontend**, và **trang HTML tối giản của bản A bị loại bỏ** — interceptor 401→refresh thật làm đúng việc đó mà không phải xóa đi sau. Chi tiết và bảng đối chiếu bản A/bản B: `ke-hoach-trien-khai.md` Mục 0C |
@@ -547,18 +549,44 @@ hình thật nữa.
 
 ### 5.4 Seeder phải idempotent
 
-Seeder chạy mỗi lần app khởi động, kể cả khi CD deploy lại staging 10 lần/ngày.
+Seeder chạy ở hook `--migrate` mỗi lần deploy, kể cả khi CD deploy lại staging 10 lần/ngày. Hai yêu
+cầu: không nhân bản dữ liệu, và **không ghi đè cấu hình Admin đã sửa lúc runtime** (từ GĐ6). Hiện
+thực: `Infrastructure/Seed/IdentitySeeder.cs`.
+
+**`roles` và `permissions` — `ON CONFLICT DO NOTHING`, không dùng `DO UPDATE`.**
 
 ```sql
-INSERT INTO permissions (permission_id, code, description)
-VALUES (6, 'post.hide', 'Ẩn bài vi phạm (BR-07)')
-ON CONFLICT (code) DO NOTHING;
+INSERT INTO identity.permissions (permission_id, code)
+VALUES (6, 'post.hide')
+ON CONFLICT DO NOTHING;
 ```
 
-**Dùng `DO NOTHING`, không dùng `DO UPDATE`.** Đây là điểm dễ sai nhất: từ GĐ6 Admin sẽ sửa được
-`role_permissions` lúc runtime. Nếu seeder dùng `DO UPDATE` thì lần deploy kế tiếp sẽ lặng lẽ
-cấp lại đúng cái quyền mà Admin vừa cố tình gỡ đi. Viết test cho chuyện này ngay từ bây giờ
-(SEED-02 ở Mục 10).
+- `DO UPDATE` sẽ ghi đè `display_name` / `description` mà Admin đã đổi. Muốn đổi dữ liệu nền thì làm bằng
+  migration, không bằng seeder.
+- **Không nêu cột conflict** (`ON CONFLICT DO NOTHING`, không phải `ON CONFLICT (code)`). Kịch bản
+  ADMIN→ROOT (Mục 3.1) làm `code` hết xung đột nhưng `role_id = 3` vẫn xung đột. Nêu `(code)` thì seeder
+  chết bằng một lỗi unique violation khó đọc, trước khi kiểm tra ở Mục 5.5 kịp báo đúng nguyên nhân.
+
+**`role_permissions` — bootstrap một lần cho mỗi vai trò.** `DO NOTHING` một mình **không đủ** cho bảng
+này: nó không có payload, **bản thân sự tồn tại của dòng chính là quyền**. Admin gỡ `post.hide` của
+MODERATOR thì dòng đó biến mất, lần seed sau không còn xung đột nào để bỏ qua, và `INSERT ... ON CONFLICT
+DO NOTHING` chèn lại đúng cái quyền vừa gỡ. Nên chỉ chèn khi vai trò đó **chưa có dòng nào**:
+
+```sql
+INSERT INTO identity.role_permissions (role_id, permission_id)
+SELECT 2, p FROM unnest(ARRAY[1,2,3,4,5,6,7,8,9,10,11,12,13]::smallint[]) AS p
+WHERE NOT EXISTS (SELECT 1 FROM identity.role_permissions WHERE role_id = 2)
+ON CONFLICT DO NOTHING;
+```
+
+- `WHERE NOT EXISTS`: vai trò đã có cấu hình (dù đã bị sửa) thì seeder không đụng vào — SEED-02.
+- `ON CONFLICT DO NOTHING` vẫn giữ, để hai lần chạy đồng thời không đâm nhau — SEED-01.
+- **Ranh giới:** vai trò bị gỡ **hết** quyền trông giống vai trò chưa từng seed, nên lần deploy sau được
+  cấp lại đủ bộ mặc định. GĐ1 chấp nhận vì chưa có endpoint sửa quyền. GĐ6 nếu cần một vai trò không có
+  quyền nào lâu dài thì phải thêm dấu vết seed (ví dụ bảng `seed_history`).
+
+Luôn ghi rõ schema (`identity.roles`) trong SQL thô: `HasDefaultSchema` chỉ tác động LINQ, còn
+`ExecuteSqlRawAsync` đi thẳng xuống Postgres với `search_path` mặc định là `public`.
 
 ### 5.5 Kiểm tra lúc khởi động — thay cho `is_system`
 
@@ -586,8 +614,8 @@ tới lần restart. Đây là đánh đổi có ý thức — chặn đúng th�
 trigger chỉ đáng làm khi GĐ6 đã có endpoint sửa vai trò thật.
 
 **Vì sao đặt trong seeder** chứ không phải một `IHostedService` riêng: seeder vốn đã chạy mỗi lần
-khởi động và vốn đã đọc bảng `roles`. Thêm việc vào đó không tốn thêm truy vấn nào và không thể
-quên gọi.
+deploy (hook `--migrate`), nên kiểm tra không thể bị quên gọi. Giá phải trả là một câu `SELECT` trên
+3 dòng — seeder chỉ `INSERT`, không tự đọc bảng `roles`.
 
 ---
 
@@ -1419,7 +1447,7 @@ là đủ, cột chỉ lặp lại thông tin đã cố định; và nó canh sa
 |---|---|---|
 | Hai tab refresh đồng thời → đăng xuất oan | Trải nghiệm tệ, khó tái hiện khi debug | Ân hạn 10 giây (Mục 7.3) + test RT-04 |
 | Thời gian phản hồi lộ email nào có thật | Rò rỉ thông tin, vi phạm AC-02 | Luôn chạy BCrypt giả cho email không tồn tại |
-| Seeder ghi đè cấu hình quyền trên production | Admin gỡ quyền xong bị cấp lại âm thầm | `ON CONFLICT DO NOTHING` + test SEED-02 |
+| Seeder ghi đè cấu hình quyền trên production | Admin gỡ quyền xong bị cấp lại âm thầm | `roles`/`permissions`: `ON CONFLICT DO NOTHING`; `role_permissions`: bootstrap một lần cho mỗi vai trò (`WHERE NOT EXISTS`) + test SEED-02 (Mục 5.4). Còn hở: vai trò bị gỡ **hết** quyền sẽ được cấp lại đủ bộ mặc định |
 | BCrypt cost 12 ≈ 250ms/lần → login tốn CPU | Chậm khi tải cao | Rate limit 10 req/phút nhóm auth đã có; theo dõi ở GĐ7 |
 | Quên tầng 3 khi sang GĐ2 | IDOR — hỏng GOAL-03 | Quy ước Mục 6.3: endpoint không có dòng AuthZ matrix = chưa xong |
 | Đặt `UseAuthentication()` **sau** rate limiter | Limiter phân vùng theo IP thay vì theo user: nhiều user sau cùng một NAT ăn chung hạn mức. Hỏng câm, không log | Tách sẵn `UseSharedKernelRateLimiter()` thành lệnh riêng để thứ tự hiện ra ở `Program.cs`; comment tại chỗ chèn |
@@ -1560,10 +1588,11 @@ Còn hai `Skip` đang chờ được gỡ, mỗi cái là một dòng việc c�
   lần/ngày cũng không nhân bản hay ghi đè cấu hình.
 - **Cách thực thi:** seed 3 vai trò (Mục 5.1), 17 permission (Mục 5.2), gán quyền theo Mục 5.3 —
   **ADMIN không có dòng nào**, đó là thiết kế (Mục 3.2), không phải thiếu dữ liệu. Dùng
-  `ExecuteSqlRawAsync` với `ON CONFLICT (code) DO NOTHING`, **tuyệt đối không `DO UPDATE`**: từ GĐ6
-  Admin sửa được `role_permissions` lúc runtime, `DO UPDATE` sẽ lặng lẽ cấp lại đúng cái quyền Admin
-  vừa cố tình gỡ. Đẩy tính idempotent xuống **tầng DB** chứ không đọc-rồi-ghi ở tầng app — hai
-  instance khởi động cùng lúc thì đọc-rồi-ghi sẽ chèn trùng.
+  `ExecuteSqlRawAsync`. `roles` / `permissions`: `ON CONFLICT DO NOTHING` không nêu cột, **tuyệt đối
+  không `DO UPDATE`**. `role_permissions`: bootstrap một lần cho mỗi vai trò (`WHERE NOT EXISTS` kèm
+  `ON CONFLICT DO NOTHING`), vì bảng này không có payload nên `DO NOTHING` một mình sẽ chèn lại đúng
+  quyền Admin vừa gỡ — chi tiết và ranh giới ở Mục 5.4. Đẩy tính idempotent xuống **tầng DB** chứ không
+  đọc-rồi-ghi ở tầng app — hai instance khởi động cùng lúc thì đọc-rồi-ghi sẽ chèn trùng.
 - **Xong là:** `SEED-01` (chạy 2 lần, dữ liệu không đổi) và `SEED-02` (gỡ 1 quyền của MODERATOR rồi
   chạy lại, **không bị cấp lại**) xanh trên Postgres thật.
 - **Chặn / Cần:** chặn A5. Cần A3.
@@ -1573,8 +1602,8 @@ Còn hai `Skip` đang chờ được gỡ, mỗi cái là một dòng việc c�
 - **Mục tiêu:** bắt kịch bản nguy hiểm nhất của toàn GĐ1 — ai đó `UPDATE roles SET code='ROOT'` bằng
   tay. Khi đó short-circuit `role == "ADMIN"` không khớp nữa, mà Admin lại cố ý không có dòng
   `role_permissions` nào để rơi về → **mất sạch quyền quản trị, im lặng, không đường phục hồi**.
-- **Cách thực thi:** ~5 dòng theo Mục 5.5, đặt **ngay trong seeder** (nó vốn đã chạy mỗi lần khởi
-  động và vốn đã đọc bảng `roles` — không tốn thêm truy vấn nào và không thể quên gọi). Thiếu bất kỳ
+- **Cách thực thi:** ~5 dòng theo Mục 5.5, đặt **ngay trong seeder** (nó vốn đã chạy mỗi lần deploy
+  qua hook `--migrate` nên không thể quên gọi; giá là một câu `SELECT` trên 3 dòng). Thiếu bất kỳ
   `code` nào trong ba cái thì ném `InvalidOperationException` nêu **tên vai trò bị thiếu**.
 - **Xong là:** `SEED-03` xanh — đổi `roles.code` của ADMIN bằng tay rồi khởi động lại thì app **từ
   chối chạy**, thông báo nêu đúng tên vai trò thiếu.
@@ -1659,6 +1688,11 @@ Còn hai `Skip` đang chờ được gỡ, mỗi cái là một dòng việc c�
   `roles.code` rồi khởi động lại → app từ chối chạy), FK-01 (`DELETE FROM roles` khi còn user → lỗi
   RESTRICT).
 - **Xong là:** bốn test xanh trên Postgres thật.
+- **Đã có sẵn từ khối A:** SEED-01, SEED-02 và SEED-03 (ở tầng seeder), kèm test "seed lại không ghi đè
+  `display_name`", nằm ở `tests/SocialApp.IntegrationTests/IdentitySeederTests.cs`. Khi B1 xong thì
+  **chuyển lớp này sang harness dùng chung, không viết lại**. Phần "app từ chối khởi động" của SEED-03
+  (exit code khác 0 ở `--migrate`) đã nghiệm thu bằng tay ở A6. **B5 chỉ còn FK-01** — ràng buộc RESTRICT
+  đã được `IdentityDbContextSchemaTests` khóa ở tầng schema; FK-01 thêm kiểm tra hành vi.
 - **Chặn / Cần:** cần B1, A4, A5.
 
 ---
