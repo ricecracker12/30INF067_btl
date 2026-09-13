@@ -1,0 +1,756 @@
+# ---------------------------------------------------------------------------------------------
+# HỢP ĐỒNG API — module Identity, v1 (GĐ1 · UC-01, UC-02)
+#
+# Đây là artifact BẮT BUỘC của cổng mở GĐ1 (docs/giai-doan-1.md Mục 9). Lane frontend sinh type
+# TypeScript và mock MSW từ chính file này, nên nó là NGUỒN SỰ THẬT của hợp đồng cho tới cổng
+# đóng (Ngày 6) — không phải Swagger sinh ra lúc runtime.
+#
+# VÌ SAO NẰM Ở ĐÂY: module sở hữu tầng HTTP của chính nó (`Presentation/`) — controller phục vụ
+# các endpoint dưới đây nằm cùng thư mục này, không nằm ở `SocialApp.Api`. Hợp đồng, hiện thực và
+# mã lỗi của module do đó ở cạnh nhau, và mỗi module tự khai một nhóm Swagger riêng
+# (`IdentityModuleExtensions.ApiGroup` = "identity-v1", trùng tên file này).
+# Không đặt ở `docs/`: đây là BUILD INPUT (lane FE codegen từ nó), không phải văn xuôi.
+#
+# CÓ MÁY CANH, KHÔNG ĐỐI CHIẾU BẰNG MẮT: `IdentityContractTests` so file này với
+# /swagger/identity-v1/swagger.json sinh từ code. Lệch tập (path × method), tập status code, hoặc
+# required field là CI đỏ. Nên hai nguồn không thể trôi xa nhau.
+#
+# LUẬT SỬA FILE NÀY:
+#   - Mọi thay đổi hợp đồng phải báo cả nhóm VÀ cập nhật file này TRONG CÙNG COMMIT với code.
+#   - Cổng đóng Ngày 6: Swagger runtime phải khớp file này (DoD Mục 11), rồi hợp đồng đóng băng
+#     cho GĐ2.
+#
+# 7 QUYẾT ĐỊNH ĐÃ CHỐT ở cổng mở (docs/ke-hoach-trien-khai.md GĐ1) — phần chạm tới hợp đồng này:
+#   1. JWT claim `role` mang `code` CHUỖI ('USER'/'MODERATOR'/'ADMIN') cho MỌI vai trò;
+#      role_id kiểu số không bao giờ ra khỏi DB. Thu hồi bằng `revoked:user` + `iat` (Redis).
+#   2. Admin short-circuit ở tầng 2, tuyệt đối không ở tầng 3 — không lộ ra hợp đồng, nhưng là
+#      lý do ADMIN không có dòng nào trong role_permissions.
+#   3. roles tách `code` (bất biến) + `display_name` (sửa được) — `GET /me` trả CẢ HAI.
+#   4. refresh_tokens.family_id — không lộ ra hợp đồng; là cơ chế đằng sau 401 của reuse detection.
+#   5. Không dùng cột roles.is_system.
+#   6. Refresh token trong cookie httpOnly, access token client giữ TRONG MEMORY.
+#      => /auth/login và /auth/refresh trả {accessToken, expiresIn} + Set-Cookie;
+#         /auth/refresh KHÔNG NHẬN BODY, đọc refresh token từ cookie.
+#   7. CORS bật ngay ở GĐ1 cho origin frontend, BẮT BUỘC AllowCredentials.
+# ---------------------------------------------------------------------------------------------
+openapi: 3.0.3
+
+info:
+  title: SocialApp — Identity & Access API
+  version: 1.0.0-gd1
+  description: |
+    Nhóm endpoint xác thực của GĐ1: đăng ký, xác minh email, đăng nhập, refresh rotation,
+    đăng xuất, và `GET /me`.
+
+    ### Mô hình token
+
+    | | Access token (JWT HS256) | Refresh token |
+    |---|---|---|
+    | Đi kèm | `Authorization: Bearer <token>` ở **mọi** request | Cookie `refresh_token`, chỉ các endpoint dưới `/auth` |
+    | Client lưu ở đâu | **Trong memory** — cấm `localStorage` (Mục 12) | Không đụng tới được: cookie `HttpOnly` |
+    | Sống | 15 phút (`expiresIn` = 900) | 7 ngày |
+    | Nội dung | claims `sub`, `role`, `iat`, `exp`, `jti` | 32 byte ngẫu nhiên, **không phải JWT**, server lưu băm SHA-256 |
+    | Thu hồi | `revoked:user:<id>` + `iat` trên Redis | `UPDATE refresh_tokens SET revoked_at` theo `family_id` |
+
+    ### Lỗi
+
+    Mọi lỗi trả **RFC 7807 Problem Details** (`application/problem+json`) kèm `traceId`
+    — bằng đúng giá trị header `X-Correlation-ID` của chính request đó.
+
+    ### Rate limit
+
+    Toàn nhóm `auth`: **10 req/phút theo IP** (ISS-04). Vượt ngưỡng → `429`.
+    Endpoint đã đăng nhập: 100 req/phút theo user.
+
+    ### Ghi chú cho lane frontend
+
+    - Mọi lời gọi phải dùng `credentials: 'include'` — thiếu là trình duyệt **im lặng** không gửi
+      cookie refresh, và `/auth/refresh` luôn trả 401 mà không có manh mối nào chỉ ra nguyên nhân.
+    - Interceptor 401→refresh **bắt buộc single-flight**: nhiều 401 đồng thời chỉ được gọi
+      `/auth/refresh` MỘT lần, số còn lại xếp hàng chờ kết quả. Không làm vậy thì chính frontend
+      kích hoạt reuse detection của server và người dùng bị đăng xuất oan — triệu chứng trông hệt
+      lỗi backend (docs/giai-doan-1.md Mục 14).
+
+  contact:
+    name: Nhóm 4 — 30INF067
+
+servers:
+  - url: http://localhost:5259/api/v1
+    description: Dev — backend chạy local (`dotnet run`)
+  - url: https://mxh.banhgao.net/api/v1
+    description: Staging — HTTPS thật, đích của cổng đóng Ngày 6
+
+tags:
+  - name: auth
+    description: Đăng ký, xác minh email, đăng nhập, refresh, đăng xuất. Rate limit 10 req/phút/IP.
+  - name: me
+    description: Thông tin phiên hiện tại. Smoke test rẻ nhất chứng minh tầng 1 + tầng 2 chạy thông.
+
+paths:
+
+  /auth/register:
+    post:
+      tags: [auth]
+      operationId: register
+      summary: Đăng ký tài khoản (FR-001)
+      description: |
+        Tạo tài khoản với `role_id = 1 (USER)`, `email_verified_at = NULL`, mật khẩu băm BCrypt
+        cost 12, rồi gửi mail xác minh (token ngẫu nhiên 32 byte, lưu **băm**, hạn 24 giờ).
+        Ở dev/staging mail đi qua Mailpit.
+
+        Tài khoản **chưa đăng nhập được** cho tới khi gọi `/auth/verify-email` — đăng nhập lúc này
+        trả `403`.
+
+        > Endpoint này **có** trả `409` khi email đã tồn tại. Đây là ngoại lệ có ý thức so với quy
+        > tắc "không lộ email tồn tại" của `/auth/login`: không báo trùng thì người dùng không có
+        > cách nào biết vì sao đăng ký hỏng. Rate limit 10 req/phút/IP là thứ chặn việc lạm dụng
+        > endpoint này để dò danh sách email.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+            examples:
+              hopLe:
+                summary: Hợp lệ
+                value:
+                  email: an.nguyen@example.com
+                  password: MatKhauManh123
+      responses:
+        '201':
+          description: Đã tạo tài khoản; mail xác minh đã được gửi.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterResponse'
+              example:
+                userId: 0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10
+                email: an.nguyen@example.com
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '409':
+          description: Email đã được đăng ký.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: https://httpstatuses.io/409
+                title: Xung đột dữ liệu
+                status: 409
+                detail: Email này đã được đăng ký.
+                instance: /api/v1/auth/register
+                traceId: 9f2c7b1e4a6d4f0b8c3e5a7d9b1f3c5e
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /auth/verify-email:
+    post:
+      tags: [auth]
+      operationId: verifyEmail
+      summary: Xác minh email bằng token trong mail (FR-001)
+      description: |
+        Nhận token bản rõ từ link trong mail, băm SHA-256 rồi đối chiếu `token_hash`. Hợp lệ thì
+        set `users.email_verified_at` và `email_verification_tokens.consumed_at`.
+
+        Phân biệt hai mã lỗi — frontend hiển thị khác nhau:
+
+        - `400` — token sai định dạng hoặc không tồn tại → "Liên kết không hợp lệ".
+        - `410` — token đúng nhưng **đã hết hạn (quá 24 giờ) hoặc đã dùng rồi** → "Liên kết đã hết
+          hiệu lực". Endpoint gửi lại mail **chưa có ở GĐ1**, nên màn này chỉ hướng dẫn đăng ký lại
+          hoặc liên hệ hỗ trợ.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyEmailRequest'
+      responses:
+        '200':
+          description: Email đã được xác minh; tài khoản đăng nhập được.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerifyEmailResponse'
+              example:
+                email: an.nguyen@example.com
+                verifiedAt: '2026-09-08T03:14:07Z'
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '410':
+          description: Token đã hết hạn hoặc đã được dùng.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: https://httpstatuses.io/410
+                title: Liên kết không còn hiệu lực
+                status: 410
+                detail: Liên kết xác minh đã hết hạn hoặc đã được sử dụng.
+                instance: /api/v1/auth/verify-email
+                traceId: 4b8e1d3a7c9f4e2b6a0d8c5f3b7e1a94
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      summary: Đăng nhập, cấp access token + refresh cookie (FR-002, FR-003)
+      description: |
+        Thứ tự kiểm tra (docs/giai-doan-1.md Mục 7.2):
+
+        1. Tra user theo email (`citext`, không phân biệt hoa thường).
+        2. **Không tồn tại → vẫn chạy một phép BCrypt giả** rồi trả `401`. Bỏ bước này là thời gian
+           phản hồi lộ ra email nào có thật.
+        3. `locked_until > now()` → `423`.
+        4. Sai mật khẩu → `failed_login_count++`; đạt 5 thì `locked_until = now() + 15 phút` → `401`.
+        5. `email_verified_at IS NULL` → `403`.
+        6. Thành công → reset bộ đếm, phát access token 15 phút + refresh token với `family_id`
+           **mới** (một lần đăng nhập = một family = một thiết bị).
+
+        > **AC-02 — `401` không được lộ email có tồn tại hay không.** Sai mật khẩu và email không
+        > tồn tại dùng **cùng một** `title`/`detail`, và thời gian phản hồi phải tương đương.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: |
+            Đăng nhập thành công. Access token nằm trong body (client giữ **trong memory**),
+            refresh token nằm trong cookie `HttpOnly` — JS không đọc được và không cần đọc.
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/SetRefreshCookie'
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+              example:
+                accessToken: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIwMTkyZjNjMS04YTRlLTdjMzEtOWYyYS02YjVkNGUzYzJhMTAiLCJyb2xlIjoiVVNFUiJ9.signature
+                expiresIn: 900
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          description: |
+            Sai thông tin đăng nhập. **Dùng chung cho cả email không tồn tại lẫn sai mật khẩu** —
+            response phải giống hệt nhau (AC-02).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: https://httpstatuses.io/401
+                title: Xác thực thất bại
+                status: 401
+                detail: Email hoặc mật khẩu không đúng.
+                instance: /api/v1/auth/login
+                traceId: c1e5a9d3b7f24608a2c4e6b8d0f2a4c6
+        '403':
+          description: Tài khoản chưa xác minh email (AC-04).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: https://httpstatuses.io/403
+                title: Bị từ chối
+                status: 403
+                detail: Tài khoản chưa xác minh email. Vui lòng kiểm tra hộp thư.
+                instance: /api/v1/auth/login
+                traceId: 7d3f1b5e9a2c4068b4d6f8a0c2e4b6d8
+        '423':
+          description: |
+            Tài khoản bị khóa tạm thời do sai mật khẩu 5 lần trong 15 phút (AC-03, FR-003).
+            Tự mở lại sau khi hết thời gian khóa — GĐ1 không có endpoint mở khóa thủ công.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: https://httpstatuses.io/423
+                title: Tài khoản tạm khóa
+                status: 423
+                detail: Tài khoản tạm khóa do đăng nhập sai nhiều lần. Vui lòng thử lại sau 15 phút.
+                instance: /api/v1/auth/login
+                traceId: 2a6c8e0b4d6f8a0c2e4b6d8f0a2c4e6b
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /auth/refresh:
+    post:
+      tags: [auth]
+      operationId: refresh
+      summary: Xoay vòng refresh token, cấp access token mới (NFR-SEC-03)
+      description: |
+        **Endpoint này KHÔNG NHẬN BODY.** Refresh token đọc từ cookie `refresh_token`
+        (quyết định 6 ở cổng mở).
+
+        Toàn bộ chạy trong một transaction, `SELECT ... FOR UPDATE` trên dòng token
+        (docs/giai-doan-1.md Mục 7.3):
+
+        1. Băm SHA-256 token nhận được → tra `token_hash`.
+        2. Không thấy → `401`.
+        3. `revoked_at IS NOT NULL` hoặc `replaced_by_id IS NOT NULL` → **REUSE DETECTION**:
+           thu hồi toàn bộ `family_id` → `401`. Người dùng bị đăng xuất khỏi thiết bị đó.
+        4. `expires_at < now()` → `401`.
+        5. Hợp lệ → sinh token mới **cùng `family_id`**; token cũ nhận `revoked_at = now()` và
+           `replaced_by_id = <id mới>`.
+
+        > **Ân hạn 10 giây.** Nếu token đã bị thay thế **trong vòng 10 giây** và chuỗi chưa bị thu
+        > hồi, server trả token kế nhiệm thay vì coi là reuse. Đây là cái đỡ cho race hai tab
+        > (test RT-04) — nhưng nó **không thay thế** yêu cầu single-flight ở client: ân hạn che
+        > được phần lớn, không phải tất cả.
+
+        Mọi trường hợp hỏng của endpoint này đều là `401` — cố ý. Phân biệt "hết hạn" với "bị thu
+        hồi do reuse" là nói cho kẻ tấn công biết token nó đang cầm ở trạng thái nào.
+      security:
+        - refreshCookie: []
+      responses:
+        '200':
+          description: Cặp token mới. Cookie refresh được thay bằng token kế nhiệm.
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/SetRefreshCookie'
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+              example:
+                accessToken: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.newtoken.signature
+                expiresIn: 900
+        '401':
+          description: |
+            Thiếu cookie, token không tồn tại, đã hết hạn, hoặc **bị phát hiện tái sử dụng** (khi
+            đó cả `family_id` đã bị thu hồi).
+
+            Frontend gặp mã này **ở chính `/auth/refresh`** thì xóa access token trong memory và
+            chuyển hướng về màn đăng nhập — không được thử refresh lại.
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/ClearRefreshCookie'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: https://httpstatuses.io/401
+                title: Phiên không hợp lệ
+                status: 401
+                detail: Phiên đăng nhập không còn hiệu lực. Vui lòng đăng nhập lại.
+                instance: /api/v1/auth/refresh
+                traceId: 8b0d2f4a6c8e0b2d4f6a8c0e2b4d6f8a
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /auth/logout:
+    post:
+      tags: [auth]
+      operationId: logout
+      summary: Đăng xuất — thu hồi toàn bộ family của refresh token
+      description: |
+        Thu hồi **toàn bộ `family_id`** của refresh token gửi lên, không chỉ một dòng — báo cáo
+        Mục 6.7.3 yêu cầu "đăng xuất thu hồi toàn bộ phiên" (docs/giai-doan-1.md Mục 7.4). Cookie bị xóa
+        trong cùng response.
+
+        Access token đang cầm **vẫn còn hiệu lực tối đa 15 phút** — đó là bản chất stateless của
+        JWT, không phải bug. Client phải tự xóa nó khỏi memory. Cắt ngay lập tức cần ghi
+        `revoked:user`, mà ở GĐ1 trigger ghi đó chỉ nối cho reuse detection (Mục 7.5).
+      security:
+        - bearerAuth: []
+          refreshCookie: []
+      responses:
+        '204':
+          description: Đã đăng xuất; cookie refresh đã bị xóa.
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/ClearRefreshCookie'
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /me:
+    get:
+      tags: [me]
+      operationId: getMe
+      summary: Hồ sơ rút gọn của phiên hiện tại
+      description: |
+        Smoke test rẻ nhất chứng minh tầng 1 (AuthN) + tầng 2 (RBAC) chạy thông từ đầu đến cuối —
+        giữ endpoint này qua mọi giai đoạn sau.
+
+        Trả về `role` (chuỗi `code`, thứ nằm trong JWT) **và** `roleDisplayName` (chuỗi cho người
+        đọc) — đây chính là lý do bảng `roles` tách hai cột (quyết định 3). Frontend hiển thị
+        `roleDisplayName`, so sánh logic thì dùng `role`.
+
+        `role` trong response đọc từ **DB**, còn `role` trong JWT là bản đã đóng dấu lúc phát token.
+        Từ GĐ6 hai giá trị này có thể lệch nhau trong tối đa 15 phút sau khi Admin đổi vai trò —
+        `revoked:user` + `iat` là thứ rút khoảng lệch đó về gần như tức thì.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Thông tin người dùng đang đăng nhập.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+              example:
+                userId: 0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10
+                email: an.nguyen@example.com
+                role: USER
+                roleDisplayName: Người dùng
+                emailVerifiedAt: '2026-09-08T03:14:07Z'
+                status: active
+                createdAt: '2026-09-08T03:10:22Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+
+  securitySchemes:
+
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Access token JWT HS256, sống 15 phút, claims `sub` (user_id UUID v7), `role` (**chuỗi**
+        `code`, không bao giờ là số), `iat`, `exp`, `jti`.
+
+        Client giữ **trong memory** — `localStorage` bị cấm và có dòng riêng trong checklist nghiệm
+        thu (docs/giai-doan-1.md Mục 12).
+
+    refreshCookie:
+      type: apiKey
+      in: cookie
+      name: refresh_token
+      description: |
+        Chuỗi ngẫu nhiên 32 byte (**không phải JWT**), server lưu băm SHA-256 trong
+        `refresh_tokens.token_hash`. Cookie `HttpOnly` nên JS không đọc được — frontend không bao
+        giờ chạm tay vào giá trị này, chỉ cần `credentials: 'include'`.
+
+  headers:
+
+    XCorrelationId:
+      description: |
+        Correlation ID của request, bằng đúng `traceId` trong Problem Details khi có lỗi.
+        Client gửi header cùng tên thì server dùng lại giá trị đó.
+      schema:
+        type: string
+      example: 9f2c7b1e4a6d4f0b8c3e5a7d9b1f3c5e
+
+    SetRefreshCookie:
+      description: |
+        Cookie refresh token. Thuộc tính là **một phần của hợp đồng**, không phải chi tiết cài đặt:
+
+        - `HttpOnly` — chặn XSS đọc mất token sống lâu nhất trong hệ thống.
+        - `Secure` — chỉ đi qua HTTPS (trình duyệt vẫn chấp nhận trên `http://localhost`).
+        - `SameSite=Lax` — chặn CSRF cơ bản; endpoint nghiệp vụ không phụ thuộc cookie vì access
+          token đi bằng header `Authorization`.
+        - `Path=/api/v1/auth` — cookie chỉ gửi kèm nhóm auth, không đính vào mọi request.
+        - `Max-Age=604800` — 7 ngày.
+      schema:
+        type: string
+      example: refresh_token=3f9a7c2bd41e8065a1b3c5d7e9f0a2b4c6d8e0f2a4b6c8d0e2f4a6b8c0d2e4f6; HttpOnly; Secure; SameSite=Lax; Path=/api/v1/auth; Max-Age=604800
+
+    ClearRefreshCookie:
+      description: |
+        Xóa cookie refresh (`Max-Age=0`). Thuộc tính `Path` phải khớp lúc set, nếu không trình
+        duyệt giữ nguyên cookie cũ.
+      schema:
+        type: string
+      example: refresh_token=; HttpOnly; Secure; SameSite=Lax; Path=/api/v1/auth; Max-Age=0
+
+  responses:
+
+    ValidationProblem:
+      description: |
+        Dữ liệu đầu vào không hợp lệ. `errors` là map `tên trường → danh sách thông điệp`.
+
+        Cũng là mã trả về khi body chứa **field lạ** — quy ước `UnmappedMemberHandling = Disallow`
+        của toàn dự án (AGENTS.md Mục 9).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://httpstatuses.io/400
+            title: Dữ liệu không hợp lệ
+            status: 400
+            detail: Dữ liệu đầu vào không hợp lệ
+            instance: /api/v1/auth/register
+            traceId: 5e7a9c1b3d5f7092a4c6e8b0d2f4a6c8
+            errors:
+              email:
+                - Email không đúng định dạng.
+              password:
+                - Mật khẩu phải có ít nhất 8 ký tự.
+
+    Unauthorized:
+      description: |
+        Thiếu access token, token sai chữ ký, hết hạn, hoặc đã bị thu hồi qua `revoked:user`
+        (`iat` cũ hơn mốc thu hồi).
+
+        Đây là hai dòng đầu của AuthZ matrix — TC-A01 và TC-A02, cổng chặn merge từ GĐ1
+        (docs/giai-doan-1.md Mục 10.2).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://httpstatuses.io/401
+            title: Chưa xác thực
+            status: 401
+            detail: Yêu cầu access token hợp lệ.
+            instance: /api/v1/me
+            traceId: a4c6e8b0d2f4a6c8e0b2d4f6a8c0e2b4
+
+    TooManyRequests:
+      description: |
+        Vượt rate limit — 10 req/phút/IP cho nhóm auth, 100 req/phút/user cho phần còn lại (ISS-04).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://httpstatuses.io/429
+            title: Quá nhiều yêu cầu
+            status: 429
+            detail: Bạn đã gửi quá nhiều yêu cầu. Vui lòng thử lại sau ít phút.
+            instance: /api/v1/auth/login
+            traceId: e0b2d4f6a8c0e2b4d6f8a0c2e4b6d8f0
+
+    InternalError:
+      description: |
+        Lỗi không mong muốn. **Không bao giờ có `detail`** — `GlobalExceptionHandler` giấu chi tiết
+        nội bộ, chỉ `traceId` đi ra ngoài để đối chiếu với log.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://httpstatuses.io/500
+            title: Đã xảy ra lỗi không mong muốn
+            status: 500
+            instance: /api/v1/auth/login
+            traceId: b6d8f0a2c4e6b8d0f2a4c6e8b0d2f4a6
+
+  schemas:
+
+    ProblemDetails:
+      type: object
+      description: |
+        RFC 7807 Problem Details — dạng lỗi duy nhất của toàn dự án. Sinh bởi
+        `SocialApp.SharedKernel.Errors.GlobalExceptionHandler`; `traceId` và `type` gắn thống nhất
+        trong `AddSharedKernel`.
+      properties:
+        type:
+          type: string
+          format: uri
+          description: Mặc định `https://httpstatuses.io/{status}`.
+        title:
+          type: string
+          description: Nhãn ngắn, ổn định theo loại lỗi. **Không** chứa dữ liệu người dùng.
+        status:
+          type: integer
+          format: int32
+        detail:
+          type: string
+          nullable: true
+          description: Thông điệp cho người đọc. Vắng mặt ở lỗi 500.
+        instance:
+          type: string
+          description: Path của request gây lỗi.
+        traceId:
+          type: string
+          description: Bằng header `X-Correlation-ID` của chính request đó — dùng để tra log.
+        errors:
+          type: object
+          nullable: true
+          description: Chỉ có ở lỗi validation (400). Map `tên trường → danh sách thông điệp`.
+          additionalProperties:
+            type: array
+            items:
+              type: string
+      required: [title, status, traceId]
+
+    RegisterRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+          description: |
+            Không phân biệt hoa thường (cột `citext`) — `An@Example.com` và `an@example.com` là
+            **một** tài khoản.
+        password:
+          type: string
+          format: password
+          minLength: 8
+          maxLength: 72
+          description: |
+            Tối thiểu 8 ký tự. Trần 72 là **giới hạn cứng của BCrypt**: ký tự thứ 73 trở đi bị
+            thuật toán bỏ qua âm thầm, nên chặn ở validator thay vì để người dùng tin nhầm là mật
+            khẩu của mình dài hơn thực tế.
+      required: [email, password]
+
+    RegisterResponse:
+      type: object
+      properties:
+        userId:
+          type: string
+          format: uuid
+          description: |
+            UUID **v7** (tuần tự theo thời gian), sinh bằng `UUIDNext` — không phải `Guid.NewGuid()`.
+        email:
+          type: string
+          format: email
+      required: [userId, email]
+
+    VerifyEmailRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        token:
+          type: string
+          minLength: 32
+          description: |
+            Token bản rõ lấy từ query string của link trong mail. Server chỉ lưu băm SHA-256 của nó,
+            nên rò rỉ DB không kéo theo rò rỉ tài khoản.
+      required: [token]
+
+    VerifyEmailResponse:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        verifiedAt:
+          type: string
+          format: date-time
+      required: [email, verifiedAt]
+
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        password:
+          type: string
+          format: password
+          maxLength: 72
+      required: [email, password]
+
+    TokenResponse:
+      type: object
+      description: |
+        Body của `/auth/login` và `/auth/refresh`. Refresh token **không** nằm ở đây — nó đi trong
+        `Set-Cookie` (quyết định 6).
+      properties:
+        accessToken:
+          type: string
+          description: >-
+            JWT HS256. Client giữ trong memory, gắn vào header `Authorization: Bearer <token>`.
+        expiresIn:
+          type: integer
+          format: int32
+          description: |
+            Số **giây** access token còn sống — 900. Cùng một hằng số cấu hình với TTL của
+            `revoked:user` trên Redis; hai giá trị lệch nhau là một lỗ hổng câm không test nào bắt
+            được (docs/giai-doan-1.md Mục 7.5).
+          example: 900
+      required: [accessToken, expiresIn]
+
+    MeResponse:
+      type: object
+      properties:
+        userId:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        role:
+          $ref: '#/components/schemas/RoleCode'
+        roleDisplayName:
+          type: string
+          description: |
+            Tên hiển thị cho người đọc (`roles.display_name`) — sửa được, **không** dùng để so sánh
+            logic.
+          example: Người dùng
+        emailVerifiedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: |
+            Luôn khác `null` ở đây — chưa xác minh thì đã bị chặn từ `/auth/login` với 403, không có
+            token để gọi endpoint này.
+        status:
+          $ref: '#/components/schemas/UserStatus'
+        createdAt:
+          type: string
+          format: date-time
+      required: [userId, email, role, roleDisplayName, status, createdAt]
+
+    RoleCode:
+      type: string
+      enum: [USER, MODERATOR, ADMIN]
+      description: |
+        `roles.code` — **bất biến theo hợp đồng API**. Không endpoint nào cho phép sửa trường này;
+        endpoint sửa vai trò ở GĐ6 chỉ nhận `displayName`.
+
+        Đây cũng chính là giá trị của claim `role` trong JWT, cho **mọi** vai trò. `ADMIN` đi lối
+        tắt ở tầng 2 nên không có dòng nào trong `role_permissions` — đúng thiết kế, không phải
+        thiếu dữ liệu seed.
+      example: USER
+
+    UserStatus:
+      type: string
+      enum: [active, locked, disabled, deleted]
+      description: |
+        Khớp `CONSTRAINT ck_users_status`. Ở GĐ1 chỉ `active` xuất hiện thực tế — khóa do lockout
+        FR-003 là trạng thái tạm nằm ở cột `locked_until`, còn `disabled`/`deleted` chờ GĐ6/GĐ8.
+      example: active

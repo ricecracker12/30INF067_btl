@@ -9,8 +9,8 @@ namespace SocialApp.IntegrationTests;
 /// GĐ0 Walking Skeleton: xác nhận pipeline đi hết (routing → middleware → controller → JSON) và
 /// error model RFC 7807. Không chạm Postgres/Redis nên an toàn trên CI (chỉ /health/live + /ping).
 /// </summary>
-public sealed class SmokeEndpointsTests(WebApplicationFactory<Program> factory)
-    : IClassFixture<WebApplicationFactory<Program>>
+public sealed class SmokeEndpointsTests(ApiFactory factory)
+    : IClassFixture<ApiFactory>
 {
     private HttpClient Client => factory.CreateClient();
 

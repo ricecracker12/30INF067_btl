@@ -9,8 +9,16 @@ namespace SocialApp.Api.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/v1/ping")]
+[ApiExplorerSettings(GroupName = ApiGroup)]
 public sealed class PingController : ControllerBase
 {
+    /// <summary>
+    /// Nhóm Swagger cho các endpoint hạ tầng do chính host giữ (không thuộc module nào).
+    /// Bắt buộc phải có: DocInclusionPredicate lọc theo GroupName, controller không khai nhóm sẽ
+    /// rơi khỏi MỌI trang Swagger — im lặng, không lỗi.
+    /// </summary>
+    public const string ApiGroup = "platform-v1";
+
     [HttpGet]
     public IActionResult Get() => Ok(new PingResponse("pong", HttpContext.TraceIdentifier));
 

@@ -51,4 +51,76 @@ public sealed class IdentityDbContextSchemaTests : IAsyncLifetime
 
         Assert.Equal([IdentityDbContext.Schema], schemas);
     }
+
+    /// <summary>
+    /// Khóa những bất biến mà Mục 4 giao cho DB giữ (A2/A3). Mỗi khẳng định ứng với một thứ mà nếu
+    /// cấu hình EF sai thì KHÔNG có lỗi nào khác báo — migration vẫn chạy, app vẫn lên.
+    /// </summary>
+    [Fact]
+    public async Task Migrate_tao_du_bang_va_rang_buoc_cua_Muc_4()
+    {
+        var services = new ServiceCollection()
+            .AddIdentityModule(_postgres.GetConnectionString())
+            .BuildServiceProvider();
+
+        await services.MigrateIdentityModuleAsync();
+
+        await using var scope = services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<IdentityDbContext>();
+
+        // 1. Đủ 6 bảng nghiệp vụ, tất cả trong schema identity.
+        var tables = await db.Database
+            .SqlQuery<string>($"""
+                select table_name as "Value"
+                from information_schema.tables
+                where table_schema = 'identity' and table_name <> '__EFMigrationsHistory'
+                """)
+            .ToListAsync();
+
+        Assert.Equal(
+            ["email_verification_tokens", "permissions", "refresh_tokens", "role_permissions", "roles", "users"],
+            tables.Order());
+
+        // 2. FK users.role_id là RESTRICT — biện pháp #1 thay cho is_system (Mục 3.4). Mặc định của EF
+        //    cho FK required là CASCADE, tức xóa vai trò sẽ xóa sạch người dùng.
+        var usersDeleteRules = await db.Database
+            .SqlQuery<string>($"""
+                select rc.delete_rule as "Value"
+                from information_schema.referential_constraints rc
+                join information_schema.table_constraints tc
+                  on tc.constraint_name = rc.constraint_name and tc.constraint_schema = rc.constraint_schema
+                where tc.table_schema = 'identity' and tc.table_name = 'users'
+                """)
+            .ToListAsync();
+
+        Assert.Equal(["RESTRICT"], usersDeleteRules);
+
+        // 3. Extension citext đã bật — users.email dựa vào nó.
+        var extensions = await db.Database
+            .SqlQuery<string>($"select extname as \"Value\" from pg_extension where extname = 'citext'")
+            .ToListAsync();
+
+        Assert.Equal(["citext"], extensions);
+
+        // 4. DEFAULT now() có mặt trên mọi cột created_at/updated_at (Mục 4 "Nguồn thời gian"). App luôn
+        //    gửi giá trị tường minh nên thiếu default không làm hỏng đường EF — chỉ làm hỏng INSERT bằng
+        //    SQL thô của seeder, và chỉ lộ ra lúc đó.
+        var timestampDefaults = await db.Database
+            .SqlQuery<string>($"""
+                select table_name || '.' || column_name || '=' || coalesce(column_default, '<none>') as "Value"
+                from information_schema.columns
+                where table_schema = 'identity' and column_name in ('created_at', 'updated_at')
+                """)
+            .ToListAsync();
+
+        Assert.Equal(
+            [
+                "refresh_tokens.created_at=now()",
+                "roles.created_at=now()",
+                "roles.updated_at=now()",
+                "users.created_at=now()",
+                "users.updated_at=now()",
+            ],
+            timestampDefaults.Order());
+    }
 }

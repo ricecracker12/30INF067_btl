@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
+using SocialApp.SharedKernel.Configuration;
 
 namespace SocialApp.Modules.Identity.Infrastructure;
 
@@ -17,19 +18,19 @@ namespace SocialApp.Modules.Identity.Infrastructure;
 ///     --startup-project src/Modules/Identity/SocialApp.Modules.Identity.csproj \
 ///     --output-dir Infrastructure/Migrations
 ///
-/// Chuỗi kết nối ở đây chỉ để EF dựng model; <c>migrations add</c> không mở kết nối nào. Các lệnh có
-/// chạm database thật (<c>database update</c>, <c>migrations remove</c>) thì đặt biến môi trường
-/// <c>ConnectionStrings__Postgres</c>. Mặc định trỏ vào Postgres của compose dev.
+/// Chuỗi kết nối: biến môi trường <c>ConnectionStrings__Postgres</c> nếu có (trỏ vào DB khác — DB tạm,
+/// staging); không thì Postgres của compose dev qua localhost, mật khẩu đọc từ <c>deploy/.env</c>
+/// (<see cref="DevEnvFile"/>) — ở máy dev không cần đặt gì, nhưng BẮT BUỘC có file: thiếu thì MỌI lệnh
+/// <c>dotnet ef</c>, kể cả <c>migrations add</c> vốn không mở kết nối, từ chối chạy với thông báo chỉ cách sửa.
 /// </summary>
 public sealed class DesignTimeIdentityDbContextFactory : IDesignTimeDbContextFactory<IdentityDbContext>
 {
-    private const string DevConnectionString =
-        "Host=localhost;Port=5432;Database=socialapp;Username=socialapp;Password=socialapp";
-
     public IdentityDbContext CreateDbContext(string[] args)
     {
+        // Thư mục hiện hành khi chạy dotnet ef nằm trong repo, nên DevEnvFile đi ngược lên được tới deploy/.
         var connectionString =
-            Environment.GetEnvironmentVariable("ConnectionStrings__Postgres") ?? DevConnectionString;
+            Environment.GetEnvironmentVariable("ConnectionStrings__Postgres")
+            ?? DevEnvFile.LocalPostgresConnectionString(Directory.GetCurrentDirectory());
 
         // UseIdentityNpgsql trả về builder không generic; giữ biến generic để .Options ra đúng
         // DbContextOptions<IdentityDbContext> mà constructor của context đòi.
