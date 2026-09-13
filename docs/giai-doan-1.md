@@ -1481,6 +1481,10 @@ Còn hai `Skip` đang chờ được gỡ, mỗi cái là một dòng việc c�
 > **Mục tiêu khối:** biến schema trên giấy (Mục 4) thành database chạy được, có dữ liệu phân quyền
 > đúng, và **tự từ chối khởi động** nếu dữ liệu nền bị sửa sai.
 
+> **Hướng dẫn thi công từng bước:** [huong-dan-khoi-a-nen-du-lieu.md](huong-dan-khoi-a-nen-du-lieu.md)
+> — file nào, lệnh nào, cạm bẫy nào, checklist nghiệm thu. Mục B.3 dưới đây giữ nguyên vai trò
+> "cái gì và vì sao".
+
 ### A1 — Sáu entity trong `Domain/`
 
 - **Mục tiêu:** có mô hình nghiệp vụ để mọi tầng khác bám vào, và đóng luôn lỗ hổng "rule persistence
