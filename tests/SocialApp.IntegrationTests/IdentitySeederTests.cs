@@ -1,9 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using SocialApp.IntegrationTests.Harness;
 using SocialApp.Modules.Identity.DependencyInjection;
 using SocialApp.Modules.Identity.Infrastructure;
 using SocialApp.Modules.Identity.Infrastructure.Seed;
-using Testcontainers.PostgreSql;
 using Xunit;
 
 namespace SocialApp.IntegrationTests;
@@ -14,10 +14,12 @@ namespace SocialApp.IntegrationTests;
 /// Kỳ vọng viết tay theo Mục 5.1–5.3, CỐ Ý không đọc lại hằng số của seeder hay RoleCodes/PermissionCodes:
 /// test dùng chung nguồn với code thì seeder sai kiểu gì test cũng sai theo và vẫn xanh.
 ///
-/// Thuộc khối B5 nhưng viết ở A4, vì A4 chỉ "xong" khi SEED-01/02 xanh. Khi B1 dựng harness Testcontainers
-/// dùng chung thì chuyển lớp này sang đó.
+/// Thuộc khối B5 nhưng viết ở A4, vì A4 chỉ "xong" khi SEED-01/02 xanh. Chạy trên harness dùng chung
+/// <see cref="PostgresFixture"/> (B1): chung container, nhưng mỗi test một database MỚI vì test ở đây sửa
+/// dữ liệu nền.
 /// </summary>
-public sealed class IdentitySeederTests : IAsyncLifetime
+[Collection(PostgresCollection.Name)]
+public sealed class IdentitySeederTests(PostgresFixture postgres) : IAsyncLifetime
 {
     // Mục 5.1 — so cả display_name để bắt lỗi encoding tiếng Việt, không chỉ đếm dòng.
     private static readonly string[] ExpectedRoles =
@@ -43,17 +45,12 @@ public sealed class IdentitySeederTests : IAsyncLifetime
         .. new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13 }.Select(p => $"2|{p}"),
     ];
 
-    private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder()
-        .WithImage("postgres:16-alpine")
-        .Build();
-
     private ServiceProvider _services = null!;
 
     public async Task InitializeAsync()
     {
-        await _postgres.StartAsync();
         _services = new ServiceCollection()
-            .AddIdentityModule(_postgres.GetConnectionString())
+            .AddIdentityModule(await postgres.CreateDatabaseAsync())
             .BuildServiceProvider();
 
         // Chỉ migrate, KHÔNG gọi MigrateIdentityModuleAsync: từ A6 hook đó tự seed, còn SEED-01 phải kiểm
@@ -62,11 +59,7 @@ public sealed class IdentitySeederTests : IAsyncLifetime
         await scope.ServiceProvider.GetRequiredService<IdentityDbContext>().Database.MigrateAsync();
     }
 
-    public async Task DisposeAsync()
-    {
-        await _services.DisposeAsync();
-        await _postgres.DisposeAsync();
-    }
+    public async Task DisposeAsync() => await _services.DisposeAsync();
 
     [Fact]
     public async Task SEED_01_chay_seeder_hai_lan_du_lieu_khong_doi_khong_nhan_ban()
