@@ -1,3 +1,5 @@
+using System.Net;
+
 namespace SocialApp.IntegrationTests.AuthZ;
 
 /// <summary>
@@ -11,7 +13,31 @@ public static class AuthZMatrix
 {
     public static readonly AuthZCase[] Cases =
     [
-        // B3 điền các dòng GĐ1 vào đây. GĐ2 trở đi CHỈ thêm dòng, không sửa file nào khác.
+        // --- GĐ1 (B3). GĐ2 trở đi CHỈ thêm dòng, không sửa file nào khác. ---
+
+        new("TC-A01", "Gọi endpoint bảo vệ, không kèm JWT", "GĐ1",
+            Caller.Anonymous, HttpMethod.Get, "/__test/authz/authenticated", HttpStatusCode.Unauthorized),
+
+        // TC-A02 tách đôi: "hết hạn" và "sai chữ ký" là hai nhánh validate khác nhau.
+        new("TC-A02-expired", "Token đã hết hạn", "GĐ1",
+            Caller.ExpiredToken, HttpMethod.Get, "/__test/authz/authenticated", HttpStatusCode.Unauthorized),
+
+        new("TC-A02-signature", "Token sai chữ ký", "GĐ1",
+            Caller.WrongSignature, HttpMethod.Get, "/__test/authz/authenticated", HttpStatusCode.Unauthorized),
+
+        new("RBAC-01", "ADMIN gọi endpoint đòi quyền bất kỳ — qua dù không có dòng role_permissions", "GĐ1",
+            Caller.Admin, HttpMethod.Get, "/__test/authz/post-hide", HttpStatusCode.OK),
+
+        new("RBAC-02", "USER gọi endpoint đòi post.hide", "GĐ1",
+            Caller.User, HttpMethod.Get, "/__test/authz/post-hide", HttpStatusCode.Forbidden),
+
+        // Bốn mã gốc xanh được với handler "từ chối mọi vai trò trừ Admin" — dòng này bắt loại hỏng đó.
+        new("RBAC-02b", "Đối chứng: MODERATOR gọi endpoint đòi post.hide — vai trò thường CÓ quyền thì phải qua", "GĐ1",
+            Caller.Moderator, HttpMethod.Get, "/__test/authz/post-hide", HttpStatusCode.OK),
+
+        // RBAC-02b vẫn để lọt handler "vai trò khác USER thì cho qua" — dòng này bắt nó.
+        new("RBAC-02c", "Đối chứng: MODERATOR gọi endpoint đòi user.lock — handler phải xét MÃ QUYỀN, không chỉ vai trò", "GĐ1",
+            Caller.Moderator, HttpMethod.Get, "/__test/authz/user-lock", HttpStatusCode.Forbidden),
     ];
 
     /// <summary>
