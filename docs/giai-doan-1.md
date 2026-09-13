@@ -475,11 +475,33 @@ CREATE TABLE email_verification_tokens (
     expires_at  timestamptz NOT NULL,
     consumed_at timestamptz
 );
+
+-- Index cho cột khóa ngoại. Postgres KHÔNG tự tạo index cho phía tham chiếu của FK; EF Core tạo theo
+-- quy ước (nên tên theo quy ước EF, không theo idx_*). Thiếu chúng thì mỗi lần DB kiểm FK khi xóa dòng
+-- cha — RESTRICT khi xóa roles, CASCADE khi xóa users/permissions — phải quét tuần tự cả bảng con.
+-- Không cần index riêng cho role_permissions.role_id (cột đầu của PK) và refresh_tokens.user_id
+-- (đã có idx_refresh_user).
+CREATE INDEX "IX_users_role_id"                     ON users(role_id);
+CREATE INDEX "IX_role_permissions_permission_id"    ON role_permissions(permission_id);
+CREATE INDEX "IX_email_verification_tokens_user_id" ON email_verification_tokens(user_id);
+CREATE INDEX "IX_refresh_tokens_replaced_by_id"     ON refresh_tokens(replaced_by_id);
 ```
 
 **Gotcha .NET 8:** `Guid.CreateVersion7()` chỉ có từ .NET 9. Với .NET 8 phải dùng thư viện
 (`UUIDNext`) hoặc tự sinh. Đừng dùng `Guid.NewGuid()` (v4 ngẫu nhiên) — mất tính tuần tự,
 gây phân mảnh index B-tree, đúng thứ mà GĐ4 sẽ trả giá khi feed cần index tốt.
+
+**Nguồn thời gian (chốt ở A2):** `created_at` / `updated_at` lấy từ **đồng hồ app** — initializer
+`DateTimeOffset.UtcNow` trong entity, cùng nguồn với timestamp nhúng trong UUID v7. Nhờ vậy thứ tự
+theo PK và thứ tự theo `created_at` không bao giờ mâu thuẫn nhau (nhưng **không** có nghĩa là khớp
+tuyệt đối thời gian thật khi nhiều instance lệch đồng hồ).
+
+- `DEFAULT now()` vẫn giữ trong DDL, nhưng chỉ là **lưới an toàn** cho INSERT bằng SQL thô (seeder A4,
+  psql gõ tay). Đường EF luôn gửi giá trị tường minh nên không bao giờ dùng tới nó.
+- `updated_at` **không có trigger** — `DEFAULT` chỉ chạy lúc INSERT. `IdentityDbContext` override
+  `SaveChanges` để gán `updated_at` cho mọi entity bị sửa có cột đó.
+- **Ranh giới:** `ExecuteUpdateAsync` và SQL thô đi vòng qua ChangeTracker nên không được override
+  bảo vệ — chỗ đó phải tự `SetProperty(x => x.UpdatedAt, ...)`.
 
 ---
 
@@ -1506,9 +1528,11 @@ Còn hai `Skip` đang chờ được gỡ, mỗi cái là một dòng việc c�
   `.OnDelete(DeleteBehavior.Restrict)` (biện pháp #1 thay cho `is_system` — Mục 3.4); unique index cho
   `roles.code`, `permissions.code`, `users.email`, `refresh_tokens.token_hash`,
   `email_verification_tokens.token_hash`; index một phần `idx_refresh_family` dùng
-  `.HasFilter("revoked_at IS NULL")`; `CHECK` cho `users.status`.
-- **Xong là:** `IdentityDbContextSchemaTests` mở rộng, khẳng định 6 bảng nằm trong schema `identity`
-  và FK RESTRICT tồn tại.
+  `.HasFilter("revoked_at IS NULL")`; `CHECK` cho `users.status`; `HasDefaultValueSql("now()")` cho
+  `created_at`/`updated_at` của `roles`, `users`, `refresh_tokens`; override `SaveChanges` trong
+  `IdentityDbContext` gán `updated_at` cho entity bị sửa (Mục 4 "Nguồn thời gian").
+- **Xong là:** `IdentityDbContextSchemaTests` mở rộng, khẳng định 6 bảng nằm trong schema `identity`,
+  FK RESTRICT tồn tại, extension `citext` có mặt, và `DEFAULT now()` trên đủ các cột thời gian.
 - **Chặn / Cần:** chặn A3. Cần A1.
 
 ### A3 — Migration đầu tiên
