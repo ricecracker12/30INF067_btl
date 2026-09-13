@@ -6,6 +6,7 @@ using Serilog.Formatting.Compact;
 using SocialApp.Api.Controllers;
 using SocialApp.Modules.Identity.DependencyInjection;
 using SocialApp.Modules.Identity.Presentation;
+using SocialApp.SharedKernel.Configuration;
 using SocialApp.SharedKernel.DependencyInjection;
 
 // Service `migrate` (one-shot, chạy ở bước deploy) gọi với cờ --migrate: apply EF migration cho
@@ -61,9 +62,11 @@ builder.Services.AddSwaggerGen(c =>
 });
 
 // --- Health checks: /health/ready kiểm tra Postgres + Redis (tag "ready") ---
+// Fallback Development của Postgres: compose dev qua localhost, mật khẩu đọc từ deploy/.env — cùng file
+// compose dev dùng, không giữ bản sao ghi cứng trong repo (xem DevEnvFile).
 var postgres = RequireConnectionString("Postgres",
-    "Host=localhost;Port=5432;Database=socialapp;Username=socialapp;Password=socialapp");
-var redis = RequireConnectionString("Redis", "localhost:6379");
+    () => DevEnvFile.LocalPostgresConnectionString(builder.Environment.ContentRootPath));
+var redis = RequireConnectionString("Redis", () => "localhost:6379");
 
 // Thiếu chuỗi kết nối thì CHẾT NGAY TẠI ĐÂY, kèm thông báo nêu đúng key và đúng chỗ sửa.
 //
@@ -75,15 +78,18 @@ var redis = RequireConnectionString("Redis", "localhost:6379");
 //   - Rơi về localhost      -> app khởi động BÌNH THƯỜNG rồi hỏng ngầm: trong container api,
 //                              localhost:5432 không có gì, /health/ready đỏ sau ~95 giây, mà Caddy
 //                              vẫn proxy traffic vào app hỏng.
-// Development vẫn được rơi về giá trị local để chạy `dotnet run` không cần cấu hình gì.
-string RequireConnectionString(string name, string developmentFallback)
+// Development: không đặt biến thì dựng chuỗi local — Postgres lấy mật khẩu từ deploy/.env và BẮT BUỘC có
+// file (DevEnvFile ném, nêu đúng chỗ sửa), cùng tinh thần fail-fast ở trên. Test dựng app phải tự khai
+// chuỗi kết nối (ApiFactory). Fallback là hàm để chỉ được tính khi thật sự ở Development: ngoài
+// Development không đụng tới file nào.
+string RequireConnectionString(string name, Func<string> developmentFallback)
 {
     var value = builder.Configuration.GetConnectionString(name);
     if (!string.IsNullOrWhiteSpace(value))
         return value;
 
     if (builder.Environment.IsDevelopment())
-        return developmentFallback;
+        return developmentFallback();
 
     throw new InvalidOperationException(
         $"Thiếu ConnectionStrings:{name} ở môi trường '{builder.Environment.EnvironmentName}'. "

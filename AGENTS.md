@@ -152,8 +152,10 @@ dotnet ef migrations add <Ten> \
   --startup-project src/Modules/Identity/SocialApp.Modules.Identity.csproj \
   --output-dir Infrastructure/Migrations
 
-# Local infra (compose dev — Postgres/Redis/MinIO/Mailpit): sẽ tạo ở deploy/ hoặc gốc
-docker compose -f docker-compose.dev.yml up -d
+# Local infra (compose dev — Postgres/Redis/MinIO/Mailpit): nằm ở deploy/, tự nạp deploy/.env
+# (gitignore; chưa có thì chép từ deploy/.env.example rồi ĐIỀN POSTGRES_PASSWORD — thiếu thì compose
+# từ chối chạy, không còn default inline)
+docker compose -f deploy/docker-compose.dev.yml up -d
 
 # Frontend
 cd frontend && npm run dev
@@ -161,14 +163,19 @@ cd frontend && npm run dev
 - **Migration:** EF Core, versioned, expand–contract (backward-compatible 1 phiên bản). **KHÔNG
   auto-migrate lúc app start** — chạy ở bước deploy (service `migrate`, cờ `--migrate`).
   Mỗi module một `DbContext` + schema riêng, migration nằm trong `Infrastructure/Migrations` của
-  module. Lệnh có chạm DB thật (`database update`, `migrations remove`) cần biến
-  `ConnectionStrings__Postgres` trỏ đúng Postgres đang chạy — mặc định là compose dev ở localhost.
-- **Cấu hình thiếu = app TỪ CHỐI khởi động** (mọi môi trường trừ Development). Thiếu
+  module. Lệnh `dotnet ef` ở máy dev **không cần đặt biến**: design-time factory tự dựng chuỗi localhost
+  với `POSTGRES_PASSWORD` đọc từ `deploy/.env` (`SharedKernel/Configuration/DevEnvFile.cs`). Trỏ vào DB
+  khác thì đặt `ConnectionStrings__Postgres` — nhưng đừng chép nguyên biến đó từ `deploy/.env`
+  (`Host=postgres` chỉ phân giải được trong mạng compose). **Repo không giữ mật khẩu ghi cứng nào**, kể cả
+  cho dev.
+- **Cấu hình thiếu = TỪ CHỐI chạy, ở MỌI môi trường.** Ngoài Development: thiếu
   `ConnectionStrings__Postgres` / `__Redis` thì `Program.cs` ném `InvalidOperationException` nêu
   thẳng key và chỗ sửa, ngay tại dòng đọc config. Cố ý không rơi về `localhost`: app khởi động được
   rồi hỏng ngầm (health đỏ sau ~95s mà Caddy vẫn proxy vào) khó dò hơn nhiều so với chết ngay lúc
-  deploy. Development vẫn chạy `dotnet run` không cần cấu hình gì. Khóa bằng
-  `StartupConfigurationTests`.
+  deploy. Development: **bắt buộc có `deploy/.env` với `POSTGRES_PASSWORD`** — thiếu thì `dotnet run`,
+  `--migrate` và mọi lệnh `dotnet ef` đều từ chối chạy; không có mật khẩu mặc định. Test dựng cả app
+  (không chạm DB) phải tự khai chuỗi kết nối qua `ApiFactory`, nên CI không cần `deploy/.env`. Khóa bằng
+  `StartupConfigurationTests` + `DevEnvFileTests`.
 - **CD:** push `develop` → GitHub Actions build arm64 → GHCR → SSH deploy staging. Chi tiết
   `docs/oci-setup.md`.
 

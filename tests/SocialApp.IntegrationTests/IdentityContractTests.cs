@@ -19,8 +19,8 @@ namespace SocialApp.IntegrationTests;
 /// nó. Chỉ so phần thật sự là hợp đồng — tập (path × method), tập status code, và required field.
 /// </summary>
 [Trait("Category", "Contract")]
-public sealed class IdentityContractTests(WebApplicationFactory<Program> factory)
-    : IClassFixture<WebApplicationFactory<Program>>
+public sealed class IdentityContractTests(ApiFactory factory)
+    : IClassFixture<ApiFactory>
 {
     /// <summary>Contract dùng path tương đối với server URL; Swagger runtime dùng path tuyệt đối.</summary>
     private const string BasePath = "/api/v1";
@@ -50,16 +50,9 @@ public sealed class IdentityContractTests(WebApplicationFactory<Program> factory
 
     private async Task<OpenApiDocument> ReadRuntimeSwaggerAsync()
     {
-        // Swagger chỉ bật ở Development + Staging (TẮT ở Production — AGENTS.md Mục 9), nên phải
-        // nói rõ môi trường thay vì dựa vào mặc định của WebApplicationFactory.
-        //
-        // Chọn Development chứ không phải Staging: từ khi Program.cs fail-fast khi thiếu chuỗi kết
-        // nối, Staging trong test sẽ chết ngay lúc khởi động (đúng như thiết kế — xem
-        // StartupConfigurationTests). Development đọc appsettings.Development.json nên có cấu hình
-        // thật, và Swagger vẫn bật.
-        var client = factory
-            .WithWebHostBuilder(b => b.UseEnvironment("Development"))
-            .CreateClient();
+        // Môi trường (Development, vì Swagger TẮT ở Production — AGENTS.md Mục 9) và chuỗi kết nối
+        // tường minh đều do ApiFactory khai, nên test này chạy được trên CI không có deploy/.env.
+        var client = factory.CreateClient();
 
         var json = await client.GetStringAsync($"/swagger/{IdentityApiGroup.Name}/swagger.json");
         var doc = new OpenApiStringReader().Read(json, out var diagnostic);
