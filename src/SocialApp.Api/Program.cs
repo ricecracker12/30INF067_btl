@@ -9,8 +9,8 @@ using SocialApp.Modules.Identity.Presentation;
 using SocialApp.SharedKernel.DependencyInjection;
 
 // Service `migrate` (one-shot, chạy ở bước deploy) gọi với cờ --migrate: apply EF migration cho
-// mọi module context rồi thoát 0. Lọc cờ khỏi args vì CommandLine config provider không hiểu cờ
-// không có giá trị.
+// mọi module context, nạp dữ liệu nền + kiểm tra vai trò hệ thống, rồi thoát 0 (lỗi thì thoát khác 0).
+// Lọc cờ khỏi args vì CommandLine config provider không hiểu cờ không có giá trị.
 var isMigrate = args.Contains("--migrate");
 var hostArgs = args.Where(a => a != "--migrate").ToArray();
 
@@ -101,10 +101,12 @@ builder.Services.AddHealthChecks()
 var app = builder.Build();
 
 // Thoát ngay sau khi migrate: container `migrate` không phục vụ request nào.
+// KHÔNG bọc try/catch: lỗi migration hay thiếu vai trò hệ thống phải làm process thoát khác 0, để
+// `set -e` ở CD dừng lại TRƯỚC `up -d` thay vì bật api trên dữ liệu nền hỏng.
 if (isMigrate)
 {
     await app.Services.MigrateIdentityModuleAsync();
-    Console.WriteLine($"[migrate] Đã áp dụng migration cho schema \"{IdentityModuleExtensions.Schema}\". Thoát 0.");
+    Console.WriteLine($"[migrate] Đã áp dụng migration, nạp dữ liệu nền và kiểm tra vai trò hệ thống cho schema \"{IdentityModuleExtensions.Schema}\". Thoát 0.");
     return;
 }
 

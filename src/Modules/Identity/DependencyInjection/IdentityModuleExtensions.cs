@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using SocialApp.Modules.Identity.Infrastructure;
+using SocialApp.Modules.Identity.Infrastructure.Seed;
 
 namespace SocialApp.Modules.Identity.DependencyInjection;
 
@@ -26,12 +27,17 @@ public static class IdentityModuleExtensions
 
     /// <summary>
     /// Chạy ở hook <c>--migrate</c> (service `migrate` one-shot lúc deploy), KHÔNG chạy khi api khởi động.
-    /// GĐ1 khối A nối thêm vào đây: seeder idempotent → kiểm tra vai trò hệ thống (Mục 5.5).
+    /// Đúng thứ tự: apply migration → seed dữ liệu nền → kiểm tra vai trò hệ thống (Mục 5.4, 5.5).
+    /// Migrate trước, seed sau — đảo lại thì seed vào bảng chưa tồn tại và chết bằng lỗi Postgres thô.
+    ///
+    /// Ngoại lệ PHẢI thoát ra ngoài, người gọi không được bọc try/catch: thiếu vai trò hệ thống thì bước
+    /// deploy phải đỏ, không được chạy tiếp trên dữ liệu nền hỏng.
     /// </summary>
     public static async Task MigrateIdentityModuleAsync(this IServiceProvider services, CancellationToken ct = default)
     {
         await using var scope = services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<IdentityDbContext>();
         await db.Database.MigrateAsync(ct);
+        await IdentitySeeder.SeedAsync(db, ct);   // seed + kiểm tra vai trò hệ thống (A4, A5)
     }
 }
