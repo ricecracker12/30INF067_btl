@@ -55,9 +55,10 @@ public sealed class PersistenceBoundaryTests
     /// <summary>
     /// Canh gác chống "lưới giả": rule ở trên dùng WithoutRequiringPositiveResults nên nếu gõ sai
     /// namespace, nó KHÔNG khớp type nào và xanh vĩnh viễn. Test này bắt đúng chuyện đó.
-    /// Đang Skip vì Domain/ còn rỗng — GỠ SKIP ngay khi khối A tạo entity đầu tiên.
+    /// Đã gỡ Skip ở A1/A7 (GĐ1 khối A) khi Modules/Identity/Domain có entity đầu tiên — từ đây rule
+    /// persistence chạy trên tập type có thật.
     /// </summary>
-    [Fact(Skip = "Gỡ Skip khi khối A GĐ1 tạo entity đầu tiên trong Modules/Identity/Domain")]
+    [Fact]
     public void Identity_Domain_namespace_must_not_be_empty()
     {
         var types = Architecture.Types
