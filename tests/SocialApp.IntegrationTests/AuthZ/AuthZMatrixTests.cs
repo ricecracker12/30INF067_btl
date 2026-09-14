@@ -8,7 +8,7 @@ namespace SocialApp.IntegrationTests.AuthZ;
 /// KHUNG của AuthZ matrix — chạy từng dòng của <see cref="AuthZMatrix.Cases"/> trên app thật + Postgres thật
 /// đã migrate + seed (Đ3: không stub nguồn quyền). Không ai sửa file này để thêm dòng.
 /// </summary>
-[Trait("Category", "AuthZZ")]
+[Trait("Category", "AuthZ")]
 [Collection(PostgresCollection.Name)]
 public sealed class AuthZMatrixTests(PostgresFixture postgres, AuthZApiFactory factory)
     : IClassFixture<AuthZApiFactory>, IAsyncLifetime
