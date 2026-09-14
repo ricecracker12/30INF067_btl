@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Npgsql;
 using SocialApp.IntegrationTests.Harness;
 using SocialApp.Modules.Identity.DependencyInjection;
 using SocialApp.Modules.Identity.Infrastructure;
@@ -130,6 +131,30 @@ public sealed class IdentitySeederTests(PostgresFixture postgres) : IAsyncLifeti
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(SeedAsync);
 
         Assert.StartsWith("Thiếu vai trò hệ thống: ADMIN.", ex.Message);
+    }
+
+    /// <summary>
+    /// FK-01 (Mục 10.1): xóa vai trò đang có người dùng bị DB từ chối. IdentityDbContextSchemaTests đã khóa
+    /// delete_rule = RESTRICT ở tầng schema; test này khóa HÀNH VI — biện pháp #1 thay cho is_system (Mục 3.4).
+    ///
+    /// So SqlState, không so message: message của Postgres đổi theo locale và version, 23503 thì không.
+    /// </summary>
+    [Fact]
+    public async Task FK_01_xoa_vai_tro_dang_co_nguoi_dung_bi_tu_choi()
+    {
+        await SeedAsync();
+        await ExecuteAsync($"""
+            insert into identity.users (user_id, email, password_hash, role_id)
+            values ({Guid.NewGuid()}, 'fk01@test.local', 'khong-phai-hash-that', 1)
+            """);
+
+        var ex = await Assert.ThrowsAsync<PostgresException>(
+            () => ExecuteAsync($"delete from identity.roles where role_id = 1"));
+
+        Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, ex.SqlState);   // 23503
+
+        var (roles, _, _) = await ReadSeedDataAsync();
+        Assert.Contains("1|USER|Người dùng", roles);
     }
 
     private async Task SeedAsync()
