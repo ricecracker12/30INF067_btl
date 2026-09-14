@@ -27,6 +27,10 @@ public static class AuthorizationExtensions
         // Identity đăng ký ở C5). TryAdd TimeProvider để test thay được đồng hồ.
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton<IPermissionCache, PermissionCache>();
+
+        // C2: handler của PermissionRequirement — Admin short-circuit + tra cache. Không có handler thì mọi
+        // [RequirePermission] đều 403 kể cả Admin (cột "Sau C4" của bảng B3).
+        services.AddSingleton<IAuthorizationHandler, PermissionHandler>();
         return services;
     }
 }
