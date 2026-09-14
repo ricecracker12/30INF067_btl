@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using SocialApp.Modules.Identity.Infrastructure;
+using SocialApp.Modules.Identity.Infrastructure.Authorization;
 using SocialApp.Modules.Identity.Infrastructure.Seed;
+using SocialApp.SharedKernel.Authorization;
 
 namespace SocialApp.Modules.Identity.DependencyInjection;
 
@@ -21,9 +23,15 @@ public static class IdentityModuleExtensions
     // HTTP, thuộc tầng sở hữu HTTP. Bề mặt DI chỉ nói về việc ráp dịch vụ.
 
     public static IServiceCollection AddIdentityModule(this IServiceCollection services, string connectionString)
+    {
         // Cấu hình Npgsql + bảng lịch sử migration nằm ở IdentityDbContextOptions — dùng chung với
         // design-time factory để hai đường không lệch nhau.
-        => services.AddDbContext<IdentityDbContext>(options => options.UseIdentityNpgsql(connectionString));
+        services.AddDbContext<IdentityDbContext>(options => options.UseIdentityNpgsql(connectionString));
+
+        // Nguồn thật của ma trận quyền cho tầng 2 (C5): đọc role_permissions. SharedKernel chỉ biết interface.
+        services.AddScoped<IRolePermissionSource, RolePermissionSource>();
+        return services;
+    }
 
     /// <summary>
     /// Chạy ở hook <c>--migrate</c> (service `migrate` one-shot lúc deploy), KHÔNG chạy khi api khởi động.

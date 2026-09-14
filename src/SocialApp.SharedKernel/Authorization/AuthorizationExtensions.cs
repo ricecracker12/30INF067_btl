@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace SocialApp.SharedKernel.Authorization;
 
@@ -21,6 +22,11 @@ public static class AuthorizationExtensions
         // Provider PHẢI rơi về DefaultAuthorizationPolicyProvider cho fallback policy ở trên — xem
         // PermissionPolicyProvider. Dòng DEFAULT-DENY của AuthZ matrix bắt chuyện đó ở tầng HTTP.
         services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
+
+        // C3: cache vai trò → tập quyền (TTL 60s). Singleton, tự mở scope để gọi IRolePermissionSource (scoped,
+        // Identity đăng ký ở C5). TryAdd TimeProvider để test thay được đồng hồ.
+        services.TryAddSingleton(TimeProvider.System);
+        services.AddSingleton<IPermissionCache, PermissionCache>();
         return services;
     }
 }
