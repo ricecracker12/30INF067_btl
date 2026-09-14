@@ -45,7 +45,15 @@ path-based (`/api`,`/swagger`,`/health` → API; `/` để dành cho Next.js sau
 (`run --rm migrate` → `up -d --remove-orphans`). Script deploy có `set -e` nên deploy hỏng thì
 CD báo **đỏ** — tránh lặp lại sự cố CD báo xanh trong khi staging đã sập.
 
-Bước tiếp theo: **GĐ1 — Identity & Access** (đăng ký/verify email, JWT + refresh rotation, RBAC 3 tầng).
+**GĐ1 — Identity & Access: đang làm** (`docs/giai-doan-1.md`).
+- **Xong:** khối A (schema `identity`, seeder idempotent, kiểm tra vai trò hệ thống lúc khởi động),
+  khối B (harness Testcontainers dùng chung, AuthZ matrix data-driven làm cổng CI chặn thật) và khối C
+  (JwtBearer + default deny, `[RequirePermission]` đọc quyền từ `role_permissions` với cache 60 s, Admin
+  short-circuit ở tầng 2, khuôn ownership tầng 3 `Result.Forbidden()`).
+- **Tiếp theo:** khối D — 6 endpoint auth + refresh rotation + thu hồi token; khối E (frontend) chạy song song.
+- **Cấu hình mới bắt buộc:** `Jwt__SigningKey` (≥ 32 byte, `openssl rand -base64 48`) trong `deploy/.env`
+  ở máy dev và `.env` trên staging — thiếu thì api/migrate từ chối khởi động.
+
 Lộ trình đầy đủ GĐ0→GĐ8: xem `docs/ke-hoach-trien-khai.md`.
 
 ## Tài liệu (trong repo)

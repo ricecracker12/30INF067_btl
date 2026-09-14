@@ -1,14 +1,15 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using SocialApp.IntegrationTests.Harness;
 using SocialApp.Modules.Identity.DependencyInjection;
 using SocialApp.Modules.Identity.Infrastructure;
-using Testcontainers.PostgreSql;
 using Xunit;
 
 namespace SocialApp.IntegrationTests;
 
 /// <summary>
-/// Harness Postgres thật (Mục 10.1) — khối B GĐ1 xây tiếp AC-01→AC-04 và AuthZ matrix trên khuôn này.
+/// Test schema trên Postgres thật (Mục 10.1), chạy trên harness dùng chung <see cref="PostgresFixture"/> —
+/// AC-01→AC-04 và AuthZ matrix cũng dựng trên fixture đó. Mỗi test một database mới, chưa migrate.
 ///
 /// Hai việc test này làm:
 /// 1. Khoá hành vi tách schema của <see cref="IdentityDbContext"/> (Nợ 2, Mục 9.0). Trước đó chỉ
@@ -17,21 +18,14 @@ namespace SocialApp.IntegrationTests;
 ///    Đây là lý do test này cần được đẩy lên CI ở PR ĐẦU TIÊN của GĐ1 — GOAL-03 yêu cầu AuthZ
 ///    matrix làm cổng chặn merge, mà cổng đó chỉ đứng được nếu Testcontainers chạy trên runner.
 /// </summary>
-public sealed class IdentityDbContextSchemaTests : IAsyncLifetime
+[Collection(PostgresCollection.Name)]
+public sealed class IdentityDbContextSchemaTests(PostgresFixture postgres)
 {
-    private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder()
-        .WithImage("postgres:16-alpine")
-        .Build();
-
-    public Task InitializeAsync() => _postgres.StartAsync();
-
-    public Task DisposeAsync() => _postgres.DisposeAsync().AsTask();
-
     [Fact]
     public async Task Migrate_dat_bang_lich_su_vao_schema_identity()
     {
         var services = new ServiceCollection()
-            .AddIdentityModule(_postgres.GetConnectionString())
+            .AddIdentityModule(await postgres.CreateDatabaseAsync())
             .BuildServiceProvider();
 
         await services.MigrateIdentityModuleAsync();
@@ -60,7 +54,7 @@ public sealed class IdentityDbContextSchemaTests : IAsyncLifetime
     public async Task Migrate_tao_du_bang_va_rang_buoc_cua_Muc_4()
     {
         var services = new ServiceCollection()
-            .AddIdentityModule(_postgres.GetConnectionString())
+            .AddIdentityModule(await postgres.CreateDatabaseAsync())
             .BuildServiceProvider();
 
         await services.MigrateIdentityModuleAsync();

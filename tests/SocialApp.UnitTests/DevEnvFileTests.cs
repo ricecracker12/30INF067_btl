@@ -60,6 +60,25 @@ public sealed class DevEnvFileTests : IDisposable
     }
 
     [Fact]
+    public void Doc_duoc_khoa_ky_JWT_cung_co_che_voi_mat_khau()
+    {
+        WriteEnv("POSTGRES_PASSWORD=x\nJwt__SigningKey_OLD=cu\nJwt__SigningKey=\"khoa+/co=dau\"\n");
+
+        Assert.Equal("khoa+/co=dau", DevEnvFile.LocalJwtSigningKey(_project));
+    }
+
+    [Theory]
+    [InlineData(null)]                  // chưa tạo deploy/.env
+    [InlineData("Jwt__SigningKey=\n")]  // chép .env.example mà chưa điền
+    public void Thieu_khoa_ky_JWT_thi_tra_null_de_Program_tu_choi(string? envContent)
+    {
+        if (envContent is not null)
+            WriteEnv(envContent);
+
+        Assert.Null(DevEnvFile.LocalJwtSigningKey(_project));
+    }
+
+    [Fact]
     public void Khong_tim_lan_ra_ngoai_repo()
     {
         // Thư mục không nằm dưới repo nào (không có deploy/.env.example ở tổ tiên) — kể cả khi repo bên cạnh

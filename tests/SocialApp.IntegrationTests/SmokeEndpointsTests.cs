@@ -21,6 +21,18 @@ public sealed class SmokeEndpointsTests(ApiFactory factory)
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
+    /// <summary>
+    /// /health/ready phải công khai. ApiFactory trỏ Postgres/Redis vào cổng không có gì nên kỳ vọng 503 —
+    /// nhận 401 nghĩa là fallback policy đang chặn healthcheck, và container staging sẽ bị báo unhealthy.
+    /// Có thể mất vài giây vì client Redis chờ timeout kết nối.
+    /// </summary>
+    [Fact]
+    public async Task Health_ready_khong_can_token()
+    {
+        var response = await Client.GetAsync("/health/ready");
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+    }
+
     [Fact]
     public async Task Ping_returns_pong_with_traceId()
     {

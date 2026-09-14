@@ -1,3 +1,5 @@
+using SocialApp.SharedKernel.Authorization;
+
 namespace SocialApp.Modules.Identity.Domain;
 
 /// <summary>
@@ -20,8 +22,11 @@ public static class RoleCodes
     /// Quản trị viên. CỐ Ý không có dòng <c>role_permissions</c> nào (quyết định 3.2): mọi quyền
     /// đến từ short-circuit ở tầng 2. Đây cũng là lý do A5 phải tồn tại — mất mã này là mất sạch
     /// quyền quản trị mà không có gì để rơi về.
+    ///
+    /// Trỏ về <see cref="SystemRoles.Admin"/> (Đ1): chuỗi "ADMIN" chỉ được gõ một lần trong repo, nên A5 và
+    /// short-circuit không thể lệch nhau.
     /// </summary>
-    public const string Admin = "ADMIN";
+    public const string Admin = SystemRoles.Admin;
 
     /// <summary>Ba mã vai trò được seed ở GĐ1 (Mục 5.1). A5 đối chiếu bảng <c>roles</c> với danh sách này.</summary>
     public static readonly string[] All = [User, Moderator, Admin];

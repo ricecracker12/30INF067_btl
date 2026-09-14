@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SocialApp.SharedKernel.Errors;
 
@@ -6,7 +7,9 @@ namespace SocialApp.Api.Controllers;
 /// <summary>
 /// Endpoint mẫu của Walking Skeleton (GĐ0): đi hết pipeline (routing → rate limit → controller →
 /// JSON). Kèm 2 endpoint demo để kiểm chứng RFC 7807 (lỗi nghiệp vụ và lỗi không mong muốn).
+/// Công khai tường minh: từ C4 fallback policy chặn mọi endpoint không khai gì.
 /// </summary>
+[AllowAnonymous]
 [ApiController]
 [Route("api/v1/ping")]
 [ApiExplorerSettings(GroupName = ApiGroup)]

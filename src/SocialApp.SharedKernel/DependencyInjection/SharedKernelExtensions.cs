@@ -1,8 +1,10 @@
+using System.Security.Claims;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.DependencyInjection;
+using SocialApp.SharedKernel.Authentication;
 using SocialApp.SharedKernel.Errors;
 using SocialApp.SharedKernel.Http;
 
@@ -42,7 +44,7 @@ public static class SharedKernelExtensions
             // Mặc định toàn cục: 100 req/phút, phân vùng theo user (nếu đã đăng nhập) hoặc IP.
             options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(ctx =>
                 RateLimitPartition.GetFixedWindowLimiter(
-                    PartitionKey(ctx),
+                    RateLimitPartitionKey(ctx),
                     _ => new FixedWindowRateLimiterOptions
                     {
                         PermitLimit = 100,
@@ -66,21 +68,26 @@ public static class SharedKernelExtensions
     }
 
     /// <summary>
-    /// Phần pipeline phải chạy SỚM NHẤT, trước mọi thứ khác: correlation ID rồi exception handler.
-    /// Rate limiter KHÔNG nằm ở đây — xem <see cref="UseSharedKernelRateLimiter"/>.
+    /// Phần pipeline phải chạy SỚM NHẤT, trước mọi thứ khác: correlation ID rồi exception handler, rồi
+    /// status code pages. Rate limiter KHÔNG nằm ở đây — xem <see cref="UseSharedKernelRateLimiter"/>.
     /// </summary>
     public static IApplicationBuilder UseSharedKernel(this IApplicationBuilder app)
     {
         // Correlation ID chạy sớm nhất để mọi log (kể cả khi xử lý exception) đều có nó.
         app.UseMiddleware<CorrelationIdMiddleware>();
         app.UseExceptionHandler();
+
+        // 401 của JwtBearer và 403 của authorization có BODY RỖNG. Đã AddProblemDetails nên middleware này
+        // sinh ProblemDetails (kèm traceId qua CustomizeProblemDetails) cho mọi response 4xx/5xx chưa có body
+        // — AGENTS.md Mục 9. AuthZ matrix khẳng định problem+json cho mọi dòng 401/403.
+        app.UseStatusCodePages();
         return app;
     }
 
     /// <summary>
-    /// Bật rate limiter. <b>PHẢI gọi SAU <c>UseAuthentication()</c></b> (GĐ1 thêm tầng 1 AuthN).
+    /// Bật rate limiter. <b>PHẢI gọi SAU <c>UseAuthentication()</c></b>.
     ///
-    /// Lý do: <see cref="PartitionKey"/> phân vùng theo user khi đã đăng nhập, chỉ rơi về IP khi
+    /// Lý do: <see cref="RateLimitPartitionKey"/> phân vùng theo user khi đã đăng nhập, chỉ rơi về IP khi
     /// chưa. Đặt limiter trước UseAuthentication thì <c>ctx.User</c> luôn rỗng ở thời điểm limiter
     /// chạy → mọi request đều bị phân vùng theo IP. Hỏng câm: không exception, không log, chỉ là
     /// nhiều user sau cùng một NAT/proxy ăn chung hạn mức 100 req/phút của nhau. Không test tự động
@@ -97,8 +104,13 @@ public static class SharedKernelExtensions
         return app;
     }
 
-    private static string PartitionKey(HttpContext ctx) =>
-        ctx.User.Identity?.IsAuthenticated == true
-            ? $"user:{ctx.User.Identity.Name}"
+    /// <summary>
+    /// Khóa phân vùng rate limit: đã đăng nhập → theo claim sub; chưa → theo IP.
+    /// Đọc THẲNG claim sub, không qua Identity.Name: Name phụ thuộc NameClaimType của JwtBearer, quên cấu
+    /// hình là mọi user chung một hạn mức mà không có lỗi nào (RateLimitPartitionKeyTests).
+    /// </summary>
+    public static string RateLimitPartitionKey(HttpContext ctx) =>
+        ctx.User.Identity?.IsAuthenticated == true && ctx.User.FindFirstValue(JwtClaims.Sub) is { } sub
+            ? $"user:{sub}"
             : $"ip:{ctx.Connection.RemoteIpAddress?.ToString() ?? "anon"}";
 }

@@ -1,9 +1,9 @@
 namespace SocialApp.SharedKernel.Configuration;
 
 /// <summary>
-/// Đọc cấu hình dev từ <c>deploy/.env</c> — nguồn DUY NHẤT của mật khẩu Postgres ở máy dev: compose dev
-/// đọc cùng file để dựng container, nên code chạy trên máy host (<c>dotnet run</c>, <c>dotnet ef</c>) cũng
-/// đọc từ đây thay vì giữ một bản sao ghi cứng trong repo.
+/// Đọc cấu hình dev từ <c>deploy/.env</c> — nguồn DUY NHẤT của bí mật ở máy dev (mật khẩu Postgres, khóa ký
+/// JWT): compose dev đọc cùng file để dựng container, nên code chạy trên máy host (<c>dotnet run</c>,
+/// <c>dotnet ef</c>) cũng đọc từ đây thay vì giữ một bản sao ghi cứng trong repo.
 ///
 /// Chỉ dùng cho đường chạy ở máy dev: fallback Development của Program.cs và design-time factory của EF.
 /// Container, staging và test luôn nhận chuỗi kết nối tường minh (biến môi trường, <c>ApiFactory</c>,
@@ -31,6 +31,16 @@ public static class DevEnvFile
 
         return $"Host=localhost;Port=5432;Database=socialapp;Username=socialapp;Password={password}";
     }
+
+    /// <summary>Tên biến khóa ký JWT trong <c>deploy/.env</c> — trùng tên biến môi trường container đọc.</summary>
+    public const string JwtSigningKeyVariable = "Jwt__SigningKey";
+
+    /// <summary>
+    /// Khóa ký JWT cho đường chạy dev trên máy host, đọc <c>Jwt__SigningKey</c> trong <c>deploy/.env</c>. Trả
+    /// <c>null</c> khi thiếu — KHÔNG ném ở đây: Program.cs gộp "thiếu" và "quá ngắn" vào cùng một kiểm tra
+    /// JwtOptions, một thông báo nêu đúng chỗ sửa. Không có khóa mặc định.
+    /// </summary>
+    public static string? LocalJwtSigningKey(string startDirectory) => FindValue(JwtSigningKeyVariable, startDirectory);
 
     /// <summary>
     /// Đi ngược từ <paramref name="startDirectory"/> lên tới thư mục gốc repo — nhận ra nhờ file đã commit

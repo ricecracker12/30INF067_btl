@@ -44,6 +44,9 @@ services:
       ASPNETCORE_URLS: "http://+:8080"
       ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=socialapp;Username=socialapp;Password=${POSTGRES_PASSWORD:?Đặt POSTGRES_PASSWORD trong deploy/.env (chép từ deploy/.env.example)}"
       ConnectionStrings__Redis: "redis:6379"
+      # Khóa ký JWT (C4): thiếu thì api từ chối khởi động. Cùng deploy/.env, cùng tinh thần POSTGRES_PASSWORD.
+      # Issuer/Audience lấy từ appsettings.json trong image.
+      Jwt__SigningKey: "${Jwt__SigningKey:?Đặt Jwt__SigningKey trong deploy/.env (openssl rand -base64 48)}"
     ports: ["8080:8080"]
     depends_on:
       postgres: { condition: service_healthy }

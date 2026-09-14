@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Hosting;
+using SocialApp.IntegrationTests.Harness;
 using Xunit;
 
 namespace SocialApp.IntegrationTests;
@@ -76,16 +77,78 @@ public sealed class StartupConfigurationTests
     }
 
     /// <summary>
-    /// Mặt còn lại: khai chuỗi kết nối tường minh thì Development dựng được app mà không cần
+    /// Mặt còn lại: khai chuỗi kết nối và JWT tường minh thì Development dựng được app mà không cần
     /// <c>deploy/.env</c>. Đây chính là đường CI đi (ApiFactory) — mất tính chất này thì cổng hợp đồng API đỏ
     /// trên CI dù hợp đồng khớp.
     /// </summary>
     [Fact]
-    public void Development_boots_without_deploy_env_when_connection_strings_are_explicit()
+    public void Development_boots_without_deploy_env_when_connection_strings_and_jwt_are_explicit()
     {
         using var factory = new ApiFactory();
 
         using var client = factory.CreateClient();
         Assert.NotNull(client);
+    }
+
+    /// <summary>
+    /// C4: thiếu khóa ký JWT, hoặc khóa ngắn hơn 32 byte (HS256 cần ≥ 256 bit), thì app từ chối khởi động —
+    /// không có khóa mặc định. Chuỗi kết nối khai hợp lệ để chắc chắn app chết vì JWT chứ không vì DB.
+    /// </summary>
+    [Theory]
+    [InlineData("Staging", "")]
+    [InlineData("Production", "")]
+    [InlineData("Staging", "0123456789abcdef")]   // 16 byte
+    public void Missing_or_short_jwt_signing_key_must_fail_fast(string environment, string signingKey)
+    {
+        using var factory = new WebApplicationFactory<Program>()
+            .WithWebHostBuilder(b =>
+            {
+                b.UseEnvironment(environment);
+                b.UseSetting("ConnectionStrings:Postgres", ApiFactory.UnreachablePostgres);
+                b.UseSetting("ConnectionStrings:Redis", ApiFactory.UnreachableRedis);
+                b.UseSetting("Jwt:SigningKey", signingKey);
+                b.UseSetting("Jwt:Issuer", TestJwt.Issuer);
+                b.UseSetting("Jwt:Audience", TestJwt.Audience);
+            });
+
+        var ex = Assert.Throws<InvalidOperationException>(() => factory.CreateClient());
+
+        Assert.Contains("Jwt:SigningKey", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("Jwt__SigningKey", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("deploy/.env", ex.Message, StringComparison.Ordinal);
+        Assert.Contains(environment, ex.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Development cũng không có khóa mặc định: không đặt Jwt:SigningKey và không có deploy/.env thì chết ngay.
+    /// Content root ngoài repo để kết quả không phụ thuộc deploy/.env trên máy người chạy.
+    /// </summary>
+    [Fact]
+    public void Development_without_jwt_signing_key_must_fail_fast_pointing_to_deploy_env()
+    {
+        var outsideRepo = Directory.CreateTempSubdirectory("startup-no-jwt-").FullName;
+        try
+        {
+            using var factory = new WebApplicationFactory<Program>()
+                .WithWebHostBuilder(b =>
+                {
+                    b.UseEnvironment(Environments.Development);
+                    b.UseContentRoot(outsideRepo);
+                    b.UseSetting("ConnectionStrings:Postgres", ApiFactory.UnreachablePostgres);
+                    b.UseSetting("ConnectionStrings:Redis", ApiFactory.UnreachableRedis);
+                    b.UseSetting("Jwt:SigningKey", string.Empty);
+                    b.UseSetting("Jwt:Issuer", TestJwt.Issuer);
+                    b.UseSetting("Jwt:Audience", TestJwt.Audience);
+                });
+
+            var ex = Assert.Throws<InvalidOperationException>(() => factory.CreateClient());
+
+            Assert.Contains("Jwt__SigningKey", ex.Message, StringComparison.Ordinal);
+            Assert.Contains("deploy/.env", ex.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(outsideRepo, recursive: true);
+        }
     }
 }

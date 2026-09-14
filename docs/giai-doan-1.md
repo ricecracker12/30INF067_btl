@@ -237,7 +237,7 @@ trong lập trình: `a` đúng rồi thì không cần tính `b` nữa.
 ```csharp
 var role = ctx.User.FindFirstValue("role");   // luôn là chuỗi, với MỌI vai trò
 
-if (role == RoleCodes.Admin) { ctx.Succeed(req); return; }   // "ADMIN"    → đi lối tắt
+if (role == SystemRoles.Admin) { ctx.Succeed(req); return; } // "ADMIN"    → đi lối tắt
 var granted = await _permissionCache.GetAsync(role);         // "USER", "MODERATOR" → tra bảng
 if (granted.Contains(req.Permission)) ctx.Succeed(req);
 ```
@@ -264,7 +264,7 @@ Admin cả.
 Viết đúng chỗ (tầng 2 — "vai trò này có được làm *loại* hành động này không"):
 
 ```csharp
-if (role == RoleCodes.Admin) { ctx.Succeed(req); return; }   // ✅ trong PermissionHandler
+if (role == SystemRoles.Admin) { ctx.Succeed(req); return; } // ✅ trong PermissionHandler
 ```
 
 Viết nhầm chỗ (tầng 3 — "có được thao tác trên *đúng tài nguyên NÀY* không"):
@@ -689,6 +689,16 @@ options.FallbackPolicy = new AuthorizationPolicyBuilder()
     .Build();
 ```
 
+**Hai hệ quả của fallback policy và JwtBearer — chốt khi lập kế hoạch khối C:**
+
+- **Claim giữ đúng tên ngắn.** JwtBearer mặc định đổi `role` thành URI của `ClaimTypes.Role`; khi đó
+  `FindFirstValue("role")` ra `null` và tầng 2 chặn cả Admin. Cấu hình bắt buộc: `MapInboundClaims = false`,
+  `NameClaimType = "sub"`, `RoleClaimType = "role"`. Rate limiter phân vùng theo **claim `sub`** đọc thẳng,
+  không qua `Identity.Name` — để quên `NameClaimType` cũng không làm mọi user chung một hạn mức.
+- **Fallback policy áp cho mọi request mà middleware authorization nhìn thấy**, kể cả request do middleware
+  đứng sau phục vụ. Swagger không phải endpoint, nên phải đứng **trước** `UseAuthentication()` — nếu không
+  `swagger.json` trả 401 và cổng hợp đồng API đỏ. Health check và `/ping` khai `AllowAnonymous`.
+
 ### 6.2 Tầng 2 — RBAC (`[RequirePermission]`)
 
 Đặt trong **SharedKernel**, viết một lần, mọi module dùng chung. ArchUnitNET đã chặn tham chiếu
@@ -712,10 +722,10 @@ public sealed class PermissionHandler : AuthorizationHandler<PermissionRequireme
     protected override async Task HandleRequirementAsync(
         AuthorizationHandlerContext ctx, PermissionRequirement req)
     {
-        var role = ctx.User.FindFirstValue("role");
+        var role = ctx.User.FindFirstValue(JwtClaims.Role);         // "role"
         if (role is null) return;                                   // tầng 1 chưa qua -> deny
 
-        if (role == RoleCodes.Admin) { ctx.Succeed(req); return; }  // short-circuit (Mục 3.2)
+        if (role == SystemRoles.Admin) { ctx.Succeed(req); return; }  // short-circuit (Mục 3.2)
 
         var granted = await _permissionCache.GetAsync(role);        // đọc DB, cache TTL 60s
         if (granted.Contains(req.Permission)) ctx.Succeed(req);
@@ -732,6 +742,17 @@ Cách dùng ở mọi module về sau:
 public async Task<IActionResult> Hide(Guid id) { ... }
 ```
 
+> **Hai nhóm hằng số nằm ở SharedKernel, không ở Identity** — chốt khi lập kế hoạch khối C:
+>
+> - **`SystemRoles.Admin`.** Handler ở SharedKernel không tham chiếu được `RoleCodes` của Identity. Identity
+>   khai `RoleCodes.Admin = SystemRoles.Admin`, nên chuỗi `"ADMIN"` chỉ gõ **một lần** trong repo và kiểm tra
+>   khởi động (Mục 5.5) với short-circuit không thể lệch nhau. Chỉ `ADMIN` sang SharedKernel — danh sách vai
+>   trò vẫn thuộc Identity. Đã loại: gõ lại chuỗi trong handler (hai nguồn sự thật); chuyển cả `RoleCodes`
+>   (SharedKernel biết kiến thức của Identity); cấu hình vai trò short-circuit qua options (bất biến thành cấu hình).
+> - **`JwtClaims` + `JwtOptions`.** Từ GĐ2 mọi module đọc claim `sub` để kiểm ownership mà không được tham
+>   chiếu Identity — tên claim chỉ có một chỗ hợp lệ. `Jwt:AccessTokenSeconds` là nguồn **duy nhất** cho TTL
+>   access token (D3) và TTL `revoked:user` (D8, Mục 7.5).
+
 ### 6.3 Tầng 3 — Ownership / quan hệ
 
 GĐ1 gần như chưa có tài nguyên nào để sở hữu, **nhưng phải đặt khuôn ngay**, vì GĐ2 cần nó lập
@@ -742,9 +763,24 @@ Quy ước bắt buộc:
 
 1. Kiểm tra ownership nằm ở **tầng service**, không ở controller, không ở attribute — vì nó cần
    truy vấn dữ liệu thật.
-2. Service trả `Result.Forbidden(...)`; middleware SharedKernel map sang **403 RFC 7807**.
-   Không ném exception cho luồng nghiệp vụ bình thường.
+2. Service trả `Result.Forbidden()`; controller chuyển sang HTTP bằng `result.ToActionResult(this)` ở
+   SharedKernel → **403 RFC 7807**. Không ném exception cho luồng nghiệp vụ bình thường.
+   *Không phải middleware:* `Result` không phải exception nên middleware không thấy nó. *Không phải
+   filter tự bắt `Result<T>`:* Swagger sẽ sinh schema `Result<T>` thay DTO và cổng hợp đồng đỏ.
 3. Thông điệp lỗi 403 **không được tiết lộ tài nguyên có tồn tại hay không**.
+
+   **3b. Status code cũng không được tiết lộ.** "Không tồn tại" và "không được phép thấy" trả **cùng
+   một** phản hồi — một cái 404 một cái 403 thì giấu thông điệp là vô ích. Mã nào tùy loại endpoint:
+
+   | Loại endpoint | Cả hai trường hợp trả | Ví dụ |
+   |---|---|---|
+   | Ghi / thao tác cần ownership hoặc membership | **403** | TC-A03 `PATCH /posts/{id}`, TC-A04, TC-A06 |
+   | Đọc nội dung có mức hiển thị (BR-02) | **404** | `GET /posts/{id}` bài friends-only với người lạ |
+
+   Không thể một mã cho tất cả: `GET /posts/{id}` phục vụ cả bài public nên bài không tồn tại trả 404 là tự
+   nhiên; còn Mục 10.2 đã chốt 403 cho TC-A03/A04/A06. Mỗi endpoint chọn khi viết, ghi vào file hợp đồng
+   yaml, có dòng matrix tương ứng. Đã cân nhắc và loại "404 cho mọi thứ": giấu tốt nhất nhưng phải mở lại
+   TC-A03/A04/A06 vốn khớp báo cáo.
 4. **Mỗi endpoint chạm tới tài nguyên có chủ sở hữu phải có một dòng tương ứng trong bảng
    AuthZ matrix** (Mục 10.2). Không có dòng test thì coi như endpoint chưa xong.
 
@@ -1260,7 +1296,8 @@ Khối **D (endpoint)** ghép sau khi A và C xong.
 - **BE — khối A:** 6 entity + `IEntityTypeConfiguration` + migration đầu + seeder + kiểm tra vai
   trò hệ thống + nối hook `--migrate`.
 - **BE — khối C:** `RequirePermissionAttribute` + policy provider + `PermissionHandler` +
-  `IPermissionCache` (dùng stub repository, nối repo thật ở Ngày 4) + JwtBearer + fallback policy.
+  `IPermissionCache` + JwtBearer + fallback policy. *(Bản đầu dùng stub repository tới Ngày 4; khối A
+  xong sớm nên nối nguồn quyền thật ngay — xem B.2, chú thích ·.)*
 - **BE — khối B:** bảng AuthZ matrix data-driven, viết TC-A01/A02/RBAC-01/RBAC-02 **cho đỏ trước**.
 - **FE — khối E:** scaffold Next.js 14 App Router · design token + primitive · sinh type từ
   OpenAPI stub · api client bọc `fetch` với `credentials: 'include'` · mock MSW.
@@ -1344,9 +1381,13 @@ Dựng dạng **data-driven** ngay từ bây giờ: một bảng dữ liệu, m�
 | Mã | Tình huống | Kỳ vọng | Thêm ở |
 |---|---|---|---|
 | TC-A01 | Gọi endpoint bảo vệ, không kèm JWT | 401 | **GĐ1** |
-| TC-A02 | Token hết hạn hoặc sai chữ ký | 401 | **GĐ1** |
+| TC-A02 | Token hết hạn hoặc sai chữ ký — **hai dòng**: `TC-A02-expired`, `TC-A02-signature` | 401 | **GĐ1** |
 | RBAC-01 | ADMIN gọi endpoint đòi quyền bất kỳ | Qua, dù không có dòng `role_permissions` | **GĐ1** |
 | RBAC-02 | USER gọi endpoint đòi `post.hide` | 403 | **GĐ1** |
+| RBAC-02b | *Đối chứng:* MODERATOR gọi endpoint đòi `post.hide` | Qua | **GĐ1** |
+| RBAC-02c | *Đối chứng:* MODERATOR gọi endpoint đòi `user.lock` | 403 | **GĐ1** |
+| DEFAULT-DENY | Endpoint không khai `[Authorize]`/`[RequirePermission]`, không kèm JWT | 401 | **GĐ1** |
+| OWN-00 | Khuôn tầng 3: user A đọc tài nguyên (endpoint thử) của user B | 403 RFC 7807, không lộ id | **GĐ1** |
 | TC-A03 | User A `PATCH /posts/{id của B}` | 403 (IDOR) | GĐ2 |
 | TC-A04 | Đọc conversation không phải thành viên | 403 | GĐ5 |
 | TC-A05 | User thường gọi `/admin/*` | 403 | GĐ6 |
@@ -1355,6 +1396,13 @@ Dựng dạng **data-driven** ngay từ bây giờ: một bảng dữ liệu, m�
 
 Đây là cách GOAL-03 (0 lỗ hổng IDOR) thực sự đạt được — bằng một cổng chặn merge từ ngày đầu,
 không phải bằng một đợt rà soát ở GĐ8 khi đã quá muộn để sửa rẻ.
+
+**Vì sao có dòng đối chứng.** Bốn mã gốc **xanh được với một handler hỏng**: handler từ chối mọi vai trò
+trừ Admin vẫn làm RBAC-01 xanh (nhờ short-circuit) và RBAC-02 xanh (vì từ chối tất) — nguồn quyền rỗng,
+join sai cột, cả bốn vẫn xanh. `RBAC-02b` bắt loại hỏng đó. `RBAC-02c` bắt loại còn lại: handler chỉ xét
+vai trò mà không nhìn mã quyền. `DEFAULT-DENY` bắt fallback policy bị tắt câm (Mục 6.1). Hậu tố `-b`,
+`-c`, `-expired`… là phần mở rộng của GĐ1, không đổi nghĩa mã trong báo cáo. Mỗi dòng đã được **thấy đỏ**
+trước khi xanh, kèm một bảng đột biến thử một lần (hướng dẫn khối B+C, `B3`).
 
 ### 10.3 Unit test
 
@@ -1513,13 +1561,15 @@ Còn hai `Skip` đang chờ được gỡ, mỗi cái là một dòng việc c�
 |---|---|---|---|---|---|
 | **A. Nền dữ liệu** | Entity → migration → seeder → kiểm tra khởi động | BE-1 | 7 | — | C5·, D, B5 |
 | **B. Hạ tầng test** | Harness + khung AuthZ matrix + test seeder | BE-2 | 5 | B3 cần C·· | — |
-| **C. SharedKernel AuthZ** | `[RequirePermission]` + handler + JwtBearer + default deny + khuôn tầng 3 | BE-2 | 6 | — (dùng stub) | D, B3 |
+| **C. SharedKernel AuthZ** | `[RequirePermission]` + handler + JwtBearer + default deny + khuôn tầng 3 | BE-2 | 6 | — (A đã xong) | D, B3 |
 | **D. Endpoint** | 6 endpoint auth + revocation + CORS | BE-1 + BE-2 | 11 | A, C | F |
 | **E. Lane frontend** | Next.js + 3 màn auth + interceptor single-flight | FE | 7 | chỉ cần hợp đồng··· | F |
 | **F. Cổng đóng** | Staging + E2E + checklist + đóng băng hợp đồng | cả nhóm | 7 | D, E | GĐ2 |
 
-*· Khối C viết được ngay với repository stub; chỉ bước `C5` nối vào dữ liệu thật mới cần A xong.
-·· Khối B khởi động ngay, nhưng riêng `B3` cần `C1`+`C4` mới có `[RequirePermission]` để gọi thử.
+*· Bản đầu cho khối C viết trước với repository stub vì `C5` cần A. **Khối A đã xong** nên bỏ stub trong
+integration test: thứ tự khối C là `C1 → C4 → C3 → C5 → C2 → C6`, matrix xanh lần đầu đã là xanh trên dữ
+liệu seed thật. Nguồn quyền giả chỉ còn trong unit test.
+·· Khối B khởi động ngay, nhưng riêng `B3` cần `C1` để compile — và phải viết **trước** `C4`/`C2` để thấy đỏ.
 ··· `E1`–`E6` chỉ cần hợp đồng; riêng `E7` cần `D4` (cookie + CORS) mới kiểm chứng được thật.
 
 **Ba lane chạy song song ngay từ đầu:** A (BE-1) · B rồi C (BE-2) · E (FE). Chỉ D mới cần chờ.
@@ -1636,6 +1686,19 @@ Còn hai `Skip` đang chờ được gỡ, mỗi cái là một dòng việc c�
 > **Mục tiêu khối:** dựng cái khung mà GĐ2–GĐ8 chỉ việc thêm dòng vào, và biến GOAL-03 từ một lời
 > hứa thành cổng chặn merge. **Không phụ thuộc khối A — bắt đầu ngay từ giờ đầu tiên.**
 
+> **Hướng dẫn thi công từng bước (gộp với khối C vì cùng người làm, thứ tự đan xen):**
+> [huong-dan-khoi-b-c-test-va-authz.md](huong-dan-khoi-b-c-test-va-authz.md) — file nào, lệnh nào,
+> cạm bẫy nào, checklist nghiệm thu. Mục B.4 dưới đây giữ nguyên vai trò "cái gì và vì sao".
+
+> **Trạng thái: đã xong** (nhánh `loveart1210`, commit `6ab96a8` → `2d25ae6`). B1: nhóm test Postgres 6
+> container → 1, 25,3 s → 8,3 s. B3: CI run đỏ có chủ đích
+> [34774295690](https://github.com/ricecracker12/30INF067_btl/actions/runs/34774295690) khớp cột "Ngay sau
+> C1"; bảng đột biến đã thử, mỗi đột biến đỏ đúng một dòng. B4: cổng AuthZ nhắm vào project +
+> `TreatNoTestsAsError`, gõ sai trait → CI đỏ
+> [34804410864](https://github.com/ricecracker12/30INF067_btl/actions/runs/34804410864), hoàn tác → xanh
+> [34804508073](https://github.com/ricecracker12/30INF067_btl/actions/runs/34804508073). B5: FK-01 xanh.
+> Chi tiết và chỗ lệch: Mục 13.1 của hướng dẫn.
+
 ### B1 — Harness Testcontainers dùng chung
 
 - **Mục tiêu:** mọi integration test chạy trên Postgres **thật**, không phải InMemory provider —
@@ -1661,13 +1724,17 @@ Còn hai `Skip` đang chờ được gỡ, mỗi cái là một dòng việc c�
 ### B3 — TC-A01, TC-A02, RBAC-01, RBAC-02 — **viết cho đỏ trước**
 
 - **Mục tiêu:** bốn dòng đầu của ma trận ở Mục 10.2, và là bằng chứng cổng chặn thật sự chặn được.
-- **Cách thực thi:** TC-A01 (không kèm JWT → 401), TC-A02 (token hết hạn/sai chữ ký → 401), RBAC-01
-  (ADMIN qua được dù `role_permissions` rỗng), RBAC-02 (USER gọi endpoint đòi `post.hide` → 403).
-  Viết **trước** khi có endpoint, để chúng đỏ; xanh dần khi C và D xong. Dùng một endpoint thử
-  nghiệm có `[RequirePermission]` nếu `/me` chưa có.
-- **Xong là:** bốn test tồn tại, và đã **quan sát thấy chúng đỏ** trước khi làm chúng xanh. Test chưa
-  bao giờ đỏ thì không chứng minh được gì.
-- **Chặn / Cần:** chặn B4. Cần B2, C.
+- **Cách thực thi:** TC-A01 (không kèm JWT → 401), TC-A02 tách hai dòng (hết hạn; sai chữ ký → 401),
+  RBAC-01 (ADMIN qua được dù `role_permissions` rỗng), RBAC-02 (USER gọi endpoint đòi `post.hide` → 403),
+  cộng **hai dòng đối chứng** `RBAC-02b`/`RBAC-02c` — Mục 10.2 giải thích vì sao bốn mã gốc không đủ.
+  Viết **trước** `C4`/`C2`, để chúng đỏ. Endpoint thử nghiệm nằm trong assembly test và **dùng lâu dài**
+  cho các dòng RBAC — trước GĐ6 không có endpoint thật nào đòi `post.hide` hay `user.lock`. Commit đỏ
+  **push có chủ đích** lên nhánh cá nhân, chờ run xong mới push tiếp (`cancel-in-progress` sẽ hủy run
+  đỏ); không dùng `Skip`.
+- **Xong là:** 7 dòng tồn tại; đã **quan sát thấy chúng đỏ** — link CI run đỏ trong PR — trước khi làm
+  chúng xanh; bảng đột biến đã thử, mỗi đột biến làm đúng dòng dự kiến đỏ. Test chưa bao giờ đỏ thì
+  không chứng minh được gì.
+- **Chặn / Cần:** chặn B4. Cần B2, C1 (để compile); chuyển xanh nhờ C4, C2.
 
 ### B4 — Siết cổng AuthZ trong CI
 
@@ -1679,7 +1746,8 @@ Còn hai `Skip` đang chờ được gỡ, mỗi cái là một dòng việc c�
   project không có test AuthZ chứ không phải vì AuthZ hỏng. `.github/workflows/ci.yml` đã ghi sẵn
   lệnh mẫu và cảnh báo này ngay tại chỗ.
 - **Xong là:** cố tình gõ sai trait → CI **đỏ**. Đây là bước phải thử tay một lần rồi hoàn tác.
-- **Chặn / Cần:** cần B3.
+- **Chặn / Cần:** cần B3 **đã xanh** (sau C2) — siết cổng khi test còn đỏ thì không phân biệt được "đỏ
+  vì 0 test" với "đỏ vì AuthZ hỏng".
 
 ### B5 — Test dữ liệu nền: SEED-01/02/03, FK-01
 
@@ -1702,6 +1770,16 @@ Còn hai `Skip` đang chờ được gỡ, mỗi cái là một dòng việc c�
 > **Mục tiêu khối:** viết **một lần** cho cả dự án cơ chế phân quyền tầng 2, đúng nghĩa "nâng cấp là
 > thay dữ liệu, không thay code". GĐ2–GĐ8 dùng lại nguyên xi, không module nào tự chế cách riêng.
 
+> **Hướng dẫn thi công từng bước:** [huong-dan-khoi-b-c-test-va-authz.md](huong-dan-khoi-b-c-test-va-authz.md)
+> (chung file với khối B). Mục B.5 dưới đây giữ nguyên vai trò "cái gì và vì sao".
+
+> **Trạng thái: đã xong** (commit `7b8b0d4`, `69a2857`, `a75308a`, `b53f40a`, `dd02c5d`). AuthZ matrix xanh
+> 9 dòng trên dữ liệu seed thật: `TC-A01`, `TC-A02-expired`, `TC-A02-signature`, `RBAC-01`, `RBAC-02`,
+> `RBAC-02b`, `RBAC-02c`, `DEFAULT-DENY`, `OWN-00`. Khối D nhận: `JwtOptions`/`JwtClaims`,
+> `IOptions<JwtOptions>` đã validate trong DI, `[RequirePermission]`, 401/403 RFC 7807, `Result.Forbidden()` +
+> `ToActionResult`, `User.GetUserId()`. **Staging cần `Jwt__SigningKey` (≥ 32 byte) trong `.env` trước khi
+> merge vào `develop`** — thiếu thì `migrate` và api từ chối khởi động.
+
 ### C1 — `RequirePermissionAttribute` + policy provider
 
 - **Mục tiêu:** khai báo quyền ngay trên endpoint bằng một dòng đọc được, thay vì `if` rải rác trong
@@ -1718,19 +1796,23 @@ Còn hai `Skip` đang chờ được gỡ, mỗi cái là một dòng việc c�
   3 là Admin đọc được tin nhắn riêng của bất kỳ ai; đúng cái lỗ IDOR mà GOAL-03 muốn đóng, chỉ khác
   là nạn nhân đông hơn.
 - **Cách thực thi:** đọc claim `role` (luôn là **chuỗi**, với mọi vai trò — Mục 3.1);
-  `if (role == RoleCodes.Admin) { ctx.Succeed(req); return; }` **chỉ ở đây**; còn lại tra
-  `IPermissionCache`. Mã mẫu ở Mục 6.2.
-- **Xong là:** RBAC-01 và RBAC-02 chuyển từ đỏ sang xanh.
-- **Chặn / Cần:** chặn C5. Cần C1.
+  `if (role == SystemRoles.Admin) { ctx.Succeed(req); return; }` **chỉ ở đây**; còn lại tra
+  `IPermissionCache`. Mã mẫu ở Mục 6.2. `RoleCodes.Admin` của Identity trỏ về `SystemRoles.Admin`.
+- **Xong là:** RBAC-01, RBAC-02b chuyển đỏ → xanh trên dữ liệu seed thật (cả 7 dòng của B3 xanh); gỡ
+  `post.hide` của MODERATOR bằng SQL → sau khi cache hết hạn thì bị 403, không sửa dòng code nào (test
+  với đồng hồ giả).
+- **Chặn / Cần:** chặn B4. Cần C1, C3, C5.
 
 ### C3 — `IPermissionCache` (TTL 60s)
 
 - **Mục tiêu:** ma trận quyền đọc từ DB nhưng không phải mỗi request một truy vấn.
-- **Cách thực thi:** interface ở SharedKernel, cache theo `role code`, TTL 60 giây. GĐ1 chưa cần đẩy
-  invalidate (quyền chưa sửa được lúc runtime — việc đó ở GĐ6); TTL là đủ và đơn giản hơn.
-- **Xong là:** `DELETE` một dòng `role_permissions` của MODERATOR → hành vi đổi theo **sau khi cache
-  hết hạn**, có test hoặc kiểm tay ghi lại kết quả.
-- **Chặn / Cần:** cần C1.
+- **Cách thực thi:** `IRolePermissionSource` + `IPermissionCache` ở SharedKernel, cache theo `role code`,
+  TTL 60 giây, đồng hồ qua `TimeProvider` để test không phải chờ. GĐ1 chưa cần đẩy invalidate (quyền chưa
+  sửa được lúc runtime — việc đó ở GĐ6); TTL là đủ và đơn giản hơn. Nguồn giả **chỉ dùng trong unit
+  test** — không có stub nào trong `src/` hay trong integration test (B.2, chú thích ·).
+- **Xong là:** unit test với đồng hồ giả: giây 59 vẫn trả dữ liệu cũ, giây 61 đọc lại nguồn; lỗi từ
+  nguồn không bị cache. Phần "hành vi đổi theo trên dữ liệu thật" nghiệm thu ở C2.
+- **Chặn / Cần:** chặn C5, C2. Cần C1.
 
 ### C4 — JwtBearer + fallback policy default deny + thứ tự middleware
 
@@ -1741,18 +1823,25 @@ Còn hai `Skip` đang chờ được gỡ, mỗi cái là một dòng việc c�
   .RequireAuthenticatedUser().Build()`. Chèn `UseAuthentication()` + `UseAuthorization()` vào **đúng
   chỗ đã đánh dấu sẵn** trong `Program.cs` — **trước** `UseSharedKernelRateLimiter()`. Đặt sai thứ tự
   là limiter phân vùng theo IP thay vì theo user: nhiều người sau cùng một NAT ăn chung hạn mức, hỏng
-  câm, không log, không test nào bắt.
-- **Xong là:** TC-A01 và TC-A02 chuyển sang xanh; một endpoint không khai policy vẫn bị chặn.
+  câm, không log, không test nào bắt. Bốn điểm bắt buộc khác (Mục 6.1): `MapInboundClaims = false` +
+  `NameClaimType = "sub"`; Swagger đứng trước `UseAuthentication()`; health check và `/ping` khai
+  `AllowAnonymous`; rate limiter đọc **thẳng** claim `sub`. Kiểm tra khóa ký đặt **sau** kiểm tra chuỗi
+  kết nối, để `StartupConfigurationTests` hiện có vẫn đỏ đúng lý do. `ApiFactory` khai JWT trong cùng commit.
+- **Xong là:** TC-A01, TC-A02 và DEFAULT-DENY xanh; 401/403 có body RFC 7807; `/health/ready` không token
+  trả 503 chứ không phải 401; thiếu `Jwt:SigningKey` thì app từ chối khởi động (có test); cổng hợp đồng
+  API vẫn xanh.
 - **Chặn / Cần:** chặn D. Cần: không (làm song song A).
 
 ### C5 — Nối handler vào repository thật
 
-- **Mục tiêu:** bỏ stub, để ma trận quyền thật sự đọc từ bảng `role_permissions`.
+- **Mục tiêu:** ma trận quyền đọc thật từ bảng `role_permissions` **ngay từ lần xanh đầu tiên** của
+  matrix — không có giai đoạn nào matrix xanh trên dữ liệu viết tay.
 - **Cách thực thi:** repository trong `Identity/Infrastructure/` dịch `role code` (chuỗi) → `role_id`
   (số) rồi join `role_permissions`. **Phép dịch này nằm gọn trong repository** — token và policy
-  handler từ đầu đến cuối chỉ làm việc với chuỗi (Mục 3.1).
-- **Xong là:** RBAC-02 xanh với dữ liệu seed thật, không phải dữ liệu dựng trong fixture.
-- **Chặn / Cần:** cần A4, C2.
+  handler từ đầu đến cuối chỉ làm việc với chuỗi (Mục 3.1). Làm **trước** C2 (khối A đã xong).
+- **Xong là:** `RolePermissionSourceTests` xanh trên Postgres thật: USER 11 mã, MODERATOR 13 mã có
+  `post.hide`, ADMIN **tập rỗng** (đúng thiết kế 3.2); RBAC-02/02b/02c xanh ngay khi C2 xong, không qua stub nào.
+- **Chặn / Cần:** chặn C2. Cần A4 (đã xong), C3.
 
 ### C6 — Khuôn kiểm tra ownership (tầng 3)
 
@@ -1762,9 +1851,11 @@ Còn hai `Skip` đang chờ được gỡ, mỗi cái là một dòng việc c�
   bắt buộc của Definition of Done (Mục 11): *"kể cả khi tầng 3 mới chỉ là khuôn"*.
 - **Cách thực thi:** hiện thực bốn quy ước ở Mục 6.3 thành thứ dùng được, không phải thành đoạn văn:
   (1) chỗ kiểm tra nằm ở **tầng service**, không ở controller và không ở attribute — vì nó phải truy
-  vấn dữ liệu thật; (2) service trả `Result.Forbidden(...)`, middleware SharedKernel map sang **403
-  RFC 7807**, **không ném exception cho luồng nghiệp vụ bình thường**; (3) thông điệp 403 **không
-  tiết lộ tài nguyên có tồn tại hay không**; (4) ghi thành luật trong `AGENTS.md`: **endpoint chạm
+  vấn dữ liệu thật; (2) service trả `Result.Forbidden()`, controller gọi `result.ToActionResult(this)` ở
+  SharedKernel để ra **403 RFC 7807**, **không ném exception cho luồng nghiệp vụ bình thường**; (3) thông
+  điệp 403 **không tiết lộ tài nguyên có tồn tại hay không**, và (3b) status code cũng không — "không tồn
+  tại" và "không được phép thấy" trả cùng một phản hồi (Mục 6.3); danh tính người gọi lấy từ
+  `User.GetUserId()`, không bao giờ từ route/body; (4) ghi thành luật trong `AGENTS.md`: **endpoint chạm
   tài nguyên có chủ sở hữu mà không có dòng tương ứng trong bảng AuthZ matrix thì coi như chưa xong**.
   Dùng `GET /me` làm ví dụ mẫu — nó "sở hữu" chính hồ sơ người gọi, đủ để khuôn có một chỗ bám thật
   thay vì chỉ là quy ước trên giấy.
@@ -1861,8 +1952,9 @@ Còn hai `Skip` đang chờ được gỡ, mỗi cái là một dòng việc c�
   với claim `iat`. **TTL của key phải bằng đúng TTL access token, và cả hai đọc từ cùng một hằng số
   cấu hình** — lệch nhau là lỗ hổng câm: token đã thu hồi được chấp nhận lại. Redis chết thì
   **fail-open** + log warning (quyết định có ý thức, Mục 7.5). GĐ1 nối **đúng một** trigger ghi:
-  reuse detection ở D5. Thứ tự thu hồi luôn là **DB trước, Redis sau**.
-- **Xong là:** RV-01 → RV-04 xanh.
+  reuse detection ở D5. Thứ tự thu hồi luôn là **DB trước, Redis sau**. TTL đọc từ
+  `JwtOptions.AccessTokenSeconds` — cùng giá trị D3 dùng để phát token (Mục 6.2).
+- **Xong là:** RV-01 → RV-04 xanh; test đọc `TTL revoked:user:<id>` trong Redis khớp `Jwt:AccessTokenSeconds`.
 - **Chặn / Cần:** cần D5. **Đây là phần cắt được** nếu phải cắt — đẩy sang GĐ6 cùng bên ghi, nhưng
   khi đó RV-01→04 và hai dòng trong checklist Mục 12 cũng dời theo, **phải ghi rõ chứ không lặng lẽ bỏ**.
 
@@ -2057,6 +2149,7 @@ không đổi kể cả khi lịch trượt.
 | Nguy cơ | Việc canh |
 |---|---|
 | Cổng CI xanh giả với 0 test | `B4` — phải thử gõ sai trait một lần và thấy CI đỏ |
+| AuthZ matrix xanh dù handler hỏng | `B3` — dòng đối chứng `RBAC-02b`/`RBAC-02c` + bảng đột biến thử một lần |
 | Interceptor không single-flight — triệu chứng trông hệt lỗi backend | `E7` + `F4` |
 | Nghiệm thu trên mock hoặc trên máy local | `F2` — Mục 12 cấm |
 
@@ -2064,7 +2157,9 @@ không đổi kể cả khi lịch trượt.
 
 1. Thứ tự thu hồi **DB trước, Redis sau** (D8). Đảo lại thì user giữ vai trò cũ thêm 15 phút, không
    gì chặn được.
-2. TTL `revoked:user` **bằng đúng** TTL access token, và cả hai đọc từ **cùng một** hằng số (D8).
+2. TTL `revoked:user` **bằng đúng** TTL access token, và cả hai đọc từ **cùng một** hằng số (D8). D8 có
+   test so TTL key với `Jwt:AccessTokenSeconds` — bắt được lệch **giá trị**, nhưng hai chỗ đọc hai hằng số
+   khác nhau cùng bằng 900 thì test vẫn xanh, nên review vẫn bắt buộc.
 3. `UseAuthentication()` đặt **trước** rate limiter (C4).
 
 ---
@@ -2096,7 +2191,7 @@ không đổi kể cả khi lịch trượt.
 | **FR-001** | Đăng ký + xác minh email | D1, D2 | AC-04, E2E-01 |
 | **FR-002** | Đăng nhập cấp JWT + refresh rotation | D3, D5 | AC-01, RT-01→04 |
 | **FR-003** | Khóa tài khoản sau 5 lần sai trong 15 phút | D3 | AC-03 |
-| **Mục 6.7.1** | Ba tầng kiểm soát truy cập chạy đủ | C4 (tầng 1) · C1–C3, C5 (tầng 2) · **C6** (khuôn tầng 3) | TC-A01/A02, RBAC-01/02 |
+| **Mục 6.7.1** | Ba tầng kiểm soát truy cập chạy đủ | C4 (tầng 1) · C1–C3, C5 (tầng 2) · **C6** (khuôn tầng 3) | TC-A01/A02, RBAC-01/02/02b/02c, DEFAULT-DENY, OWN-00 |
 | **Mục 6.7.2** | RBAC **dữ liệu hóa** — ma trận trong DB, không hard-code | A4, C5 | SEED-02, kiểm tay ở Mục 12 |
 | **NFR-SEC-01** | BCrypt cost 12; refresh token lưu băm | D1, D5 | Đọc trực tiếp DB (Mục 12) |
 | **NFR-SEC-03** | Rotation + reuse detection → thu hồi cả chuỗi | D5 | RT-02, RT-04 |
