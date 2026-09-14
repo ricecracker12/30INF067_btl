@@ -253,12 +253,13 @@ còn biên độ thêm index/cache nếu trượt; và thứ cắt được thì
 > matrix thành cổng chặn trong CI.
 
 - **Làm gì:** Đăng ký + xác minh email (FR-001), đăng nhập cấp JWT + refresh rotation (FR-002),
-  lockout 5 lần/15 phút (FR-003), RBAC 3 tầng (Mục 6.7.1), seed roles/permissions (ENT-10/10a/10b).
+  lockout 5 lần sai liên tiếp → khóa 15 phút (FR-003), RBAC 3 tầng (Mục 6.7.1), seed roles/permissions (ENT-10/10a/10b).
 - **Quyết định thiết kế đã chốt** *(4 điểm đầu lệch v5.0 — xem Mục "Sai khác so với báo cáo v5.0")*:
   1. JWT claim `role` mang `code` chuỗi (`'USER'`/`'MODERATOR'`/`'ADMIN'`) — **mọi vai trò, không
      riêng Admin**; `role_id` kiểu số chỉ sống trong DB. `code` bất biến theo hợp đồng API.
      Hệ quả: vai trò được "đóng dấu" vào token nên đổi vai trò không tự có hiệu lực. Khắc phục
-     bằng cơ chế **thu hồi theo `revoked:user` + `iat`** trên Redis (TTL = TTL access token):
+     bằng cơ chế **thu hồi theo `revoked:user` + `iat`** trên Redis (TTL = TTL access token + `ClockSkew`
+     của JwtBearer, cùng đọc từ `JwtOptions` — `giai-doan-1.md` Mục 7.5):
      ghi một mốc thời gian, mọi token của user phát trước mốc đó bị từ chối → **nâng/hạ vai trò
      có hiệu lực ngay ở request kế tiếp, không phải đăng nhập lại**. Khóa/xóa tài khoản thì thu
      hồi kèm cả refresh family. *(Không dùng denylist theo `jti`: server stateless không biết
@@ -316,7 +317,7 @@ còn biên độ thêm index/cache nếu trượt; và thứ cắt được thì
     data-driven ngay tại đây, làm CI gate; mỗi giai đoạn sau chỉ thêm dòng.**
   - refresh reuse → thu hồi cả chuỗi. Seeder chạy 2 lần → dữ liệu không đổi; sửa `role_permissions`
     rồi restart → không bị ghi đè. Integration test trên Postgres thật (Testcontainers).
-  - **E2E lát cắt ở cổng đóng:** đăng ký → nhận mail Mailpit → xác minh → đăng nhập → `GET /me` →
+  - **E2E lát cắt ở cổng đóng:** đăng ký → nhận mail xác minh ở hộp thư thật (Brevo) → xác minh → đăng nhập → `GET /me` →
     ép hết hạn access token → interceptor refresh → gọi lại thành công, **trên domain HTTPS thật**.
     Đây là chỗ cookie `httpOnly`, `SameSite`, `Path` scoping và CORS preflight được kiểm chứng —
     integration test không chạm tới. *(Bản A dùng một trang HTML tạm cho việc này; bản B không cần.)*

@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using SocialApp.IntegrationTests.Harness;
 
@@ -35,5 +37,9 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         builder.UseSetting("ConnectionStrings:Postgres", UnreachablePostgres);
         builder.UseSetting("ConnectionStrings:Redis", UnreachableRedis);
         TestJwt.Configure(builder);
+
+        // IP giả cho từng request (Đ-D7): không có thì mọi request chung vùng rate limit "anon" và test thứ 11 gọi nhóm /auth của cả
+        // lớp nhận 429. Test cần cùng một IP thì gửi header FakeRemoteIpStartupFilter.Header.
+        builder.ConfigureTestServices(services => services.AddSingleton<IStartupFilter, FakeRemoteIpStartupFilter>());
     }
 }

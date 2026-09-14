@@ -88,8 +88,8 @@ public sealed class IdentityContractTests(ApiFactory factory)
     /// Chiều 1 — code KHÔNG được lộ ra thứ hợp đồng chưa ghi.
     ///
     /// Bắt đúng cái sai hay xảy ra nhất: thêm endpoint (hoặc thêm một status code) rồi quên cập nhật
-    /// hợp đồng, khiến lane frontend codegen ra type thiếu. Chạy xanh được NGAY từ bây giờ vì chưa
-    /// có controller nào — và giữ xanh là trách nhiệm của mọi commit sau.
+    /// hợp đồng, khiến lane frontend codegen ra type thiếu. Xanh từ GĐ0 (khi chưa có controller nào)
+    /// và giữ xanh qua mọi commit của khối D — giữ xanh là trách nhiệm của mọi commit sau.
     /// </summary>
     [Fact]
     public async Task Runtime_must_not_expose_anything_outside_the_contract()
@@ -119,15 +119,14 @@ public sealed class IdentityContractTests(ApiFactory factory)
     }
 
     /// <summary>
-    /// Chiều 2 — hợp đồng phải được hiện thực đủ.
+    /// Chiều 2 — hợp đồng phải được hiện thực đủ: đủ (path × method), đủ status code trên
+    /// [ProducesResponseType], required field của request body khớp.
     ///
-    /// Đang Skip vì khối D chưa viết controller nào: hợp đồng có 6 endpoint, Swagger runtime có 0.
-    /// Đã chạy thử một lần không Skip để xác nhận nó đỏ đúng lý do (thiếu đủ 6 operation), rồi mới
-    /// gắn Skip lại — một test chưa bao giờ đỏ thì không chứng minh được điều gì.
-    ///
-    /// GỠ SKIP khi khối D GĐ1 ráp xong 6 endpoint auth. Từ lúc đó nó là cổng chặn hai chiều.
+    /// Đã gỡ Skip ở D11 (GĐ1 khối D) khi 6 endpoint auth ráp xong — từ đây cổng hợp đồng chặn HAI chiều. Trước khi gỡ đã thấy nó
+    /// đỏ đúng lý do ở cả ba phần: thiếu operation, thiếu status code, lệch required (thi công D11). Thêm operation hay status code
+    /// vào yaml mà chưa hiện thực là CI đỏ — không gắn Skip lại để né.
     /// </summary>
-    [Fact(Skip = "Gỡ Skip khi khối D GĐ1 ráp xong 6 endpoint auth trong Modules/Identity/Presentation")]
+    [Fact]
     public async Task Contract_must_be_fully_implemented()
     {
         var contract = ReadContract();

@@ -52,7 +52,7 @@ xuyên suốt tài liệu và cả GĐ2–GĐ8.
 |---|---|---|
 | FR-001 | Đăng ký tài khoản + xác minh email | US-001 |
 | FR-002 | Đăng nhập cấp JWT (access 15 phút) + refresh token rotation | US-002, ADR-002 |
-| FR-003 | Khóa tài khoản sau 5 lần đăng nhập sai trong 15 phút | US-002 AC-03 |
+| FR-003 | Khóa tài khoản 15 phút sau 5 lần đăng nhập sai **liên tiếp** (chốt 2026-09-14 thay cho "trong 15 phút" — không có cửa sổ thời gian) | US-002 AC-03 |
 | Mục 6.7.1 | Ba tầng kiểm soát truy cập hoạt động đầy đủ (AuthN → RBAC → Ownership) | Báo cáo 6.7.1 |
 | Mục 6.7.2 | RBAC **dữ liệu hóa**: ma trận Role–Permission nằm trong DB, không hard-code | ENT-10/10a/10b |
 | NFR-SEC-01 | BCrypt cost 12; refresh token lưu dạng băm, không lưu bản rõ | Báo cáo 6.7 |
@@ -60,7 +60,7 @@ xuyên suốt tài liệu và cả GĐ2–GĐ8.
 | GOAL-03 | Nền chống IDOR: TC-A01, TC-A02 xanh và trở thành CI gate | Mục 7.2 |
 
 **Kết quả bàn giao cuối GĐ1:** người dùng thật đăng ký được trên staging, nhận mail xác minh
-qua Mailpit, đăng nhập lấy token, gọi được endpoint có bảo vệ, và mọi truy cập sai quyền đều
+ở hộp thư thật (gửi qua Brevo), đăng nhập lấy token, gọi được endpoint có bảo vệ, và mọi truy cập sai quyền đều
 bị chặn đúng mã lỗi.
 
 ---
@@ -82,7 +82,7 @@ bị chặn đúng mã lỗi.
   401→refresh**. Đây là thay đổi so với bản A của kế hoạch tổng, nơi frontend hoãn tới GĐ2
 - **Cổng mở / cổng đóng hợp đồng API** — OpenAPI stub chốt ở đầu giai đoạn, ráp thật trên staging ở
   cuối giai đoạn (Mục 9)
-- Lockout 5 lần / 15 phút
+- Lockout: 5 lần sai liên tiếp → khóa 15 phút
 - `[RequirePermission]` + policy handler trong SharedKernel (dùng chung cho mọi module sau)
 - Quy ước kiểm tra ownership (tầng 3) + khuôn test AuthZ matrix
 - Harness integration test trên Postgres thật (Testcontainers)
@@ -844,7 +844,7 @@ mới thu hồi được.
 3. Hash mật khẩu BCrypt cost 12
 4. `INSERT users` với `role_id = 1 (USER)`, `email_verified_at = NULL`
 5. Sinh token xác minh (ngẫu nhiên 32 byte), lưu **băm**, hạn 24 giờ
-6. Gửi mail qua `IEmailSender` → Mailpit ở dev/staging
+6. Gửi mail qua `IEmailSender` → Mailpit ở dev, Brevo (SMTP thật) ở staging
 7. `POST /auth/verify-email` với token → đối chiếu băm → set `email_verified_at`, `consumed_at`
 
 Token xác minh cũng lưu băm, cùng lý do với refresh token: rò rỉ DB không được kéo theo rò rỉ
@@ -874,7 +874,10 @@ sẽ đếm sót và lockout không bao giờ kích hoạt.
 
 ### 7.3 Refresh rotation + reuse detection (NFR-SEC-03)
 
-Toàn bộ trong **một transaction**, `SELECT ... FOR UPDATE` trên dòng token.
+Toàn bộ trong **một transaction**: khóa tư vấn theo `family_id` (`pg_advisory_xact_lock`) **rồi mới** `SELECT ... FOR UPDATE`
+trên dòng token. Chỉ khóa dòng thì reuse detection của token cũ và lượt xoay song song của token kế nhiệm khóa hai dòng khác
+nhau, không xếp hàng nhau — token vừa sinh commit ngoài snapshot của câu thu hồi family và sống sót (tìm ra và sửa ở D5, test
+RT-06). Logout (7.4) lấy cùng khóa, cùng thứ tự.
 
 ```
 1. Băm SHA-256 token nhận được -> tra theo token_hash
@@ -891,10 +894,20 @@ Toàn bộ trong **một transaction**, `SELECT ... FOR UPDATE` trên dòng toke
 > thắng, cái còn lại rơi vào bước 3 và bị coi là reuse → thu hồi cả chuỗi → người dùng bị đăng
 > xuất đột ngột mà không hiểu vì sao. Đây là lỗi kinh điển của refresh rotation.
 >
-> **Cách xử lý khuyến nghị:** cho phép một khoảng ân hạn ngắn (~10 giây) — nếu token đã bị thay
-> thế trong vòng 10 giây **và chuỗi chưa bị thu hồi**, trả lại token kế nhiệm thay vì coi là
-> reuse. Đánh đổi: có cửa sổ 10 giây mà token bị đánh cắp vẫn dùng được. Chấp nhận được, nhưng
-> phải ghi vào tài liệu để lúc bảo vệ giải thích được lựa chọn này.
+> **Cách xử lý đã chốt:** cho phép một khoảng ân hạn ngắn (10 giây) — nếu token đã bị thay thế
+> trong vòng 10 giây **và chuỗi chưa bị thu hồi**, **phát một token mới cùng `family_id`** thay vì
+> coi là reuse. Đánh đổi: có cửa sổ 10 giây mà token bị đánh cắp vẫn đổi được lấy token mới. Chấp
+> nhận được, nhưng phải ghi vào tài liệu để lúc bảo vệ giải thích được lựa chọn này.
+>
+> **Vì sao không "trả lại token kế nhiệm"** (bản đầu của mục này viết vậy): DB chỉ lưu **băm** của
+> token kế nhiệm — bản rõ đã đi mất trong response của tab thắng, server không còn gì để trả. Giữ bản
+> rõ trong Redis 10 giây để trả lại đúng nó thì vi phạm NFR-SEC-01 (không lưu bản rõ) và ân hạn chết
+> theo Redis. Nên family tạm có **hai** token còn sống; cookie jar của trình duyệt giữ cái đến sau, cái
+> kia tự hết hạn.
+>
+> **"Chuỗi chưa bị thu hồi"** định nghĩa bằng dữ liệu: family còn ít nhất một token có
+> `revoked_at IS NULL` (trúng index một phần `idx_refresh_family`). Không suy từ `revoked_at` của token
+> đang cầm — token đã bị **xoay** cũng có `revoked_at`.
 
 ### 7.4 Đăng xuất
 
@@ -911,7 +924,8 @@ Phương án đã chốt ở Mục 3.1. Bên **đọc** (kiểm tra mỗi reques
 **Khi thu hồi** — ghi một mốc thời gian cho user đó:
 
 ```
-SET  revoked:user:0192f3c1-…   1757116800   EX 900
+SET  revoked:user:0192f3c1-…   1757116800   EX 930
+                               │            └─ TTL access (900) + ClockSkew (30)
                                └─ Unix timestamp lúc thu hồi
 ```
 
@@ -927,14 +941,20 @@ GET revoked:user:<sub>
 Một key duy nhất cho mỗi user, bất kể họ đang đăng nhập trên bao nhiêu thiết bị. Đây là lý do
 claim `iat` có mặt trong token — không phải để trang trí.
 
-#### Vì sao TTL đúng 900 giây
+#### Vì sao TTL là 930 giây
 
-Không phải con số tùy tiện: **bằng đúng TTL của access token**. Sau 15 phút, mọi token phát trước
-mốc thu hồi đều đã tự hết hạn theo `exp` — key không còn tác dụng, giữ lại chỉ tốn RAM. Ngắn hơn
-thì thủng: key hết hạn ở phút thứ 10, token bị thu hồi lại được chấp nhận trong 5 phút cuối.
+Không phải con số tùy tiện: **bằng thời gian dài nhất mà một token phát trước mốc thu hồi còn được
+JwtBearer chấp nhận** = TTL access token (900) + `ClockSkew` (30). Sau khoảng đó, mọi token phát trước
+mốc đều đã bị từ chối theo `exp` — key không còn tác dụng, giữ lại chỉ tốn RAM. Ngắn hơn thì thủng:
 
-> ⚠️ Hai con số này **phải trỏ về cùng một hằng số cấu hình**. Đổi access TTL thành 10 phút mà
-> quên đổi TTL denylist là tự tạo một lỗ hổng câm, không test nào bắt được nếu không nghĩ tới.
+- Key hết hạn ở phút thứ 10 → token bị thu hồi lại được chấp nhận trong 5 phút cuối.
+- Key **đúng 900 giây** (bản đầu của mục này) → JwtBearer vẫn nhận token đã quá `exp` thêm tới 30 giây
+  (`ClockSkew`, đặt ở C4), nên token phát ngay trước mốc thu hồi sống lại trong ≤ 30 giây cuối.
+
+> ⚠️ TTL key **phải tính từ cùng các hằng số cấu hình** với phía validate:
+> `JwtOptions.AccessTokenSeconds + JwtOptions.ClockSkewSeconds` (hằng số `ClockSkewSeconds` thêm ở D0,
+> `Program.cs` dùng nó thay số `30`; D8 đọc nó làm TTL key). Đổi access TTL thành 10 phút, hoặc đổi `ClockSkew`, mà quên TTL
+> denylist là tự tạo một lỗ hổng câm, không test nào bắt được nếu không nghĩ tới.
 
 #### Đặt kiểm tra ở đâu
 
@@ -968,7 +988,7 @@ options.Events = new JwtBearerEvents
 
 10:07:30  Admin hạ quyền X
           ① UPDATE users SET role_id = 1 WHERE user_id = X      (DB  — TRƯỚC)
-          ② SET revoked:user:X = 10:07:30  EX 900               (Redis — SAU)
+          ② SET revoked:user:X = 10:07:30  EX 930               (Redis — SAU)
 
 10:07:31  X bấm "Ẩn bài", gửi kèm abcd
           Tầng 1: chữ ký OK → sub=X, iat=10:00:00
@@ -1277,8 +1297,9 @@ ra thì xanh lại. Lưới không bao giờ đỏ được là lưới giả �
 
 - **Chiều "code không được lộ ra ngoài hợp đồng"** — xanh ngay từ bây giờ, bắt lỗi thêm endpoint mà
   quên cập nhật yaml.
-- **Chiều "hợp đồng phải được hiện thực đủ"** — đang `Skip`, đã chạy thử một lần không Skip để xác
-  nhận nó đỏ đúng lý do (liệt kê đủ 6 operation còn thiếu). **Gỡ Skip khi khối D ráp xong 6 endpoint.**
+- **Chiều "hợp đồng phải được hiện thực đủ"** — ban đầu `Skip`, đã chạy thử một lần không Skip để xác
+  nhận nó đỏ đúng lý do (liệt kê đủ 6 operation còn thiếu). **Đã gỡ Skip ở `D11`** khi khối D ráp xong 6
+  endpoint — cổng CI `Category=Contract` chạy 2 test, chặn hai chiều.
 
 ### Bốn khối — chỉ A là chặn
 
@@ -1330,7 +1351,7 @@ Khối **D (endpoint)** ghép sau khi A và C xong.
 ### Ngày 6 — cổng đóng
 
 - Deploy staging; **frontend bỏ mock, trỏ thẳng domain HTTPS thật**.
-- **E2E lát cắt:** đăng ký → nhận mail Mailpit → xác minh → đăng nhập → `GET /me` → ép hết hạn
+- **E2E lát cắt:** đăng ký → nhận mail xác minh ở hộp thư thật (Brevo) → xác minh → đăng nhập → `GET /me` → ép hết hạn
   access token → interceptor refresh → gọi lại thành công.
   Đây là chỗ cookie `httpOnly`, `SameSite`, `Path=/api/v1/auth` và CORS preflight được kiểm chứng —
   integration test không chạm tới được. *(Bản A của kế hoạch tổng dùng một trang HTML tạm cho đúng
@@ -1370,7 +1391,7 @@ Xem bảng đầy đủ (kèm version ghim và project đích) ở **Mục 9.0 �
 | SEED-02 | Gỡ 1 quyền của MODERATOR rồi chạy lại seeder | **Không bị cấp lại** |
 | SEED-03 | `UPDATE roles SET code='ROOT' WHERE code='ADMIN'` rồi khởi động lại app | **App từ chối khởi động**, thông báo nêu tên vai trò thiếu (Mục 5.5) |
 | FK-01 | Xóa vai trò đang có user | Lỗi RESTRICT |
-| E2E-01 | Đăng ký → Mailpit → verify → login → `/me` → ép 401 → refresh → gọi lại, **trên trình duyệt thật qua HTTPS** | Xuyên suốt không lỗi. Kiểm chứng cookie `httpOnly`, `SameSite`, `Path` scoping, CORS preflight — integration test không chạm tới |
+| E2E-01 | Đăng ký → mail qua Brevo tới hộp thư thật → verify → login → `/me` → ép 401 → refresh → gọi lại, **trên trình duyệt thật qua HTTPS** | Xuyên suốt không lỗi. Kiểm chứng cookie `httpOnly`, `SameSite`, `Path` scoping, CORS preflight — integration test không chạm tới |
 | E2E-02 | 3 request nhận 401 cùng lúc | Interceptor chỉ gọi `/auth/refresh` **một lần**; không kích hoạt reuse detection; không ai bị đăng xuất |
 
 ### 10.2 AuthZ matrix — CI gate từ GĐ1
@@ -1407,7 +1428,8 @@ trước khi xanh, kèm một bảng đột biến thử một lần (hướng d
 ### 10.3 Unit test
 
 BCrypt (cost đúng 12, verify đúng/sai), sinh & xác thực JWT (claims đủ, hết hạn, sai chữ ký),
-quy tắc lockout (ngưỡng 5, cửa sổ 15 phút, reset sau đăng nhập thành công), validator đăng ký.
+quy tắc lockout (ngưỡng 5 lần sai **liên tiếp**, khóa 15 phút, reset sau đăng nhập thành công — không có cửa sổ
+thời gian cho các lần sai), validator đăng ký.
 
 ### 10.4 Architecture test
 
@@ -1445,8 +1467,8 @@ Theo Mục 3.5 của tài liệu PTTK — cả 6 mục phải tick:
 - [ ] Tài khoản ADMIN qua được tầng 2 dù `role_permissions` không có dòng nào
 - [ ] Ma trận quyền đọc từ DB — thử `DELETE` một dòng `role_permissions` của MODERATOR và xác nhận
       hành vi đổi theo sau khi cache hết hạn
-- [ ] TTL của `revoked:user` **bằng đúng** TTL access token, và cả hai đọc từ **cùng một** hằng số
-      cấu hình (Mục 7.5)
+- [ ] TTL của `revoked:user` **bằng** TTL access token **+ `ClockSkew`** (930 giây), và cả hai tính từ
+      **cùng** hằng số cấu hình trong `JwtOptions` (Mục 7.5)
 - [ ] Thứ tự thu hồi là **DB trước, Redis sau** — kiểm bằng code review, không có test nào bắt được
 
 **Dữ liệu**
@@ -1457,7 +1479,7 @@ Theo Mục 3.5 của tài liệu PTTK — cả 6 mục phải tick:
 
 **Vận hành**
 - [ ] Deploy lên staging qua CD tự động, không thao tác tay
-- [ ] Đăng ký → nhận mail Mailpit → xác minh → đăng nhập, toàn bộ trên domain HTTPS thật
+- [ ] Đăng ký → nhận mail xác minh ở hộp thư thật (Brevo) → xác minh → đăng nhập, toàn bộ trên domain HTTPS thật
 - [ ] **Frontend đã bỏ mock MSW, trỏ staging thật** — không giai đoạn nào được nghiệm thu trên mock
 - [ ] **Interceptor 401→refresh single-flight** — mở 3 tab, ép hết hạn token, không ai bị đăng xuất
 - [ ] Access token **không** nằm trong `localStorage` — kiểm bằng DevTools
@@ -1501,7 +1523,7 @@ là đủ, cột chỉ lặp lại thông tin đã cố định; và nó canh sa
 | Đặt `UseAuthentication()` **sau** rate limiter | Limiter phân vùng theo IP thay vì theo user: nhiều user sau cùng một NAT ăn chung hạn mức. Hỏng câm, không log | Tách sẵn `UseSharedKernelRateLimiter()` thành lệnh riêng để thứ tự hiện ra ở `Program.cs`; comment tại chỗ chèn |
 | Đọc `role` từ token nên đổi vai trò trễ 15 phút | Dễ hiểu nhầm thành bug ở GĐ6 | Cơ chế `revoked:user` + `iat` (Mục 7.5); ghi rõ trong Swagger và tài liệu bàn giao |
 | Đảo thứ tự thu hồi (Redis trước DB) | User giữ vai trò cũ thêm 15 phút, **không gì chặn được** | Code review bắt buộc; ghi rõ ở Mục 7.5. Không test tự động nào bắt được lỗi này |
-| TTL `revoked:user` lệch TTL access token | Lỗ hổng câm — token đã thu hồi được chấp nhận lại | Cùng một hằng số cấu hình cho cả hai; có dòng trong checklist Mục 12 |
+| TTL `revoked:user` ngắn hơn thời gian token còn được chấp nhận (TTL access + `ClockSkew`) | Lỗ hổng câm — token đã thu hồi được chấp nhận lại | TTL key = `AccessTokenSeconds + ClockSkewSeconds`, tính từ cùng `JwtOptions` với phía validate; test D8 so TTL trong Redis; có dòng trong checklist Mục 12 |
 | Redis chết → bỏ qua kiểm tra thu hồi (fail-open) | Token đã thu hồi sống lại, cửa sổ ≤ 15 phút | Quyết định có ý thức (Mục 7.5); alert khi Redis mất kết nối; refresh token vẫn bị chặn ở DB |
 | **Interceptor 401→refresh không single-flight** | Nhiều tab refresh cùng lúc tự kích hoạt reuse detection → người dùng bị đăng xuất oan. Triệu chứng trông hệt lỗi backend, debug nhầm chỗ rất tốn thời gian | Single-flight bắt buộc ở lane frontend (Mục 9, Ngày 5) + ân hạn 10 giây phía server (Mục 7.3) + test E2E-02 |
 | **Backend chỉ còn 2 người** trong khi khối A vẫn chặn C và D | Trễ ngay ở giai đoạn nền, kéo theo mọi giai đoạn sau | GĐ1 kéo dài thêm 1 ngày (Ngày 3–6); khối B và E không phụ thuộc A nên vẫn chạy hết công suất |
@@ -1551,7 +1573,8 @@ cổng AuthZ).
 3. **Đổi hình dạng API là phải sửa `identity-v1.yaml` trong cùng commit** — `IdentityContractTests`
    chiều 1 đang xanh và sẽ đỏ ngay khi code lộ ra thứ hợp đồng chưa ghi.
 
-Còn hai `Skip` đang chờ được gỡ, mỗi cái là một dòng việc cụ thể trong Phần B: `A7` và `D11`.
+Hai `Skip` từng chờ gỡ, mỗi cái là một dòng việc cụ thể trong Phần B: `A7` (đã gỡ ở khối A) và `D11` (đã gỡ ở
+khối D). Repo không còn `Skip` nào — không thêm cái mới để né đỏ.
 
 ---
 
@@ -1870,13 +1893,20 @@ liệu seed thật. Nguồn quyền giả chỉ còn trong unit test.
 > **Mục tiêu khối:** biến hợp đồng đã chốt ở cổng mở thành 6 endpoint chạy thật, khớp từng mã lỗi.
 > **Ghép sau khi A và C xong.** Mọi controller vào `Modules/Identity/Presentation/`.
 
+> **Hướng dẫn thi công từng bước:** [huong-dan-khoi-d-endpoint.md](huong-dan-khoi-d-endpoint.md) — danh sách
+> việc (thêm `D0`, làm tuần tự `D0 → D1 → D2 → D3 → D7 → D4 → D5 → D6 → D8 → D9 → D11`), mục tiêu, kết quả mong đợi,
+> và 10 quyết định bổ sung. **Đã ghi ngược vào tài liệu này** trước khi khối D bắt đầu: Đ-D3 (ân hạn 10 giây
+> phát token mới cùng family — Mục 7.3, D5), Đ-D4 (TTL `revoked:user` = TTL access + `ClockSkew` — Mục 7.5,
+> 12, 14, D8, B.9), Đ-D9 (staging GĐ1 gửi mail qua Mailpit — **chốt lại 2026-09-15: qua Brevo**, chỉ đổi `.env`;
+> compose staging bỏ `mailpit` — `oci-setup.md`).
+
 ### D1 — `POST /auth/register` + gửi mail xác minh
 
 - **Mục tiêu:** FR-001 nửa đầu — người thật tạo được tài khoản.
 - **Cách thực thi:** validator FluentValidation (email đúng định dạng, mật khẩu 8–72 ký tự — trần 72
   là giới hạn cứng của BCrypt, ký tự thứ 73 bị bỏ qua âm thầm). Băm `BCrypt.HashPassword(pw, workFactor: 12)`.
   `INSERT users` với `role_id = 1`, `email_verified_at = NULL`. Sinh token 32 byte ngẫu nhiên, lưu
-  **băm SHA-256**, hạn 24 giờ. Gửi qua `IEmailSender` → Mailpit ở dev/staging. Email trùng → **409**
+  **băm SHA-256**, hạn 24 giờ. Gửi qua `IEmailSender` → Mailpit ở dev, Brevo ở staging. Email trùng → **409**
   (ngoại lệ có ý thức so với quy tắc không lộ email của `/auth/login` — lý do ghi trong hợp đồng).
 - **Xong là:** đăng ký trên dev → mail hiện trong Mailpit; validator trả RFC 7807 có `errors` và `traceId`.
 - **Chặn / Cần:** chặn D2. Cần A, C4.
@@ -1918,7 +1948,8 @@ liệu seed thật. Nguồn quyền giả chỉ còn trong unit test.
 - **Mục tiêu:** NFR-SEC-03. **Phần khó nhất của cả giai đoạn — giao cho người chắc tay nhất.**
 - **Cách thực thi:** toàn bộ trong **một transaction**, `SELECT ... FOR UPDATE` trên dòng token (EF:
   `FromSqlRaw` + `FOR UPDATE`). Năm bước ở Mục 7.3. Thêm **ân hạn 10 giây**: token đã bị thay thế
-  trong vòng 10 giây và chuỗi chưa bị thu hồi thì trả token kế nhiệm thay vì coi là reuse — nếu không,
+  trong vòng 10 giây và chuỗi chưa bị thu hồi thì **phát token mới cùng family** thay vì coi là reuse
+  (không trả lại được token kế nhiệm — DB chỉ lưu băm; Mục 7.3) — nếu không,
   hai tab refresh cùng lúc sẽ tự kích hoạt reuse detection và người dùng bị đăng xuất oan. **Mọi
   nhánh hỏng đều trả 401** — phân biệt "hết hạn" với "bị thu hồi" là nói cho kẻ tấn công biết token
   nó đang cầm ở trạng thái nào. Không nhận body: refresh token đọc từ cookie.
@@ -1949,12 +1980,14 @@ liệu seed thật. Nguồn quyền giả chỉ còn trong unit test.
 - **Mục tiêu:** dựng sẵn **bên đọc** của cơ chế thu hồi access token, để GĐ6 chỉ việc gọi. Không có
   nó thì hạ quyền / khóa tài khoản trễ tới 15 phút.
 - **Cách thực thi:** store trên Redis; hook `OnTokenValidated` ở tầng 1 kiểm `revoked:user:<id>` so
-  với claim `iat`. **TTL của key phải bằng đúng TTL access token, và cả hai đọc từ cùng một hằng số
-  cấu hình** — lệch nhau là lỗ hổng câm: token đã thu hồi được chấp nhận lại. Redis chết thì
-  **fail-open** + log warning (quyết định có ý thức, Mục 7.5). GĐ1 nối **đúng một** trigger ghi:
-  reuse detection ở D5. Thứ tự thu hồi luôn là **DB trước, Redis sau**. TTL đọc từ
-  `JwtOptions.AccessTokenSeconds` — cùng giá trị D3 dùng để phát token (Mục 6.2).
-- **Xong là:** RV-01 → RV-04 xanh; test đọc `TTL revoked:user:<id>` trong Redis khớp `Jwt:AccessTokenSeconds`.
+  với claim `iat`. **TTL của key = TTL access token + `ClockSkew`, cả hai tính từ cùng hằng số cấu
+  hình** — ngắn hơn là lỗ hổng câm: token đã thu hồi được chấp nhận lại (Mục 7.5 "Vì sao TTL là 930
+  giây"). Redis chết thì **fail-open** + log warning (quyết định có ý thức, Mục 7.5). GĐ1 nối **đúng một**
+  trigger ghi: reuse detection ở D5. Thứ tự thu hồi luôn là **DB trước, Redis sau**. TTL đọc từ
+  `JwtOptions.AccessTokenSeconds` (cùng giá trị D3 dùng để phát token, Mục 6.2) cộng hằng số mới
+  `JwtOptions.ClockSkewSeconds` (thay số `30` ghi tay trong `Program.cs`).
+- **Xong là:** RV-01 → RV-04 xanh; test đọc `TTL revoked:user:<id>` trong Redis khớp
+  `Jwt:AccessTokenSeconds + ClockSkewSeconds` (930).
 - **Chặn / Cần:** cần D5. **Đây là phần cắt được** nếu phải cắt — đẩy sang GĐ6 cùng bên ghi, nhưng
   khi đó RV-01→04 và hai dòng trong checklist Mục 12 cũng dời theo, **phải ghi rõ chứ không lặng lẽ bỏ**.
 
@@ -2078,8 +2111,11 @@ liệu seed thật. Nguồn quyền giả chỉ còn trong unit test.
 - **Cách thực thi:** merge vào `develop` → CD build arm64 → GHCR → deploy. **Không thao tác tay trên
   VPS.** Service `migrate` chạy trước `api`.
 - **Xong là:** `/health/ready` xanh trên domain HTTPS thật.
-- **Chặn / Cần:** cần A6, D. ⚠️ Kiểm `deploy/.env` có đủ `ConnectionStrings__Postgres` và `__Redis`
-  **trước khi merge** — app hiện fail-fast khi thiếu, sẽ crash-loop chỗ image cũ vẫn boot được.
+- **Chặn / Cần:** cần A6, D. ⚠️ Kiểm `deploy/.env` có đủ `ConnectionStrings__Postgres`, `__Redis`,
+  `Jwt__SigningKey`, `Cors__AllowedOrigins__0`, `Smtp__Host=smtp-relay.brevo.com`, `Smtp__Port=587`,
+  `Smtp__User`, `Smtp__Password`, `Smtp__From`, `Frontend__BaseUrl` **trước khi merge** — app fail-fast khi thiếu,
+  sẽ crash-loop chỗ image cũ vẫn boot được. Staging gửi mail qua Brevo; `Smtp__From` phải là người gửi đã xác thực
+  trên Brevo — kiểm bằng một lần đăng ký thật sau deploy (`oci-setup.md` mục vi).
 
 ### F2 — Frontend bỏ mock, trỏ staging thật
 
@@ -2092,7 +2128,7 @@ liệu seed thật. Nguồn quyền giả chỉ còn trong unit test.
 
 - **Mục tiêu:** kiểm chứng những thứ **integration test không chạm tới được**: cookie `HttpOnly`,
   `SameSite`, `Path` scoping, CORS preflight.
-- **Cách thực thi:** đăng ký → nhận mail Mailpit → xác minh → đăng nhập → `GET /me` → ép hết hạn
+- **Cách thực thi:** đăng ký → nhận mail xác minh ở hộp thư thật (Brevo) → xác minh → đăng nhập → `GET /me` → ép hết hạn
   access token → interceptor refresh → gọi lại thành công. Trên trình duyệt thật, qua HTTPS.
 - **Xong là:** chạy xuyên suốt không lỗi, có ghi lại kết quả.
 - **Chặn / Cần:** cần F2.
@@ -2157,9 +2193,9 @@ không đổi kể cả khi lịch trượt.
 
 1. Thứ tự thu hồi **DB trước, Redis sau** (D8). Đảo lại thì user giữ vai trò cũ thêm 15 phút, không
    gì chặn được.
-2. TTL `revoked:user` **bằng đúng** TTL access token, và cả hai đọc từ **cùng một** hằng số (D8). D8 có
-   test so TTL key với `Jwt:AccessTokenSeconds` — bắt được lệch **giá trị**, nhưng hai chỗ đọc hai hằng số
-   khác nhau cùng bằng 900 thì test vẫn xanh, nên review vẫn bắt buộc.
+2. TTL `revoked:user` **bằng** TTL access token **+ `ClockSkew`**, và cả hai tính từ **cùng** hằng số trong
+   `JwtOptions` (D8, Mục 7.5). D8 có test so TTL key với `AccessTokenSeconds + ClockSkewSeconds` — bắt được lệch
+   **giá trị**, nhưng chỗ khác tự khai hằng số riêng cùng bằng 900 hoặc 30 thì test vẫn xanh, nên review vẫn bắt buộc.
 3. `UseAuthentication()` đặt **trước** rate limiter (C4).
 
 ---
@@ -2190,7 +2226,7 @@ không đổi kể cả khi lịch trượt.
 |---|---|---|---|
 | **FR-001** | Đăng ký + xác minh email | D1, D2 | AC-04, E2E-01 |
 | **FR-002** | Đăng nhập cấp JWT + refresh rotation | D3, D5 | AC-01, RT-01→04 |
-| **FR-003** | Khóa tài khoản sau 5 lần sai trong 15 phút | D3 | AC-03 |
+| **FR-003** | Khóa tài khoản 15 phút sau 5 lần sai liên tiếp | D3 | AC-03 |
 | **Mục 6.7.1** | Ba tầng kiểm soát truy cập chạy đủ | C4 (tầng 1) · C1–C3, C5 (tầng 2) · **C6** (khuôn tầng 3) | TC-A01/A02, RBAC-01/02/02b/02c, DEFAULT-DENY, OWN-00 |
 | **Mục 6.7.2** | RBAC **dữ liệu hóa** — ma trận trong DB, không hard-code | A4, C5 | SEED-02, kiểm tay ở Mục 12 |
 | **NFR-SEC-01** | BCrypt cost 12; refresh token lưu băm | D1, D5 | Đọc trực tiếp DB (Mục 12) |

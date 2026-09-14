@@ -20,7 +20,7 @@ public sealed class GlobalExceptionHandler(
         var (status, title) = exception switch
         {
             AppException ae => (ae.Status, ae.Title),
-            _ => (StatusCodes.Status500InternalServerError, "Đã xảy ra lỗi không mong muốn")
+            _ => (StatusCodes.Status500InternalServerError, ProblemTitles.InternalError)
         };
 
         // 5xx là bất thường -> log Error; 4xx là lỗi nghiệp vụ mong đợi -> log Warning.

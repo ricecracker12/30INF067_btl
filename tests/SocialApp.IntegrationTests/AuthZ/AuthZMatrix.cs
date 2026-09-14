@@ -48,6 +48,15 @@ public static class AuthZMatrix
         new("OWN-00", "Khuôn tầng 3: user A đọc tài nguyên (probe) của user B", "GĐ1",
             Caller.User, HttpMethod.Get, "/__test/authz/owned/{id của người khác}", HttpStatusCode.Forbidden,
             ArrangePath: _ => Task.FromResult($"/__test/authz/owned/{Guid.NewGuid()}")),
+
+        // D7: endpoint THẬT đầu tiên của matrix — các dòng trên chạy trên probe của assembly test.
+        new("TC-A01-me", "GET /me không kèm JWT — endpoint thật đầu tiên của matrix", "GĐ1",
+            Caller.Anonymous, HttpMethod.Get, "/api/v1/me", HttpStatusCode.Unauthorized),
+
+        // D6: logout chạm refresh token có chủ. Tầng 3 kiểm ở Auth/LogoutTests.Cookie_cua_nguoi_khac_khong_bi_thu_hoi (quan sát
+        // hệ quả — khung matrix không mang cookie). Dòng dưới chỉ canh tầng 1.
+        new("TC-A01-logout", "POST /auth/logout không kèm JWT", "GĐ1",
+            Caller.Anonymous, HttpMethod.Post, "/api/v1/auth/logout", HttpStatusCode.Unauthorized),
     ];
 
     /// <summary>

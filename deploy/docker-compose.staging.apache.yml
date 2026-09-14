@@ -14,7 +14,7 @@ services:
   api:
     image: ghcr.io/ricecracker12/30inf067_btl/api:staging
     restart: unless-stopped
-    env_file: [./.env]
+    env_file: [./.env]                 # gồm Smtp__* — mail xác minh đi qua Brevo, staging không chạy Mailpit (Đ-D9)
     environment:
       ASPNETCORE_ENVIRONMENT: Staging
       ASPNETCORE_URLS: "http://+:8080"

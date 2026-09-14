@@ -93,23 +93,37 @@ R2__Bucket=socialmedia-staging
 R2__AccessKey=<access key id>
 R2__SecretKey=<secret access key>
 
-# Email (gửi mail xác minh đăng ký + reset mật khẩu — ACT-ES / FR-001).
-# Staging/Prod: SMTP thật, ví dụ Brevo free (~300 mail/ngày). Local dev thì dùng
-# Mailpit trong compose (Host=mailpit, Port=1025, không cần User/Password).
+# Email (mail xác minh đăng ký — FR-001). Staging gửi qua Brevo (SMTP thật, STARTTLS).
 Smtp__Host=smtp-relay.brevo.com
 Smtp__Port=587
-Smtp__User=<smtp username / api key>
-Smtp__Password=<smtp password>
-Smtp__From=no-reply@tenmien.com
+Smtp__User=<SMTP login của Brevo>
+Smtp__Password=<SMTP key của Brevo>
+Smtp__From=<người gửi đã xác thực trên Brevo>
+Frontend__BaseUrl=https://mxh.banhgao.net
+Cors__AllowedOrigins__0=https://mxh.banhgao.net
 EOF
 chmod 600 .env
 ```
 > ASP.NET Core map biến `Section__Key` → config (`__` = lồng cấp). Sinh khóa: `openssl rand -base64 48`.
 >
-> **Email theo môi trường:** *local dev* = **Mailpit** (compose dev, `Smtp__Host=mailpit` `Smtp__Port=1025`,
-> mail giả xem ở web UI `:8025`, không cần tài khoản); *staging/prod* = SMTP thật (Brevo / Resend /
-> Mailtrap / Gmail App Password) — đây là giả định **ISS-03** trong PTTK. Chưa làm chức năng email thì
-> để trống cũng được, server vẫn chạy; đến **GĐ1 (Identity — đăng ký + xác minh email)** mới thực sự cần.
+> **Email theo môi trường (`docs/huong-dan-khoi-d-endpoint.md` Đ-D9 — staging chốt lại 2026-09-15):**
+>
+> | Môi trường | Gửi qua | Xem mail |
+> |---|---|---|
+> | Local dev | Mailpit của `docker-compose.dev.yml` (`localhost:1025`) | `http://localhost:8025` |
+> | **Staging** | **Brevo** (`smtp-relay.brevo.com:587`, STARTTLS) — giả định **ISS-03** trong PTTK | Hộp thư thật của tài khoản đăng ký |
+>
+> Brevo là thiết lập staging từ GĐ0. Tài liệu khối D (2026-09-14) từng đổi staging sang Mailpit trong compose nhưng
+> `.env` chưa bao giờ đổi theo; nghiệm thu khối D (2026-09-15) chốt lại Brevo. Compose staging **không còn** service
+> `mailpit`.
+>
+> ⚠️ **`Smtp__From` phải là người gửi / tên miền đã xác thực trên Brevo** (SPF/DKIM của domain nếu xác thực theo
+> domain) — chưa xác thực thì Brevo từ chối hoặc mail vào spam. `Smtp__Password` là SMTP key, chỉ nằm ở `.env`
+> (`chmod 600`). Có `Smtp__User` thì api tự bật STARTTLS. Brevo có hạn mức gửi theo ngày: E2E dùng tài khoản nhóm,
+> đừng đăng ký hàng loạt.
+>
+> Thiếu `Smtp__Host`/`Smtp__From`/`Cors__AllowedOrigins__0` thì api **từ chối khởi động** (từ khối D GĐ1) —
+> kiểm `.env` trước khi merge vào `develop`.
 
 **B. Trên CI** (GitHub → Settings → Secrets → Actions): `STAGING_HOST`, `STAGING_USER`, `STAGING_SSH_KEY`.
 

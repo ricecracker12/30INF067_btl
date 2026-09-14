@@ -1,7 +1,22 @@
+using FluentValidation;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using SocialApp.Modules.Identity.Application;
+using SocialApp.Modules.Identity.Application.Email;
+using SocialApp.Modules.Identity.Application.Login;
+using SocialApp.Modules.Identity.Application.Me;
+using SocialApp.Modules.Identity.Application.Session;
+using SocialApp.Modules.Identity.Application.Registration;
+using SocialApp.Modules.Identity.Application.Security;
 using SocialApp.Modules.Identity.Infrastructure;
 using SocialApp.Modules.Identity.Infrastructure.Authorization;
+using SocialApp.Modules.Identity.Infrastructure.Email;
+using SocialApp.Modules.Identity.Infrastructure.Persistence;
+using SocialApp.Modules.Identity.Infrastructure.Security;
 using SocialApp.Modules.Identity.Infrastructure.Seed;
 using SocialApp.SharedKernel.Authorization;
 
@@ -30,6 +45,40 @@ public static class IdentityModuleExtensions
 
         // Nguồn thật của ma trận quyền cho tầng 2 (C5): đọc role_permissions. SharedKernel chỉ biết interface.
         services.AddScoped<IRolePermissionSource, RolePermissionSource>();
+
+        // Viên gạch chung của khối D (D0). Cả hai stateless → singleton. JwtAccessTokenIssuer đọc IOptions<JwtOptions>
+        // do HOST đăng ký sau khi validate + giải fallback deploy/.env — module KHÔNG bind lại section "Jwt".
+        services.TryAddSingleton(TimeProvider.System);
+        services.AddSingleton<IPasswordHasher, BCryptPasswordHasher>();
+        services.AddSingleton<IAccessTokenIssuer, JwtAccessTokenIssuer>();
+
+        // Validator của module (D1–D3). Auto-validation của MVC bật MỘT lần ở host, không ở đây.
+        services.AddValidatorsFromAssembly(typeof(IdentityModuleExtensions).Assembly, ServiceLifetime.Singleton);
+
+        // Luồng auth (D1+). Scoped vì store dùng IdentityDbContext.
+        services.AddScoped<IIdentityUserStore, IdentityUserStore>();
+        services.AddScoped<IEmailVerificationStore, EmailVerificationStore>();
+        services.AddScoped<IRefreshTokenStore, RefreshTokenStore>();
+        services.AddScoped<RegistrationService>();
+        services.AddScoped<LoginService>();
+        services.AddScoped<MeQuery>();
+        services.AddScoped<SessionService>();
+        return services;
+    }
+
+    /// <summary>
+    /// Gửi mail xác minh qua SMTP (Đ-D9). Tách khỏi <see cref="AddIdentityModule"/> vì cần cấu hình + môi trường của
+    /// host, còn <see cref="AddIdentityModule"/> được test dựng trần chỉ với chuỗi kết nối.
+    ///
+    /// Cấu hình thiếu ngoài Development thì ném NGAY lúc gọi — không đợi mail đầu tiên mới biết (cùng tinh thần
+    /// RequireConnectionString). Host gọi sau RequireJwtOptions để thông báo lỗi JWT/DB vẫn đến trước.
+    /// </summary>
+    public static IServiceCollection AddIdentityEmail(
+        this IServiceCollection services, IConfiguration configuration, IHostEnvironment environment)
+    {
+        var smtp = SmtpOptions.FromConfiguration(configuration, environment);
+        services.AddSingleton<IEmailSender>(sp =>
+            new SmtpEmailSender(smtp, sp.GetRequiredService<ILogger<SmtpEmailSender>>()));
         return services;
     }
 

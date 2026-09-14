@@ -39,6 +39,17 @@ public static class ResultHttpExtensions
     public static ActionResult<T> ToActionResult<T>(this Result<T> result, ControllerBase controller) =>
         result.IsSuccess ? controller.Ok(result.Value) : Problem(controller, result.Error!.Value);
 
+    /// <summary>
+    /// Chỉ phần lỗi — cho action phải làm thêm việc khi thành công (set cookie ở login/refresh, trả DTO khác kiểu của
+    /// Result) nên không trả thẳng <c>ToActionResult&lt;T&gt;</c> được. CÙNG hàm <c>Problem</c> với hai overload trên: hai
+    /// chỗ dựng ProblemDetails là hai chỗ lệch nhau.
+    /// </summary>
+    public static ObjectResult ToActionResult(this Error error, ControllerBase controller) => Problem(controller, error);
+
+    /// <summary>
+    /// <see cref="Error.Title"/> null thì <c>SharedKernelProblemDetailsFactory</c> điền title mặc định theo status — factory mặc
+    /// định của MVC để 410/423 KHÔNG có title, trái <c>required</c> của hợp đồng (D9).
+    /// </summary>
     private static ObjectResult Problem(ControllerBase controller, Error error) =>
-        controller.Problem(statusCode: error.Status, detail: error.Message);
+        controller.Problem(statusCode: error.Status, detail: error.Message, title: error.Title);
 }

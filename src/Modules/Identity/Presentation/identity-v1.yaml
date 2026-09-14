@@ -96,7 +96,7 @@ paths:
       description: |
         Tạo tài khoản với `role_id = 1 (USER)`, `email_verified_at = NULL`, mật khẩu băm BCrypt
         cost 12, rồi gửi mail xác minh (token ngẫu nhiên 32 byte, lưu **băm**, hạn 24 giờ).
-        Ở dev/staging mail đi qua Mailpit.
+        Ở dev mail đi qua Mailpit; ở staging đi qua Brevo tới hộp thư thật.
 
         Tài khoản **chưa đăng nhập được** cho tới khi gọi `/auth/verify-email` — đăng nhập lúc này
         trả `403`.
@@ -281,7 +281,8 @@ paths:
                 traceId: 7d3f1b5e9a2c4068b4d6f8a0c2e4b6d8
         '423':
           description: |
-            Tài khoản bị khóa tạm thời do sai mật khẩu 5 lần trong 15 phút (AC-03, FR-003).
+            Tài khoản bị khóa tạm thời 15 phút do sai mật khẩu 5 lần **liên tiếp** (AC-03, FR-003) — đăng nhập
+            đúng trước lần thứ 5 thì bộ đếm về 0; không có cửa sổ thời gian cho các lần sai.
             Tự mở lại sau khi hết thời gian khóa — GĐ1 không có endpoint mở khóa thủ công.
           content:
             application/problem+json:
@@ -308,7 +309,7 @@ paths:
         **Endpoint này KHÔNG NHẬN BODY.** Refresh token đọc từ cookie `refresh_token`
         (quyết định 6 ở cổng mở).
 
-        Toàn bộ chạy trong một transaction, `SELECT ... FOR UPDATE` trên dòng token
+        Toàn bộ chạy trong một transaction: khóa theo `family_id` rồi `SELECT ... FOR UPDATE` trên dòng token
         (docs/giai-doan-1.md Mục 7.3):
 
         1. Băm SHA-256 token nhận được → tra `token_hash`.
@@ -320,7 +321,8 @@ paths:
            `replaced_by_id = <id mới>`.
 
         > **Ân hạn 10 giây.** Nếu token đã bị thay thế **trong vòng 10 giây** và chuỗi chưa bị thu
-        > hồi, server trả token kế nhiệm thay vì coi là reuse. Đây là cái đỡ cho race hai tab
+        > hồi, server phát một refresh token **mới cùng chuỗi** (kèm access token mới) thay vì coi là
+        > reuse — không trả lại đúng token kế nhiệm, vì server chỉ lưu băm. Đây là cái đỡ cho race hai tab
         > (test RT-04) — nhưng nó **không thay thế** yêu cầu single-flight ở client: ân hạn che
         > được phần lớn, không phải tất cả.
 
@@ -330,7 +332,7 @@ paths:
         - refreshCookie: []
       responses:
         '200':
-          description: Cặp token mới. Cookie refresh được thay bằng token kế nhiệm.
+          description: Cặp token mới. Cookie refresh được thay bằng refresh token mới cùng chuỗi.
           headers:
             Set-Cookie:
               $ref: '#/components/headers/SetRefreshCookie'
@@ -698,9 +700,9 @@ components:
           type: integer
           format: int32
           description: |
-            Số **giây** access token còn sống — 900. Cùng một hằng số cấu hình với TTL của
-            `revoked:user` trên Redis; hai giá trị lệch nhau là một lỗ hổng câm không test nào bắt
-            được (docs/giai-doan-1.md Mục 7.5).
+            Số **giây** access token còn sống — 900. TTL của `revoked:user` trên Redis tính từ CÙNG
+            hằng số này cộng `ClockSkew` (900 + 30); tính từ nguồn khác là một lỗ hổng câm không test
+            nào bắt được (docs/giai-doan-1.md Mục 7.5).
           example: 900
       required: [accessToken, expiresIn]
 

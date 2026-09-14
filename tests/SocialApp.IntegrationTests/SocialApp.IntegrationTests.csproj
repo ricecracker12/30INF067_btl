@@ -18,6 +18,8 @@
          kéo về, tránh downgrade conflict. -->
     <PackageReference Include="Microsoft.OpenApi.Readers" Version="1.6.14" />
     <PackageReference Include="Testcontainers.PostgreSql" Version="4.0.0" />
+    <!-- Cùng version Testcontainers.PostgreSql: hai bản lõi Testcontainers khác nhau là NU1605 downgrade. -->
+    <PackageReference Include="Testcontainers.Redis" Version="4.0.0" />
     <PackageReference Include="xunit" Version="2.5.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.5.3" />
   </ItemGroup>

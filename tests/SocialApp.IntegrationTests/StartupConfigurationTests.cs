@@ -1,7 +1,10 @@
+using System.Globalization;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using SocialApp.IntegrationTests.Harness;
+using SocialApp.Modules.Identity.Application.Email;
 using Xunit;
 
 namespace SocialApp.IntegrationTests;
@@ -117,6 +120,123 @@ public sealed class StartupConfigurationTests
         Assert.Contains("Jwt__SigningKey", ex.Message, StringComparison.Ordinal);
         Assert.Contains("deploy/.env", ex.Message, StringComparison.Ordinal);
         Assert.Contains(environment, ex.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Đ-D9: ngoài Development thiếu một trong bốn key gửi mail thì từ chối khởi động, thông báo nêu đúng key và đúng
+    /// biến môi trường. Mọi thứ khác khai hợp lệ để chắc chắn app chết vì đúng key đó.
+    /// </summary>
+    [Theory]
+    [InlineData("Smtp:Host", "Smtp__Host")]
+    [InlineData("Smtp:Port", "Smtp__Port")]
+    [InlineData("Smtp:From", "Smtp__From")]
+    [InlineData("Frontend:BaseUrl", "Frontend__BaseUrl")]
+    public void Missing_email_config_must_fail_fast_outside_development(string key, string variable)
+    {
+        using var factory = StagingWithEmailConfig(b => b.UseSetting(key, string.Empty));
+
+        var ex = Assert.Throws<InvalidOperationException>(() => factory.CreateClient());
+
+        Assert.Contains(key, ex.Message, StringComparison.Ordinal);
+        Assert.Contains(variable, ex.Message, StringComparison.Ordinal);
+        Assert.Contains("Staging", ex.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>Mặt còn lại của test trên: đủ bốn key thì Staging khởi động được — lưới không phải "luôn ném".</summary>
+    [Fact]
+    public void Staging_boots_when_email_config_is_complete()
+    {
+        using var factory = StagingWithEmailConfig(_ => { });
+
+        using var client = factory.CreateClient();
+        Assert.NotNull(client);
+    }
+
+    /// <summary>
+    /// Đ-D9: Development không đặt Smtp:Host / Frontend:BaseUrl → mail đi localhost, link trỏ về frontend local, KHÔNG lấy
+    /// giá trị staging trong deploy/.env. Gửi bằng SmtpEmailSender THẬT tới SMTP giả. Chỉ đặt Smtp:Port: Mailpit của
+    /// compose dev có thể đang giữ cổng 1025 trên máy chạy test.
+    /// </summary>
+    [Fact]
+    public async Task Development_khong_dat_cau_hinh_mail_link_tro_ve_localhost_3000()
+    {
+        await using var smtp = FakeSmtpServer.Start();
+        using var api = new ApiFactory();
+        using var factory = api.WithWebHostBuilder(b =>
+            b.UseSetting("Smtp:Port", smtp.Port.ToString(CultureInfo.InvariantCulture)));
+        var token = new string('a', 64);
+
+        await factory.Services.GetRequiredService<IEmailSender>()
+            .SendVerificationAsync("an.nguyen@example.com", token, CancellationToken.None);
+
+        var raw = Assert.Single(smtp.Messages);
+        Assert.Contains("an.nguyen@example.com", raw, StringComparison.Ordinal);
+        Assert.Contains($"http://localhost:3000/verify-email?token={token}", FakeSmtpServer.DecodeBody(raw), StringComparison.Ordinal);
+    }
+
+    /// <summary>D4: ngoài Development thiếu origin CORS thì từ chối khởi động — thiếu là FE bị trình duyệt chặn ở mọi request.</summary>
+    [Fact]
+    public void Missing_cors_origins_must_fail_fast_outside_development()
+    {
+        using var factory = StagingWithEmailConfig(b => b.UseSetting("Cors:AllowedOrigins:0", string.Empty));
+
+        var ex = Assert.Throws<InvalidOperationException>(() => factory.CreateClient());
+
+        Assert.Contains("Cors:AllowedOrigins", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("Cors__AllowedOrigins__0", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("Staging", ex.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// D4: trình duyệt gửi Origin dạng scheme://host[:port]. Cấu hình có "/" cuối hay path thì không bao giờ khớp mà không lỗi nào
+    /// báo — nên từ chối khởi động, thông báo nêu đúng giá trị sai.
+    /// </summary>
+    [Theory]
+    [InlineData("https://app.example.com/")]
+    [InlineData("https://app.example.com/app")]
+    [InlineData("app.example.com")]
+    public void Invalid_cors_origin_must_fail_fast(string origin)
+    {
+        using var factory = StagingWithEmailConfig(b => b.UseSetting("Cors:AllowedOrigins:0", origin));
+
+        var ex = Assert.Throws<InvalidOperationException>(() => factory.CreateClient());
+
+        Assert.Contains("Cors:AllowedOrigins", ex.Message, StringComparison.Ordinal);
+        Assert.Contains(origin, ex.Message, StringComparison.Ordinal);
+    }
+
+    private static WebApplicationFactory<Program> StagingWithEmailConfig(Action<IWebHostBuilder> tweak) =>
+        new WebApplicationFactory<Program>().WithWebHostBuilder(b =>
+        {
+            b.UseEnvironment("Staging");
+            b.UseSetting("ConnectionStrings:Postgres", ApiFactory.UnreachablePostgres);
+            b.UseSetting("ConnectionStrings:Redis", ApiFactory.UnreachableRedis);
+            TestJwt.Configure(b);
+            b.UseSetting("Smtp:Host", "mailpit");
+            b.UseSetting("Smtp:Port", "1025");
+            b.UseSetting("Smtp:From", "no-reply@example.com");
+            b.UseSetting("Frontend:BaseUrl", "https://app.example.com");
+            b.UseSetting("Cors:AllowedOrigins:0", "https://app.example.com");   // D4 — thiếu thì Staging từ chối khởi động
+            tweak(b);
+        });
+
+    /// <summary>D0: hạn refresh token ≤ 0 thì cookie hết hạn ngay khi phát — từ chối khởi động thay vì mọi refresh 401.</summary>
+    [Fact]
+    public void Non_positive_refresh_token_days_must_fail_fast()
+    {
+        using var factory = new WebApplicationFactory<Program>()
+            .WithWebHostBuilder(b =>
+            {
+                b.UseEnvironment("Staging");
+                b.UseSetting("ConnectionStrings:Postgres", ApiFactory.UnreachablePostgres);
+                b.UseSetting("ConnectionStrings:Redis", ApiFactory.UnreachableRedis);
+                TestJwt.Configure(b);
+                b.UseSetting("Jwt:RefreshTokenDays", "0");
+            });
+
+        var ex = Assert.Throws<InvalidOperationException>(() => factory.CreateClient());
+
+        Assert.Contains("Jwt:RefreshTokenDays", ex.Message, StringComparison.Ordinal);
     }
 
     /// <summary>
