@@ -24,9 +24,10 @@ public sealed class SessionServiceTests
 
     private readonly FakeRefreshTokens _store = new();
     private readonly FakeIssuer _issuer = new();
+    private readonly FakeRevocation _revocation = new();
 
     private SessionService Service() => new(
-        _store, _issuer, Options.Create(new JwtOptions { RefreshTokenDays = 7 }), new FixedTime(Now),
+        _store, _issuer, _revocation, Options.Create(new JwtOptions { RefreshTokenDays = 7 }), new FixedTime(Now),
         NullLogger<SessionService>.Instance);
 
     private Task<Result<RefreshSuccess>> RefreshAsync(string? cookie = "cookie-cu") =>
@@ -71,10 +72,12 @@ public sealed class SessionServiceTests
 
         Assert.True(result.IsSuccess);
         Assert.Equal((UserId, "USER"), Assert.Single(_issuer.Calls));
+        Assert.Empty(_revocation.Calls);   // ân hạn là hai tab của CHÍNH người dùng, không phải bị đánh cắp
     }
 
+    /// <summary>RV-03 ở tầng service: reuse → thu hồi CẢ access token của user (revoked:user), mốc = giờ hiện tại.</summary>
     [Fact]
-    public async Task ReuseDetected_401_CUNG_loi_va_khong_phat_token()
+    public async Task ReuseDetected_401_CUNG_loi_khong_phat_token_va_thu_hoi_access_cua_user()
     {
         _store.Outcome = new RotateOutcome.ReuseDetected(UserId);
 
@@ -82,6 +85,20 @@ public sealed class SessionServiceTests
 
         Assert.Equal(IdentityErrors.SessionInvalid, result.Error);
         Assert.Empty(_issuer.Calls);
+        Assert.Equal((UserId, Now), Assert.Single(_revocation.Calls));
+    }
+
+    /// <summary>Redis lỗi ở bên ghi: family đã thu hồi ở DB → vẫn đúng 401 đó, không 500.</summary>
+    [Fact]
+    public async Task ReuseDetected_Redis_loi_van_401_CUNG_loi()
+    {
+        _store.Outcome = new RotateOutcome.ReuseDetected(UserId);
+        _revocation.Throw = new InvalidOperationException("Redis chết");
+
+        var result = await RefreshAsync();
+
+        Assert.Equal(IdentityErrors.SessionInvalid, result.Error);
+        Assert.Single(_revocation.Calls);
     }
 
     [Fact]
@@ -93,6 +110,7 @@ public sealed class SessionServiceTests
 
         Assert.Equal(IdentityErrors.SessionInvalid, result.Error);
         Assert.Empty(_issuer.Calls);
+        Assert.Empty(_revocation.Calls);   // token hết hạn/lạ không phải dấu hiệu bị đánh cắp
     }
 
     [Fact]
@@ -143,6 +161,21 @@ public sealed class SessionServiceTests
             Revocations.Add((tokenHash, ownerUserId, now));
             return Task.FromResult(2);
         }
+    }
+
+    private sealed class FakeRevocation : ITokenRevocationStore
+    {
+        public List<(Guid UserId, DateTimeOffset At)> Calls { get; } = [];
+        public Exception? Throw { get; set; }
+
+        public Task RevokeUserAsync(Guid userId, DateTimeOffset at, CancellationToken ct = default)
+        {
+            Calls.Add((userId, at));
+            return Throw is null ? Task.CompletedTask : Task.FromException(Throw);
+        }
+
+        public Task<bool> IsRevokedAsync(string userId, long issuedAtUnix, CancellationToken ct = default) =>
+            throw new NotSupportedException();
     }
 
     private sealed class FakeIssuer : IAccessTokenIssuer

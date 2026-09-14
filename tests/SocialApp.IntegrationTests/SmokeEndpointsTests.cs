@@ -24,7 +24,7 @@ public sealed class SmokeEndpointsTests(ApiFactory factory)
     /// <summary>
     /// /health/ready phải công khai. ApiFactory trỏ Postgres/Redis vào cổng không có gì nên kỳ vọng 503 —
     /// nhận 401 nghĩa là fallback policy đang chặn healthcheck, và container staging sẽ bị báo unhealthy.
-    /// Có thể mất vài giây vì client Redis chờ timeout kết nối.
+    /// Health check Redis chạy trên kết nối chung (D8): chưa kết nối thì Unhealthy ngay, không chờ timeout.
     /// </summary>
     [Fact]
     public async Task Health_ready_khong_can_token()

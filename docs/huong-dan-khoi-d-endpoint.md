@@ -9,10 +9,10 @@
 > nào tài liệu này lệch ba nguồn đó thì sửa ở đây — trừ các quyết định ở Mục 1 được đánh dấu **"ghi
 > ngược"**: những chỗ đó tài liệu gốc đang thiếu hoặc sai, phải sửa `giai-doan-1.md` trong cùng commit.
 
-> **Trạng thái: đang làm — `D0`–`D7` xong (xem "Thực tế thi công" cuối Mục 2–9). Đã commit + push lên
+> **Trạng thái: đang làm — `D0`–`D8` xong (xem "Thực tế thi công" cuối Mục 2–10). Đã commit + push lên
 > `loveart1210`: `D0`–`D2` (`37b6b76`, CI xanh — run 34837717169), `D3` + `D7` (`adea0c3`, CI xanh — run 34841092562),
-> `D4` (`a8ce2a2`, CI xanh — run 34843657708), `D5` (`166165f`, CI xanh — run 34858791751); `D6` chưa commit.
-> Tiếp theo `D8`.** Khối A, B, C đã xong
+> `D4` (`a8ce2a2`, CI xanh — run 34843657708), `D5` (`166165f`, CI xanh — run 34858791751), `D6` (`ef50aec`); `D8` chưa
+> commit. Tiếp theo `D9`.** Khối A, B, C đã xong
 > (commit `105077c` → `2d25ae6`, merge ở `455b597`).
 
 | | |
@@ -193,6 +193,11 @@ cùng commit với code của việc đó.
 - `IConnectionMultiplexer` singleton, `AbortOnConnectFail = false`, timeout ngắn (`ConnectTimeout` 2000,
   `SyncTimeout`/`AsyncTimeout` 250 ms). **Chưa kết nối thì fail-open ngay**, không chờ timeout — nếu không,
   `ApiFactory`/`AuthZApiFactory` (Redis cố ý không tới được) sẽ chậm vài giây **mỗi request có token**.
+- **Sửa sau thi công D8 (nhóm chốt 2026-09-14):** bỏ "dựng lười" thuần túy — nó để request có token **đầu tiên** sau khởi động
+  fail-open. Kết nối chung `SharedKernel/Redis/RedisConnection` được **bắt đầu mở lúc host khởi động, không chờ**
+  (`RedisConnectionStarter`), nên Redis chết app vẫn khởi động ngay — mục tiêu của quyết định giữ nguyên. **Một** kết nối cho cả
+  instance: thu hồi token và health check `redis` dùng chung (`AddSharedKernelRedis` + `AddSharedKernelRedisCheck`), thay gói
+  `AspNetCore.HealthChecks.Redis`. Chi tiết ở "Thực tế thi công" của D8.
 
 **Đ-D9 — SMTP bằng `System.Net.Mail.SmtpClient`, cấu hình `Smtp:*` đã có sẵn trong `.env.example`.**
 
@@ -1603,9 +1608,9 @@ internal sealed class RedisTokenRevocationStore(
 `SyncTimeout = AsyncTimeout = 250`; `IConnectionMultiplexer` singleton dựng **lười** (factory lambda) để app
 khởi động được khi Redis chết.
 
-> ⚠️ **Chưa kiểm (ghi lúc rà sau D1):** dựng lười bằng `ConnectionMultiplexer.Connect` đồng bộ thì lần resolve đầu
-> tiên — tức request có token đầu tiên — có thể chờ tới `ConnectTimeout` (2 giây), trái RV-04 "< 1 giây". RV-04 đỏ ở
-> request đầu thì kết nối bằng `ConnectAsync` ở nền và để `IsConnected = false` tới khi xong.
+> ⚠️ **Đã kiểm ở thi công D8 — đúng là chậm:** bên đọc mà CHỜ kết nối thì request có token đầu tiên tới Redis không tới
+> được mất **7067 ms** (RV-04 đỏ). Đã làm theo hướng dự phòng: `RedisConnection` mở `ConnectAsync` ở nền, bên đọc chỉ dùng
+> kết nối đã xong — xem "Thực tế thi công" bên dưới.
 
 > ⚠️ `RevokeUserAsync` **không** nuốt lỗi Redis. Bên ghi thất bại phải lộ ra (log Error ở D5) — nuốt đi thì thu
 > hồi mất âm thầm. Chỉ bên **đọc** fail-open.
@@ -1667,6 +1672,121 @@ lưới `AuthHarnessTests` đang dùng.
 | 5 | Chờ timeout Redis ở mỗi request có token | Kiểm `IsConnected` trước; RV-04 đòi < 1 giây |
 | 6 | `iat <= mốc` thay vì `<` | Login lại trong cùng giây thu hồi bị 401 oan; RV-02 bắt |
 | 7 | Ghi `revoked:user` ở logout | Đăng xuất một thiết bị cắt access của mọi thiết bị — trái bảng Mục 7.5 |
+
+### Thực tế thi công
+
+**Bằng chứng.** `dotnet test SocialApp.sln`: Unit 67 → 68 (`SessionServiceTests`: test reuse thêm kiểm thu hồi access, +1 test Redis
+lỗi vẫn 401), Architecture 9, Integration 129 → 137 (+8 `TokenRevocationTests`, trong đó 2 test thêm ở đợt sửa "kết nối lúc khởi
+động + kết nối chung" bên dưới; 1 Skip vẫn là `Contract_must_be_fully_implemented`, gỡ ở `D11`). AuthZ matrix (`Category=AuthZ`, 12
+test): **1 s trước D8, 1 s sau D8, 461 ms sau đợt sửa** — fail-open không làm chậm. `TokenRevocationTests`
+cả lớp ~15 s (RV-03 và TTL mỗi test ~1–4 s vì BCrypt + chờ sang giây kế tiếp, còn lại < 0,4 s).
+
+Grep `900`/`930` trong `src/`: chỉ `appsettings.json` và giá trị mặc định trong `JwtOptions` (+ comment) — cạm bẫy 2 sạch.
+
+Kiểm tay trên dev (API chạy từ `bin/` với `Development`, Postgres/Redis/Mailpit của compose dev, gọi bằng `curl`): register 201 → verify
+200 (token lấy từ API Mailpit) → login → refresh c1 **200** → access token của lần login gọi `/me` **200** → **chờ 11 giây thật** →
+dùng lại c1 **401** → cùng access token đó gọi `/me` **401** `application/problem+json` → `redis-cli GET revoked:user:<id>` ra mốc Unix,
+`TTL` **929** → đăng nhập lại, `/me` **200**. Instance thứ hai `ConnectionStrings__Redis=127.0.0.1:1`, cùng khóa ký: access token mới gọi
+`/me` **200** trong 0,69 s (request đầu, gồm khởi động nóng) rồi 0,04 s, log có warning fail-open. Grep log stdout của cả hai instance
+theo giá trị hai access token, cookie và token xác minh: **0** dòng; không có dòng Error.
+
+**Phát hiện ở lần kiểm tay trên — đã sửa (nhóm chốt 2026-09-14):** log instance Redis THẬT cũng có **1** warning fail-open, đúng
+request có token **đầu tiên** sau khởi động. "Dựng lười" thuần túy chỉ bắt đầu kết nối khi `RedisConnection` được resolve lần đầu —
+chính request đó — nên request đó không được kiểm thu hồi. Sửa bằng hai việc:
+
+- **Mở kết nối lúc host khởi động, không chờ.** `SharedKernel/Redis/RedisConnectionStarter` (`IHostedService`) gọi
+  `RedisConnection.GetAsync()` không `await` trong `StartAsync`, log `Đã kết nối Redis lúc khởi động` (Information) hoặc warning khi lần
+  đầu hỏng; host dừng thì hủy chờ, không log vào logger đã dispose. Redis chết app vẫn khởi động ngay; `--migrate` không chạy host nên
+  không mở kết nối. Vài ms đầu sau khởi động vẫn có thể fail-open — đóng hẳn là việc của probe khởi động ở load balancer (việc sau, B1).
+- **Một kết nối cho cả instance.** `RedisConnection` chuyển sang `SharedKernel/Redis/` (public, constructor internal), đăng ký ở
+  **một** chỗ `AddSharedKernelRedis(connectionString)`; `AddSharedKernelTokenRevocation()` không nhận chuỗi kết nối nữa và ném lúc
+  khởi động nếu chưa gọi hàm trên. Health check `redis` viết lại trên kết nối chung (`RedisConnectionHealthCheck`: chưa kết nối →
+  503 ngay, có kết nối → `PING`), **gỡ gói `AspNetCore.HealthChecks.Redis`**: gói đó chỉ có overload mở kết nối riêng hoặc nhận
+  multiplexer qua factory **đồng bộ** — với kết nối mở ở nền là chặn luồng chờ tới ~7 giây mỗi lần gọi `/health/ready` khi Redis chết.
+  `SmokeEndpointsTests.Health_ready_khong_can_token` (Redis không tới được) từ ~9,6 s còn ~2 s.
+- **`RedisConnection.DisposeAsync` sửa luôn:** trước đây kết nối còn đang mở lúc host dừng thì multiplexer bị bỏ mồ côi, tự thử lại mãi
+  trong process test; giờ gắn continuation đóng nó ngay khi lần kết nối có kết quả.
+
+Test thêm (`TokenRevocationTests`), mỗi test dựng app MỚI bằng `factory.WithWebHostBuilder` + `CapturingLogSink`, chờ log "Đã kết nối
+Redis" (tối đa 10 s):
+
+- `Request_co_token_dau_tien_sau_khoi_dong_van_duoc_kiem_thu_hoi` — request có token đầu tiên của app mới, token đã bị thu hồi → 401,
+  không có log fail-open.
+- `Health_ready_200_va_dung_chung_mot_ket_noi_Redis_voi_thu_hoi_token` — đặt tên client qua chuỗi kết nối (`name=`), đếm trong
+  `CLIENT LIST` sau khởi động và sau 3 lần `/health/ready` (200) + 1 request có token: số client không đổi.
+
+| Đột biến | Test đỏ |
+|---|---|
+| Bỏ `AddHostedService<RedisConnectionStarter>()` (quay về dựng lười) | Cả hai test mới — "10 giây sau khởi động app vẫn chưa log…". 8 test khác của lớp xanh |
+| `RedisConnection` đăng ký **transient** (mỗi nơi một kết nối) | `Request_co_token_dau_tien…` — nhận **404** thay vì 401: đúng lỗ hổng, token thu hồi lọt ở request đầu; `Health_ready…` — `/health/ready` **503** vì kết nối riêng của health check chưa mở |
+
+Kiểm tay lại sau đợt sửa, cùng kịch bản dev ở trên: `/health/ready` **200** (0,14 s) trên instance Redis thật, **503** trên instance
+Redis cổng 1 (0,14 s lần đầu, 0,02 s lần hai — không chờ timeout); luồng register → reuse → access token cũ **401**, `TTL` **929**,
+đăng nhập lại **200**, instance Redis chết vẫn **200**. Log instance Redis thật: Information `Đã kết nối Redis lúc khởi động` ngay sau
+khởi động và **0** warning fail-open (lần trước: 1). Instance Redis chết: warning "lần kết nối đầu chưa thành công" từ starter, 3
+warning fail-open, 4 dòng Error = 2 lần `/health/ready` × (health check `redis` Unhealthy + request log 503) — đúng hành vi. Không
+dòng log nào chứa access token, cookie hay token xác minh.
+
+> Grep log theo chuỗi tiếng Việt có dấu ra 0 kết quả trên Windows: stdout chuyển hướng ra file bị lỗi mã hóa ký tự (có sẵn từ trước,
+> không riêng D8). Lọc theo `SourceContext` thay vì theo thông điệp.
+
+**Việc sau — chưa làm, ghi lại để không mất** (phân tích ở phiên rà D8):
+
+- **B1 — khi có load balancer/orchestrator:** tách probe *startup* (xanh khi lần kết nối Redis đầu đã có kết quả) khỏi *ready*; ready
+  **không** nên bắt buộc Redis sống, nếu không Redis chết là mọi instance cùng unready — trái fail-open. Staging hiện tại Caddy không
+  gate theo health nên chưa áp dụng được.
+- **B2 — quan sát fail-open:** Redis chết thì **mỗi** request có token log một warning → bão log khi nhiều instance. Đổi sang metric
+  đếm + log theo chuyển trạng thái (`ConnectionFailed`/`ConnectionRestored` của multiplexer).
+- **B3 — đồng hồ giữa các instance:** mốc thu hồi lấy giờ instance ghi, `iat` lấy giờ instance phát; lệch giờ → 401 oan hoặc lọt
+  token. Tối thiểu NTP + giám sát độ lệch.
+- **C1 — GĐ6:** fail-closed (503) cho endpoint admin/moderation qua metadata endpoint trong `OnTokenValidated`; còn lại fail-open.
+- **C2 — chốt trước khi GĐ6 viết bên ghi:** cân nhắc claim "phiên bản bảo mật" (`INCR` khi thu hồi) thay `iat` — bỏ cả làm tròn giây
+  lẫn phụ thuộc đồng hồ; đổi hợp đồng token nên phải chốt sớm.
+- **D — khi tải lớn:** danh sách user bị thu hồi trong RAM mỗi instance (nạp khi kết nối + cập nhật qua Pub/Sub, đồng bộ lại định kỳ),
+  Redis có bản sao. Chỉ làm khi metric cho thấy `GET` mỗi request đáng kể.
+
+Thử cho đỏ ở local, hai đợt, rồi khôi phục (`git diff` sau khi khôi phục không còn đột biến):
+
+| Đột biến | Test đỏ |
+|---|---|
+| So `iat <= mốc` thay vì `<` — cạm bẫy 6 | `RV02_…` (token phát đúng giây thu hồi nhận 401) **và** `RV03_…` (đăng nhập lại ngay sau reuse bị 401 oan) |
+| TTL = `AccessTokenSeconds` — cạm bẫy 1 | `Ttl_bang_access_cong_clock_skew` — TTL đo được 899,998 |
+| Bỏ kiểm `iat` trong `OnTokenValidated` (chỉ kiểm `sub`) | `Token_khong_co_iat_401` — nhận 404. Đỏ 3/3 ở các lần chạy lại (1 lần riêng, 2 lần cả lớp); **lần chạy đầu của đợt 1 lại xanh**, chưa tìm ra nguyên nhân (nghi output build chưa kịp cập nhật) |
+| Bỏ lời gọi `RevokeAccessTokensAsync` ở nhánh reuse | 2 unit test reuse của `SessionServiceTests`, `RV03_…` (`/me` vẫn 200 sau reuse), `Ttl_…` (không có key) |
+| Bên đọc `await` kết nối thay vì fail-open ngay khi chưa kết nối — cạm bẫy 5 | `RV04_…` — request có token đầu tiên mất **7067 ms** |
+
+**Chỗ lệch so với các bước trên — đã làm như sau:**
+
+- **Không đăng ký `IConnectionMultiplexer` singleton.** `SharedKernel/Redis/RedisConnection` giữ `Lazy<Task<ConnectionMultiplexer>>`
+  từ `ConnectAsync`: bên đọc chỉ dùng kết nối **đã xong và đang kết nối** (`ConnectedOrNull`), chưa thì fail-open ngay; bên ghi `await`
+  lần kết nối đầu (tối đa `ConnectTimeout`). Lý do là đột biến cuối trong bảng trên. Đăng ký bằng factory để DI dispose kết nối khi
+  host dừng. Kết nối mở lúc host khởi động và health check dùng chung — xem đợt sửa bên dưới; vì vậy chữ ký cuối cùng là
+  `AddSharedKernelRedis(connectionString)` + `AddSharedKernelTokenRevocation()`, không phải `AddSharedKernelTokenRevocation(redisConnectionString)`
+  như "Kết quả mong đợi".
+- **Bắt thêm `RedisTimeoutException`** ở bên đọc: nó kế thừa `TimeoutException`, **không** phải `RedisException` — code mẫu chỉ bắt
+  `RedisException` thì Redis chậm quá 250 ms thành 500.
+- **Đọc giá trị bằng `RedisValue.TryParse`**, không ép `(long)` — giá trị hỏng thì coi như không thu hồi thay vì ném.
+- **Mốc thu hồi lấy SAU khi store commit** (`time.GetUtcNow()` lúc gọi), không dùng `now` tính trước lượt xoay như code mẫu mục 7:
+  token nào phát trong lúc store chạy cũng nằm trước mốc. Truyền `CancellationToken.None` — client ngắt kết nối không làm mất việc
+  thu hồi (cùng lý do nhánh reuse của store commit với `None`). Bọc `try/catch` ở helper riêng `RevokeAccessTokensAsync`.
+- **Hook kiểm `sub`/`iat` bằng `ctx.Principal?.`** và thông điệp `Fail` tiếng Việt; hành vi như code mẫu.
+- **Test:**
+  - `InitializeAsync` ghi một key rác qua `ITokenRevocationStore` của app trước test đầu tiên: bên đọc fail-open tới khi kết nối nền
+    xong, không làm nóng thì RV-01 có thể nhận 404 ở request đầu. Bên ghi chờ kết nối nên đây là cách chắc chắn, không cần hook trong
+    `src/`.
+  - **RV-03 và TTL chờ sang giây kế tiếp của `iat`** trước khi dùng lại token cũ: mốc làm tròn xuống giây và so chặt, reuse cùng giây
+    đăng nhập thì access token đó (đúng thiết kế) không bị chặn — test sẽ đỏ ngẫu nhiên. Hệ quả thiết kế đã chấp nhận: token phát
+    trong **cùng giây** với mốc thu hồi không bị chặn (đánh đổi của cạm bẫy 6).
+  - RV-04 dựng app từ `ApiFactory` (Redis cổng 1, không chạm DB), làm nóng bằng `/api/v1/ping` ẩn danh rồi đo **3** request có token,
+    mỗi request < 1 s. Log bắt bằng `ILogEventSink` (`Harness/CapturingLogSink`) — **không** phải `ILoggerProvider` như bảng test:
+    `UseSerilog` thay logger factory nên provider không nhận gì; `ReadFrom.Services` nhận sink đăng ký trong DI.
+  - `RedisFixture` là `IClassFixture` (một container cho lớp duy nhất cần nó), client riêng của test để ghi/đọc key bằng tay.
+- **Thêm ngoài bảng:** RV-01 kiểm user khác cùng `iat` vẫn 404 (key theo user, không toàn cục); `Token_khong_co_iat_401`; RV-03 kiểm
+  `/me` 200 **trước** reuse (401 sau đó đúng là do thu hồi) và giá trị key > `iat`; unit test Grace/Invalid **không** thu hồi access.
+
+`detect-changes` báo **high** (15 symbol, 11 luồng): 8 luồng `Refresh → …` có chủ đích (`RefreshAsync` gọi thu hồi, có test). 3 luồng
+`Logout → …` bị liệt kê do dịch dòng — `git diff` của `SessionService.cs` không có dòng nào của `LogoutAsync`, chỉ helper
+`RevokeAccessTokensAsync` chèn ngay phía trên nó.
 
 ---
 

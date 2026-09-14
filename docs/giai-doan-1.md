@@ -952,8 +952,8 @@ mốc đều đã bị từ chối theo `exp` — key không còn tác dụng, g
   (`ClockSkew`, đặt ở C4), nên token phát ngay trước mốc thu hồi sống lại trong ≤ 30 giây cuối.
 
 > ⚠️ TTL key **phải tính từ cùng các hằng số cấu hình** với phía validate:
-> `JwtOptions.AccessTokenSeconds + JwtOptions.ClockSkewSeconds` (hằng số `ClockSkewSeconds` thêm ở D8,
-> `Program.cs` dùng nó thay số `30`). Đổi access TTL thành 10 phút, hoặc đổi `ClockSkew`, mà quên TTL
+> `JwtOptions.AccessTokenSeconds + JwtOptions.ClockSkewSeconds` (hằng số `ClockSkewSeconds` thêm ở D0,
+> `Program.cs` dùng nó thay số `30`; D8 đọc nó làm TTL key). Đổi access TTL thành 10 phút, hoặc đổi `ClockSkew`, mà quên TTL
 > denylist là tự tạo một lỗ hổng câm, không test nào bắt được nếu không nghĩ tới.
 
 #### Đặt kiểm tra ở đâu

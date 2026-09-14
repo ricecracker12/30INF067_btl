@@ -15,6 +15,7 @@ namespace SocialApp.Modules.Identity.Application.Session;
 public sealed class SessionService(
     IRefreshTokenStore refreshTokens,
     IAccessTokenIssuer tokens,
+    ITokenRevocationStore revocation,
     IOptions<JwtOptions> jwt,
     TimeProvider time,
     ILogger<SessionService> logger)
@@ -43,13 +44,32 @@ public sealed class SessionService(
                 return new RefreshSuccess(tokens.Issue(grace.UserId, grace.RoleCode), next);
 
             case RotateOutcome.ReuseDetected reuse:
-                // Store đã COMMIT việc thu hồi family. D8 thêm thu hồi access token (revoked:user) ngay tại đây — DB trước,
-                // Redis sau (Mục 7.5 cạm bẫy 1).
+                // Store đã COMMIT việc thu hồi family — DB trước, Redis sau (Mục 7.5 cạm bẫy 1). Nghi bị đánh cắp → cắt cả access
+                // token (bảng Mục 7.5). Mốc lấy SAU commit, không dùng `now` từ trước lượt xoay: token nào phát trong lúc store chạy
+                // cũng nằm trước mốc.
                 logger.LogWarning("Phát hiện dùng lại refresh token: đã thu hồi cả family của tài khoản {UserId}", reuse.UserId);
+                await RevokeAccessTokensAsync(reuse.UserId);
                 return IdentityErrors.SessionInvalid;
 
             default:
                 return IdentityErrors.SessionInvalid;
+        }
+    }
+
+    /// <summary>
+    /// Redis lỗi thì log Error và vẫn trả 401: family đã thu hồi ở DB nên refresh đã bị chặn, chỉ access token còn sống tối đa
+    /// 15 phút. KHÔNG truyền CancellationToken của request: client ngắt kết nối không được làm mất việc thu hồi (cùng lý do
+    /// nhánh reuse của store COMMIT với CancellationToken.None).
+    /// </summary>
+    private async Task RevokeAccessTokensAsync(Guid userId)
+    {
+        try
+        {
+            await revocation.RevokeUserAsync(userId, time.GetUtcNow(), CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Không ghi được revoked:user cho tài khoản {UserId}: access token hiện có sống tới hết hạn", userId);
         }
     }
 

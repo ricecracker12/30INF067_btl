@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -17,6 +18,7 @@ using SocialApp.SharedKernel.Authorization;
 using SocialApp.SharedKernel.Configuration;
 using SocialApp.SharedKernel.DependencyInjection;
 using SocialApp.SharedKernel.Http;
+using SocialApp.SharedKernel.Redis;
 
 // Service `migrate` (one-shot, chạy ở bước deploy) gọi với cờ --migrate: apply EF migration cho
 // mọi module context, nạp dữ liệu nền + kiểm tra vai trò hệ thống, rồi thoát 0 (lỗi thì thoát khác 0).
@@ -219,6 +221,11 @@ string[] RequireCorsOrigins()
 // IOptions<JwtOptions> từ đây, KHÔNG đọc lại section "Jwt" — đọc lại thì mất khóa lấy từ deploy/.env.
 builder.Services.AddSingleton(Microsoft.Extensions.Options.Options.Create(jwt));
 
+// MỘT kết nối Redis cho cả instance, bắt đầu mở lúc host khởi động (không chờ). Thu hồi access token theo user + iat (D8, Mục 7.5)
+// và health check dùng lại nó. Redis chết thì app vẫn khởi động và bên đọc fail-open.
+builder.Services.AddSharedKernelRedis(redis);
+builder.Services.AddSharedKernelTokenRevocation();
+
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(o =>
@@ -240,7 +247,24 @@ builder.Services
             RoleClaimType = JwtClaims.Role,
         };
 
-        // D8 gắn OnTokenValidated (ITokenRevocationStore) vào đúng chỗ này.
+        o.Events = new JwtBearerEvents
+        {
+            // Chạy SAU khi chữ ký + exp đã hợp lệ: token giả không tốn lượt Redis (Mục 7.5 "Đặt kiểm tra ở đâu").
+            OnTokenValidated = async ctx =>
+            {
+                var sub = ctx.Principal?.FindFirstValue(JwtClaims.Sub);
+                if (sub is null || !long.TryParse(ctx.Principal!.FindFirstValue(JwtClaims.Iat), out var iat))
+                {
+                    // Không có iat thì không so được với mốc thu hồi — cho qua là token không bao giờ thu hồi được.
+                    ctx.Fail("token thiếu sub/iat");
+                    return;
+                }
+
+                var revocation = ctx.HttpContext.RequestServices.GetRequiredService<ITokenRevocationStore>();
+                if (await revocation.IsRevokedAsync(sub, iat, ctx.HttpContext.RequestAborted))
+                    ctx.Fail("token đã bị thu hồi");   // → 401 problem+json qua UseStatusCodePages
+            },
+        };
     });
 
 // --- Tầng 2 (RBAC, Mục 6.2): [RequirePermission] + fallback policy default deny ---
@@ -248,7 +272,7 @@ builder.Services.AddSharedKernelAuthorization();
 
 builder.Services.AddHealthChecks()
     .AddNpgSql(postgres, name: "postgres", tags: ["ready"])
-    .AddRedis(redis, name: "redis", tags: ["ready"]);
+    .AddSharedKernelRedisCheck(name: "redis", tags: ["ready"]);   // trên kết nối chung — chưa kết nối thì 503 ngay, không chờ
 
 var app = builder.Build();
 

@@ -13,6 +13,9 @@
 
   <ItemGroup>
     <PackageReference Include="Serilog" Version="4.1.0" />
+    <!-- Thu hồi access token (D8, Đ-D8): bên đọc ở host, bên ghi ở Identity (GĐ1) và Moderation (GĐ6) → chỗ chung duy nhất
+         là SharedKernel. Api nhận lại qua project reference. -->
+    <PackageReference Include="StackExchange.Redis" Version="2.8.16" />
     <PackageReference Include="UUIDNext" Version="4.2.4" />
   </ItemGroup>
 
