@@ -13,7 +13,7 @@
 
 | | |
 |---|---|
-| **Người làm** | BE-1 + BE-2 (chia lane ở Mục 0) |
+| **Người làm** | Backend — làm tuần tự theo thứ tự ở Mục 0 |
 | **Thời lượng** | Ngày 4 → Ngày 5 |
 | **Khối này chặn** | Khối **F** toàn bộ; `E7` (interceptor) cần `D4` mới kiểm chứng thật được |
 | **Khối này cần trước** | A (dữ liệu nền), C (JWT, fallback policy, `Result`, `GetUserId`), B (harness Postgres) — **cả ba đã xong** |
@@ -37,34 +37,30 @@
 | **D10** | `[ApiExplorerSettings]` cho mọi controller | Endpoint không biến mất khỏi Swagger trong im lặng | `PresentationBoundaryTests.Every_controller_must_declare_a_swagger_group` xanh sau **mỗi** commit thêm controller — không phải việc dồn cuối |
 | **D11** | Gỡ `Skip` của `Contract_must_be_fully_implemented` | Bật nốt chiều 2 của cổng hợp đồng — từ đây hợp đồng được canh hai chiều | Cổng CI `Category=Contract` chạy **2** test, cả hai xanh. **Điều kiện vào cổng đóng** |
 
-> `D0` không có trong B.6 của tài liệu gốc — tách ra ở đây vì cả hai lane cùng đứng trên nó; để mỗi người tự
-> dựng trong lúc làm D1/D3 là hai bản `SecureToken` và hai factory test.
+> `D0` không có trong B.6 của tài liệu gốc — tách ra ở đây vì cả sáu endpoint cùng đứng trên nó; dựng dần trong
+> lúc làm D1/D3 là mỗi endpoint một cách băm token và một kiểu factory test.
 
-### Chia lane và thứ tự thực thi
+### Thứ tự thực thi
 
 ```
-BE-1:  D0 ─→ D1 ─→ D2 ─→ D3 ─→ D7 ──────────────→ D9 ─→ D11
-                              │                   ↑
-BE-2:  D0 (cùng BE-1) ─→ D8a ─┴→ D4 ─→ D5 ─→ D6 ─→ D8b
-                                                  
+D0 ─→ D1 ─→ D2 ─→ D3 ─→ D7 ─→ D4 ─→ D5 ─→ D6 ─→ D8 ─→ D9 ─→ D11
+
 D10: làm cùng lúc với mỗi controller, không phải một bước riêng
 ```
 
-- **`D0` làm chung, nửa buổi, hai người ngồi cùng.** Nó quyết định hình dạng mọi file phía sau.
-- **`D8` tách đôi.** `D8a` = interface `ITokenRevocationStore` + hiện thực Redis + hook đọc (không cần D5,
-  BE-2 làm trong lúc chờ D3). `D8b` = nối trigger ghi vào reuse detection + RV-03 (cần D5). Tài liệu gốc để
-  D8 sau D5 vì nghĩ theo "bên ghi"; bên đọc thì không phụ thuộc gì.
-- **`D4` chờ `D3`**: cookie chỉ có ý nghĩa khi login phát được refresh token. BE-2 viết `RefreshCookie` + CORS
-  trước, ráp vào login ngay khi BE-1 merge D3.
-- **`D5` giao cho người chắc tay nhất** (tài liệu gốc). Nếu BE-2 chưa làm transaction + khóa dòng bao giờ thì
-  đổi: BE-1 làm D5, BE-2 làm D7 + D9.
+- **`D0` trước tiên.** Nó quyết định hình dạng mọi file phía sau.
+- **`D7` ngay sau `D3`**: `/me` là cách rẻ nhất xác nhận token vừa phát dùng được, và các test phía sau (RV-03,
+  RT-01) gọi nó để kiểm access token còn sống hay không.
+- **`D4` trước `D5`**: `/auth/refresh` đọc refresh token từ cookie — chưa có `RefreshCookie` thì không test được.
+- **`D8` sau `D5`**: RV-03 kiểm reuse detection của D5 ghi `revoked:user`. Khi làm D5, nhánh `ReuseDetected` chỉ
+  thu hồi family ở DB; D8 thêm lời gọi `RevokeUserAsync` vào đúng chỗ đó.
 - **`D9` cuối cùng nhưng chạy thử sớm** — xem mẹo ở Mục 11.
 
-**Mốc đo tiến độ:** hết Ngày 4 xong `D0`–`D3` + `D8a` (FE bỏ mock được cho đăng ký/đăng nhập ở dev); trưa
-Ngày 5 xong `D4`, `D5`; hết Ngày 5 xong `D6`, `D7`, `D8b`, `D9`, `D11`.
+**Mốc đo tiến độ:** hết Ngày 4 xong `D0`–`D3` + `D7` (FE bỏ mock được cho đăng ký/đăng nhập ở dev); trưa Ngày 5
+xong `D4`, `D5`; hết Ngày 5 xong `D6`, `D8`, `D9`, `D11`.
 
-**Phần cắt được nếu trễ:** chỉ `D8` (cả a lẫn b), dời sang GĐ6 — nhưng khi đó RV-01→04 và hai dòng checklist
-Mục 12 dời theo, **ghi rõ trong PR và trong `giai-doan-1.md`**, không lặng lẽ bỏ.
+**Phần cắt được nếu trễ:** chỉ `D8`, dời sang GĐ6 — nhưng khi đó RV-01→04 và hai dòng checklist Mục 12 dời
+theo, **ghi rõ trong PR và trong `giai-doan-1.md`**, không lặng lẽ bỏ.
 
 ---
 
@@ -230,8 +226,8 @@ cùng commit với code của việc đó.
 
 ## 2. D0 — Nền chung của khối
 
-**Mục tiêu.** Sáu endpoint dùng chung một bộ viên gạch. Viết một lần, có unit test một lần, trước khi hai lane
-tách ra — nếu không sẽ có hai cách băm token và hai factory test khác nhau.
+**Mục tiêu.** Sáu endpoint dùng chung một bộ viên gạch. Viết một lần, có unit test một lần, trước endpoint đầu
+tiên — nếu không mỗi endpoint dựng dần một cách băm token và một kiểu factory test.
 
 **Kết quả mong đợi.**
 - `src/Modules/Identity/Application/Security/`: `SecureToken.cs`, `IPasswordHasher.cs`, `IAccessTokenIssuer.cs`.
@@ -916,7 +912,7 @@ cả chuỗi. Và **không** đăng xuất oan người dùng mở hai tab.
 - `IRefreshTokenStore.RotateAsync(hash, now, newHash, newExpiresAt, ip)` trả một trong:
   `Rotated(userId, roleCode)` · `Grace(userId, roleCode)` · `ReuseDetected(userId)` · `Invalid`.
 - `SessionService.RefreshAsync` phát access token + cookie mới cho `Rotated`/`Grace`; với `ReuseDetected` gọi
-  revocation (D8b) **sau** khi store đã commit; mọi nhánh hỏng → `IdentityErrors.SessionInvalid`.
+  revocation **sau** khi store đã commit (lời gọi này thêm ở D8 — lúc làm D5 chưa có store Redis); mọi nhánh hỏng → `IdentityErrors.SessionInvalid`.
 - Action `Refresh`: **không tham số body**, `[AllowAnonymous]` (xác thực bằng cookie, không bằng bearer), 200 / 401;
   401 luôn kèm `RefreshCookie.Clear`.
 - `Auth/RefreshTests` xanh: RT-01 → RT-05.
@@ -979,7 +975,7 @@ public async Task<Result<RefreshSuccess>> RefreshAsync(string? cookie, string? i
         case RotateOutcome.Rotated r: return new RefreshSuccess(tokens.Issue(r.UserId, r.RoleCode), next);
         case RotateOutcome.Grace g:   return new RefreshSuccess(tokens.Issue(g.UserId, g.RoleCode), next);
         case RotateOutcome.ReuseDetected x:
-            // DB đã commit ở store — Redis SAU (Mục 7.5 cạm bẫy 1). D8b nối dòng này.
+            // DB đã commit ở store — Redis SAU (Mục 7.5 cạm bẫy 1). Dòng dưới thêm ở D8.
             await revocation.RevokeUserAsync(x.UserId, now, ct);
             logger.LogWarning("Refresh token reuse detected, family revoked for user {UserId}", x.UserId);
             return IdentityErrors.SessionInvalid;
@@ -1164,12 +1160,7 @@ new("TC-A01-me", "GET /me không kèm JWT — endpoint thật đầu tiên của
 **Mục tiêu.** Dựng **bên đọc** của thu hồi access token (Mục 7.5) để GĐ6 chỉ việc gọi `RevokeUserAsync`; và nối
 **một** bên ghi ở GĐ1: reuse detection của D5. Không có nó thì hạ quyền hay khóa tài khoản trễ tới 15 phút.
 
-Tách làm hai phần để không chờ D5:
-
-| Phần | Nội dung | Cần |
-|---|---|---|
-| **D8a** | Interface + hiện thực Redis + hook đọc + RV-01, RV-02, RV-04 + test TTL | Không (song song D1–D3) |
-| **D8b** | Nối `RevokeUserAsync` vào nhánh `ReuseDetected` + RV-03 | D5 |
+Làm sau D5 và D6: bên đọc (hook, RV-01/02/04) không phụ thuộc gì, nhưng RV-03 kiểm nhánh reuse detection của D5.
 
 **Kết quả mong đợi.**
 - `SharedKernel/Authentication/ITokenRevocationStore.cs`, `RedisTokenRevocationStore.cs`,
@@ -1178,7 +1169,8 @@ Tách làm hai phần để không chờ D5:
 - `JwtOptions.ClockSkewSeconds = 30`; `Program.cs` dùng nó cho `ClockSkew` và gắn `OnTokenValidated`.
 - `Harness/RedisFixture.cs` (Testcontainers.Redis 4.0.0, `redis:7-alpine`).
 - `Auth/TokenRevocationTests` xanh: RV-01 → RV-04 + `Ttl_bang_access_cong_clock_skew`.
-- **Ghi ngược** Đ-D4 vào `giai-doan-1.md` Mục 7.5, dòng TTL trong Mục 12 và B.6/`D8`.
+- Nhánh `ReuseDetected` của `SessionService` (D5) gọi `RevokeUserAsync` **sau** khi store đã commit; RV-03 xanh.
+- Đ-D4 đã ghi ngược vào `giai-doan-1.md` từ trước — code chỉ cần khớp.
 
 ### Các bước
 
@@ -1261,8 +1253,8 @@ o.Events = new JwtBearerEvents
 
 `ClockSkew = TimeSpan.FromSeconds(JwtOptions.ClockSkewSeconds)` thay cho số `30`.
 
-**Bước 3 — D8b.** Dòng `revocation.RevokeUserAsync(x.UserId, now, ct)` trong nhánh `ReuseDetected` của D5 đã có
-chỗ; đăng ký thật trong DI là xong. Bọc `try/catch` **ở service**: Redis lỗi → log Error + vẫn trả 401 (family
+**Bước 3 — nối vào reuse detection.** Thêm dòng `revocation.RevokeUserAsync(x.UserId, now, ct)` vào nhánh
+`ReuseDetected` của `SessionService` (D5, mục 7 bước 3 có sẵn vị trí) và inject `ITokenRevocationStore`. Bọc `try/catch` **ở service**: Redis lỗi → log Error + vẫn trả 401 (family
 đã thu hồi ở DB — refresh đã bị chặn, chỉ access còn sống tối đa 15 phút).
 
 ### Test — `Auth/TokenRevocationTests` (Postgres + Redis thật)
@@ -1381,19 +1373,19 @@ ngoài hợp đồng, và hợp đồng không có phần nào chưa hiện th�
 
 ## 14. Kế hoạch commit
 
-| # | Lane | Nội dung | CI sau khi push | Thông điệp gợi ý |
-|---|---|---|---|---|
-| 1 | chung | `D0` | 🟢 | `feat(gd1-d): nen chung — SecureToken, BCrypt, phat JWT, harness test auth` |
-| 2 | BE-2 | `D8a` + chuyển `StackExchange.Redis` + `ClockSkewSeconds` | 🟢 | `feat(gd1-d): ITokenRevocationStore + OnTokenValidated (ben doc), fail-open` |
-| 3 | BE-1 | `D1` + `D10` (AuthController) | 🟢 | `feat(gd1-d): POST /auth/register + mail xac minh` |
-| 4 | BE-1 | `D2` | 🟢 | `feat(gd1-d): POST /auth/verify-email — 400/410, tieu thu nguyen tu` |
-| 5 | BE-1 | `D3` | 🟢 | `feat(gd1-d): POST /auth/login + lockout nguyen tu, AC-01..04` |
-| 6 | BE-2 | `D4` | 🟢 | `feat(gd1-d): cookie refresh + CORS AllowCredentials` |
-| 7 | BE-2 | `D5` | 🟢 | `feat(gd1-d): POST /auth/refresh — rotation, reuse detection, an han 10s` |
-| 8 | BE-2 | `D6` + `D8b` | 🟢 | `feat(gd1-d): POST /auth/logout + noi thu hoi access vao reuse detection` |
-| 9 | BE-1 | `D7` + dòng matrix `TC-A01-me`, `TC-A01-logout` | 🟢 | `feat(gd1-d): GET /me` |
-| 10 | BE-1 | `D9` | 🟢 | `feat(gd1-d): ProducesResponseType khop hop dong + title validation` |
-| 11 | BE-1 | `D11` | 🟢 — `Contract` 2/2 | `test(gd1-d): go Skip Contract_must_be_fully_implemented — cong hop dong hai chieu` |
+| # | Nội dung | CI sau khi push | Thông điệp gợi ý |
+|---|---|---|---|
+| 1 | `D0` | 🟢 | `feat(gd1-d): nen chung — SecureToken, BCrypt, phat JWT, harness test auth` |
+| 2 | `D1` + `D10` (AuthController) | 🟢 | `feat(gd1-d): POST /auth/register + mail xac minh` |
+| 3 | `D2` | 🟢 | `feat(gd1-d): POST /auth/verify-email — 400/410, tieu thu nguyen tu` |
+| 4 | `D3` | 🟢 | `feat(gd1-d): POST /auth/login + lockout nguyen tu, AC-01..04` |
+| 5 | `D7` + dòng matrix `TC-A01-me` | 🟢 | `feat(gd1-d): GET /me` |
+| 6 | `D4` | 🟢 | `feat(gd1-d): cookie refresh + CORS AllowCredentials` |
+| 7 | `D5` | 🟢 | `feat(gd1-d): POST /auth/refresh — rotation, reuse detection, an han 10s` |
+| 8 | `D6` + dòng matrix `TC-A01-logout` | 🟢 | `feat(gd1-d): POST /auth/logout — thu hoi ca family, kiem chu so huu` |
+| 9 | `D8` + chuyển `StackExchange.Redis` + `ClockSkewSeconds` | 🟢 | `feat(gd1-d): ITokenRevocationStore + OnTokenValidated, noi vao reuse detection` |
+| 10 | `D9` | 🟢 | `feat(gd1-d): ProducesResponseType khop hop dong + title validation` |
+| 11 | `D11` | 🟢 — `Contract` 2/2 | `test(gd1-d): go Skip Contract_must_be_fully_implemented — cong hop dong hai chieu` |
 
 - Mọi commit **xanh** — khối D không có commit đỏ có chủ đích; bằng chứng "đỏ được" đã nằm ở khối B/C, còn ở D
   là bước thử cho đỏ ở local của `D11` và của RT-02 (mục 7, bẫy 3).
@@ -1401,7 +1393,7 @@ ngoài hợp đồng, và hợp đồng không có phần nào chưa hiện th�
 - Đ-D3, Đ-D4, Đ-D9 **đã ghi ngược** vào `giai-doan-1.md`, `identity-v1.yaml`, compose staging và `oci-setup.md`
   trước khi khối bắt đầu — commit của D không phải sửa lại. Thi công lệch khỏi tài liệu này thì ghi vào mục
   "Thực tế thi công" (theo khuôn hướng dẫn B+C, Mục 13.1), sửa tài liệu gốc cùng commit.
-- `ci.yml` có `cancel-in-progress: true`: hai lane push sát nhau thì run trước bị hủy — không sao vì không cần
+- `ci.yml` có `cancel-in-progress: true`: push hai commit sát nhau thì run trước bị hủy — không sao vì không cần
   giữ run đỏ nào, nhưng **run cuối** của nhánh phải xanh cả ba bước.
 
 ---

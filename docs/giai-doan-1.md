@@ -1888,7 +1888,7 @@ liệu seed thật. Nguồn quyền giả chỉ còn trong unit test.
 > **Ghép sau khi A và C xong.** Mọi controller vào `Modules/Identity/Presentation/`.
 
 > **Hướng dẫn thi công từng bước:** [huong-dan-khoi-d-endpoint.md](huong-dan-khoi-d-endpoint.md) — danh sách
-> việc (thêm `D0`, tách `D8a`/`D8b` — phần đọc `D8a` chạy song song `D1`–`D5`), mục tiêu, kết quả mong đợi,
+> việc (thêm `D0`, làm tuần tự `D0 → D1 → D2 → D3 → D7 → D4 → D5 → D6 → D8 → D9 → D11`), mục tiêu, kết quả mong đợi,
 > và 10 quyết định bổ sung. **Đã ghi ngược vào tài liệu này** trước khi khối D bắt đầu: Đ-D3 (ân hạn 10 giây
 > phát token mới cùng family — Mục 7.3, D5), Đ-D4 (TTL `revoked:user` = TTL access + `ClockSkew` — Mục 7.5,
 > 12, 14, D8, B.9), Đ-D9 (staging GĐ1 gửi mail qua Mailpit — `docker-compose.staging.yml`, `oci-setup.md`).
