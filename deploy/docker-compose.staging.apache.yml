@@ -14,7 +14,7 @@ services:
   api:
     image: ghcr.io/ricecracker12/30inf067_btl/api:staging
     restart: unless-stopped
-    env_file: [./.env]
+    env_file: [./.env]                 # gồm Smtp__* — mail xác minh đi qua Brevo, staging không chạy Mailpit (Đ-D9)
     environment:
       ASPNETCORE_ENVIRONMENT: Staging
       ASPNETCORE_URLS: "http://+:8080"
@@ -63,13 +63,3 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
-
-  # SMTP giả cho mail xác minh (GĐ1) — giống docker-compose.staging.yml. UI chỉ localhost, xem qua SSH tunnel;
-  # KHÔNG thêm vhost apache cho nó.
-  mailpit:
-    image: axllent/mailpit:latest
-    restart: unless-stopped
-    environment:
-      MP_MAX_MESSAGES: 500
-    ports: ["127.0.0.1:8025:8025"]
-    networks: [internal]

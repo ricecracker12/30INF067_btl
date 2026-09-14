@@ -317,7 +317,7 @@ còn biên độ thêm index/cache nếu trượt; và thứ cắt được thì
     data-driven ngay tại đây, làm CI gate; mỗi giai đoạn sau chỉ thêm dòng.**
   - refresh reuse → thu hồi cả chuỗi. Seeder chạy 2 lần → dữ liệu không đổi; sửa `role_permissions`
     rồi restart → không bị ghi đè. Integration test trên Postgres thật (Testcontainers).
-  - **E2E lát cắt ở cổng đóng:** đăng ký → nhận mail Mailpit → xác minh → đăng nhập → `GET /me` →
+  - **E2E lát cắt ở cổng đóng:** đăng ký → nhận mail xác minh ở hộp thư thật (Brevo) → xác minh → đăng nhập → `GET /me` →
     ép hết hạn access token → interceptor refresh → gọi lại thành công, **trên domain HTTPS thật**.
     Đây là chỗ cookie `httpOnly`, `SameSite`, `Path` scoping và CORS preflight được kiểm chứng —
     integration test không chạm tới. *(Bản A dùng một trang HTML tạm cho việc này; bản B không cần.)*

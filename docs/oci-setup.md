@@ -93,10 +93,12 @@ R2__Bucket=socialmedia-staging
 R2__AccessKey=<access key id>
 R2__SecretKey=<secret access key>
 
-# Email (mail xác minh đăng ký — FR-001). GĐ1: Mailpit chạy trong chính compose staging.
-Smtp__Host=mailpit
-Smtp__Port=1025
-Smtp__From=no-reply@mxh.banhgao.net
+# Email (mail xác minh đăng ký — FR-001). Staging gửi qua Brevo (SMTP thật, STARTTLS).
+Smtp__Host=smtp-relay.brevo.com
+Smtp__Port=587
+Smtp__User=<SMTP login của Brevo>
+Smtp__Password=<SMTP key của Brevo>
+Smtp__From=<người gửi đã xác thực trên Brevo>
 Frontend__BaseUrl=https://mxh.banhgao.net
 Cors__AllowedOrigins__0=https://mxh.banhgao.net
 EOF
@@ -104,21 +106,21 @@ chmod 600 .env
 ```
 > ASP.NET Core map biến `Section__Key` → config (`__` = lồng cấp). Sinh khóa: `openssl rand -base64 48`.
 >
-> **Email theo môi trường (chốt ở khối D GĐ1 — `docs/huong-dan-khoi-d-endpoint.md` Đ-D9):**
+> **Email theo môi trường (`docs/huong-dan-khoi-d-endpoint.md` Đ-D9 — staging chốt lại 2026-09-15):**
 >
 > | Môi trường | Gửi qua | Xem mail |
 > |---|---|---|
 > | Local dev | Mailpit của `docker-compose.dev.yml` (`localhost:1025`) | `http://localhost:8025` |
-> | **Staging GĐ1** | **Mailpit** trong `docker-compose.staging.yml` (`mailpit:1025`) | SSH tunnel: `ssh -L 8025:127.0.0.1:8025 <user>@<vps>` rồi mở `http://localhost:8025` |
-> | Sau GĐ1 / prod | SMTP thật (Brevo / Resend / Mailtrap) — giả định **ISS-03** trong PTTK | Hộp thư thật |
+> | **Staging** | **Brevo** (`smtp-relay.brevo.com:587`, STARTTLS) — giả định **ISS-03** trong PTTK | Hộp thư thật của tài khoản đăng ký |
 >
-> Vì sao staging GĐ1 dùng Mailpit: khớp Mục 12 và E2E-01 của `giai-doan-1.md` ("nhận mail Mailpit"), không cần
-> xác thực tên miền (SPF/DKIM) hay lo mail vào spam, và E2E đọc mail được. "Người dùng thật" của cổng đóng GĐ1
-> là tài khoản của nhóm. Chuyển sang SMTP thật chỉ sửa `Smtp__*` trong `.env` (thêm `Smtp__User`,
-> `Smtp__Password`, `Port=587`) — không sửa code.
+> Brevo là thiết lập staging từ GĐ0. Tài liệu khối D (2026-09-14) từng đổi staging sang Mailpit trong compose nhưng
+> `.env` chưa bao giờ đổi theo; nghiệm thu khối D (2026-09-15) chốt lại Brevo. Compose staging **không còn** service
+> `mailpit`.
 >
-> ⚠️ **UI Mailpit không được ra Internet** (không route qua Caddy/apache): nó chứa link xác minh của mọi tài
-> khoản, ai mở được là chiếm được tài khoản chưa xác minh. Compose chỉ bind `127.0.0.1:8025`.
+> ⚠️ **`Smtp__From` phải là người gửi / tên miền đã xác thực trên Brevo** (SPF/DKIM của domain nếu xác thực theo
+> domain) — chưa xác thực thì Brevo từ chối hoặc mail vào spam. `Smtp__Password` là SMTP key, chỉ nằm ở `.env`
+> (`chmod 600`). Có `Smtp__User` thì api tự bật STARTTLS. Brevo có hạn mức gửi theo ngày: E2E dùng tài khoản nhóm,
+> đừng đăng ký hàng loạt.
 >
 > Thiếu `Smtp__Host`/`Smtp__From`/`Cors__AllowedOrigins__0` thì api **từ chối khởi động** (từ khối D GĐ1) —
 > kiểm `.env` trước khi merge vào `develop`.

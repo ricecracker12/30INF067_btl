@@ -96,7 +96,7 @@ paths:
       description: |
         Tạo tài khoản với `role_id = 1 (USER)`, `email_verified_at = NULL`, mật khẩu băm BCrypt
         cost 12, rồi gửi mail xác minh (token ngẫu nhiên 32 byte, lưu **băm**, hạn 24 giờ).
-        Ở dev/staging mail đi qua Mailpit.
+        Ở dev mail đi qua Mailpit; ở staging đi qua Brevo tới hộp thư thật.
 
         Tài khoản **chưa đăng nhập được** cho tới khi gọi `/auth/verify-email` — đăng nhập lúc này
         trả `403`.

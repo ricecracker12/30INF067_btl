@@ -12,9 +12,10 @@
 > **Trạng thái: code khối D xong — `D0`–`D11` (xem "Thực tế thi công" cuối Mục 2–13). Đã commit + push lên
 > `loveart1210`: `D0`–`D2` (`37b6b76`, CI xanh — run 34837717169), `D3` + `D7` (`adea0c3`, CI xanh — run 34841092562),
 > `D4` (`a8ce2a2`, CI xanh — run 34843657708), `D5` (`166165f`, CI xanh — run 34858791751), `D6` (`ef50aec`, CI xanh — run
-> 34864425653), `D8` (`f9416ca`, CI xanh — run 34873308602), `D9` (`2d46952`, CI xanh — run 34878658324); `D11` chưa commit.
+> 34864425653), `D8` (`f9416ca`, CI xanh — run 34873308602), `D9` (`2d46952`, CI xanh — run 34878658324), `D11` (`14e843f`, CI xanh — run 34881815337).
 > `D10` làm cùng mỗi controller (attribute có ngay trong commit tạo `AuthController`/`MeController`). Còn lại: kiểm tay
-> ở checklist Mục 15 (DevTools từ `localhost:3000` cần lane FE) và việc chuyển cho F1.** Khối A, B, C đã xong
+> ở checklist Mục 15 (ảnh Mailpit dev, psql, DevTools từ `localhost:3000` cần lane FE) và việc chuyển cho F1 — staging
+> gửi mail qua Brevo (Đ-D9, chốt lại 2026-09-15).** Khối A, B, C đã xong
 > (commit `105077c` → `2d25ae6`, merge ở `455b597`).
 
 | | |
@@ -208,21 +209,29 @@ cùng commit với code của việc đó.
   Development thiếu `Smtp:Host`/`Smtp:From` → từ chối khởi động**, cùng tinh thần `RequireConnectionString`.
 - Link trong mail: `{Frontend:BaseUrl}/verify-email?token=<hex>` — màn `E5`. `Frontend:BaseUrl` là key mới.
 - **`deploy/.env` của nhóm chính là file chép lên server staging**, nên nó mang giá trị **staging**
-  (`Frontend__BaseUrl=https://mxh.banhgao.net`, `Smtp__Host=mailpit`). Quy tắc cho `Smtp:*` và `Frontend:BaseUrl`:
+  (`Frontend__BaseUrl=https://mxh.banhgao.net`, `Smtp__Host=smtp-relay.brevo.com`). Quy tắc cho `Smtp:*` và `Frontend:BaseUrl`:
   - **Development:** không đặt biến thì dùng mặc định trong code — `Frontend:BaseUrl = http://localhost:3000`,
     `Smtp:Host = localhost`, `Smtp:Port = 1025`. **Không** mở rộng `DevEnvFile` để đọc các key này từ
     `deploy/.env`: đọc vào thì mail đăng ký ở máy dev trỏ về frontend staging, trong khi token nằm trong DB local
-    → bấm link nhận 400; và `mailpit` không phân giải được ngoài mạng compose.
+    → bấm link nhận 400; và mail thử ở máy dev sẽ đi thật qua Brevo bằng tài khoản staging.
   - **Ngoài Development:** bắt buộc đặt qua biến môi trường (`env_file: ./.env` của compose staging), thiếu thì
     từ chối khởi động.
   - Test: `StartupConfigurationTests` thêm case Development không đặt gì → link trong mail bắt đầu bằng
     `http://localhost:3000/verify-email?token=`.
-- **Staging GĐ1 gửi qua Mailpit — đã chốt.** Service `mailpit` đã có trong `docker-compose.staging.yml` (và bản
-  `.apache.yml`), mạng `internal`, UI chỉ bind `127.0.0.1:8025` — xem qua SSH tunnel, **không** route qua
-  Caddy vì UI chứa link xác minh của mọi tài khoản. `.env` staging: `Smtp__Host=mailpit`, `Smtp__Port=1025`,
-  `Smtp__From`, `Frontend__BaseUrl` (mẫu ở `.env.example`, bảng theo môi trường ở `oci-setup.md` mục vi).
-  Lý do: khớp Mục 12 và E2E-01 ("nhận mail Mailpit"), không cần xác thực tên miền. Chuyển sang SMTP thật
-  sau GĐ1 chỉ sửa `.env`.
+- **Staging GĐ1 gửi qua Brevo (SMTP thật) — chốt lại 2026-09-15.** Brevo là thiết lập **từ GĐ0** (`oci-setup.md` ở
+  `b2345dc`, `.env.example` ở `72d2dd1`: "Staging/Prod: SMTP thật, ví dụ Brevo"). Tài liệu khối D (`b04f756`,
+  2026-09-14) đổi staging sang Mailpit trong compose, nhưng `deploy/.env` **chưa bao giờ đổi theo** — rà nghiệm thu
+  khối D phát hiện lệch, nhóm giữ Brevo. Không sửa code: cấu hình đọc `Smtp__*` từ `.env`.
+  - `.env` staging: `Smtp__Host=smtp-relay.brevo.com`, `Smtp__Port=587`, `Smtp__User`, `Smtp__Password` (SMTP key
+    của Brevo — bí mật, chỉ ở `.env`), `Smtp__From`, `Frontend__BaseUrl`. Có `Smtp__User` thì `EnableSsl` tự bật
+    (STARTTLS) — không bao giờ gửi mật khẩu SMTP qua kết nối thường (`SmtpOptions`).
+  - **`Smtp__From` phải là người gửi / tên miền đã xác thực trên Brevo**; chưa xác thực thì Brevo từ chối hoặc mail
+    vào spam. Không test tự động nào bắt được — kiểm bằng một lần đăng ký thật trên staging sau deploy.
+  - Service `mailpit` **bỏ khỏi** `docker-compose.staging.yml` và `.apache.yml` (CD chạy `up -d --remove-orphans`
+    nên container cũ tự gỡ). Hệ quả tốt: không còn UI nào chứa link xác minh của mọi tài khoản trên VPS.
+  - Hệ quả phải lo: E2E-01 dùng **hộp thư thật** của tài khoản nhóm (kiểm cả thư mục spam); Brevo có hạn mức gửi
+    theo ngày — chạy E2E đừng đăng ký hàng loạt. Dev vẫn Mailpit của compose dev (bảng theo môi trường ở
+    `oci-setup.md` mục vi).
 
 **Đ-D10 — Thời gian: app dùng `TimeProvider`; test lùi mốc thời gian trong DB thay vì làm giả đồng hồ.**
 
@@ -2075,10 +2084,12 @@ che nhau), khôi phục bằng `git checkout -- <file>` và kiểm `git status` 
 
 **Việc chuyển cho F1 trước khi merge `develop`** — thiếu là api crash-loop trên staging
 
-- [ ] `.env` staging có `Cors__AllowedOrigins__0`, `Smtp__Host=mailpit`, `Smtp__Port=1025`, `Smtp__From`,
-      `Frontend__BaseUrl` (mẫu: `deploy/.env.example`)
-- [ ] Service `mailpit` lên cùng compose staging; UI xem được qua SSH tunnel `127.0.0.1:8025` và **không** mở
-      từ Internet (thử `curl https://<domain>:8025` phải thất bại)
+- [ ] `.env` staging có `Cors__AllowedOrigins__0`, `Smtp__Host=smtp-relay.brevo.com`, `Smtp__Port=587`,
+      `Smtp__User`, `Smtp__Password`, `Smtp__From`, `Frontend__BaseUrl` (Đ-D9, chốt lại 2026-09-15)
+- [ ] `Smtp__From` là người gửi / tên miền **đã xác thực trên Brevo**
+- [ ] Sau deploy: đăng ký một tài khoản thật trên staging → mail xác minh tới hộp thư (kiểm cả spam) → bấm link
+      → 200. Không đạt thì kiểm log api (`SmtpEmailSender`) trước khi sửa `.env`
+- [x] Service `mailpit` đã bỏ khỏi compose staging (cổng 8025 của domain đã thử từ Internet: không mở — 2026-09-15)
 
 ---
 

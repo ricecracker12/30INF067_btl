@@ -9,8 +9,8 @@ namespace SocialApp.Modules.Identity.Infrastructure.Email;
 ///
 /// Development: không đặt thì dùng mặc định trong code — Mailpit của compose dev (<c>localhost:1025</c>) và frontend
 /// <c>http://localhost:3000</c>. KHÔNG đọc từ deploy/.env (DevEnvFile): file đó mang giá trị STAGING — đọc vào thì
-/// mail ở máy dev trỏ về frontend staging trong khi token nằm ở DB local, và host <c>mailpit</c> không phân giải được
-/// ngoài mạng compose.
+/// mail ở máy dev trỏ về frontend staging trong khi token nằm ở DB local, và mail thử ở máy dev đi thật qua Brevo bằng
+/// tài khoản staging.
 ///
 /// Ngoài Development: thiếu Host/Port/From/BaseUrl thì từ chối khởi động, cùng tinh thần RequireConnectionString.
 /// </summary>

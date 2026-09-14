@@ -60,7 +60,7 @@ xuyên suốt tài liệu và cả GĐ2–GĐ8.
 | GOAL-03 | Nền chống IDOR: TC-A01, TC-A02 xanh và trở thành CI gate | Mục 7.2 |
 
 **Kết quả bàn giao cuối GĐ1:** người dùng thật đăng ký được trên staging, nhận mail xác minh
-qua Mailpit, đăng nhập lấy token, gọi được endpoint có bảo vệ, và mọi truy cập sai quyền đều
+ở hộp thư thật (gửi qua Brevo), đăng nhập lấy token, gọi được endpoint có bảo vệ, và mọi truy cập sai quyền đều
 bị chặn đúng mã lỗi.
 
 ---
@@ -844,7 +844,7 @@ mới thu hồi được.
 3. Hash mật khẩu BCrypt cost 12
 4. `INSERT users` với `role_id = 1 (USER)`, `email_verified_at = NULL`
 5. Sinh token xác minh (ngẫu nhiên 32 byte), lưu **băm**, hạn 24 giờ
-6. Gửi mail qua `IEmailSender` → Mailpit ở dev/staging
+6. Gửi mail qua `IEmailSender` → Mailpit ở dev, Brevo (SMTP thật) ở staging
 7. `POST /auth/verify-email` với token → đối chiếu băm → set `email_verified_at`, `consumed_at`
 
 Token xác minh cũng lưu băm, cùng lý do với refresh token: rò rỉ DB không được kéo theo rò rỉ
@@ -1351,7 +1351,7 @@ Khối **D (endpoint)** ghép sau khi A và C xong.
 ### Ngày 6 — cổng đóng
 
 - Deploy staging; **frontend bỏ mock, trỏ thẳng domain HTTPS thật**.
-- **E2E lát cắt:** đăng ký → nhận mail Mailpit → xác minh → đăng nhập → `GET /me` → ép hết hạn
+- **E2E lát cắt:** đăng ký → nhận mail xác minh ở hộp thư thật (Brevo) → xác minh → đăng nhập → `GET /me` → ép hết hạn
   access token → interceptor refresh → gọi lại thành công.
   Đây là chỗ cookie `httpOnly`, `SameSite`, `Path=/api/v1/auth` và CORS preflight được kiểm chứng —
   integration test không chạm tới được. *(Bản A của kế hoạch tổng dùng một trang HTML tạm cho đúng
@@ -1391,7 +1391,7 @@ Xem bảng đầy đủ (kèm version ghim và project đích) ở **Mục 9.0 �
 | SEED-02 | Gỡ 1 quyền của MODERATOR rồi chạy lại seeder | **Không bị cấp lại** |
 | SEED-03 | `UPDATE roles SET code='ROOT' WHERE code='ADMIN'` rồi khởi động lại app | **App từ chối khởi động**, thông báo nêu tên vai trò thiếu (Mục 5.5) |
 | FK-01 | Xóa vai trò đang có user | Lỗi RESTRICT |
-| E2E-01 | Đăng ký → Mailpit → verify → login → `/me` → ép 401 → refresh → gọi lại, **trên trình duyệt thật qua HTTPS** | Xuyên suốt không lỗi. Kiểm chứng cookie `httpOnly`, `SameSite`, `Path` scoping, CORS preflight — integration test không chạm tới |
+| E2E-01 | Đăng ký → mail qua Brevo tới hộp thư thật → verify → login → `/me` → ép 401 → refresh → gọi lại, **trên trình duyệt thật qua HTTPS** | Xuyên suốt không lỗi. Kiểm chứng cookie `httpOnly`, `SameSite`, `Path` scoping, CORS preflight — integration test không chạm tới |
 | E2E-02 | 3 request nhận 401 cùng lúc | Interceptor chỉ gọi `/auth/refresh` **một lần**; không kích hoạt reuse detection; không ai bị đăng xuất |
 
 ### 10.2 AuthZ matrix — CI gate từ GĐ1
@@ -1479,7 +1479,7 @@ Theo Mục 3.5 của tài liệu PTTK — cả 6 mục phải tick:
 
 **Vận hành**
 - [ ] Deploy lên staging qua CD tự động, không thao tác tay
-- [ ] Đăng ký → nhận mail Mailpit → xác minh → đăng nhập, toàn bộ trên domain HTTPS thật
+- [ ] Đăng ký → nhận mail xác minh ở hộp thư thật (Brevo) → xác minh → đăng nhập, toàn bộ trên domain HTTPS thật
 - [ ] **Frontend đã bỏ mock MSW, trỏ staging thật** — không giai đoạn nào được nghiệm thu trên mock
 - [ ] **Interceptor 401→refresh single-flight** — mở 3 tab, ép hết hạn token, không ai bị đăng xuất
 - [ ] Access token **không** nằm trong `localStorage` — kiểm bằng DevTools
@@ -1897,7 +1897,8 @@ liệu seed thật. Nguồn quyền giả chỉ còn trong unit test.
 > việc (thêm `D0`, làm tuần tự `D0 → D1 → D2 → D3 → D7 → D4 → D5 → D6 → D8 → D9 → D11`), mục tiêu, kết quả mong đợi,
 > và 10 quyết định bổ sung. **Đã ghi ngược vào tài liệu này** trước khi khối D bắt đầu: Đ-D3 (ân hạn 10 giây
 > phát token mới cùng family — Mục 7.3, D5), Đ-D4 (TTL `revoked:user` = TTL access + `ClockSkew` — Mục 7.5,
-> 12, 14, D8, B.9), Đ-D9 (staging GĐ1 gửi mail qua Mailpit — `docker-compose.staging.yml`, `oci-setup.md`).
+> 12, 14, D8, B.9), Đ-D9 (staging GĐ1 gửi mail qua Mailpit — **chốt lại 2026-09-15: qua Brevo**, chỉ đổi `.env`;
+> compose staging bỏ `mailpit` — `oci-setup.md`).
 
 ### D1 — `POST /auth/register` + gửi mail xác minh
 
@@ -1905,7 +1906,7 @@ liệu seed thật. Nguồn quyền giả chỉ còn trong unit test.
 - **Cách thực thi:** validator FluentValidation (email đúng định dạng, mật khẩu 8–72 ký tự — trần 72
   là giới hạn cứng của BCrypt, ký tự thứ 73 bị bỏ qua âm thầm). Băm `BCrypt.HashPassword(pw, workFactor: 12)`.
   `INSERT users` với `role_id = 1`, `email_verified_at = NULL`. Sinh token 32 byte ngẫu nhiên, lưu
-  **băm SHA-256**, hạn 24 giờ. Gửi qua `IEmailSender` → Mailpit ở dev/staging. Email trùng → **409**
+  **băm SHA-256**, hạn 24 giờ. Gửi qua `IEmailSender` → Mailpit ở dev, Brevo ở staging. Email trùng → **409**
   (ngoại lệ có ý thức so với quy tắc không lộ email của `/auth/login` — lý do ghi trong hợp đồng).
 - **Xong là:** đăng ký trên dev → mail hiện trong Mailpit; validator trả RFC 7807 có `errors` và `traceId`.
 - **Chặn / Cần:** chặn D2. Cần A, C4.
@@ -2111,10 +2112,10 @@ liệu seed thật. Nguồn quyền giả chỉ còn trong unit test.
   VPS.** Service `migrate` chạy trước `api`.
 - **Xong là:** `/health/ready` xanh trên domain HTTPS thật.
 - **Chặn / Cần:** cần A6, D. ⚠️ Kiểm `deploy/.env` có đủ `ConnectionStrings__Postgres`, `__Redis`,
-  `Jwt__SigningKey`, `Cors__AllowedOrigins__0`, `Smtp__Host=mailpit`, `Smtp__Port=1025`, `Smtp__From`,
-  `Frontend__BaseUrl` **trước khi merge** — app fail-fast khi thiếu, sẽ crash-loop chỗ image cũ vẫn boot
-  được. Staging GĐ1 gửi mail qua service `mailpit` trong compose; UI chỉ xem qua SSH tunnel (`oci-setup.md`
-  mục vi).
+  `Jwt__SigningKey`, `Cors__AllowedOrigins__0`, `Smtp__Host=smtp-relay.brevo.com`, `Smtp__Port=587`,
+  `Smtp__User`, `Smtp__Password`, `Smtp__From`, `Frontend__BaseUrl` **trước khi merge** — app fail-fast khi thiếu,
+  sẽ crash-loop chỗ image cũ vẫn boot được. Staging gửi mail qua Brevo; `Smtp__From` phải là người gửi đã xác thực
+  trên Brevo — kiểm bằng một lần đăng ký thật sau deploy (`oci-setup.md` mục vi).
 
 ### F2 — Frontend bỏ mock, trỏ staging thật
 
@@ -2127,7 +2128,7 @@ liệu seed thật. Nguồn quyền giả chỉ còn trong unit test.
 
 - **Mục tiêu:** kiểm chứng những thứ **integration test không chạm tới được**: cookie `HttpOnly`,
   `SameSite`, `Path` scoping, CORS preflight.
-- **Cách thực thi:** đăng ký → nhận mail Mailpit → xác minh → đăng nhập → `GET /me` → ép hết hạn
+- **Cách thực thi:** đăng ký → nhận mail xác minh ở hộp thư thật (Brevo) → xác minh → đăng nhập → `GET /me` → ép hết hạn
   access token → interceptor refresh → gọi lại thành công. Trên trình duyệt thật, qua HTTPS.
 - **Xong là:** chạy xuyên suốt không lỗi, có ghi lại kết quả.
 - **Chặn / Cần:** cần F2.
