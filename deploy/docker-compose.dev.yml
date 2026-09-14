@@ -47,10 +47,14 @@ services:
       # Khóa ký JWT (C4): thiếu thì api từ chối khởi động. Cùng deploy/.env, cùng tinh thần POSTGRES_PASSWORD.
       # Issuer/Audience lấy từ appsettings.json trong image.
       Jwt__SigningKey: "${Jwt__SigningKey:?Đặt Jwt__SigningKey trong deploy/.env (openssl rand -base64 48)}"
+      # Mail xác minh (D1): trong mạng compose Mailpit tên là "mailpit", không phải localhost (mặc định Development của
+      # code). Frontend__BaseUrl không đặt → http://localhost:3000. Không nạp env_file ./.env: file đó mang giá trị staging.
+      Smtp__Host: mailpit
     ports: ["8080:8080"]
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
+      mailpit: { condition: service_started }
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
       interval: 10s

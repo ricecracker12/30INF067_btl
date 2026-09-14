@@ -13,8 +13,18 @@ public sealed class JwtOptions
     public const string Section = "Jwt";
     public const int MinSigningKeyBytes = 32;   // HS256 cần khóa ≥ 256 bit
 
+    /// <summary>
+    /// Độ lệch giờ JwtBearer chấp nhận khi validate. HẰNG SỐ, không cấu hình được: TTL của revoked:user (D8) là
+    /// <c>AccessTokenSeconds + ClockSkewSeconds</c> — cho đổi riêng một bên là mở lại cửa sổ token đã thu hồi
+    /// sống lại (Đ-D4).
+    /// </summary>
+    public const int ClockSkewSeconds = 30;
+
     public string SigningKey { get; init; } = "";
     public string Issuer { get; init; } = "";
     public string Audience { get; init; } = "";
     public int AccessTokenSeconds { get; init; } = 900;
+
+    /// <summary>Hạn refresh token (ngày) — cũng là Max-Age của cookie refresh (D4).</summary>
+    public int RefreshTokenDays { get; init; } = 7;
 }

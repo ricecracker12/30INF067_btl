@@ -1,5 +1,8 @@
 using System.Text;
+using System.Text.Json;
 using System.Text.Json.Serialization;
+using FluentValidation;
+using FluentValidation.AspNetCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.IdentityModel.Tokens;
@@ -44,6 +47,17 @@ builder.Services
         o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
         o.JsonSerializerOptions.UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow;
     });
+
+// --- Validation: FluentValidation chạy trước action, lỗi ra 400 ValidationProblemDetails ---
+// MỘT lần cho cả host: đây là cấu hình MVC toàn cục. Module chỉ đăng ký validator của mình (AddIdentityModule) —
+// mỗi module tự gọi dòng này là lỗi validate bị lặp.
+// Tắt DataAnnotations: [Required] trên DTO chỉ để Swagger ghi required. Để nó validate nữa thì (đã kiểm) lỗi của nó và
+// của FluentValidation dồn vào CÙNG một key PascalCase "Email", kèm thông điệp tiếng Anh — hợp đồng cần key `email`.
+builder.Services.AddFluentValidationAutoValidation(o => o.DisableDataAnnotationsValidation = true);
+
+// Key trong `errors` phải camelCase như hợp đồng (`password`, không `Password`). Static toàn cục của FluentValidation.
+ValidatorOptions.Global.PropertyNameResolver = (_, member, _) =>
+    member is null ? null : JsonNamingPolicy.CamelCase.ConvertName(member.Name);
 
 // --- Swagger tách theo module: mỗi module một trang, không dồn 7 module vào một chỗ ---
 // Tên nhóm do chính module công bố ở tầng Presentation (vd IdentityApiGroup) và trùng tên file hợp
@@ -130,6 +144,8 @@ JwtOptions RequireJwtOptions()
         problems.Add("Jwt:Audience trống");
     if (bound.AccessTokenSeconds <= 0)
         problems.Add("Jwt:AccessTokenSeconds phải lớn hơn 0");
+    if (bound.RefreshTokenDays <= 0)
+        problems.Add("Jwt:RefreshTokenDays phải lớn hơn 0");
 
     if (problems.Count > 0)
         throw new InvalidOperationException(
@@ -143,11 +159,17 @@ JwtOptions RequireJwtOptions()
         Issuer = bound.Issuer,
         Audience = bound.Audience,
         AccessTokenSeconds = bound.AccessTokenSeconds,
+        RefreshTokenDays = bound.RefreshTokenDays,
     };
 }
 
 // --- Module Identity: DbContext riêng, schema "identity" (ADR-001) ---
 builder.Services.AddIdentityModule(postgres);
+
+// Mail xác minh (Đ-D9). Development không đặt gì → Mailpit localhost:1025 + link http://localhost:3000; ngoài
+// Development thiếu Smtp:Host/Port/From hoặc Frontend:BaseUrl thì chết ngay tại đây. KHÔNG đọc từ deploy/.env: file đó
+// mang giá trị staging.
+builder.Services.AddIdentityEmail(builder.Configuration, builder.Environment);
 
 // --- Tầng 1 (AuthN, Mục 6.1): JWT Bearer ---
 // JwtOptions đã validate và đã giải fallback deploy/.env: phát token (D3) và TTL revoked:user (D8) lấy
@@ -169,7 +191,8 @@ builder.Services
             ValidAudience = jwt.Audience,
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt.SigningKey)),
             ValidAlgorithms = [SecurityAlgorithms.HmacSha256],   // chặn đổi thuật toán trong header
-            ClockSkew = TimeSpan.FromSeconds(30),                // mặc định 5 phút = access sống 20 phút
+            // Mặc định 5 phút = access sống 20 phút. Đọc hằng số, không ghi tay: TTL revoked:user cộng CÙNG số này (Đ-D4).
+            ClockSkew = TimeSpan.FromSeconds(JwtOptions.ClockSkewSeconds),
             NameClaimType = JwtClaims.Sub,
             RoleClaimType = JwtClaims.Role,
         };

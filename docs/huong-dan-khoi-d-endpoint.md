@@ -9,7 +9,9 @@
 > nào tài liệu này lệch ba nguồn đó thì sửa ở đây — trừ các quyết định ở Mục 1 được đánh dấu **"ghi
 > ngược"**: những chỗ đó tài liệu gốc đang thiếu hoặc sai, phải sửa `giai-doan-1.md` trong cùng commit.
 
-> **Trạng thái: chưa bắt đầu.** Khối A, B, C đã xong (commit `105077c` → `2d25ae6`, merge ở `455b597`).
+> **Trạng thái: đang làm — `D0`–`D2` xong (xem "Thực tế thi công" cuối Mục 2, 3, 4), chưa commit — commit khi xong cả khối.
+> Tiếp theo `D3` (lockout "5 lần sai liên tiếp" đã chốt — đầu Mục 5).** Khối A, B, C đã xong
+> (commit `105077c` → `2d25ae6`, merge ở `455b597`).
 
 | | |
 |---|---|
@@ -468,6 +470,36 @@ và `ExecuteSqlAsync` để lùi mốc thời gian (Đ-D10).
   endpoint thật lấy token bằng `LoginAsync`; `TestJwt` chỉ dùng cho D8 (cần `iat` tùy ý).
 - **Quên `services.AddSingleton<IStartupFilter, …>` ở factory** → test đỏ 429 ngẫu nhiên, trông như lỗi flaky.
 
+### Thực tế thi công
+
+**Bằng chứng.** `dotnet test SocialApp.sln`: Unit 32 → 44, Architecture 9, Integration 40 → 46 (+1 Skip vẫn là
+`Contract_must_be_fully_implemented`, gỡ ở `D11`). Thử cho đỏ ở local rồi khôi phục:
+
+| Đột biến | Test đỏ |
+|---|---|
+| Hash giả của `BCryptPasswordHasher` dùng cost 10 | `VerifyAgainstDummy_ton_chi_phi_ngang_Verify_that` — 63 ms so với 264 ms |
+| `JwtAccessTokenIssuer` phát `aud` lệch | 2 test của `JwtAccessTokenIssuerTests` + `AuthHarnessTests.Register_chua_co_controller_token_cua_app_qua_tang_1_nhan_404` (nhận 401) |
+
+**Chỗ lệch so với các bước trên — đã làm như sau:**
+
+- Test "khung" **không** nhận 404 khi ẩn danh: fallback policy chặn cả route chưa tồn tại → **401**. Tách thành hai
+  test trong `Auth/AuthHarnessTests`: có bearer do `IAccessTokenIssuer` **của app** phát → 404 (đồng thời chứng minh
+  phía phát khớp JwtBearer của `Program.cs`); ẩn danh → 401. `D1` đã xóa hai test này nhưng giữ lưới bắt lệch token trên route không tồn tại (xem thi công `D1`).
+- `Application/Email/IEmailSender` khai ngay ở `D0` (tài liệu để ở `D1` bước 3): `CapturingEmailSender` và
+  `IdentityApiFactory` cần nó để compile. `SmtpEmailSender` vẫn là việc của `D1`.
+- `AddIdentityModule` đăng ký validator bằng `AddValidatorsFromAssembly(typeof(IdentityModuleExtensions).Assembly, Singleton)`
+  thay cho `…Containing<RegisterRequestValidator>` — chưa có validator nào, và `D1`–`D3` không phải sửa dòng này. Thêm
+  `TryAddSingleton(TimeProvider.System)` để module tự đủ khi dựng ngoài host.
+- Unit test lấy `IPasswordHasher`/`IAccessTokenIssuer` qua `AddIdentityModule` (`UnitTests/Identity/IdentityServices`)
+  thay vì `InternalsVisibleTo` — cùng khuôn `RolePermissionSourceTests`, test luôn dòng đăng ký DI.
+- Thêm ngoài tài liệu:
+  - `appsettings.json` khai `Jwt:RefreshTokenDays: 7`; `StartupConfigurationTests.Non_positive_refresh_token_days_must_fail_fast`.
+  - `BCryptPasswordHasherTests` có test thời gian cho hash giả (lấy min của 3 lần đo, ngưỡng 0,5).
+  - `JwtAccessTokenIssuerTests` cấu hình `AccessTokenSeconds = 600` để bắt lỗi ghi cứng 900, và kiểm `iat` lấy từ `TimeProvider`.
+  - `AuthTestClient` có thêm `GetMeAsync` (`D7`); `ReadSetCookie` dùng `SetCookieHeaderValue` của ASP.NET Core.
+- `FakeRemoteIpStartupFilter` **chưa có test riêng**: chưa endpoint nào mang policy `auth`. `Auth_rate_limit_429` kiểm
+  nó từ `D1`.
+
 ---
 
 ## 3. D1 — `POST /auth/register` + gửi mail xác minh
@@ -560,7 +592,7 @@ public interface IEmailSender
 [Route("api/v1/auth")]
 [EnableRateLimiting(SharedKernelExtensions.AuthRateLimitPolicy)]        // cả nhóm auth, 10 req/phút/IP
 [ApiExplorerSettings(GroupName = IdentityApiGroup.Name)]
-[Produces("application/json")]
+// KHÔNG [Produces("application/json")] ở class: nó ép cả response lỗi thành application/json (đã kiểm — thi công D1)
 public sealed class AuthController(RegistrationService registration /* , ... */) : ControllerBase
 {
     [AllowAnonymous]                                                   // TỪNG action công khai, không ở class
@@ -604,6 +636,66 @@ public sealed class AuthController(RegistrationService registration /* , ... */)
   Serilog request logging mặc định không log body; đừng bật.
 - **Email mở `ProblemDetails.detail` bằng thông điệp có chứa email** ("an@x.com đã tồn tại") → PII trong
   response và log. Dùng đúng thông điệp của `IdentityErrors`.
+
+### Thực tế thi công
+
+**Bằng chứng.** `dotnet test SocialApp.sln`: Unit 44, Architecture 9, Integration 46 → 64 (+13 `RegisterTests`,
++6 `StartupConfigurationTests`, `AuthHarnessTests` −2 +1). Cổng hợp đồng chiều 1 xanh với `POST /auth/register`
+201/400/409.
+
+Kiểm tay trên dev (API chạy từ `bin/` với `Development`, Postgres + Mailpit của compose dev, chưa có ảnh chụp):
+`--migrate` thoát 0 → `POST /api/v1/auth/register` trả 201 với `userId` UUID v7 → API Mailpit
+(`/api/v1/search?query=to:<email>`) thấy đúng 1 thư, `From: no-reply@socialapp.local`, link
+`http://localhost:3000/verify-email?token=<64 hex>` → log stdout của API **không** chứa token lẫn email.
+
+Thử cho đỏ ở local rồi khôi phục:
+
+| Đột biến | Test đỏ |
+|---|---|
+| Store bắt unique violation của index khác `IX_users_email` | `Email_trung_khac_hoa_thuong_…` (500), `Hai_request_cung_email_song_song_…` ({201, 500}) |
+| COMMIT trước rồi mới gửi mail | `Gui_mail_hong_500_va_khong_con_dong_users_nao` (còn 1 dòng) |
+| Validator đếm ký tự thay vì byte | `Du_lieu_sai_400_…` với 25 × "ấ" (nhận 201) |
+| `Program.cs` quên `AddIdentityEmail` | 4 case `Missing_email_config_…`, `Development_khong_dat_cau_hinh_mail_…`, và cả `Development_boots_without_deploy_env_…` có sẵn (DI validate lúc build thấy `RegistrationService` thiếu `IEmailSender`) |
+
+**Chỗ lệch so với các bước trên — đã làm như sau:**
+
+- **DTO request là class có `[Required]` trên property**, không phải positional record. *Đã kiểm bằng controller thử
+  tạm:* `[property: Required]` trên record thì Swagger ghi `required` nhưng validation của MVC **bỏ qua âm thầm** (body
+  rỗng vẫn 200); `[Required]` gắn vào tham số constructor thì ngược lại — MVC validate mà Swagger không thấy. Class
+  không có chỗ tách đôi đó. (Giả thuyết ban đầu "MVC ném lỗi" là **sai**. Vì host đã tắt DataAnnotations, record +
+  `[property: Required]` cũng chạy được — chọn class để không phụ thuộc điều đó.)
+- **Host tắt DataAnnotations validation** (`AddFluentValidationAutoValidation(o => o.DisableDataAnnotationsValidation = true)`);
+  `[Required]` chỉ còn phục vụ Swagger. *Đã kiểm:* để bật thì `{"email":"","password":""}` trả `errors` với key
+  **PascalCase** `Email`/`Password`, mỗi key gồm cả "The Email field is required." lẫn thông điệp tiếng Việt — hợp đồng
+  cần `email`. (Giả thuyết ban đầu "hai key `Email` và `email`" sai chi tiết: ModelState không phân biệt hoa thường nên
+  hai lỗi dồn vào một key.)
+- **Validator email dùng `MailAddress.TryCreate`** thay cho `EmailAddress()` (chỉ kiểm có `@`): địa chỉ lọt validator
+  mà `MailMessage` không nhận thì SMTP ném giữa transaction → 500. Chặn cả dạng `Tên <a@b.com>`.
+- **Không khai `[Produces("application/json")]` ở class controller:** filter đó ép cả response lỗi thành
+  `application/json`, trong khi 409 phải là `application/problem+json`. *Đã kiểm bằng controller thử tạm:* có
+  `[Produces]` thì `Problem()` 409 và 400 tự sinh (JSON sai) đều ra `application/json`; bỏ đi thì `Problem()` ra
+  `application/problem+json`.
+- **Cấu hình mail đăng ký qua `AddIdentityEmail(configuration, environment)`**, không nằm trong `AddIdentityModule`:
+  6 chỗ trong test dựng `AddIdentityModule(cs)` trần. Kiểm cấu hình ném ngay lúc đăng ký DI, sau `RequireJwtOptions`.
+- **Đ-D9 cụ thể hóa:**
+  - Ngoài Development bắt buộc cả `Smtp:Port` (không chỉ Host/From) và `Frontend:BaseUrl`.
+  - Development mặc định thêm `Smtp:From = no-reply@socialapp.local`.
+  - `Smtp:EnableSsl` là key tùy chọn — không đặt thì bật khi có `Smtp:User`.
+  - Gửi mail tự cắt sau 15 giây (`SendMailAsync` bỏ qua `SmtpClient.Timeout`) để không giữ transaction đăng ký vô hạn.
+  - Thân mail mã hóa base64: quoted-printable ngắt dòng và mã hóa `=` trong URL.
+- **Store chỉ coi unique violation của `IX_users_email` là email trùng**; unique violation khác vẫn ra 500. COMMIT không
+  nhận `ct`: mail đã đi thì hủy commit chỉ để lại một link chết.
+- **Test link mail ở Development** gửi bằng `SmtpEmailSender` thật tới `Harness/FakeSmtpServer` (TCP loopback). Test
+  chỉ đặt `Smtp:Port` vì Mailpit của compose dev giữ cổng 1025 trên máy chạy test — nên mặc định `localhost` và
+  `http://localhost:3000` được kiểm, còn cổng 1025 thì không.
+- **Thêm ngoài tài liệu:** `Staging_boots_when_email_config_is_complete` (lưới không phải "luôn ném"); case
+  `Tên <a@b.com>` → 400; `docker-compose.dev.yml` đặt `Smtp__Host: mailpit` cho service `api` (trong mạng compose,
+  Mailpit không phải `localhost`) và vẫn không nạp `env_file`; `AuthTestClient.QueryRowAsync` — SQL thô so cột `citext` phải ép `$1::citext`: Npgsql gửi tham số chuỗi dạng `text`,
+  và `citext = text` **không lỗi mà phân biệt hoa thường** (đã kiểm: `'an@example.com'::citext = 'AN@EXAMPLE.COM'` →
+  `false`; ép `::citext` → `true`).
+- **`AuthHarnessTests`:** gỡ hai test "register chưa có controller" như đã hẹn ở `D0`, nhưng giữ lưới bắt lệch giữa phía
+  phát token và JwtBearer trên một route vĩnh viễn không tồn tại (`/api/v1/__khong-ton-tai`: có token → 404, ẩn danh →
+  401) — không để lưới đó biến mất tới `D3`.
 
 ---
 
@@ -660,7 +752,9 @@ await db.Users.Where(u => u.UserId == userIds[0])
 | Lùi `expires_at` về quá khứ bằng SQL (Đ-D10) rồi verify | **410** |
 | Verify lần hai | **410** |
 | Hai request cùng token song song | Đúng **một** 200, một 410 |
-| Sau verify, login đúng mật khẩu | Không còn 403 (nối sang AC-04 của D3) |
+
+> Chuỗi "verify xong thì login hết 403" kiểm ở `D3` (AC-01 đi đăng ký → verify → login): lúc làm `D2` chưa có
+> `/auth/login`. `D2` chỉ kiểm hệ quả ở DB (dòng đầu bảng).
 
 ### Cạm bẫy đã biết
 
@@ -670,12 +764,51 @@ await db.Users.Where(u => u.UserId == userIds[0])
 - **Tính 410 trước 400**: token không tồn tại mà trả 410 thì FE nói "link hết hạn" cho link bị gõ sai.
 - **`ExecuteUpdateAsync` quên `UpdatedAt`** → không test nào đỏ, `updated_at` đứng im. Ghi trong review.
 
+### Thực tế thi công
+
+**Bằng chứng.** `dotnet test SocialApp.sln`: Unit 44, Architecture 9, Integration 64 → 76 (+12 `VerifyEmailTests`).
+Cổng hợp đồng chiều 1 xanh với `POST /auth/verify-email` 200/400/410.
+
+Kiểm tay trên dev (API chạy từ `bin/` với `Development`, Postgres + Mailpit của compose dev): register 201 → lấy token
+64 hex từ link trong mail qua API Mailpit → verify lần 1 **200** `{"email":…,"verifiedAt":…}` → lần 2 **410**
+`application/problem+json` → log stdout của API **không** chứa token lẫn email.
+
+Thử cho đỏ ở local (ba đột biến áp cùng lúc)
+rồi khôi phục:
+
+| Đột biến | Test đỏ |
+|---|---|
+| Bỏ `consumed_at IS NULL` khỏi câu `UPDATE` | `Verify_lan_hai_410` (nhận 200), `Hai_request_cung_token_song_song_…` (`[OK, OK]`) |
+| Đảo nhánh `Gone` / `NotFound` | `Token_dung_dinh_dang_nhung_khong_ton_tai_400_…` (nhận 410), `Token_het_han_410_…` (nhận 400) |
+| Validator nhận mọi token | 5/6 case `Token_sai_dinh_dang_400_co_errors_token` (case chuỗi rỗng vẫn bị `NotEmpty` chặn) |
+
+**Chỗ lệch so với các bước trên — đã làm như sau:**
+
+- **Đánh dấu user đã xác minh bằng câu `UPDATE identity.users … RETURNING email` (`SqlQuery<string>`)** thay cho
+  `ExecuteUpdateAsync`: response cần `email`, mà `ExecuteUpdateAsync` không trả dữ liệu. Câu này tự set `updated_at`.
+- **Kết quả store là `VerifyEmailOutcome`** (record lồng `Verified(UserId, Email, VerifiedAt)` · `NotFound` · `Gone`), đặt
+  cạnh `IEmailVerificationStore` ở `Application/`. `UserId` có mặt chỉ để service log, không ra response.
+- **Service là `RegistrationService.VerifyEmailAsync`** — tài liệu không nêu tên; cùng FR-001 với đăng ký.
+- **Validator so từng ký tự** thay cho `Matches("^[0-9a-f]{64}$")`: `$` của .NET khớp cả trước `\n` cuối chuỗi. Chỉ nhận
+  hex **thường** — đúng thứ `SecureToken.Generate` sinh ra.
+- **Test thêm ngoài bảng:** 6 dạng token sai (rỗng, 63, 65, hex HOA, ký tự `g`, `"abc"`); token hết hạn thì user **vẫn chưa**
+  xác minh và body 410 không chứa email; `verifiedAt` trong response khớp `email_verified_at` trong DB (lệch < 1 ms);
+  `Helper_RegisterAndVerifyAsync_…` khóa helper mà D3 trở đi dựa vào.
+- Dòng "sau verify, login hết 403" chuyển sang AC-01 của `D3` (đã ghi ở bảng test phía trên).
+- **Phát hiện khi kiểm tay, chuyển cho `D9`:** body 410 **không có `title`** (409 của D1 thì có nhưng là `"Conflict"` tiếng
+  Anh), trong khi `ProblemDetails` của hợp đồng bắt buộc `title`. Không sửa lẻ ở D2 — chi tiết ở Mục 11.
+
 ---
 
 ## 5. D3 — `POST /auth/login` + lockout
 
 **Mục tiêu.** FR-002 (cấp JWT + refresh) và FR-003 (khóa sau 5 lần sai), **không rò rỉ email nào có thật**
 (AC-02) — cả qua nội dung lẫn thời gian phản hồi.
+
+> **Đã chốt (2026-09-14): khóa sau 5 lần sai LIÊN TIẾP**, không có cửa sổ thời gian — đúng thuật toán ở bước 2. Hợp
+> đồng từng ghi "5 lần trong 15 phút"; đã sửa câu chữ ở `identity-v1.yaml` (mô tả mã 423), `giai-doan-1.md` (FR-003,
+> phạm vi, bảng mục tiêu) và `ke-hoach-trien-khai.md`. Chỉ đổi chữ, không đổi hình dạng API — lane FE không phải sinh
+> lại type. Hệ quả chấp nhận: sai 4 lần hôm qua + 1 lần hôm nay vẫn khóa; đăng nhập đúng một lần là bộ đếm về 0.
 
 **Kết quả mong đợi.**
 - `LoginRequest` (`[Required]` email, password ≤ 72 byte), validator.
@@ -772,7 +905,8 @@ public async Task<ActionResult<TokenResponse>> Login(LoginRequest request, Cance
 
 | Mã | Test | Kỳ vọng |
 |---|---|---|
-| AC-01 | Đăng ký → verify → login đúng | 200, `expiresIn == 900`, `accessToken` gọi được `GET /me`; có `Set-Cookie: refresh_token=…`; DB có 1 dòng `refresh_tokens` với `token_hash` = SHA-256 của cookie |
+| AC-01 | Đăng ký → verify → login đúng | 200, `expiresIn == 900`; `accessToken` qua được tầng 1 — gọi `/api/v1/__khong-ton-tai` nhận **404** chứ không 401 (cùng lưới `AuthHarnessTests`; `/me` chưa có ở D3, `D7` đổi lời gọi này thành `GET /me` → 200); có `Set-Cookie: refresh_token=…`; DB có 1 dòng `refresh_tokens` với `token_hash` = SHA-256 của cookie |
+| AC-01b | Login bằng email viết HOA của tài khoản vừa đăng ký | 200 — bắt so `citext` với tham số `text` (xem cạm bẫy) |
 | AC-02 | Sai mật khẩu | 401; `failed_login_count` = 1 |
 | AC-02b | Email không tồn tại vs sai mật khẩu | Body JSON **bằng nhau** sau khi xóa `traceId` và `instance`; header giống nhau (trừ `X-Correlation-ID`) |
 | AC-02c | Thời gian (thô, chống quên BCrypt giả) | Trung vị 5 lần mỗi nhánh: nhánh không tồn tại ≥ 50% nhánh sai mật khẩu. **Không** so chặt — CI dao động |
@@ -794,6 +928,9 @@ public async Task<ActionResult<TokenResponse>> Login(LoginRequest request, Cance
   cần biết mật khẩu). Thứ tự 6 bước là hợp đồng.
 - **Test AC-03 với 6 request cùng một `HttpClient` không có `FakeRemoteIpStartupFilter`** → cộng với test khác
   trong lớp là quá 10/phút → 429. Xem Đ-D7.
+- **`FindForLoginAsync` viết SQL thô `WHERE email = {email}`** → Npgsql gửi tham số dạng `text`, `citext = text`
+  **phân biệt hoa thường mà không lỗi** (đã kiểm sau D1) → người đăng ký `An@x.com` gõ `an@x.com` nhận 401. Ép
+  `::citext`, hoặc dùng LINQ `u.Email == email` và để AC-01b xác nhận.
 - **Access token phát từ `role_id`** (`"1"`) → `PermissionHandler` không nhận ra vai trò nào. `FindForLoginAsync`
   join `roles` lấy `code`.
 
@@ -810,6 +947,8 @@ của cổng mở. Thiếu một trong hai là `E7` không kiểm chứng đư�
   Thiếu origin ngoài Development → từ chối khởi động. `appsettings.Development.json` có `http://localhost:3000`.
 - Test xanh: `RefreshCookieTests` (5 thuộc tính), `CorsTests` (preflight đúng/sai origin),
   `StartupConfigurationTests.Missing_cors_origins_must_fail_fast_outside_development`.
+- Helper `StartupConfigurationTests.StagingWithEmailConfig` (thêm ở `D1`) đặt thêm `Cors:AllowedOrigins:0` — không thì
+  `Staging_boots_when_email_config_is_complete` đỏ ngay khi fail-fast CORS vào.
 - Kiểm tay trong PR: ảnh DevTools tab Application → Cookies khi FE `localhost:3000` gọi API dev.
 
 ### Các bước
@@ -1102,6 +1241,8 @@ mọi giai đoạn sau.
 - `Presentation/MeController`: `[Route("api/v1/me")]`, `[Authorize]`, `[ApiExplorerSettings]`, 200 / 401.
   Không `[EnableRateLimiting("auth")]` — `/me` dùng hạn mức chung 100/phút/user.
 - Dòng matrix `TC-A01-me`; `Auth/MeTests` xanh.
+- AC-01 của `LoginTests` (D3) đổi lời gọi `/api/v1/__khong-ton-tai` → 404 thành `GET /me` → 200 — D3 làm trước khi có
+  `/me` nên tạm dùng route không tồn tại.
 
 ### Các bước
 
@@ -1110,7 +1251,7 @@ mọi giai đoạn sau.
 [Route("api/v1/me")]
 [Authorize]
 [ApiExplorerSettings(GroupName = IdentityApiGroup.Name)]
-[Produces("application/json")]
+// KHÔNG [Produces("application/json")]: nhánh 401 "user đã bị xóa" đi qua Problem() sẽ mất application/problem+json
 public sealed class MeController(MeQuery me) : ControllerBase
 {
     [HttpGet]
@@ -1166,7 +1307,8 @@ Làm sau D5 và D6: bên đọc (hook, RV-01/02/04) không phụ thuộc gì, nh
 - `SharedKernel/Authentication/ITokenRevocationStore.cs`, `RedisTokenRevocationStore.cs`,
   `TokenRevocationExtensions.AddSharedKernelTokenRevocation(redisConnectionString)`.
 - `StackExchange.Redis` 2.8.16 chuyển từ Api sang SharedKernel (Đ-D8).
-- `JwtOptions.ClockSkewSeconds = 30`; `Program.cs` dùng nó cho `ClockSkew` và gắn `OnTokenValidated`.
+- `Program.cs` gắn `OnTokenValidated`. (`JwtOptions.ClockSkewSeconds = 30` và `ClockSkew` đọc hằng số đó **đã làm ở
+  `D0`** — chỉ kiểm lại.)
 - `Harness/RedisFixture.cs` (Testcontainers.Redis 4.0.0, `redis:7-alpine`).
 - `Auth/TokenRevocationTests` xanh: RV-01 → RV-04 + `Ttl_bang_access_cong_clock_skew`.
 - Nhánh `ReuseDetected` của `SessionService` (D5) gọi `RevokeUserAsync` **sau** khi store đã commit; RV-03 xanh.
@@ -1226,6 +1368,10 @@ internal sealed class RedisTokenRevocationStore(
 `SyncTimeout = AsyncTimeout = 250`; `IConnectionMultiplexer` singleton dựng **lười** (factory lambda) để app
 khởi động được khi Redis chết.
 
+> ⚠️ **Chưa kiểm (ghi lúc rà sau D1):** dựng lười bằng `ConnectionMultiplexer.Connect` đồng bộ thì lần resolve đầu
+> tiên — tức request có token đầu tiên — có thể chờ tới `ConnectTimeout` (2 giây), trái RV-04 "< 1 giây". RV-04 đỏ ở
+> request đầu thì kết nối bằng `ConnectAsync` ở nền và để `IsConnected = false` tới khi xong.
+
 > ⚠️ `RevokeUserAsync` **không** nuốt lỗi Redis. Bên ghi thất bại phải lộ ra (log Error ở D5) — nuốt đi thì thu
 > hồi mất âm thầm. Chỉ bên **đọc** fail-open.
 
@@ -1251,7 +1397,7 @@ o.Events = new JwtBearerEvents
 };
 ```
 
-`ClockSkew = TimeSpan.FromSeconds(JwtOptions.ClockSkewSeconds)` thay cho số `30`.
+`ClockSkew = TimeSpan.FromSeconds(JwtOptions.ClockSkewSeconds)` đã có từ `D0` — không sửa lại.
 
 **Bước 3 — nối vào reuse detection.** Thêm dòng `revocation.RevokeUserAsync(x.UserId, now, ct)` vào nhánh
 `ReuseDetected` của `SessionService` (D5, mục 7 bước 3 có sẵn vị trí) và inject `ITokenRevocationStore`. Bọc `try/catch` **ở service**: Redis lỗi → log Error + vẫn trả 401 (family
@@ -1259,15 +1405,19 @@ o.Events = new JwtBearerEvents
 
 ### Test — `Auth/TokenRevocationTests` (Postgres + Redis thật)
 
-Token cho RV-01/02 ký bằng `TestJwt.Create(..., issuedAt: …)` — cần `iat` tùy ý; gọi `/api/v1/me` hoặc probe
-`__test/authz/authenticated` (không cần user trong DB).
+Token cho RV-01/02/04 ký bằng `TestJwt.Create(..., issuedAt: …)` — cần `iat` tùy ý, nên `sub` là id ngẫu nhiên không
+có trong DB. Vì vậy **không** gọi `/api/v1/me`: `/me` trả 401 cho user không tồn tại (D7) dù token không bị thu hồi, và
+RV-02 "cả hai qua" sẽ không bao giờ xanh. Probe `__test/authz/authenticated` cũng không dùng được thẳng: nó chỉ được
+nạp trong `AuthZApiFactory`, nơi Redis cố định không tới được. Gọi route **không tồn tại** `/api/v1/__khong-ton-tai`
+bằng `IdentityApiFactory` + `UseRedis`: token còn hiệu lực → **404**, bị thu hồi → **401** (fallback policy) — cùng
+lưới `AuthHarnessTests` đang dùng.
 
 | Mã | Test | Kỳ vọng |
 |---|---|---|
 | RV-01 | `SET revoked:user:X = T`; token của X có `iat = T - 60` | 401 |
-| RV-02 | Cùng key; token có `iat = T` (bằng mốc) và `iat = T + 5` | Cả hai qua (so **chặt**) |
+| RV-02 | Cùng key; token có `iat = T` (bằng mốc) và `iat = T + 5` | Cả hai **404** — qua tầng 1 (so **chặt**) |
 | RV-03 | Login → refresh (T2) → lùi `revoked_at` T1 11 giây → dùng lại T1 | 401 ở refresh; **access token của lần login đầu** gọi `/me` → **401**; key `revoked:user:<id>` tồn tại. Login lại ngay sau đó → `/me` 200 |
-| RV-04 | Factory trỏ Redis không tới được; token hợp lệ gọi probe | 200 trong **< 1 giây**; log có warning fail-open (bắt bằng `ILoggerProvider` test) |
+| RV-04 | Factory trỏ Redis không tới được; token hợp lệ gọi `/api/v1/__khong-ton-tai` | 404 trong **< 1 giây**; log có warning fail-open (bắt bằng `ILoggerProvider` test) |
 | TTL | Sau RV-03, `TTL revoked:user:<id>` | Trong khoảng `(AccessTokenSeconds + ClockSkewSeconds) - 5` … `+ 0`; kỳ vọng tính từ `IOptions<JwtOptions>` **và** hằng số `930` viết tay |
 | Matrix | Chạy `Category=AuthZ` trước và sau D8 | Thời gian không tăng đáng kể (Redis cố ý không tới được ở `AuthZApiFactory`) |
 
@@ -1306,6 +1456,12 @@ chỉ thấy status code nào action khai ra.
   `[email, password]`.
 - `ApiBehaviorOptions.InvalidModelStateResponseFactory` (đặt ở SharedKernel, một lần) cho 400 validation title
   **"Dữ liệu không hợp lệ"** thay mặc định tiếng Anh — cùng title với `AppException.Validation`.
+- **`title` cho mọi lỗi đi qua `ToActionResult`** (phát hiện lúc kiểm tay D2): `ControllerBase.Problem(statusCode, detail)`
+  chỉ điền `title` cho mã có trong `ClientErrorMapping` — 409 ra `"Conflict"` tiếng Anh, **410 và 423 không có `title`**,
+  trong khi `ProblemDetails` của hợp đồng `required: [title, status, traceId]`. Cổng hợp đồng không so schema response nên
+  không đỏ. Sửa ở **một** chỗ — `ResultHttpExtensions` (chạy impact trước), title theo status như ví dụ trong hợp đồng
+  ("Xung đột dữ liệu", "Liên kết không còn hiệu lực", "Tài khoản tạm khóa", …) — và thêm assert `title` vào test
+  409 (`RegisterTests`), 410 (`VerifyEmailTests`), 401/403/423 (`LoginTests`).
 - `Contract_must_be_fully_implemented` chạy **cục bộ, không Skip** → xanh.
 - Bảng rà thông điệp trong PR: mỗi `Error` của `IdentityErrors` + mỗi đường 401/403 tự sinh — không chứa email,
   id, tên bảng, stack trace.
@@ -1315,8 +1471,9 @@ chỉ thấy status code nào action khai ra.
 1. Rà từng action theo bảng trên. **Không khai thừa**: chiều 1 (đang xanh) đỏ ngay nếu action khai mã hợp đồng
    không có (vd `[ProducesResponseType(404)]` trên `/me`).
 2. Kiểm required: mở `/swagger/identity-v1/swagger.json`, tìm `components.schemas.RegisterRequest.required`.
-   Thiếu thì `[Required]` chưa có trên DTO (D1 bước 1). Record positional cần `[property: Required]` — không có
-   `property:` thì attribute gắn vào **tham số constructor** và Swashbuckle không thấy.
+   Thiếu thì `[Required]` chưa có trên DTO. DTO của D1 là class nên `[Required]` đặt thẳng trên property. Nếu dùng
+   record positional thì phải `[property: Required]` — không có `property:` thì attribute gắn vào **tham số constructor**
+   và Swashbuckle không thấy (đã kiểm sau D1).
 3. Chạy trọng tài:
    ```bash
    # Tạm xóa Skip (KHÔNG commit), chạy, đọc danh sách thiếu, khôi phục
@@ -1331,7 +1488,7 @@ chỉ thấy status code nào action khai ra.
 
 - **Khai `[ProducesResponseType(429)]` "cho đủ"** → không sai nhưng thừa: test đã trừ 429/500 khỏi hai vế.
 - **Title validation lệch** giữa 400 do `[ApiController]` sinh và 400 do `AppException` sinh → FE nhận hai hình
-  dạng. Test D1 so title.
+  dạng. `RegisterTests` của D1 **chưa** so title — D9 thêm assert `title == "Dữ liệu không hợp lệ"` vào case dữ liệu sai.
 - **Sửa `identity-v1.yaml` cho khớp code** khi trọng tài đỏ. Hợp đồng đã chốt ở cổng mở và FE đã sinh type từ
   nó — sửa code. Chỉ sửa yaml khi cả nhóm đồng ý đổi hợp đồng, và báo lane FE.
 
@@ -1383,7 +1540,7 @@ ngoài hợp đồng, và hợp đồng không có phần nào chưa hiện th�
 | 6 | `D4` | 🟢 | `feat(gd1-d): cookie refresh + CORS AllowCredentials` |
 | 7 | `D5` | 🟢 | `feat(gd1-d): POST /auth/refresh — rotation, reuse detection, an han 10s` |
 | 8 | `D6` + dòng matrix `TC-A01-logout` | 🟢 | `feat(gd1-d): POST /auth/logout — thu hoi ca family, kiem chu so huu` |
-| 9 | `D8` + chuyển `StackExchange.Redis` + `ClockSkewSeconds` | 🟢 | `feat(gd1-d): ITokenRevocationStore + OnTokenValidated, noi vao reuse detection` |
+| 9 | `D8` + chuyển `StackExchange.Redis` (`ClockSkewSeconds` đã ở `D0`) | 🟢 | `feat(gd1-d): ITokenRevocationStore + OnTokenValidated, noi vao reuse detection` |
 | 10 | `D9` | 🟢 | `feat(gd1-d): ProducesResponseType khop hop dong + title validation` |
 | 11 | `D11` | 🟢 — `Contract` 2/2 | `test(gd1-d): go Skip Contract_must_be_fully_implemented — cong hop dong hai chieu` |
 
