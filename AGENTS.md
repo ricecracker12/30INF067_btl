@@ -118,6 +118,13 @@ client_msg_id khử trùng), `notifications`(UQ recipient+group_key), `reports`,
 2. **RBAC** — policy theo role, đọc quyền từ bảng `permissions`/`role_permissions` (data-driven), **default deny**.
 3. **Ownership/quan hệ** — kiểm ở tầng Application, có query dữ liệu thật (bài của mình? thành viên hội thoại? là bạn?).
 
+> **Endpoint chạm tài nguyên có chủ sở hữu mà không có dòng tương ứng trong
+> `tests/SocialApp.IntegrationTests/AuthZ/AuthZMatrix.cs` thì coi như CHƯA XONG.** Kiểm ownership ở tầng
+> Application, trả `Result.Forbidden()`, danh tính người gọi lấy từ `User.GetUserId()` — không bao giờ từ
+> route/body. Không có nhánh Admin ở tầng 3 (Admin short-circuit CHỈ ở `PermissionHandler`, tầng 2). "Không
+> tồn tại" và "không được phép thấy" trả cùng một phản hồi (`docs/giai-doan-1.md` Mục 6.3 quy ước 3b).
+> Controller trả `result.ToActionResult(this)` — không ném exception cho luồng từ chối.
+
 - Mật khẩu: **BCrypt cost ≥ 12**, không lưu plaintext. Access token 15', refresh rotation + reuse
   detection. Đăng xuất/đổi mật khẩu thu hồi phiên.
 - Roles: User / Moderator / Admin. Ma trận quyền `resource.action` (vd `post.hide`, `report.resolve`,
@@ -182,6 +189,7 @@ cd frontend && npm run dev
 ## 14. LUẬT VÀNG cho agent
 1. **Không tự bịa schema/kiến trúc** — schema từ ERD/PTTK, quy ước từ file này. Chỉ tự quyết chi tiết hiện thực.
 2. **Mọi endpoint (trừ public) qua đủ 3 tầng authz** + có test IDOR. Đây là rủi ro Critical của dự án.
+   Endpoint chạm tài nguyên có chủ mà chưa có dòng trong `AuthZMatrix.cs` thì **chưa xong** (Mục 10).
 3. **Không commit secret**; giá trị thật chỉ trong `.env`. Nếu thấy secret trong code/doc → cảnh báo + thay placeholder.
 4. **Không tạo tham chiếu chéo giữa module** — đi qua interface Application (ArchUnitNET sẽ chặn).
 5. **Lỗi luôn theo RFC 7807**; validate đầu vào; đúng vai trò + đúng chủ sở hữu.

@@ -1,6 +1,9 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using SocialApp.SharedKernel.Authentication;
 using SocialApp.SharedKernel.Authorization;
+using SocialApp.SharedKernel.Http;
+using SocialApp.SharedKernel.Results;
 
 namespace SocialApp.IntegrationTests.AuthZ;
 
@@ -34,4 +37,13 @@ public sealed class AuthZProbeController : ControllerBase
     [RequirePermission("user.lock")]
     [HttpGet("user-lock")]
     public IActionResult UserLock() => Ok();
+
+    /// <summary>
+    /// Khuôn tầng 3 (C6): tài nguyên "thuộc về" <paramref name="ownerId"/>. Danh tính người gọi từ token
+    /// (GetUserId), không từ route; không có nhánh Admin; từ chối bằng Result.Forbidden + ToActionResult.
+    /// </summary>
+    [Authorize]
+    [HttpGet("owned/{ownerId:guid}")]
+    public ActionResult<Guid> Owned(Guid ownerId) =>
+        (ownerId == User.GetUserId() ? Result<Guid>.Success(ownerId) : Result<Guid>.Forbidden()).ToActionResult(this);
 }

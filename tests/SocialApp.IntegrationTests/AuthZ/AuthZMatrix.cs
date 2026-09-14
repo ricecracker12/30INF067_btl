@@ -42,6 +42,12 @@ public static class AuthZMatrix
         // C4: fallback policy. Đỏ nếu xóa FallbackPolicy hoặc provider trả null ở GetFallbackPolicyAsync.
         new("DEFAULT-DENY", "Endpoint KHÔNG khai [Authorize] hay [RequirePermission], không kèm JWT", "GĐ1",
             Caller.Anonymous, HttpMethod.Get, "/__test/authz/no-attribute", HttpStatusCode.Unauthorized),
+
+        // C6: khuôn tầng 3. GĐ2 viết TC-A03 CÙNG hình dạng: ArrangePath tạo bài của user B rồi trả
+        // /api/v1/posts/{id}, Caller.User, HttpMethod.Patch, Forbidden. Không sửa khung.
+        new("OWN-00", "Khuôn tầng 3: user A đọc tài nguyên (probe) của user B", "GĐ1",
+            Caller.User, HttpMethod.Get, "/__test/authz/owned/{id của người khác}", HttpStatusCode.Forbidden,
+            ArrangePath: _ => Task.FromResult($"/__test/authz/owned/{Guid.NewGuid()}")),
     ];
 
     /// <summary>
