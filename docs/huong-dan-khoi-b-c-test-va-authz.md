@@ -8,6 +8,9 @@
 > Mục 10.1–10.2 mã test) và `AGENTS.md`. Chỗ nào tài liệu này lệch với hai file đó thì sửa ở đây —
 > không sửa ngược. Năm quyết định ở Mục 1 đã được chốt và ghi ngược vào `giai-doan-1.md`.
 
+> **Trạng thái: đã xong toàn bộ B1–B5, C1–C6** trên nhánh `loveart1210` (commit `6ab96a8` → `2d25ae6`).
+> Kết quả thật, bằng chứng CI và những chỗ thi công lệch khỏi tài liệu này: [Mục 13.1](#131-thực-tế-thi-công).
+
 | | |
 |---|---|
 | **Người làm** | BE-2 (cả hai khối — một người, một lane) |
@@ -1577,35 +1580,98 @@ là có vấn đề. Ngoại lệ PR đang review: xem `B3` bước 4.
 Trước **mỗi** commit: `node .gitnexus/run.cjs detect-changes --scope all --repo .` — kết quả `partial`
 hoặc `truncated` thì chạy lại, không coi là sạch.
 
+### 13.1 Thực tế thi công
+
+**Commit thật** (khác kế hoạch ở trên chỗ gộp/tách, không khác nội dung):
+
+| Commit | Nội dung | CI |
+|---|---|---|
+| `6ab96a8` | `B1` + `B2` | — (push chung với commit sau) |
+| `7b8b0d4` | `C1` + `B3` | 🔴 có chủ đích — [34774295690](https://github.com/ricecracker12/30INF067_btl/actions/runs/34774295690) |
+| `69a2857` | `C4` | — |
+| `a75308a` | `C3` + `C5` | — |
+| `b53f40a` | `C2` | — |
+| `6063ae6` | `B4` | — |
+| `dd02c5d` | `C6` + `AGENTS.md` | — |
+| `d4d2152` | `B5` | — |
+| `2d3e2f3` | Tạm gõ sai trait `AuthZZ` | 🔴 có chủ đích — [34804410864](https://github.com/ricecracker12/30INF067_btl/actions/runs/34804410864) |
+| `2d25ae6` | Revert commit trên | 🟢 [34804508073](https://github.com/ricecracker12/30INF067_btl/actions/runs/34804508073) — AuthZ 10/10 |
+
+**Bằng chứng đo được.**
+
+- `B1`: nhóm 6 test Postgres — trước 6 container, Duration 18 s (wall 25,3 s); sau 1 container, Duration 1 s
+  (wall 8,3 s).
+- `B3` run đỏ: cả 7 dòng nhận **500**, khớp cột "Ngay sau C1". Nguyên nhân 500 xác nhận bằng dòng tạm gọi
+  `no-attribute` (không metadata authorization) → 200.
+- Sau `C4` và sau `C5` (đối chiếu **ở local**, không có CI run riêng vì push chung): đỏ đúng RBAC-01 và
+  RBAC-02b, nhận 403.
+- Bảng đột biến (`B3` bước 5), chạy bằng script áp đột biến → build → matrix → khôi phục byte-for-byte:
+
+  | Đột biến | Dòng đỏ | Khớp |
+  |---|---|---|
+  | Tắt short-circuit Admin | RBAC-01 | ✅ đúng một dòng |
+  | `RolePermissionSource` trả tập rỗng | RBAC-02b | ✅ |
+  | Handler bỏ qua mã quyền (`role != "USER"`) | RBAC-02c | ✅ |
+  | Provider trả `null` ở `GetFallbackPolicyAsync` | DEFAULT-DENY | ✅ |
+  | `ValidateLifetime = false` | TC-A02-expired | ✅ |
+  | `SignatureValidator` bỏ kiểm chữ ký | TC-A02-signature | ✅ |
+  | *(thêm)* Probe `owned` luôn cho qua | OWN-00 | ✅ |
+
+- `B4` ở local: `--filter "Category=AuthZZ"` + `TreatNoTestsAsError` → exit 1; `Category=AuthZ` → exit 0.
+
+**Chỗ lệch so với tài liệu — đã làm như sau, tài liệu phía trên giữ nguyên để đọc "vì sao":**
+
+- `C1` — lưới `PermissionCodeUsageTests` thử đỏ trên `PingController` của Api, không phải module Identity:
+  Identity chưa có controller nào. Test quét cả 7 module lẫn Api.
+- `C4` — thêm những thứ tài liệu chưa nói:
+  - `docker-compose.dev.yml` truyền `Jwt__SigningKey` cho service `api` (`${Jwt__SigningKey:?...}`); thiếu
+    thì container dev từ chối khởi động ở lần rebuild đầu tiên.
+  - `RequireJwtOptions` còn kiểm `Issuer`/`Audience` trống và `AccessTokenSeconds > 0`, gộp mọi lỗi vào một
+    thông báo.
+  - `JwtOptions` đã validate (kể cả khóa lấy từ `deploy/.env`) đăng ký làm `IOptions<JwtOptions>`. **`D3` và
+    `D8` lấy từ DI, không bind lại section `Jwt`** — bind lại thì mất khóa fallback của Development.
+  - `DevEnvFile.LocalJwtSigningKey` trả `null` khi thiếu, không ném: "thiếu" và "ngắn" chung một thông báo ở
+    `Program.cs`.
+  - Thêm test Development không có khóa và không có `deploy/.env` → từ chối khởi động.
+  - `JwtAuthenticationTests` chạy trong collection Postgres, dùng chung DB "authz" (chỉ đọc).
+- `C5` — `RolePermissionSourceTests` thêm case `"moderator"` → tập rỗng (role code phân biệt hoa thường).
+- `C2` — `PermissionDataDrivenTests` thay `TimeProvider` bằng `AuthZApiFactory.WithWebHostBuilder(...)`,
+  không sửa factory.
+- `C6` — probe `owned/{ownerId}` trả `Result<Guid>` thay vì `Result`: `ToActionResult(Result)` trả **204**
+  còn tài liệu kỳ vọng chính chủ **200**. Thêm `OwnershipTemplateTests.ADMIN_khong_co_loi_tat_o_tang_3` (tầng 3
+  không có nhánh Admin) và `OwnershipPrimitivesTests` (unit cho `Result.Forbidden`, `GetUserId`).
+
 ---
 
 ## 14. Checklist nghiệm thu khối B + C
 
 **Kiểm tự động**
 
-- [ ] `dotnet build SocialApp.sln` xanh
-- [ ] `dotnet test SocialApp.sln` xanh — gồm smoke test (có `/health/ready` 503), `StartupConfigurationTests`, `DevEnvFileTests`
-- [ ] Cổng hợp đồng API (`Category=Contract`) xanh — Swagger không bị fallback policy chặn
-- [ ] Cổng AuthZ nhắm vào project, xanh với 9 dòng: `TC-A01`, `TC-A02-expired`, `TC-A02-signature`,
+- [x] `dotnet build SocialApp.sln` xanh
+- [x] `dotnet test SocialApp.sln` xanh — gồm smoke test (có `/health/ready` 503), `StartupConfigurationTests`, `DevEnvFileTests`
+- [x] Cổng hợp đồng API (`Category=Contract`) xanh — Swagger không bị fallback policy chặn
+- [x] Cổng AuthZ nhắm vào project, xanh với 9 dòng: `TC-A01`, `TC-A02-expired`, `TC-A02-signature`,
       `RBAC-01`, `RBAC-02`, `RBAC-02b`, `RBAC-02c`, `DEFAULT-DENY`, `OWN-00`
-- [ ] Unit: `PermissionHandlerTests` (5), `SystemRolesTests`, `PermissionCacheTests`, `PermissionPolicyProviderTests`, `RateLimitPartitionKeyTests`
-- [ ] Integration: `RolePermissionSourceTests`, `PermissionDataDrivenTests`, `JwtAuthenticationTests`, FK-01 xanh trên Postgres thật
-- [ ] `ArchitectureTests` xanh (không rò MVC/EF vào tầng trong, không tham chiếu chéo module)
+- [x] Unit: `PermissionHandlerTests` (5), `SystemRolesTests`, `PermissionCacheTests`, `PermissionPolicyProviderTests`, `RateLimitPartitionKeyTests`
+- [x] Integration: `RolePermissionSourceTests`, `PermissionDataDrivenTests`, `JwtAuthenticationTests`, FK-01 xanh trên Postgres thật
+- [x] `ArchitectureTests` xanh (không rò MVC/EF vào tầng trong, không tham chiếu chéo module)
 
 **Bằng chứng "đã thấy đỏ" — nằm trong mô tả PR**
 
-- [ ] Link CI run đỏ của commit `B3`, đối chiếu khớp cột "Ngay sau C1"
-- [ ] Log CI của commit `C4`/`C5` đỏ đúng RBAC-01 và RBAC-02b
-- [ ] Bảng đột biến 6 dòng (`B3` bước 5): mỗi đột biến làm đúng dòng dự kiến đỏ
-- [ ] `B4`: link CI run đỏ do gõ sai trait + link run xanh sau hoàn tác
-- [ ] Số liệu thời gian nhóm test Postgres trước/sau `B1`
+- [x] Link CI run đỏ của commit `B3`, đối chiếu khớp cột "Ngay sau C1"
+- [ ] Log CI của commit `C4`/`C5` đỏ đúng RBAC-01 và RBAC-02b — **không có CI run riêng** (push chung); đã
+      đối chiếu ở local, ghi ở Mục 13.1
+- [x] Bảng đột biến 6 dòng (`B3` bước 5): mỗi đột biến làm đúng dòng dự kiến đỏ
+- [x] `B4`: link CI run đỏ do gõ sai trait + link run xanh sau hoàn tác
+- [x] Số liệu thời gian nhóm test Postgres trước/sau `B1`
 
 **Code review — không test tự động nào bắt được**
 
-- [ ] `UseAuthentication()` đứng **trước** `UseSharedKernelRateLimiter()` (B.9 điều 3)
-- [ ] Grep `SystemRoles.Admin|RoleCodes.Admin|"ADMIN"` trong `src/` chỉ ra 4 file cho phép
-- [ ] Không có khóa ký JWT nào trong repo: `git grep -n "SigningKey" -- ':!*.md'` chỉ ra tên cấu hình, không ra giá trị
+- [x] `UseAuthentication()` đứng **trước** `UseSharedKernelRateLimiter()` (B.9 điều 3)
+- [x] Grep `SystemRoles.Admin|RoleCodes.Admin|"ADMIN"` trong `src/` chỉ ra 4 file cho phép
+- [x] Không có khóa ký JWT nào trong repo: `git grep -n "SigningKey" -- ':!*.md'` chỉ ra tên cấu hình, không ra giá trị
 - [ ] `D3` và `D8` đọc `JwtOptions.AccessTokenSeconds`, không tự khai 900 (test TTL của `D8` chỉ bắt lệch giá trị)
+      — **thuộc khối D**, kiểm khi review D3/D8
 
 ---
 

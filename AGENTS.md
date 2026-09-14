@@ -183,6 +183,11 @@ cd frontend && npm run dev
   `--migrate` và mọi lệnh `dotnet ef` đều từ chối chạy; không có mật khẩu mặc định. Test dựng cả app
   (không chạm DB) phải tự khai chuỗi kết nối qua `ApiFactory`, nên CI không cần `deploy/.env`. Khóa bằng
   `StartupConfigurationTests` + `DevEnvFileTests`.
+- **Khóa ký JWT cũng bắt buộc, ở MỌI môi trường.** `Jwt__SigningKey` ≥ 32 byte (`openssl rand -base64 48`):
+  trên staging nằm trong `.env` của server, ở máy dev nằm trong `deploy/.env` (Development không đặt biến
+  thì `Program.cs` đọc từ đó). Thiếu hoặc ngắn thì api **và** `--migrate` từ chối khởi động; không có khóa
+  mặc định, kể cả khóa test (test sinh khóa ngẫu nhiên mỗi lần chạy — `TestJwt`). Code cần cấu hình JWT lấy
+  `IOptions<JwtOptions>` từ DI (đã validate), không đọc lại section `Jwt`.
 - **CD:** push `develop` → GitHub Actions build arm64 → GHCR → SSH deploy staging. Chi tiết
   `docs/oci-setup.md`.
 

@@ -1690,6 +1690,15 @@ liệu seed thật. Nguồn quyền giả chỉ còn trong unit test.
 > [huong-dan-khoi-b-c-test-va-authz.md](huong-dan-khoi-b-c-test-va-authz.md) — file nào, lệnh nào,
 > cạm bẫy nào, checklist nghiệm thu. Mục B.4 dưới đây giữ nguyên vai trò "cái gì và vì sao".
 
+> **Trạng thái: đã xong** (nhánh `loveart1210`, commit `6ab96a8` → `2d25ae6`). B1: nhóm test Postgres 6
+> container → 1, 25,3 s → 8,3 s. B3: CI run đỏ có chủ đích
+> [34774295690](https://github.com/ricecracker12/30INF067_btl/actions/runs/34774295690) khớp cột "Ngay sau
+> C1"; bảng đột biến đã thử, mỗi đột biến đỏ đúng một dòng. B4: cổng AuthZ nhắm vào project +
+> `TreatNoTestsAsError`, gõ sai trait → CI đỏ
+> [34804410864](https://github.com/ricecracker12/30INF067_btl/actions/runs/34804410864), hoàn tác → xanh
+> [34804508073](https://github.com/ricecracker12/30INF067_btl/actions/runs/34804508073). B5: FK-01 xanh.
+> Chi tiết và chỗ lệch: Mục 13.1 của hướng dẫn.
+
 ### B1 — Harness Testcontainers dùng chung
 
 - **Mục tiêu:** mọi integration test chạy trên Postgres **thật**, không phải InMemory provider —
@@ -1763,6 +1772,13 @@ liệu seed thật. Nguồn quyền giả chỉ còn trong unit test.
 
 > **Hướng dẫn thi công từng bước:** [huong-dan-khoi-b-c-test-va-authz.md](huong-dan-khoi-b-c-test-va-authz.md)
 > (chung file với khối B). Mục B.5 dưới đây giữ nguyên vai trò "cái gì và vì sao".
+
+> **Trạng thái: đã xong** (commit `7b8b0d4`, `69a2857`, `a75308a`, `b53f40a`, `dd02c5d`). AuthZ matrix xanh
+> 9 dòng trên dữ liệu seed thật: `TC-A01`, `TC-A02-expired`, `TC-A02-signature`, `RBAC-01`, `RBAC-02`,
+> `RBAC-02b`, `RBAC-02c`, `DEFAULT-DENY`, `OWN-00`. Khối D nhận: `JwtOptions`/`JwtClaims`,
+> `IOptions<JwtOptions>` đã validate trong DI, `[RequirePermission]`, 401/403 RFC 7807, `Result.Forbidden()` +
+> `ToActionResult`, `User.GetUserId()`. **Staging cần `Jwt__SigningKey` (≥ 32 byte) trong `.env` trước khi
+> merge vào `develop`** — thiếu thì `migrate` và api từ chối khởi động.
 
 ### C1 — `RequirePermissionAttribute` + policy provider
 
