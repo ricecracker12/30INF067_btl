@@ -2,7 +2,10 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.Options;
+using SocialApp.Modules.Identity.Application.Login;
 using SocialApp.Modules.Identity.Application.Registration;
+using SocialApp.SharedKernel.Authentication;
 using SocialApp.SharedKernel.DependencyInjection;
 using SocialApp.SharedKernel.Http;
 
@@ -21,7 +24,10 @@ namespace SocialApp.Modules.Identity.Presentation;
 [Route("api/v1/auth")]
 [EnableRateLimiting(SharedKernelExtensions.AuthRateLimitPolicy)]   // cả nhóm auth: 10 req/phút/IP (ISS-04)
 [ApiExplorerSettings(GroupName = IdentityApiGroup.Name)]
-public sealed class AuthController(RegistrationService registration) : ControllerBase
+public sealed class AuthController(
+    RegistrationService registration,
+    LoginService login,
+    IOptions<JwtOptions> jwt) : ControllerBase
 {
     [AllowAnonymous]
     [HttpPost("register")]
@@ -48,5 +54,25 @@ public sealed class AuthController(RegistrationService registration) : Controlle
         // 400 có hai nguồn, cùng mã trong hợp đồng: sai định dạng (validator, có `errors`) và không tồn tại (Error).
         var result = await registration.VerifyEmailAsync(request, ct);
         return result.ToActionResult(this);
+    }
+
+    [AllowAnonymous]
+    [HttpPost("login")]
+    [Consumes("application/json")]
+    [ProducesResponseType<TokenResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest, "application/problem+json")]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized, "application/problem+json")]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden, "application/problem+json")]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status423Locked, "application/problem+json")]
+    public async Task<ActionResult<TokenResponse>> Login(LoginRequest request, CancellationToken ct)
+    {
+        // IP chỉ để điều tra (refresh_tokens.created_ip). Sau reverse proxy đây là IP của proxy — chấp nhận ở GĐ1;
+        // bật ForwardedHeaders là việc của F1 nếu cần.
+        var result = await login.LoginAsync(request, HttpContext.Connection.RemoteIpAddress, ct);
+        if (result.IsFailure)
+            return result.Error!.Value.ToActionResult(this);
+
+        RefreshCookie.Set(Response, result.Value!.RefreshPlain, jwt.Value.RefreshTokenDays);
+        return Ok(new TokenResponse(result.Value.Access.Token, result.Value.Access.ExpiresIn));
     }
 }

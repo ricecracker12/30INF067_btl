@@ -9,8 +9,8 @@
 > nào tài liệu này lệch ba nguồn đó thì sửa ở đây — trừ các quyết định ở Mục 1 được đánh dấu **"ghi
 > ngược"**: những chỗ đó tài liệu gốc đang thiếu hoặc sai, phải sửa `giai-doan-1.md` trong cùng commit.
 
-> **Trạng thái: đang làm — `D0`–`D2` xong (xem "Thực tế thi công" cuối Mục 2, 3, 4), chưa commit — commit khi xong cả khối.
-> Tiếp theo `D3` (lockout "5 lần sai liên tiếp" đã chốt — đầu Mục 5).** Khối A, B, C đã xong
+> **Trạng thái: đang làm — `D0`–`D3` và `D7` xong (xem "Thực tế thi công" cuối Mục 2, 3, 4, 5, 9). `D0`–`D2` đã
+> commit + push lên `loveart1210` (`37b6b76`, CI xanh — run 34837717169); `D3`, `D7` chưa commit. Tiếp theo `D4`.** Khối A, B, C đã xong
 > (commit `105077c` → `2d25ae6`, merge ở `455b597`).
 
 | | |
@@ -29,7 +29,7 @@
 | **D0** | Nền chung của khối: tầng Application, harness test auth | Sáu endpoint dùng chung một bộ viên gạch (băm token, băm mật khẩu, phát JWT, factory test) — không để mỗi endpoint tự chế một kiểu | `SecureToken`, `IPasswordHasher`, `IAccessTokenIssuer` + unit test; `IdentityApiFactory` + `AuthTestClient` trong project test; một test "khung" gọi được `POST /api/v1/auth/register` và nhận 404 (chưa có controller) → chứng minh harness chạy |
 | **D1** | `POST /auth/register` + gửi mail xác minh | FR-001 nửa đầu — người thật tạo được tài khoản | `RegisterTests` xanh: 201 đúng hình dạng; hash trong DB bắt đầu `$2` và cost `12`; token xác minh lưu **băm**, hạn 24h; email trùng (kể cả khác hoa thường) → 409; hai request trùng email **song song** → một 201 + một 409, **không 500**; mật khẩu 7 và 73 ký tự → 400 có `errors` + `traceId`. Trên dev: mail hiện trong Mailpit (ảnh chụp trong PR) |
 | **D2** | `POST /auth/verify-email` | FR-001 nửa sau — tách rõ 400 và 410 để FE hiển thị khác nhau | `VerifyEmailTests` xanh: token đúng → 200 + `email_verified_at` có giá trị; token lạ → 400; token hết hạn → 410; dùng lần hai → 410; hai request cùng token song song → đúng **một** 200 |
-| **D3** | `POST /auth/login` + lockout | FR-002 + FR-003, và **không rò rỉ email nào có thật** (AC-02) | AC-01 → AC-04 xanh trên Postgres thật; 401 "sai mật khẩu" và 401 "email không tồn tại" **giống hệt nhau** sau khi bỏ `traceId`/`instance`; unit test khẳng định nhánh email không tồn tại **vẫn gọi** `Verify` của hasher; 10 request sai mật khẩu song song → tài khoản **bị khóa** |
+| **D3** | `POST /auth/login` + lockout | FR-002 + FR-003, và **không rò rỉ email nào có thật** (AC-02) | AC-01 → AC-04 xanh trên Postgres thật; 401 "sai mật khẩu" và 401 "email không tồn tại" **giống hệt nhau** sau khi bỏ `traceId`/`instance`; unit test khẳng định nhánh email không tồn tại **vẫn gọi** `Verify` của hasher; **đúng 5** request sai mật khẩu song song → tài khoản **bị khóa** (10 request không bắt được đọc-rồi-ghi — thi công D3) |
 | **D4** | Cookie refresh + CORS | Hiện thực quyết định 6 và 7 của cổng mở — thiếu là lane FE đứng im | `RefreshCookie` là chỗ **duy nhất** set/xóa cookie; test đọc `Set-Cookie` thấy đủ 5 thuộc tính; test preflight `OPTIONS` từ `http://localhost:3000` nhận `Access-Control-Allow-Origin` đúng origin + `Allow-Credentials: true`, origin lạ thì không; thiếu `Cors:AllowedOrigins` ngoài Development → từ chối khởi động (test). Kiểm DevTools: cookie đi và về từ `localhost:3000` |
 | **D5** | `POST /auth/refresh`: rotation + reuse detection | NFR-SEC-03. **Phần khó nhất của cả giai đoạn** | RT-01 → RT-04 xanh; thêm RT-05 (reuse **sau** 10 giây → cả family bị thu hồi, token kế nhiệm cũng chết); mọi nhánh hỏng trả **cùng một** 401 + xóa cookie; không action nào nhận body |
 | **D6** | `POST /auth/logout` | "Đăng xuất thu hồi toàn bộ phiên" (báo cáo Mục 6.7.3) | `LogoutTests` xanh: 204 + cookie bị xóa; sau logout refresh token cũ **và** mọi token cùng family → 401; family của phiên khác (thiết bị khác) không bị ảnh hưởng; **cookie của user B đi kèm bearer của user A → family của B vẫn sống** (tầng 3) |
@@ -913,7 +913,8 @@ public async Task<ActionResult<TokenResponse>> Login(LoginRequest request, Cance
 | AC-02 unit | `LoginServiceTests.Email_khong_ton_tai_van_goi_hasher` | Hasher giả đếm được `VerifyAgainstDummy` gọi **1** lần. Đây là lưới chính; AC-02c chỉ là lưới phụ |
 | AC-03 | Sai 5 lần liên tiếp rồi thử lần 6 **với mật khẩu đúng** | Lần 1–5: 401; lần 6: **423** |
 | AC-03b | Lùi `locked_until` về quá khứ bằng SQL, login đúng | 200; `failed_login_count = 0`, `locked_until IS NULL` |
-| AC-03c | 10 request sai mật khẩu **song song** (cùng IP header để khỏi lẫn, trong hạn mức — tách 2 lớp 5+5 hoặc dùng 2 IP) | Sau đó login đúng → **423**. Đọc-rồi-ghi sẽ đỏ ở đây |
+| AC-03c | **Đúng 5** request sai mật khẩu **song song** (mỗi request một IP ngẫu nhiên của `FakeRemoteIpStartupFilter`) | Cả 5 là 401; sau đó login đúng → **423**. Không dùng 10 request: 5 lần thừa bù được các lần đếm bị mất nên đọc-rồi-ghi vẫn xanh (đã thử) |
+| AC-03d | Gọi thẳng `IIdentityUserStore.RegisterFailedLoginAsync` 5 lần đồng thời, mỗi lần một scope DI | `failed_login_count = 0`, `locked_until` có giá trị. Không có BCrypt đệm nên cửa sổ tranh chấp lớn nhất — lưới chính của Mục 7.2 "Concurrency" |
 | AC-04 | Đăng ký, **không** verify, login đúng | 403 |
 | AC-04b | Chưa verify, sai mật khẩu | 401 (bước 4 đứng trước bước 5) |
 | — | Login thành công sau 3 lần sai | `failed_login_count` về 0 |
@@ -921,7 +922,8 @@ public async Task<ActionResult<TokenResponse>> Login(LoginRequest request, Cance
 
 ### Cạm bẫy đã biết
 
-- **Đọc `FailedLoginCount` lên C#, `+1`, `SaveChanges`** → AC-03c đỏ (hoặc tệ hơn: xanh ngẫu nhiên). Bước 2.
+- **Đọc `FailedLoginCount` lên C#, `+1`, `SaveChanges`** → AC-03c (5 request) và AC-03d đỏ. Bước 2. Test với **10**
+  request song song thì **vẫn xanh** dù đọc-rồi-ghi — đã thử ở thi công D3; đừng "tăng số request cho chắc".
 - **Tạo `Error` 401 thứ hai "cho dễ debug"** (vd "User not found") → AC-02b đỏ. May mắn thì test bắt; dùng
   `IdentityErrors.InvalidCredentials` cho cả hai nhánh để khỏi phải may mắn.
 - **Kiểm `email_verified_at` trước mật khẩu** → ai cũng dò được email nào đã đăng ký mà chưa verify (403 không
@@ -934,6 +936,47 @@ public async Task<ActionResult<TokenResponse>> Login(LoginRequest request, Cance
 - **Access token phát từ `role_id`** (`"1"`) → `PermissionHandler` không nhận ra vai trò nào. `FindForLoginAsync`
   join `roles` lấy `code`.
 
+### Thực tế thi công
+
+**Bằng chứng.** `dotnet test SocialApp.sln`: Unit 44 → 53 (+8 `LoginServiceTests`, +1 `LockoutPolicyTests`), Architecture
+9, Integration 76 → 92 (+16 `LoginTests`). Cổng hợp đồng chiều 1 xanh với `POST /auth/login` 200/400/401/403/423. Sau khi
+khôi phục, AC-03c + AC-03d chạy 5 lần liên tiếp trên code đúng: 5/5 xanh.
+
+Kiểm tay trên dev (API chạy từ `bin/` với `Development`, Postgres + Mailpit của compose dev): register 201 → verify 200 →
+login bằng email **viết HOA** 200, `expiresIn=900`, `Set-Cookie: refresh_token=<64 hex>; max-age=604800; path=/api/v1/auth;
+secure; samesite=lax; httponly` → bearer vừa nhận gọi route không tồn tại 404 → sai mật khẩu và email không tồn tại đều 401,
+body giống hệt sau khi bỏ `traceId` → log stdout của API **không** chứa mật khẩu, access token, cookie refresh lẫn email.
+Body 401 có `title: "Unauthorized"` tiếng Anh — cùng việc `title` đã chuyển cho D9.
+
+Thử cho đỏ ở local rồi khôi phục:
+
+| Đột biến | Test đỏ |
+|---|---|
+| Bỏ `hasher.VerifyAgainstDummy` ở nhánh email không tồn tại | `LoginServiceTests.Email_khong_ton_tai_…` (0 lần gọi), `AC02c_…` (2 ms so với 249 ms — tỉ lệ 0,01) |
+| Kiểm xác minh email **trước** mật khẩu | `LoginServiceTests.Chua_xac_minh_sai_mat_khau_…` và `AC04b_…` (nhận 403) |
+| `FindForLoginAsync` bằng `FromSql … WHERE email = {email}` (tham số `text`) | `AC01b_dang_nhap_bang_email_khac_hoa_thuong_200` (nhận 401) |
+| Bộ đếm đọc-rồi-ghi qua EF (`SingleAsync` → `++` → `SaveChanges`) | **Bản đầu của AC-03c (10 request song song) vẫn XANH.** Sửa thành đúng 5 request + thêm AC-03d ở tầng store; chạy lại 3 lần trên đột biến: cả hai đỏ cả 3 lần (AC-03d chỉ đếm được 4/5, AC-03c đăng nhập sau đó nhận 200) |
+
+**Chỗ lệch so với các bước trên — đã làm như sau:**
+
+- **AC-03c đổi từ 10 xuống đúng 5 request, thêm AC-03d** (gọi store đồng thời, không qua BCrypt). Câu "đọc-rồi-ghi sẽ đỏ
+  ở đây" của tài liệu gốc là **sai** với 10 request: số lần thừa bù cho các lần đếm bị mất, còn BCrypt ~250 ms làm các
+  request lệch pha nhau.
+- **`RefreshCookie` tạo luôn ở D3** bằng đúng code của D4 bước 1, thay vì set cookie tạm trong action rồi D4 xóa đi.
+- **`LoginService.LoginAsync` nhận `IPAddress?`** thay vì `string?`: cột `created_ip` là `inet`, entity là `IPAddress`.
+- **Store trả `LoginCandidate(UserId, PasswordHash, RoleCode, EmailVerifiedAt, LockedUntil)`**; `FindForLoginAsync` dùng
+  LINQ join `roles`, không SQL thô (bẫy `citext` — AC-01b chứng minh LINQ so không phân biệt hoa thường).
+- **`ResetFailedLoginAsync` chỉ ghi khi có gì để reset** (`WHERE failed_login_count <> 0 OR locked_until IS NOT NULL`) — đa
+  số lần đăng nhập không đụng tới `updated_at`.
+- **Validator login không kiểm độ dài tối thiểu hay định dạng email**: email sai định dạng không khớp tài khoản nào nên đi
+  đường 401 chung; luật mật khẩu đăng ký đổi thì tài khoản cũ vẫn đăng nhập được.
+- **`Error.ToActionResult(ControllerBase)` thêm vào `ResultHttpExtensions`** đúng như bước 3 (impact: UNKNOWN, grep 3 chỗ
+  gọi, chỉ thêm overload cho `Error`).
+- **Thêm ngoài bảng:** AC-01 giải mã JWT kiểm `sub` = userId và `role` = `USER`, body không có `refreshToken`; 401/403
+  không có `Set-Cookie`; AC-03 kiểm `locked_until` ≈ +15 phút; 3 case validation (400 + `errors` camelCase); unit test
+  khóa hết hạn thì đăng nhập đúng thành công.
+- `title` của 401/403/423 vẫn để `D9` (Mục 11).
+
 ---
 
 ## 6. D4 — Cookie refresh + CORS
@@ -942,7 +985,8 @@ public async Task<ActionResult<TokenResponse>> Login(LoginRequest request, Cance
 của cổng mở. Thiếu một trong hai là `E7` không kiểm chứng được và lane FE đứng im ở màn sau đăng nhập.
 
 **Kết quả mong đợi.**
-- `Presentation/RefreshCookie.cs` — chỗ **duy nhất** tạo, đọc, xóa cookie.
+- `Presentation/RefreshCookie.cs` — chỗ **duy nhất** tạo, đọc, xóa cookie. **Đã tạo ở `D3`** (login cần set cookie) —
+  D4 còn lại `RefreshCookieTests` và CORS.
 - `Program.cs`: `AddCors` với origin đọc từ `Cors:AllowedOrigins`; `UseCors` đặt **trước** `UseAuthentication()`.
   Thiếu origin ngoài Development → từ chối khởi động. `appsettings.Development.json` có `http://localhost:3000`.
 - Test xanh: `RefreshCookieTests` (5 thuộc tính), `CorsTests` (preflight đúng/sai origin),
@@ -1293,6 +1337,42 @@ new("TC-A01-me", "GET /me không kèm JWT — endpoint thật đầu tiên của
 - **`User.GetUserId()` ném khi thiếu `sub`** → 500. Chỉ xảy ra nếu action lọt `[AllowAnonymous]`; dòng matrix bắt.
 - **Trả `Result<User>` (entity) thay vì DTO** → Swagger sinh schema `User` có `passwordHash` → PII ra ngoài, và
   cổng hợp đồng chiều 1 đỏ ở `required`. Luôn trả `MeResponse`.
+
+### Thực tế thi công
+
+**Bằng chứng.** `dotnet test SocialApp.sln`: Unit 53 (không đổi), Architecture 9, Integration 92 → 97 (+4 `MeTests`, +1
+dòng matrix `TC-A01-me`). Cổng hợp đồng chiều 1 xanh với `GET /me` 200/401. AC-01 của `LoginTests` đã đổi từ route
+không tồn tại (404) sang `GET /me` → 200 như đã hẹn ở D3.
+
+Thời gian: bộ integration 25 s (D3: 23–26 s); `MeTests` + toàn bộ AuthZ matrix (15 test) chạy 2 s — matrix không chậm đi.
+Một lần chạy lên 45 s là máy bận, chạy lại về 25 s.
+
+Kiểm tay trên dev (API chạy từ `bin/` với `Development`): register 201 → verify 200 → login 200 → `GET /me` **200**
+`{"userId":…,"role":"USER","roleDisplayName":"Người dùng","emailVerifiedAt":…,"status":"active","createdAt":…}` → không
+token **401** `application/problem+json` → log stdout của API **không** chứa access token lẫn email.
+
+`detect-changes` báo **high** (7 file, 29 symbol, 6 luồng) vì gộp cả D3 chưa commit: 5 luồng `Login → …` là code mới có
+chủ đích của D3. Luồng thứ sáu `AddWithVerificationAsync → StampUpdatedAt` (đăng ký, D1) bị liệt kê do dịch dòng —
+`git diff` của `IdentityUserStore.cs` chỉ có một dòng `using` và khối method mới chèn sau `GetRoleIdAsync`.
+
+Thử cho đỏ ở local (bốn đột biến áp cùng lúc) rồi khôi phục:
+
+| Đột biến | Test đỏ |
+|---|---|
+| `[AllowAnonymous]` trên `MeController` | Matrix `TC-A01-me` — nhận **500** (`GetUserId` ném vì principal không có `sub`) |
+| `[EnableRateLimiting("auth")]` trên `MeController` | `Me_khong_dung_han_muc_auth_…` — request thứ 11 cùng IP nhận 429 |
+| Store ghi cứng `roleDisplayName = "Người dùng"` | `Doi_display_name_bang_SQL_…` — vẫn thấy "Người dùng" |
+| `MeQuery` bỏ kiểm `null` | `User_da_bi_xoa_token_cu_401_…` — nhận **204** (MVC đổi `Ok(null)` thành 204) |
+
+**Chỗ lệch so với các bước trên — đã làm như sau:**
+
+- **`FindMeAsync` thêm vào `IIdentityUserStore`** và trả thẳng `MeResponse`, không tạo store riêng; class giả trong
+  `LoginServiceTests` thêm stub (impact: LOW — hai hiện thực).
+- **Không `[Produces("application/json")]`** — đoạn code mẫu ở trên đã được sửa sau đợt kiểm giả thuyết (thi công D1).
+- **Thêm ngoài bảng:** response có **đúng 7 key** của hợp đồng (chặn cột khác của `users` lọt ra); `/me` **không** dùng
+  policy `auth` — tài liệu chỉ ghi trong phần kết quả mong đợi, không có test; test đổi `display_name` khôi phục giá trị
+  trong `finally` vì các test trong lớp dùng chung database.
+- "Không token → 401" không lặp lại trong `MeTests` — dòng matrix `TC-A01-me` lo, kèm kiểm `application/problem+json`.
 
 ---
 

@@ -48,6 +48,10 @@ public static class AuthZMatrix
         new("OWN-00", "Khuôn tầng 3: user A đọc tài nguyên (probe) của user B", "GĐ1",
             Caller.User, HttpMethod.Get, "/__test/authz/owned/{id của người khác}", HttpStatusCode.Forbidden,
             ArrangePath: _ => Task.FromResult($"/__test/authz/owned/{Guid.NewGuid()}")),
+
+        // D7: endpoint THẬT đầu tiên của matrix — các dòng trên chạy trên probe của assembly test.
+        new("TC-A01-me", "GET /me không kèm JWT — endpoint thật đầu tiên của matrix", "GĐ1",
+            Caller.Anonymous, HttpMethod.Get, "/api/v1/me", HttpStatusCode.Unauthorized),
     ];
 
     /// <summary>

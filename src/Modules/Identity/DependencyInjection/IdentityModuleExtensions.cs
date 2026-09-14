@@ -7,6 +7,8 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using SocialApp.Modules.Identity.Application;
 using SocialApp.Modules.Identity.Application.Email;
+using SocialApp.Modules.Identity.Application.Login;
+using SocialApp.Modules.Identity.Application.Me;
 using SocialApp.Modules.Identity.Application.Registration;
 using SocialApp.Modules.Identity.Application.Security;
 using SocialApp.Modules.Identity.Infrastructure;
@@ -55,7 +57,10 @@ public static class IdentityModuleExtensions
         // Luồng auth (D1+). Scoped vì store dùng IdentityDbContext.
         services.AddScoped<IIdentityUserStore, IdentityUserStore>();
         services.AddScoped<IEmailVerificationStore, EmailVerificationStore>();
+        services.AddScoped<IRefreshTokenStore, RefreshTokenStore>();
         services.AddScoped<RegistrationService>();
+        services.AddScoped<LoginService>();
+        services.AddScoped<MeQuery>();
         return services;
     }
 
