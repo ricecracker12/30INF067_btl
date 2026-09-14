@@ -320,7 +320,8 @@ paths:
            `replaced_by_id = <id mới>`.
 
         > **Ân hạn 10 giây.** Nếu token đã bị thay thế **trong vòng 10 giây** và chuỗi chưa bị thu
-        > hồi, server trả token kế nhiệm thay vì coi là reuse. Đây là cái đỡ cho race hai tab
+        > hồi, server phát một refresh token **mới cùng chuỗi** (kèm access token mới) thay vì coi là
+        > reuse — không trả lại đúng token kế nhiệm, vì server chỉ lưu băm. Đây là cái đỡ cho race hai tab
         > (test RT-04) — nhưng nó **không thay thế** yêu cầu single-flight ở client: ân hạn che
         > được phần lớn, không phải tất cả.
 
@@ -330,7 +331,7 @@ paths:
         - refreshCookie: []
       responses:
         '200':
-          description: Cặp token mới. Cookie refresh được thay bằng token kế nhiệm.
+          description: Cặp token mới. Cookie refresh được thay bằng refresh token mới cùng chuỗi.
           headers:
             Set-Cookie:
               $ref: '#/components/headers/SetRefreshCookie'
@@ -698,9 +699,9 @@ components:
           type: integer
           format: int32
           description: |
-            Số **giây** access token còn sống — 900. Cùng một hằng số cấu hình với TTL của
-            `revoked:user` trên Redis; hai giá trị lệch nhau là một lỗ hổng câm không test nào bắt
-            được (docs/giai-doan-1.md Mục 7.5).
+            Số **giây** access token còn sống — 900. TTL của `revoked:user` trên Redis tính từ CÙNG
+            hằng số này cộng `ClockSkew` (900 + 30); tính từ nguồn khác là một lỗ hổng câm không test
+            nào bắt được (docs/giai-doan-1.md Mục 7.5).
           example: 900
       required: [accessToken, expiresIn]
 

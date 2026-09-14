@@ -258,7 +258,8 @@ còn biên độ thêm index/cache nếu trượt; và thứ cắt được thì
   1. JWT claim `role` mang `code` chuỗi (`'USER'`/`'MODERATOR'`/`'ADMIN'`) — **mọi vai trò, không
      riêng Admin**; `role_id` kiểu số chỉ sống trong DB. `code` bất biến theo hợp đồng API.
      Hệ quả: vai trò được "đóng dấu" vào token nên đổi vai trò không tự có hiệu lực. Khắc phục
-     bằng cơ chế **thu hồi theo `revoked:user` + `iat`** trên Redis (TTL = TTL access token):
+     bằng cơ chế **thu hồi theo `revoked:user` + `iat`** trên Redis (TTL = TTL access token + `ClockSkew`
+     của JwtBearer, cùng đọc từ `JwtOptions` — `giai-doan-1.md` Mục 7.5):
      ghi một mốc thời gian, mọi token của user phát trước mốc đó bị từ chối → **nâng/hạ vai trò
      có hiệu lực ngay ở request kế tiếp, không phải đăng nhập lại**. Khóa/xóa tài khoản thì thu
      hồi kèm cả refresh family. *(Không dùng denylist theo `jti`: server stateless không biết

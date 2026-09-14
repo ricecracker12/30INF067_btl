@@ -76,3 +76,15 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
+
+  # SMTP giả cho mail xác minh đăng ký (GĐ1 — docs/huong-dan-khoi-d-endpoint.md Đ-D9). api gửi tới mailpit:1025
+  # qua mạng internal. UI chỉ bind 127.0.0.1 của VPS: xem bằng `ssh -L 8025:127.0.0.1:8025 <user>@<vps>` rồi
+  # mở http://localhost:8025. KHÔNG route qua Caddy — UI chứa link xác minh của mọi tài khoản.
+  # Cần gửi mail thật thì đổi Smtp__* trong .env sang SMTP thật; không sửa code.
+  mailpit:
+    image: axllent/mailpit:latest        # image đa kiến trúc, có arm64
+    restart: unless-stopped
+    environment:
+      MP_MAX_MESSAGES: 500               # staging chỉ cần mail gần đây; không giữ volume
+    ports: ["127.0.0.1:8025:8025"]
+    networks: [internal]

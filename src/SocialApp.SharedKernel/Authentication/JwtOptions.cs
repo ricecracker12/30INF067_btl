@@ -2,7 +2,7 @@ namespace SocialApp.SharedKernel.Authentication;
 
 /// <summary>
 /// Cấu hình JWT — MỘT nguồn cho ba nơi: validate (Api, C4), phát token (Identity, D3), TTL của key
-/// revoked:user (D8). AccessTokenSeconds đổi ở đây là cả ba đổi theo (Mục 7.5 "Vì sao TTL đúng 900 giây").
+/// revoked:user (D8). AccessTokenSeconds đổi ở đây là cả ba đổi theo (Mục 7.5 "Vì sao TTL là 930 giây").
 /// Chỉ SigningKey là bí mật: nằm ở biến môi trường / deploy/.env, không bao giờ trong appsettings.
 ///
 /// Đặt ở SharedKernel (Đ2): Api (validate) và Identity (phát token) đều đã tham chiếu SharedKernel; để trong

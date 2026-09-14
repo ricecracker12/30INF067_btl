@@ -133,7 +133,9 @@ Tài liệu gốc chưa nói đủ để gõ code ở năm chỗ dưới đây. 
   Api (validate) và Identity (phát token) đều đã tham chiếu SharedKernel.
 - **Đã loại:** `JwtOptions` trong Identity — compile được (Api có tham chiếu Identity), nhưng cấu hình
   validate của host phụ thuộc kiểu nội bộ của một module, và tên claim vẫn phải tách đi nơi khác.
-- **Làm thêm:** `D8` có test so `TTL revoked:user:<id>` trong Redis với `AccessTokenSeconds`.
+- **Làm thêm:** `D8` có test so `TTL revoked:user:<id>` trong Redis với `AccessTokenSeconds + ClockSkewSeconds`
+  — **đã sửa ở khối D** (Đ-D4 của [huong-dan-khoi-d-endpoint.md](huong-dan-khoi-d-endpoint.md)): TTL đúng bằng
+  `AccessTokenSeconds` để hở 30 giây vì `ClockSkew` của JwtBearer (`giai-doan-1.md` Mục 7.5).
 - **Ghi ở:** `giai-doan-1.md` Mục 6.2, B.6/`D8`, B.9.
 
 **Đ3 — Không có stub nguồn quyền trong integration test.**
@@ -831,7 +833,7 @@ namespace SocialApp.SharedKernel.Authentication;
 
 /// <summary>
 /// Cấu hình JWT — MỘT nguồn cho ba nơi: validate (Api, C4), phát token (Identity, D3), TTL của key
-/// revoked:user (D8). AccessTokenSeconds đổi ở đây là cả ba đổi theo (Mục 7.5 "Vì sao TTL đúng 900 giây").
+/// revoked:user (D8). AccessTokenSeconds đổi ở đây là cả ba đổi theo (Mục 7.5 "Vì sao TTL là 930 giây").
 /// Chỉ SigningKey là bí mật: nằm ở biến môi trường / deploy/.env, không bao giờ trong appsettings.
 /// </summary>
 public sealed class JwtOptions
@@ -1682,7 +1684,7 @@ hoặc `truncated` thì chạy lại, không coi là sạch.
 | **D1–D6** | `JwtOptions`, `JwtClaims`, `[AllowAnonymous]` cho 4 endpoint công khai, 401/403 đã là RFC 7807, `ToActionResult` cho 404/409 |
 | **D3** — phát token | Cùng `JwtOptions` + `JwtClaims` với phía validate; `TestJwt` là hình mẫu claim cần có; unit test giải mã token vừa phát, kỳ vọng tên claim viết tay `sub`/`role`/`iat`/`jti` |
 | **D7** — `GET /me` | `User.GetUserId()`; thêm dòng matrix `TC-A01-me` (không token → 401) cho endpoint thật |
-| **D8** — thu hồi token | Chỗ gắn `OnTokenValidated` trong `AddJwtBearer`; `AccessTokenSeconds` làm TTL key `revoked:user` **kèm test so TTL trong Redis** (Đ2); `ClockSkew` 30 giây đã tính sẵn |
+| **D8** — thu hồi token | Chỗ gắn `OnTokenValidated` trong `AddJwtBearer`; `AccessTokenSeconds + ClockSkewSeconds` làm TTL key `revoked:user` **kèm test so TTL trong Redis** (Đ2; khối D chuyển `ClockSkew` 30 giây thành hằng số `JwtOptions.ClockSkewSeconds` — Đ-D4) |
 | **D block — test** | `PostgresFixture` cho AC-01…RT-04; `AuthZApiFactory` làm mẫu cho factory có DB thật |
 | **F** — cổng đóng | Cổng CI `Category=AuthZ` chặn thật, đã chứng minh đỏ được |
 | **GĐ2** | TC-A03 = **một dòng** trong `AuthZMatrix.cs` với `ArrangePath`; khuôn `Result.Forbidden()` + `GetUserId()` + quy ước 3b |

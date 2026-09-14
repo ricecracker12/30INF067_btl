@@ -93,23 +93,35 @@ R2__Bucket=socialmedia-staging
 R2__AccessKey=<access key id>
 R2__SecretKey=<secret access key>
 
-# Email (gửi mail xác minh đăng ký + reset mật khẩu — ACT-ES / FR-001).
-# Staging/Prod: SMTP thật, ví dụ Brevo free (~300 mail/ngày). Local dev thì dùng
-# Mailpit trong compose (Host=mailpit, Port=1025, không cần User/Password).
-Smtp__Host=smtp-relay.brevo.com
-Smtp__Port=587
-Smtp__User=<smtp username / api key>
-Smtp__Password=<smtp password>
-Smtp__From=no-reply@tenmien.com
+# Email (mail xác minh đăng ký — FR-001). GĐ1: Mailpit chạy trong chính compose staging.
+Smtp__Host=mailpit
+Smtp__Port=1025
+Smtp__From=no-reply@mxh.banhgao.net
+Frontend__BaseUrl=https://mxh.banhgao.net
+Cors__AllowedOrigins__0=https://mxh.banhgao.net
 EOF
 chmod 600 .env
 ```
 > ASP.NET Core map biến `Section__Key` → config (`__` = lồng cấp). Sinh khóa: `openssl rand -base64 48`.
 >
-> **Email theo môi trường:** *local dev* = **Mailpit** (compose dev, `Smtp__Host=mailpit` `Smtp__Port=1025`,
-> mail giả xem ở web UI `:8025`, không cần tài khoản); *staging/prod* = SMTP thật (Brevo / Resend /
-> Mailtrap / Gmail App Password) — đây là giả định **ISS-03** trong PTTK. Chưa làm chức năng email thì
-> để trống cũng được, server vẫn chạy; đến **GĐ1 (Identity — đăng ký + xác minh email)** mới thực sự cần.
+> **Email theo môi trường (chốt ở khối D GĐ1 — `docs/huong-dan-khoi-d-endpoint.md` Đ-D9):**
+>
+> | Môi trường | Gửi qua | Xem mail |
+> |---|---|---|
+> | Local dev | Mailpit của `docker-compose.dev.yml` (`localhost:1025`) | `http://localhost:8025` |
+> | **Staging GĐ1** | **Mailpit** trong `docker-compose.staging.yml` (`mailpit:1025`) | SSH tunnel: `ssh -L 8025:127.0.0.1:8025 <user>@<vps>` rồi mở `http://localhost:8025` |
+> | Sau GĐ1 / prod | SMTP thật (Brevo / Resend / Mailtrap) — giả định **ISS-03** trong PTTK | Hộp thư thật |
+>
+> Vì sao staging GĐ1 dùng Mailpit: khớp Mục 12 và E2E-01 của `giai-doan-1.md` ("nhận mail Mailpit"), không cần
+> xác thực tên miền (SPF/DKIM) hay lo mail vào spam, và E2E đọc mail được. "Người dùng thật" của cổng đóng GĐ1
+> là tài khoản của nhóm. Chuyển sang SMTP thật chỉ sửa `Smtp__*` trong `.env` (thêm `Smtp__User`,
+> `Smtp__Password`, `Port=587`) — không sửa code.
+>
+> ⚠️ **UI Mailpit không được ra Internet** (không route qua Caddy/apache): nó chứa link xác minh của mọi tài
+> khoản, ai mở được là chiếm được tài khoản chưa xác minh. Compose chỉ bind `127.0.0.1:8025`.
+>
+> Thiếu `Smtp__Host`/`Smtp__From`/`Cors__AllowedOrigins__0` thì api **từ chối khởi động** (từ khối D GĐ1) —
+> kiểm `.env` trước khi merge vào `develop`.
 
 **B. Trên CI** (GitHub → Settings → Secrets → Actions): `STAGING_HOST`, `STAGING_USER`, `STAGING_SSH_KEY`.
 
