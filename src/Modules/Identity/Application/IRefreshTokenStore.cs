@@ -12,4 +12,14 @@ public interface IRefreshTokenStore
     Task CreateAsync(
         Guid userId, Guid familyId, string tokenHash, DateTimeOffset expiresAt, IPAddress? createdIp, DateTimeOffset now,
         CancellationToken ct);
+
+    /// <summary>
+    /// Xoay vòng refresh token — TOÀN BỘ trong một transaction, khóa dòng bằng <c>SELECT … FOR UPDATE</c> (giai-doan-1.md Mục
+    /// 7.3). Thuật toán nằm trọn trong store (Đ-D1): khóa → quyết định → ghi không được tách qua ranh giới tầng. Mọi nhánh
+    /// COMMIT trước khi trả kết quả — kể cả <see cref="RotateOutcome.ReuseDetected"/>: rollback nhánh đó thì family không bị
+    /// thu hồi mà endpoint vẫn 401. Vai trò đọc từ DB, không chép từ token cũ.
+    /// </summary>
+    Task<RotateOutcome> RotateAsync(
+        string tokenHash, DateTimeOffset now, string newTokenHash, DateTimeOffset newExpiresAt, IPAddress? createdIp,
+        CancellationToken ct);
 }

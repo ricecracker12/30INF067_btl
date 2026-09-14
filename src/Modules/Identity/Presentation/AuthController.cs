@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
 using SocialApp.Modules.Identity.Application.Login;
 using SocialApp.Modules.Identity.Application.Registration;
+using SocialApp.Modules.Identity.Application.Session;
 using SocialApp.SharedKernel.Authentication;
 using SocialApp.SharedKernel.DependencyInjection;
 using SocialApp.SharedKernel.Http;
@@ -27,6 +28,7 @@ namespace SocialApp.Modules.Identity.Presentation;
 public sealed class AuthController(
     RegistrationService registration,
     LoginService login,
+    SessionService sessions,
     IOptions<JwtOptions> jwt) : ControllerBase
 {
     [AllowAnonymous]
@@ -71,6 +73,27 @@ public sealed class AuthController(
         var result = await login.LoginAsync(request, HttpContext.Connection.RemoteIpAddress, ct);
         if (result.IsFailure)
             return result.Error!.Value.ToActionResult(this);
+
+        RefreshCookie.Set(Response, result.Value!.RefreshPlain, jwt.Value.RefreshTokenDays);
+        return Ok(new TokenResponse(result.Value.Access.Token, result.Value.Access.ExpiresIn));
+    }
+
+    /// <summary>
+    /// KHÔNG nhận body — refresh token đọc từ cookie (quyết định 6). <c>[AllowAnonymous]</c>: xác thực bằng cookie, không bằng
+    /// bearer — access token lúc này thường đã hết hạn. Mọi 401 đều xóa cookie để FE không thử lại bằng token đã chết.
+    /// </summary>
+    [AllowAnonymous]
+    [HttpPost("refresh")]
+    [ProducesResponseType<TokenResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized, "application/problem+json")]
+    public async Task<ActionResult<TokenResponse>> Refresh(CancellationToken ct)
+    {
+        var result = await sessions.RefreshAsync(RefreshCookie.Read(Request), HttpContext.Connection.RemoteIpAddress, ct);
+        if (result.IsFailure)
+        {
+            RefreshCookie.Clear(Response);
+            return result.Error!.Value.ToActionResult(this);
+        }
 
         RefreshCookie.Set(Response, result.Value!.RefreshPlain, jwt.Value.RefreshTokenDays);
         return Ok(new TokenResponse(result.Value.Access.Token, result.Value.Access.ExpiresIn));

@@ -309,7 +309,7 @@ paths:
         **Endpoint này KHÔNG NHẬN BODY.** Refresh token đọc từ cookie `refresh_token`
         (quyết định 6 ở cổng mở).
 
-        Toàn bộ chạy trong một transaction, `SELECT ... FOR UPDATE` trên dòng token
+        Toàn bộ chạy trong một transaction: khóa theo `family_id` rồi `SELECT ... FOR UPDATE` trên dòng token
         (docs/giai-doan-1.md Mục 7.3):
 
         1. Băm SHA-256 token nhận được → tra `token_hash`.

@@ -9,9 +9,9 @@
 > nào tài liệu này lệch ba nguồn đó thì sửa ở đây — trừ các quyết định ở Mục 1 được đánh dấu **"ghi
 > ngược"**: những chỗ đó tài liệu gốc đang thiếu hoặc sai, phải sửa `giai-doan-1.md` trong cùng commit.
 
-> **Trạng thái: đang làm — `D0`–`D4` và `D7` xong (xem "Thực tế thi công" cuối Mục 2–6, 9). Đã commit + push lên
-> `loveart1210`: `D0`–`D2` (`37b6b76`, CI xanh — run 34837717169), `D3` + `D7` (`adea0c3`, CI xanh — run 34841092562);
-> `D4` chưa commit. Tiếp theo `D5`.** Khối A, B, C đã xong
+> **Trạng thái: đang làm — `D0`–`D5` và `D7` xong (xem "Thực tế thi công" cuối Mục 2–7, 9). Đã commit + push lên
+> `loveart1210`: `D0`–`D2` (`37b6b76`, CI xanh — run 34837717169), `D3` + `D7` (`adea0c3`, CI xanh — run 34841092562),
+> `D4` (`a8ce2a2`, CI xanh — run 34843657708); `D5` chưa commit. Tiếp theo `D6`.** Khối A, B, C đã xong
 > (commit `105077c` → `2d25ae6`, merge ở `455b597`).
 
 | | |
@@ -1234,13 +1234,80 @@ RT-04 là test quan trọng nhất của khối. Chạy nó **20 lần liên ti�
 
 | # | Bẫy | Hệ quả | Chặn bằng |
 |---|---|---|---|
-| 1 | Đọc token không `FOR UPDATE` | Hai tab cùng qua bước 5, cùng xoay → hai nhánh sống, không ai bị phát hiện; hoặc tab sau ghi đè `replaced_by_id` | RT-04 kiểm DB: đúng một dòng có `replaced_by_id` trỏ tới token của lượt xoay chính |
+| 1 | Đọc token không `FOR UPDATE` | Race hai tab cùng token: hai lượt cùng "xoay", tab sau ghi đè `replaced_by_id` — kết quả quan sát được **giống hệt** khi có khóa (một xoay + một ân hạn: cả hai 200, family 3 dòng, 2 lá sống) | **Không test tự động nào bắt** — RT-04 xanh 10/10 khi bỏ khóa (thi công D5). Code review. Khe hở THẬT nằm ở dòng 8 |
 | 2 | Nối `.SingleOrDefaultAsync()` vào `FromSql` | EF bọc subquery — không chắc khóa được đúng như câu SQL gốc | `.ToListAsync()` |
 | 3 | Rollback nhánh reuse | Family không bị thu hồi, test status code vẫn xanh | RT-02 kiểm T2 chết |
 | 4 | "Chuỗi chưa bị thu hồi" suy từ `row.revoked_at IS NULL` | Token đã xoay luôn có `revoked_at` → ân hạn không bao giờ kích hoạt → RT-04 đỏ | `EXISTS … revoked_at IS NULL` theo family (Đ-D3) |
 | 5 | Trả 401 khác nhau cho hết hạn / reuse / không tồn tại | Kẻ tấn công biết token nó cầm ở trạng thái nào | Test "cùng một 401" |
 | 6 | Gọi Redis **trong** transaction, hoặc trước commit | Redis chậm giữ khóa dòng; Redis ghi mà DB rollback là thu hồi access oan | Store commit rồi mới trả outcome |
 | 7 | Access token mới lấy `role` từ token cũ | GĐ6 hạ quyền không có hiệu lực, chỉ lộ ra ở GĐ6 | Review: `RotateAsync` join `roles` |
+| 8 | Chỉ khóa DÒNG: reuse detection của token cũ T1 chạy song song với lượt xoay hợp lệ của token kế nhiệm T2 (hai dòng khác nhau) | Token T3 vừa sinh commit ngoài snapshot của câu `UPDATE` thu hồi family → **sống sót** dù family bị coi là đã thu hồi | Khóa tư vấn theo family (`pg_advisory_xact_lock`) **trước** `FOR UPDATE`; RT-06 dựng đúng thứ tự đan xen bằng trigger chỉ có trong DB test (thi công D5) |
+
+### Thực tế thi công
+
+**Bằng chứng.** `dotnet test SocialApp.sln`: Unit 59 → 65 (+5 `SessionServiceTests`, +1 `RefreshTokenPolicyTests`), Architecture
+9, Integration 107 → 118 (+11 `RefreshTests`, gồm RT-06). Cổng hợp đồng chiều 1 xanh với `POST /auth/refresh` 200/401.
+**Trên code cuối (đã có khóa theo family): RT-04 20/20 xanh, RT-06 5/5 xanh.**
+
+Kiểm tay trên dev (API chạy từ `bin/` với `Development`, gọi bằng `curl.exe`), chạy lại **sau** khi thêm khóa theo family:
+login → refresh bằng c1 **200** + cookie mới c2 → access token mới gọi `/me` 200 → **hai refresh song song** bằng c2: 200, 200
+→ dùng lại c1 ngay **200** (ân hạn) → **chờ 11 giây thật** → dùng lại c1 **401** + `Set-Cookie: refresh_token=; max-age=0;
+path=/api/v1/auth` → c2 **401** (family đã thu hồi) → không cookie 401. Log stdout **không** chứa c1, c2 hay access token,
+không có dòng Error.
+
+`detect-changes` sau khi thêm khóa family báo **high** (6 file, 19 symbol, 10 luồng): 8 luồng `Refresh → …` là toàn bộ luồng
+refresh mới của D5, có chủ đích và có test. 2 luồng `CreateAsync → …` (phát token lúc login, D3) bị liệt kê do dịch dòng —
+`git diff` của `RefreshTokenStore.cs` chỉ gồm hunk **thêm** (`-1,0`, `-8,0`, `-23,0`: một `using`, hằng số khóa phía trên,
+`RotateAsync` + helper phía dưới), không dòng nào của `CreateAsync` bị sửa.
+
+> ⚠️ Kiểm tay bằng `Invoke-WebRequest` của Windows PowerShell 5.1 thì mọi refresh đều 401: nó **bỏ header `Cookie` gắn tay**
+> (dùng cookie container riêng). Cùng cookie đó gửi bằng `curl.exe -H "Cookie: refresh_token=…"` thì 200. Dùng `curl.exe`,
+> trình duyệt, hoặc đặt cookie qua `-WebSession`.
+
+Thử cho đỏ ở local, hai đợt vì một đột biến che đột biến khác, rồi khôi phục:
+
+| Đột biến | Test đỏ |
+|---|---|
+| Nhánh reuse không COMMIT (dispose = rollback) — bẫy 3 | `RT02_…` (token kế nhiệm vẫn 200), `RT05_…` (family còn 1 lá sống) |
+| Ân hạn suy từ `row.RevokedAt == null` thay vì `EXISTS` theo family — bẫy 4 | `RT04_…` (một request 401), `RT05b_…` (401 ở giây thứ 9) |
+| `RoleCodeAsync` trả `"USER"` cố định — bẫy 7 | `Access_token_moi_mang_vai_tro_doc_tu_DB_…` (nhận `USER` thay vì `MODERATOR`) |
+| Bỏ `FOR UPDATE` — chạy **riêng** (bỏ khóa thì không cần ân hạn, sẽ che đột biến thứ hai) | **Không test nào đỏ**: `RefreshTests` 10/10, RT-04 thêm 10/10 xanh |
+| Không có khóa theo family — chính là code **trước** khi sửa khe hở (RT-06 viết trước, chạy đỏ trước khi sửa) | `RT06_…` — "reuse detection bỏ sót 1 token còn sống trong family" |
+
+**Về khóa — phát hiện khi thử cho đỏ, đã sửa trong D5 (nhóm chốt 2026-09-14):**
+
+- Race hai tab cùng token cho kết quả quan sát được **giống hệt** nhau dù có khóa hay không (có khóa: một xoay + một ân hạn;
+  không khóa: hai lượt cùng xoay, tab sau ghi đè `replaced_by_id`). Cả hai 200, family 3 dòng, 2 lá sống, 1 dòng có
+  `replaced_by_id`. Nên RT-04 **không thể** bắt việc bỏ khóa — bảng cạm bẫy phía trên đã sửa. Vẫn giữ `FOR UPDATE`: nó bảo đảm
+  quyết định dựa trên dòng đã commit mới nhất.
+- **Khe hở — đã tái hiện bằng test và đã sửa:** reuse detection của token cũ T1 (quá ân hạn) chạy song song với
+  lượt xoay hợp lệ của token kế nhiệm T2. Hai transaction khóa hai dòng khác nhau nên không xếp hàng nhau. Nếu lượt xoay T2
+  commit trong lúc câu `UPDATE … WHERE family_id = … AND revoked_at IS NULL` của nhánh reuse đang chờ khóa dòng T2, token T3
+  vừa sinh không nằm trong snapshot của câu lệnh đó (READ COMMITTED) → **T3 sống sót** dù family đã bị coi là thu hồi.
+- **Cách sửa:** khóa theo family — `SELECT family_id` theo `token_hash` (không khóa), `pg_advisory_xact_lock` trên
+  `family_id`, rồi mới `SELECT … FOR UPDATE` — để mọi lượt xoay và thu hồi của một family xếp hàng tuần tự. Kèm một test dựng
+  hai transaction đan xen có điều khiển. Hiện thực: `RefreshTokenStore.LockFamilyAsync` →
+  `pg_advisory_xact_lock(0x5246, hashtext(family_id::text))`, tự nhả khi transaction kết thúc.
+- **Test RT-06** tạo trigger `BEFORE INSERT` **chỉ trong database test** giữ lượt xoay T2 lại 2 giây ngay sau khi INSERT T3 (T2
+  đang bị khóa, T3 chưa commit), chờ tới khi `pg_stat_activity` thấy session đó ngủ, rồi mới cho lượt reuse T1 chen vào. Viết
+  test **trước**: trên code chỉ có `FOR UPDATE` nó đỏ ("bỏ sót 1 token còn sống"); thêm khóa family thì xanh 5/5. Không thêm cờ
+  hay hook nào vào `src/`.
+- **Hệ quả cho D6:** `RevokeFamilyAsync` (logout) cũng thu hồi theo family nên phải gọi `LockFamilyAsync` **trước** câu UPDATE —
+  cùng thứ tự "khóa family rồi mới khóa dòng" với `RotateAsync`, không thì lại hở và có thể deadlock.
+- Đã ghi ngược: `giai-doan-1.md` Mục 7.3 và mô tả `POST /auth/refresh` trong `identity-v1.yaml` (chỉ mô tả, hợp đồng không đổi).
+
+**Chỗ lệch so với các bước trên — đã làm như sau:**
+
+- **Ân hạn là hằng số `Domain/RefreshTokenPolicy.ReuseGracePeriod`** (10 giây), không ghi số trong câu lệnh.
+- **`RotateOutcome` là record lồng** `Rotated(UserId, RoleCode)` · `Grace(UserId, RoleCode)` · `ReuseDetected(UserId)` · `Invalid`,
+  đặt ở `Application/`; `RotateAsync` giữ trọn thuật toán, dùng EF `FromSql … FOR UPDATE` + tracked entity cho bước 5 (hai lần
+  `SaveChanges`: INSERT dòng mới trước, UPDATE dòng cũ sau) và `ExecuteUpdateAsync` cho thu hồi family.
+- **Nhánh reuse COMMIT với `CancellationToken.None`**: client ngắt kết nối giữa chừng không được làm mất việc thu hồi.
+- **Service trả `RefreshSuccess`** riêng, không dùng lại `LoginSuccess` dù cùng hình dạng.
+- **Thêm ngoài bảng:** RT-05b (giây thứ 9 vẫn ân hạn — biên còn lại của RT-05); test "mọi nhánh hỏng" gồm 5 trường hợp —
+  không cookie, 64 hex không tồn tại, chuỗi rác, **hết hạn**, **dùng lại** — cùng body và đều xóa cookie; test vai trò đọc từ DB
+  (bẫy 7 có test thay vì chỉ review); `SessionServiceTests` (unit) cho ánh xạ kết quả.
+- Nhánh `ReuseDetected` chưa ghi `revoked:user` — `D8` thêm, đúng kế hoạch.
 
 ---
 
@@ -1251,7 +1318,8 @@ thiết bị (bảng Mục 7.5: "Đăng xuất 1 thiết bị → chỉ family �
 
 **Kết quả mong đợi.**
 - `IRefreshTokenStore.RevokeFamilyAsync(hash, ownerUserId, now)` — một câu `UPDATE` theo `family_id`, **có điều
-  kiện chủ sở hữu**.
+  kiện chủ sở hữu**. Trong transaction, gọi `LockFamilyAsync` **trước** câu UPDATE — cùng thứ tự "khóa family rồi mới khóa
+  dòng" với `RotateAsync` (thi công D5, cạm bẫy 8): thiếu thì logout song song với refresh để lọt token vừa sinh.
 - Action `Logout`: `[Authorize]` (bearer), đọc cookie, 204 + `RefreshCookie.Clear`; không bearer → 401.
 - `Auth/LogoutTests` xanh (bảng dưới).
 

@@ -9,6 +9,7 @@ using SocialApp.Modules.Identity.Application;
 using SocialApp.Modules.Identity.Application.Email;
 using SocialApp.Modules.Identity.Application.Login;
 using SocialApp.Modules.Identity.Application.Me;
+using SocialApp.Modules.Identity.Application.Session;
 using SocialApp.Modules.Identity.Application.Registration;
 using SocialApp.Modules.Identity.Application.Security;
 using SocialApp.Modules.Identity.Infrastructure;
@@ -61,6 +62,7 @@ public static class IdentityModuleExtensions
         services.AddScoped<RegistrationService>();
         services.AddScoped<LoginService>();
         services.AddScoped<MeQuery>();
+        services.AddScoped<SessionService>();
         return services;
     }
 

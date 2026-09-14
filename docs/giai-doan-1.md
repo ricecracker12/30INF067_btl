@@ -874,7 +874,10 @@ sẽ đếm sót và lockout không bao giờ kích hoạt.
 
 ### 7.3 Refresh rotation + reuse detection (NFR-SEC-03)
 
-Toàn bộ trong **một transaction**, `SELECT ... FOR UPDATE` trên dòng token.
+Toàn bộ trong **một transaction**: khóa tư vấn theo `family_id` (`pg_advisory_xact_lock`) **rồi mới** `SELECT ... FOR UPDATE`
+trên dòng token. Chỉ khóa dòng thì reuse detection của token cũ và lượt xoay song song của token kế nhiệm khóa hai dòng khác
+nhau, không xếp hàng nhau — token vừa sinh commit ngoài snapshot của câu thu hồi family và sống sót (tìm ra và sửa ở D5, test
+RT-06). Logout (7.4) lấy cùng khóa, cùng thứ tự.
 
 ```
 1. Băm SHA-256 token nhận được -> tra theo token_hash

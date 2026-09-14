@@ -201,6 +201,10 @@ public sealed class LoginServiceTests
             Created.Add(new CreatedToken(userId, familyId, tokenHash, expiresAt, createdIp, now));
             return Task.CompletedTask;
         }
+
+        public Task<RotateOutcome> RotateAsync(
+            string tokenHash, DateTimeOffset now, string newTokenHash, DateTimeOffset newExpiresAt, IPAddress? createdIp,
+            CancellationToken ct) => throw new NotSupportedException();
     }
 
     private sealed class FakeHasher : IPasswordHasher
