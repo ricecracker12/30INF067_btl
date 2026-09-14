@@ -9,11 +9,12 @@
 > nào tài liệu này lệch ba nguồn đó thì sửa ở đây — trừ các quyết định ở Mục 1 được đánh dấu **"ghi
 > ngược"**: những chỗ đó tài liệu gốc đang thiếu hoặc sai, phải sửa `giai-doan-1.md` trong cùng commit.
 
-> **Trạng thái: đang làm — `D0`–`D9` xong (xem "Thực tế thi công" cuối Mục 2–11). Đã commit + push lên
+> **Trạng thái: code khối D xong — `D0`–`D11` (xem "Thực tế thi công" cuối Mục 2–13). Đã commit + push lên
 > `loveart1210`: `D0`–`D2` (`37b6b76`, CI xanh — run 34837717169), `D3` + `D7` (`adea0c3`, CI xanh — run 34841092562),
 > `D4` (`a8ce2a2`, CI xanh — run 34843657708), `D5` (`166165f`, CI xanh — run 34858791751), `D6` (`ef50aec`, CI xanh — run
-> 34864425653), `D8` (`f9416ca`, CI xanh — run 34873308602); `D9` chưa commit. Tiếp theo `D11`** (`D10` làm cùng mỗi controller,
-> đã xanh). Khối A, B, C đã xong
+> 34864425653), `D8` (`f9416ca`, CI xanh — run 34873308602), `D9` (`2d46952`, CI xanh — run 34878658324); `D11` chưa commit.
+> `D10` làm cùng mỗi controller (attribute có ngay trong commit tạo `AuthController`/`MeController`). Còn lại: kiểm tay
+> ở checklist Mục 15 (DevTools từ `localhost:3000` cần lane FE) và việc chuyển cho F1.** Khối A, B, C đã xong
 > (commit `105077c` → `2d25ae6`, merge ở `455b597`).
 
 | | |
@@ -1979,6 +1980,36 @@ ngoài hợp đồng, và hợp đồng không có phần nào chưa hiện th�
 **Cách làm.** Commit riêng, **sau** D9 xanh cục bộ. Trước khi push, thử cho đỏ một lần: xóa tạm
 `[ProducesResponseType(423)]` của login → test đỏ nêu đúng `POST /auth/login: 423` → khôi phục. Cổng chưa từng
 đỏ thì không chứng minh được gì (cùng bài học với `B3`, `B4`).
+
+### Thực tế thi công
+
+**Bằng chứng.** Chạy đúng lệnh bước `API contract (CI GATE)` ở local (build Release,
+`RunConfiguration.TreatNoTestsAsError=true`): **`Passed: 2, Total: 2`**. `dotnet test SocialApp.sln`: Integration 154 xanh + 1 Skip →
+**155 xanh, 0 Skip**; Unit 78, Architecture 9 không đổi. Grep `Skip =` trong `tests/`: **không còn cái nào** — `A7` gỡ ở khối A,
+`D11` gỡ ở đây.
+
+Trọng tài chạy xanh ngay khi gỡ Skip — không phải sửa code nào. Lý do: D9 đã chạy nó cục bộ không Skip (cả trước lẫn sau khi bỏ
+`required`/`[Consumes]`) và đã sửa mọi thứ nó đòi.
+
+Thử cho đỏ trên code cuối, **từng đột biến một** (ba phần assert chạy nối tiếp — phần trước đỏ thì phần sau không chạy, nên gộp là
+che nhau), khôi phục bằng `git checkout -- <file>` và kiểm `git status` sạch trước/sau:
+
+| Đột biến | Phần của trọng tài | Thông điệp đỏ |
+|---|---|---|
+| Bỏ `[ProducesResponseType(423)]` của login (bài thử tài liệu yêu cầu) | status code | `Hợp đồng ghi status code mà action chưa khai [ProducesResponseType]: POST /auth/login: 423` |
+| Bỏ `[Required]` của `LoginRequest.Password` | required field | `Required field của request body lệch giữa hợp đồng và code: POST /auth/login: hợp đồng [email, password] vs code [email]` |
+| Bỏ `[ApiExplorerSettings]` của `MeController` | operation | `Hợp đồng có endpoint mà code chưa hiện thực: GET /me` |
+
+**Chỗ lệch so với các bước trên — đã làm như sau:**
+
+- **Thử cho đỏ ba phần thay vì chỉ phần status code:** đột biến 423 chỉ chứng minh phần giữa; phần required (canh `[Required]` trên
+  DTO — thứ D9 vừa đụng tới khi bỏ từ khóa `required`) và phần operation (canh route/`[ApiExplorerSettings]`) chưa từng đỏ.
+- **Docstring chiều 1 cũng sửa** ("xanh được NGAY vì chưa có controller nào" đã sai từ D1), không chỉ docstring chiều 2.
+- **Ghi ngược `giai-doan-1.md`:** mục "`IdentityContractTests` có hai chiều" (chiều 2 "đang Skip") và câu "Còn hai `Skip` đang chờ
+  được gỡ… `A7` và `D11`" — cả hai mô tả trạng thái cũ.
+- Comment `ci.yml` không sửa — đúng như tài liệu: nó đã mô tả cổng hai chiều.
+- CI run xanh ghi vào dòng trạng thái đầu tài liệu ở commit sau (cùng nếp các D trước); log bước `API contract (CI GATE)` phải ghi
+  `Total tests: 2`.
 
 ---
 

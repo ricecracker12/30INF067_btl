@@ -1297,8 +1297,9 @@ ra thì xanh lại. Lưới không bao giờ đỏ được là lưới giả �
 
 - **Chiều "code không được lộ ra ngoài hợp đồng"** — xanh ngay từ bây giờ, bắt lỗi thêm endpoint mà
   quên cập nhật yaml.
-- **Chiều "hợp đồng phải được hiện thực đủ"** — đang `Skip`, đã chạy thử một lần không Skip để xác
-  nhận nó đỏ đúng lý do (liệt kê đủ 6 operation còn thiếu). **Gỡ Skip khi khối D ráp xong 6 endpoint.**
+- **Chiều "hợp đồng phải được hiện thực đủ"** — ban đầu `Skip`, đã chạy thử một lần không Skip để xác
+  nhận nó đỏ đúng lý do (liệt kê đủ 6 operation còn thiếu). **Đã gỡ Skip ở `D11`** khi khối D ráp xong 6
+  endpoint — cổng CI `Category=Contract` chạy 2 test, chặn hai chiều.
 
 ### Bốn khối — chỉ A là chặn
 
@@ -1572,7 +1573,8 @@ cổng AuthZ).
 3. **Đổi hình dạng API là phải sửa `identity-v1.yaml` trong cùng commit** — `IdentityContractTests`
    chiều 1 đang xanh và sẽ đỏ ngay khi code lộ ra thứ hợp đồng chưa ghi.
 
-Còn hai `Skip` đang chờ được gỡ, mỗi cái là một dòng việc cụ thể trong Phần B: `A7` và `D11`.
+Hai `Skip` từng chờ gỡ, mỗi cái là một dòng việc cụ thể trong Phần B: `A7` (đã gỡ ở khối A) và `D11` (đã gỡ ở
+khối D). Repo không còn `Skip` nào — không thêm cái mới để né đỏ.
 
 ---
 
