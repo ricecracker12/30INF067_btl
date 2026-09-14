@@ -1,11 +1,16 @@
+using System.Text;
 using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Serilog;
 using Serilog.Formatting.Compact;
 using SocialApp.Api.Controllers;
 using SocialApp.Modules.Identity.DependencyInjection;
 using SocialApp.Modules.Identity.Presentation;
+using SocialApp.SharedKernel.Authentication;
+using SocialApp.SharedKernel.Authorization;
 using SocialApp.SharedKernel.Configuration;
 using SocialApp.SharedKernel.DependencyInjection;
 
@@ -68,6 +73,10 @@ var postgres = RequireConnectionString("Postgres",
     () => DevEnvFile.LocalPostgresConnectionString(builder.Environment.ContentRootPath));
 var redis = RequireConnectionString("Redis", () => "localhost:6379");
 
+// JWT kiểm SAU chuỗi kết nối, không phải tùy ý: StartupConfigurationTests dựng app thiếu cả hai và khẳng
+// định thông báo nêu ConnectionStrings:Postgres. Kiểm JWT trước thì test đó đỏ dù hành vi đúng.
+var jwt = RequireJwtOptions();
+
 // Thiếu chuỗi kết nối thì CHẾT NGAY TẠI ĐÂY, kèm thông báo nêu đúng key và đúng chỗ sửa.
 //
 // Phải kiểm cả chuỗi RỖNG chứ không chỉ null: appsettings.json khai "ConnectionStrings:Postgres": ""
@@ -97,8 +106,79 @@ string RequireConnectionString(string name, Func<string> developmentFallback)
       + "App từ chối khởi động thay vì chạy tiếp với cấu hình thiếu.");
 }
 
+// Cấu hình JWT (tầng 1, Mục 6.1) — cùng tinh thần RequireConnectionString: thiếu hoặc yếu thì chết ngay.
+// KHÔNG có khóa mặc định ở bất kỳ môi trường nào. Development không đặt Jwt__SigningKey thì đọc từ
+// deploy/.env (DevEnvFile), thiếu ở đó cũng chết. Issuer/Audience/AccessTokenSeconds không bí mật nên nằm
+// trong appsettings.json; chỉ SigningKey nằm ở biến môi trường.
+//
+// Lưu ý: --migrate cũng đi qua đây (đọc cấu hình trước nhánh isMigrate). Service migrate của staging đã nạp
+// env_file ./.env nên có khóa. Không tách nhánh riêng — hai hình dạng app là thêm một chỗ lệch.
+JwtOptions RequireJwtOptions()
+{
+    var bound = builder.Configuration.GetSection(JwtOptions.Section).Get<JwtOptions>() ?? new JwtOptions();
+
+    var signingKey = bound.SigningKey;
+    if (string.IsNullOrWhiteSpace(signingKey) && builder.Environment.IsDevelopment())
+        signingKey = DevEnvFile.LocalJwtSigningKey(builder.Environment.ContentRootPath) ?? "";
+
+    var problems = new List<string>();
+    if (Encoding.UTF8.GetByteCount(signingKey) < JwtOptions.MinSigningKeyBytes)
+        problems.Add($"Jwt:SigningKey trống hoặc ngắn hơn {JwtOptions.MinSigningKeyBytes} byte (HS256 cần khóa ≥ 256 bit)");
+    if (string.IsNullOrWhiteSpace(bound.Issuer))
+        problems.Add("Jwt:Issuer trống");
+    if (string.IsNullOrWhiteSpace(bound.Audience))
+        problems.Add("Jwt:Audience trống");
+    if (bound.AccessTokenSeconds <= 0)
+        problems.Add("Jwt:AccessTokenSeconds phải lớn hơn 0");
+
+    if (problems.Count > 0)
+        throw new InvalidOperationException(
+            $"Cấu hình JWT không hợp lệ ở môi trường '{builder.Environment.EnvironmentName}': {string.Join("; ", problems)}. "
+          + "Đặt biến môi trường Jwt__SigningKey (sinh bằng: openssl rand -base64 48) trong deploy/.env rồi chạy lại. "
+          + "App từ chối khởi động thay vì chạy tiếp với cấu hình thiếu.");
+
+    return new JwtOptions
+    {
+        SigningKey = signingKey,
+        Issuer = bound.Issuer,
+        Audience = bound.Audience,
+        AccessTokenSeconds = bound.AccessTokenSeconds,
+    };
+}
+
 // --- Module Identity: DbContext riêng, schema "identity" (ADR-001) ---
 builder.Services.AddIdentityModule(postgres);
+
+// --- Tầng 1 (AuthN, Mục 6.1): JWT Bearer ---
+// JwtOptions đã validate và đã giải fallback deploy/.env: phát token (D3) và TTL revoked:user (D8) lấy
+// IOptions<JwtOptions> từ đây, KHÔNG đọc lại section "Jwt" — đọc lại thì mất khóa lấy từ deploy/.env.
+builder.Services.AddSingleton(Microsoft.Extensions.Options.Options.Create(jwt));
+
+builder.Services
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(o =>
+    {
+        // Giữ nguyên tên claim ngắn "sub"/"role". Mặc định handler đổi "role" thành URI của
+        // ClaimTypes.Role → FindFirstValue("role") trả null → PermissionHandler từ chối cả Admin.
+        // KHÔNG dùng cách xóa DefaultInboundClaimTypeMap: đó là static toàn cục, ảnh hưởng mọi handler.
+        o.MapInboundClaims = false;
+
+        o.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidIssuer = jwt.Issuer,
+            ValidAudience = jwt.Audience,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt.SigningKey)),
+            ValidAlgorithms = [SecurityAlgorithms.HmacSha256],   // chặn đổi thuật toán trong header
+            ClockSkew = TimeSpan.FromSeconds(30),                // mặc định 5 phút = access sống 20 phút
+            NameClaimType = JwtClaims.Sub,
+            RoleClaimType = JwtClaims.Role,
+        };
+
+        // D8 gắn OnTokenValidated (ITokenRevocationStore) vào đúng chỗ này.
+    });
+
+// --- Tầng 2 (RBAC, Mục 6.2): [RequirePermission] + fallback policy default deny ---
+builder.Services.AddSharedKernelAuthorization();
 
 builder.Services.AddHealthChecks()
     .AddNpgSql(postgres, name: "postgres", tags: ["ready"])
@@ -119,11 +199,10 @@ if (isMigrate)
 app.UseSerilogRequestLogging();
 app.UseSharedKernel();
 
-// GĐ1 chèn app.UseAuthentication() + app.UseAuthorization() vào ĐÂY — trước rate limiter, xem
-// UseSharedKernelRateLimiter: limiter phân vùng theo user nên phải chạy sau khi User được dựng.
-app.UseSharedKernelRateLimiter();
-
 // Swagger bật ở Development + Staging (để demo/test trên staging); TẮT ở Production.
+// PHẢI đứng TRƯỚC UseAuthorization: fallback policy áp cho mọi request mà middleware authorization nhìn
+// thấy, kể cả request do middleware đứng sau phục vụ (Swagger không phải endpoint) → swagger.json 401 →
+// cổng hợp đồng API đỏ.
 if (app.Environment.IsDevelopment() || app.Environment.IsStaging())
 {
     app.UseSwagger();
@@ -136,9 +215,17 @@ if (app.Environment.IsDevelopment() || app.Environment.IsStaging())
     });
 }
 
+// Tầng 1 + tầng 2, TRƯỚC rate limiter — xem UseSharedKernelRateLimiter. Không test tự động nào bắt được
+// thứ tự này (B.9 điều 3): đổi chỗ ba dòng dưới phải qua code review.
+app.UseAuthentication();
+app.UseAuthorization();
+app.UseSharedKernelRateLimiter();
+
 // /health/live: app còn sống (không kiểm phụ thuộc). /health/ready: sẵn sàng nhận tải (DB+Redis OK).
-app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
-app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") });
+// AllowAnonymous: healthcheck của Docker/Caddy không có token — thiếu dòng này thì fallback policy trả 401
+// và container bị báo unhealthy (SmokeEndpointsTests.Health_ready_khong_can_token).
+app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false }).AllowAnonymous();
+app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") }).AllowAnonymous();
 
 app.MapControllers();
 

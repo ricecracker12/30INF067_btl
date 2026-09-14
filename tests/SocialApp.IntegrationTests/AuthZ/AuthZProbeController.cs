@@ -21,6 +21,11 @@ public sealed class AuthZProbeController : ControllerBase
     [HttpGet("authenticated")]
     public IActionResult Authenticated() => Ok();
 
+    /// <summary>Cho JwtAuthenticationTests: principal giữ tên claim ngắn "sub"/"role" (C4).</summary>
+    [Authorize]
+    [HttpGet("whoami")]
+    public IActionResult WhoAmI() => Ok(new { name = User.Identity?.Name, role = User.FindFirst("role")?.Value });
+
     [RequirePermission("post.hide")]
     [HttpGet("post-hide")]
     public IActionResult PostHide() => Ok();

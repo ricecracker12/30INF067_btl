@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Hosting;
+using SocialApp.IntegrationTests.Harness;
 
 namespace SocialApp.IntegrationTests;
 
@@ -19,6 +20,9 @@ namespace SocialApp.IntegrationTests;
 ///
 /// Môi trường Development vì Swagger chỉ bật ở Development + Staging (IdentityContractTests cần nó), và
 /// Staging trong test thì fail-fast theo đúng thiết kế (StartupConfigurationTests).
+///
+/// JWT cũng khai tường minh (C4) vì cùng lý do: Development không có Jwt:SigningKey thì Program.cs đọc từ
+/// <c>deploy/.env</c>. Khóa sinh ngẫu nhiên mỗi lần chạy (<see cref="TestJwt"/>), không có khóa nào trong repo.
 /// </summary>
 public sealed class ApiFactory : WebApplicationFactory<Program>
 {
@@ -30,5 +34,6 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         builder.UseEnvironment(Environments.Development);
         builder.UseSetting("ConnectionStrings:Postgres", UnreachablePostgres);
         builder.UseSetting("ConnectionStrings:Redis", UnreachableRedis);
+        TestJwt.Configure(builder);
     }
 }
