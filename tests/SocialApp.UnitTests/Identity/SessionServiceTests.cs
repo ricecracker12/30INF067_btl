@@ -95,6 +95,23 @@ public sealed class SessionServiceTests
         Assert.Empty(_issuer.Calls);
     }
 
+    [Fact]
+    public async Task Logout_khong_cookie_khong_cham_store()
+    {
+        await Service().LogoutAsync(refreshCookie: null, UserId, CancellationToken.None);
+
+        Assert.Empty(_store.Revocations);
+    }
+
+    /// <summary>Store nhận băm của cookie và actor do controller truyền (từ access token) — kiểm chủ sở hữu nằm ở store.</summary>
+    [Fact]
+    public async Task Logout_bam_cookie_va_truyen_actor_cho_store()
+    {
+        await Service().LogoutAsync("cookie-cu", UserId, CancellationToken.None);
+
+        Assert.Equal((Sha256Hex("cookie-cu"), UserId, Now), Assert.Single(_store.Revocations));
+    }
+
     private sealed class FixedTime(DateTimeOffset now) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => now;
@@ -118,6 +135,14 @@ public sealed class SessionServiceTests
         public Task CreateAsync(
             Guid userId, Guid familyId, string tokenHash, DateTimeOffset expiresAt, IPAddress? createdIp, DateTimeOffset now,
             CancellationToken ct) => throw new NotSupportedException();
+
+        public List<(string TokenHash, Guid OwnerUserId, DateTimeOffset Now)> Revocations { get; } = [];
+
+        public Task<int> RevokeFamilyAsync(string tokenHash, Guid ownerUserId, DateTimeOffset now, CancellationToken ct)
+        {
+            Revocations.Add((tokenHash, ownerUserId, now));
+            return Task.FromResult(2);
+        }
     }
 
     private sealed class FakeIssuer : IAccessTokenIssuer

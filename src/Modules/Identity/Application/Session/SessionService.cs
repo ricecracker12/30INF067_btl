@@ -52,4 +52,19 @@ public sealed class SessionService(
                 return IdentityErrors.SessionInvalid;
         }
     }
+
+    /// <summary>
+    /// Đăng xuất THIẾT BỊ này: thu hồi cả family của cookie (giai-doan-1.md Mục 7.4). Không trả lỗi nào — logout idempotent
+    /// (Đ-D6): cookie thiếu, lạ hay của người khác thì không làm gì. <paramref name="actorUserId"/> lấy từ access token, KHÔNG
+    /// từ cookie (Mục 6.3). KHÔNG ghi revoked:user: key đó cắt access token của mọi thiết bị, trái bảng Mục 7.5.
+    /// </summary>
+    public async Task LogoutAsync(string? refreshCookie, Guid actorUserId, CancellationToken ct)
+    {
+        if (refreshCookie is null)
+            return;
+
+        var revoked = await refreshTokens.RevokeFamilyAsync(SecureToken.Hash(refreshCookie), actorUserId, time.GetUtcNow(), ct);
+        if (revoked > 0)
+            logger.LogInformation("Tài khoản {UserId} đăng xuất: thu hồi {Count} refresh token của thiết bị", actorUserId, revoked);
+    }
 }

@@ -184,36 +184,21 @@ public sealed class RefreshTests(PostgresFixture postgres, IdentityApiFactory fa
         await ShiftRevokedAtAsync(first, seconds: 11);
         var familyId = (Guid)(await RowAsync(first))["family_id"]!;
 
-        await _auth.ExecuteSqlAsync($"""
-            CREATE OR REPLACE FUNCTION identity.test_giu_luot_xoay() RETURNS trigger AS $body$
-            BEGIN
-              IF NEW.family_id = '{familyId}' THEN PERFORM pg_sleep(2); END IF;
-              RETURN NEW;
-            END $body$ LANGUAGE plpgsql;
-            CREATE TRIGGER test_giu_luot_xoay BEFORE INSERT ON identity.refresh_tokens
-              FOR EACH ROW EXECUTE FUNCTION identity.test_giu_luot_xoay();
-            """);
-        try
+        await using (await RefreshFamilyRace.HoldInsertsIntoFamilyAsync(_auth, familyId))
         {
             var rotation = RotateThroughStoreAsync(second);   // khóa dòng T2, INSERT T3 rồi ngủ trong trigger
-            await WaitUntilSessionSleepsAsync();
+            await RefreshFamilyRace.WaitUntilSessionSleepsAsync(_auth);
             var reuse = RotateThroughStoreAsync(first);        // chen vào khi T3 chưa commit
 
             var outcomes = await Task.WhenAll(rotation, reuse);
 
             Assert.IsType<RotateOutcome.Rotated>(outcomes[0]);
             Assert.IsType<RotateOutcome.ReuseDetected>(outcomes[1]);
-            var family = await FamilyAsync(first);
-            Assert.Equal(3L, family["total"]);
-            Assert.True((long)family["live"]! == 0, $"reuse detection bỏ sót {family["live"]} token còn sống trong family");
         }
-        finally
-        {
-            await _auth.ExecuteSqlAsync("""
-                DROP TRIGGER IF EXISTS test_giu_luot_xoay ON identity.refresh_tokens;
-                DROP FUNCTION IF EXISTS identity.test_giu_luot_xoay();
-                """);
-        }
+
+        var family = await FamilyAsync(first);
+        Assert.Equal(3L, family["total"]);
+        Assert.True((long)family["live"]! == 0, $"reuse detection bỏ sót {family["live"]} token còn sống trong family");
     }
 
     /// <summary>Không cookie, cookie rác, cookie hết hạn, cookie bị dùng lại: CÙNG một 401 (bỏ traceId/instance) và đều xóa cookie.</summary>
@@ -296,19 +281,6 @@ public sealed class RefreshTests(PostgresFixture postgres, IdentityApiFactory fa
         var now = DateTimeOffset.UtcNow;
         return await scope.ServiceProvider.GetRequiredService<IRefreshTokenStore>().RotateAsync(
             Sha256Hex(cookie), now, Sha256Hex(Guid.NewGuid().ToString("N")), now.AddDays(7), createdIp: null, CancellationToken.None);
-    }
-
-    /// <summary>Chờ tới khi có session đang ngủ trong trigger (pg_sleep) — tức lượt xoay đang giữ khóa dòng và T3 chưa commit.</summary>
-    private async Task WaitUntilSessionSleepsAsync()
-    {
-        for (var attempt = 0; attempt < 100; attempt++)
-        {
-            var row = await _auth.QueryRowAsync("SELECT count(*) AS n FROM pg_stat_activity WHERE wait_event = 'PgSleep'");
-            if ((long)row!["n"]! > 0)
-                return;
-            await Task.Delay(50);
-        }
-        throw new TimeoutException("Lượt xoay không dừng trong trigger sau 5 giây — kịch bản đan xen không dựng được.");
     }
 
     private async Task<string> RefreshOkAsync(string cookie)

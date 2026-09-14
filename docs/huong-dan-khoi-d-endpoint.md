@@ -9,9 +9,10 @@
 > nào tài liệu này lệch ba nguồn đó thì sửa ở đây — trừ các quyết định ở Mục 1 được đánh dấu **"ghi
 > ngược"**: những chỗ đó tài liệu gốc đang thiếu hoặc sai, phải sửa `giai-doan-1.md` trong cùng commit.
 
-> **Trạng thái: đang làm — `D0`–`D5` và `D7` xong (xem "Thực tế thi công" cuối Mục 2–7, 9). Đã commit + push lên
+> **Trạng thái: đang làm — `D0`–`D7` xong (xem "Thực tế thi công" cuối Mục 2–9). Đã commit + push lên
 > `loveart1210`: `D0`–`D2` (`37b6b76`, CI xanh — run 34837717169), `D3` + `D7` (`adea0c3`, CI xanh — run 34841092562),
-> `D4` (`a8ce2a2`, CI xanh — run 34843657708); `D5` chưa commit. Tiếp theo `D6`.** Khối A, B, C đã xong
+> `D4` (`a8ce2a2`, CI xanh — run 34843657708), `D5` (`166165f`, CI xanh — run 34858791751); `D6` chưa commit.
+> Tiếp theo `D8`.** Khối A, B, C đã xong
 > (commit `105077c` → `2d25ae6`, merge ở `455b597`).
 
 | | |
@@ -1380,8 +1381,51 @@ new("TC-A01-logout", "Logout không kèm JWT", "GĐ1",
 
 - **Thu hồi theo `token_hash` không kèm `user_id`** → xem test cuối.
 - **Thu hồi chỉ một dòng** thay vì cả family → T1 đã xoay thì vô hại, nhưng nhánh Grace (Đ-D3) để lại lá thứ
-  hai còn sống → refresh bằng lá đó sau logout vẫn 200. Test thứ ba bắt được một phần; review bắt phần còn lại.
+  hai còn sống → refresh bằng lá đó sau logout vẫn 200. `LogoutTests.Logout_khi_family_co_hai_la_song_sau_an_han_…` dựng
+  đúng tình huống hai lá sống và bắt trọn (thêm ở thi công D6).
 - **`Response.Cookies.Delete`** không kèm options → bẫy 3 của D4.
+
+### Thực tế thi công
+
+**Bằng chứng.** `dotnet test SocialApp.sln`: Unit 65 → 67 (+2 unit test logout trong `SessionServiceTests`), Architecture 9,
+Integration 118 → 129 (+10 `LogoutTests`, +1 dòng matrix `TC-A01-logout`). Cổng hợp đồng chiều 1 xanh với
+`POST /auth/logout` 204/401. Test race logout và RT-06 (đã chuyển sang helper dùng chung) chạy 5 lần mỗi test: 5/5 xanh.
+
+`detect-changes` báo **medium** (9 file, 29 symbol, 3 luồng `Refresh → LockFamilyAsync / RoleCodeAsync / Successor`). Cả ba method
+không bị sửa: `git diff --numstat` của `RefreshTokenStore.cs` là 28 dòng thêm, 0 dòng xóa — một hunk duy nhất chèn
+`RevokeFamilyAsync` ngay phía trên chúng nên chúng bị liệt kê do dịch dòng.
+
+Kiểm tay trên dev (API chạy từ `bin/` với `Development`, cookie gửi bằng `curl.exe`): logout **không bearer** kèm cookie A →
+**401**, refresh A sau đó vẫn 200 → logout A bằng bearer + cookie → **204** + `Set-Cookie: refresh_token=; max-age=0;
+path=/api/v1/auth` → refresh bằng cookie đó **401** → access token của A vẫn gọi `/me` **200** (đúng thiết kế) → **bearer A +
+cookie B** → **204**, refresh B sau đó vẫn **200**. Log stdout không chứa cookie hay access token nào, không có dòng Error.
+
+> ⚠️ Kiểm tay nhóm `/auth` từ một máy: mọi request cùng một IP nên chạm hạn mức **10 req/phút** rất nhanh (đăng ký + xác
+> minh + đăng nhập đã là 3 request mỗi tài khoản) — lần chạy đầu nhận **429** từ request thứ 11. Đó là rate limit làm đúng
+> việc, không phải lỗi logout; chia kịch bản theo cửa sổ 1 phút.
+
+Thử cho đỏ ở local, hai đợt vì một đột biến che đột biến khác, rồi khôi phục:
+
+| Đột biến | Test đỏ |
+|---|---|
+| Bỏ điều kiện `user_id = ownerUserId` khi tra family | `Cookie_cua_nguoi_khac_khong_bi_thu_hoi` — family của B mất hết lá sống |
+| `[AllowAnonymous]` trên action `Logout` | `Khong_bearer_co_cookie_401_…` và matrix `TC-A01-logout` — nhận **500** (`GetUserId` ném vì không có `sub`) |
+| Thu hồi theo `token_hash` thay vì `family_id` | `Logout_khi_family_co_hai_la_song_sau_an_han_…` — lá thứ hai vẫn refresh 200 sau logout |
+| Bỏ `LockFamilyAsync` ở logout — chạy **riêng** (đột biến thứ ba cũng làm test race đỏ) | `Logout_chen_vao_giua_luot_xoay_…` — "bỏ sót 1 token còn sống", đỏ 3/3 lần; 9 test logout khác vẫn xanh |
+
+**Chỗ lệch so với các bước trên — đã làm như sau:**
+
+- **`RevokeFamilyAsync` không phải một câu `UPDATE … FROM` như code mẫu**, mà ba bước trong một transaction: tra `family_id`
+  **có điều kiện chủ sở hữu** → `LockFamilyAsync` → `UPDATE` theo family. Tách ra vì khóa family phải lấy trước câu UPDATE
+  (cạm bẫy 8 của D5); tầng 3 vẫn nằm ngay trong câu tra. Trả số token bị thu hồi (chỉ để log). COMMIT với
+  `CancellationToken.None`.
+- **`SessionService.LogoutAsync` không trả `Result`**: logout luôn 204 (Đ-D6); cookie thiếu thì không chạm store.
+- **Thêm ngoài bảng:**
+  - logout chen vào giữa một lượt xoay vẫn thu hồi token vừa sinh — dùng helper `Auth/RefreshFamilyRace` tách ra từ RT-06;
+  - family có hai lá sống sau ân hạn → logout một lá, lá kia cũng chết (cạm bẫy "thu hồi chỉ một dòng" giờ có test);
+  - access token vẫn dùng được sau logout — đúng thiết kế, khóa lại để GĐ sau không vô tình "sửa" bằng `revoked:user`;
+  - "không bearer" và "bearer không cookie" đều kiểm family không bị đụng tới, không chỉ status code;
+  - 2 unit test `SessionServiceTests` cho logout.
 
 ---
 

@@ -22,4 +22,11 @@ public interface IRefreshTokenStore
     Task<RotateOutcome> RotateAsync(
         string tokenHash, DateTimeOffset now, string newTokenHash, DateTimeOffset newExpiresAt, IPAddress? createdIp,
         CancellationToken ct);
+
+    /// <summary>
+    /// Logout (D6): thu hồi TOÀN BỘ family của token — CHỈ khi token thuộc <paramref name="ownerUserId"/> (tầng 3, Đ-D6). Token
+    /// không tồn tại hoặc của người khác → không thu hồi gì, trả 0. Lấy khóa family trước câu UPDATE, cùng thứ tự với
+    /// <see cref="RotateAsync"/> (cạm bẫy 8 của D5). Trả số token vừa bị thu hồi.
+    /// </summary>
+    Task<int> RevokeFamilyAsync(string tokenHash, Guid ownerUserId, DateTimeOffset now, CancellationToken ct);
 }

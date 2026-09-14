@@ -109,6 +109,34 @@ internal sealed class RefreshTokenStore(IdentityDbContext db) : IRefreshTokenSto
         return new RotateOutcome.Rotated(row.UserId, role);
     }
 
+    public async Task<int> RevokeFamilyAsync(string tokenHash, Guid ownerUserId, DateTimeOffset now, CancellationToken ct)
+    {
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+
+        // Tầng 3 (Đ-D6) nằm NGAY trong câu tra: family chỉ tìm thấy khi token thuộc người gọi. Cookie lạ, cookie đã bị xóa khỏi
+        // DB, hay cookie của người khác (máy dùng chung) → không có dòng → không thu hồi gì, logout vẫn 204.
+        var familyIds = await db.Database
+            .SqlQuery<Guid>(
+                $"SELECT family_id AS \"Value\" FROM identity.refresh_tokens WHERE token_hash = {tokenHash} AND user_id = {ownerUserId}")
+            .ToListAsync(ct);
+        if (familyIds.Count == 0)
+        {
+            await transaction.CommitAsync(ct);
+            return 0;
+        }
+
+        // Khóa family TRƯỚC câu UPDATE, cùng thứ tự với RotateAsync: logout chen vào giữa một lượt xoay mà chỉ dựa vào khóa dòng
+        // thì token vừa sinh commit ngoài snapshot của câu UPDATE và sống sót (LogoutTests.Logout_chen_vao_giua_luot_xoay_…).
+        await LockFamilyAsync(familyIds[0], ct);
+
+        // Không nhận ct từ đây: client ngắt kết nối giữa chừng không được để lại một phiên nửa thu hồi.
+        var revoked = await db.RefreshTokens
+            .Where(t => t.FamilyId == familyIds[0] && t.RevokedAt == null)
+            .ExecuteUpdateAsync(s => s.SetProperty(t => t.RevokedAt, now), CancellationToken.None);
+        await transaction.CommitAsync(CancellationToken.None);
+        return revoked;
+    }
+
     /// <summary>
     /// Khóa tư vấn theo family, tự nhả khi transaction kết thúc (commit hoặc rollback). Phải gọi TRONG transaction, và TRƯỚC mọi
     /// khóa dòng của family đó.

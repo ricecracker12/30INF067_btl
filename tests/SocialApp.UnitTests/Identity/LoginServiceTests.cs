@@ -205,6 +205,9 @@ public sealed class LoginServiceTests
         public Task<RotateOutcome> RotateAsync(
             string tokenHash, DateTimeOffset now, string newTokenHash, DateTimeOffset newExpiresAt, IPAddress? createdIp,
             CancellationToken ct) => throw new NotSupportedException();
+
+        public Task<int> RevokeFamilyAsync(string tokenHash, Guid ownerUserId, DateTimeOffset now, CancellationToken ct) =>
+            throw new NotSupportedException();
     }
 
     private sealed class FakeHasher : IPasswordHasher

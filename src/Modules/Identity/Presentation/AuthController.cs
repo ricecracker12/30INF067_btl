@@ -98,4 +98,20 @@ public sealed class AuthController(
         RefreshCookie.Set(Response, result.Value!.RefreshPlain, jwt.Value.RefreshTokenDays);
         return Ok(new TokenResponse(result.Value.Access.Token, result.Value.Access.ExpiresIn));
     }
+
+    /// <summary>
+    /// Cần bearer (<c>[Authorize]</c>, không AllowAnonymous): danh tính người đăng xuất lấy từ access token, cookie chỉ nói
+    /// family nào. Luôn 204 + xóa cookie (Đ-D6); 401 chỉ khi bearer thiếu/hỏng. Access token đang cầm vẫn sống tới hết hạn —
+    /// client tự xóa khỏi memory (hợp đồng đã ghi).
+    /// </summary>
+    [Authorize]
+    [HttpPost("logout")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized, "application/problem+json")]
+    public async Task<IActionResult> Logout(CancellationToken ct)
+    {
+        await sessions.LogoutAsync(RefreshCookie.Read(Request), User.GetUserId(), ct);
+        RefreshCookie.Clear(Response);
+        return NoContent();
+    }
 }
