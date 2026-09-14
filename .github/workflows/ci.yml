@@ -46,13 +46,10 @@ jobs:
         run: dotnet test tests/SocialApp.IntegrationTests/SocialApp.IntegrationTests.csproj -c Release --no-build --filter "Category=Contract" -- RunConfiguration.TreatNoTestsAsError=true
 
       # CI GATE (GOAL-03, Muc 10.2): tach rieng de log chi thang nguyen nhan fail, fail la chan merge.
-      # Chua co test nao mang trait Category=AuthZ nen buoc nay dang xanh (dotnet test tra 0 khi
-      # filter khong khop). Khoi B GD1 them TC-A01/TC-A02.
-      # NGAY KHI co test AuthZ dau tien, doi buoc nay sang dang nham-vao-project giong cong hop
-      # dong o tren:
-      #     dotnet test tests/<Project chua test AuthZ>/<Project>.csproj -c Release --no-build       #       --filter "Category=AuthZ" -- RunConfiguration.TreatNoTestsAsError=true
-      # neu khong, go sai trait se lam cong chan xanh voi 0 test ma khong ai biet.
-      # DUNG them TreatNoTestsAsError vao lenh chay .sln nhu duoi day: no xet rieng tung assembly
-      # nen se do vi cac project khong co test AuthZ, chu khong phai vi AuthZ hong.
+      # Test AuthZ nam o IntegrationTests (AuthZ/AuthZMatrixTests.cs), chay tren Postgres that da seed.
+      # NHAM VAO PROJECT kem TreatNoTestsAsError, giong cong hop dong o tren: go sai trait -> 0 test ->
+      # buoc nay DO, thay vi xanh voi 0 test ma khong ai biet (da thu mot lan cho do, xem PR khoi B).
+      # DUNG chay tren .sln voi co nay: co xet rieng tung assembly, UnitTests/ArchitectureTests khong co
+      # test AuthZ se lam buoc nay do du AuthZ hoan toan dung.
       - name: AuthZ matrix (CI GATE)
-        run: dotnet test SocialApp.sln -c Release --no-build --filter "Category=AuthZ"
+        run: dotnet test tests/SocialApp.IntegrationTests/SocialApp.IntegrationTests.csproj -c Release --no-build --filter "Category=AuthZ" -- RunConfiguration.TreatNoTestsAsError=true
