@@ -21,7 +21,13 @@ public sealed class CorrelationIdMiddleware(RequestDelegate next)
                 : Guid.NewGuid().ToString("N");
 
         context.TraceIdentifier = correlationId;
-        context.Response.Headers[HeaderName] = correlationId;
+        // Gắn lúc response BẮT ĐẦU gửi, không gắn ngay: UseExceptionHandler gọi Response.Clear() (xóa mọi header) trước khi ghi
+        // 500 → gắn ngay thì response 500 mất header, trong khi hợp đồng nói traceId == X-Correlation-ID (ProblemDetailsTests, D9).
+        context.Response.OnStarting(() =>
+        {
+            context.Response.Headers[HeaderName] = correlationId;
+            return Task.CompletedTask;
+        });
 
         using (LogContext.PushProperty("CorrelationId", correlationId))
         {

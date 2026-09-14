@@ -85,6 +85,7 @@ public sealed class MeTests(PostgresFixture postgres, IdentityApiFactory factory
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
         var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
         Assert.False(string.IsNullOrWhiteSpace(problem.GetProperty("traceId").GetString()));
+        Assert.Equal("Phiên không hợp lệ", problem.GetProperty("title").GetString());
     }
 
     /// <summary>

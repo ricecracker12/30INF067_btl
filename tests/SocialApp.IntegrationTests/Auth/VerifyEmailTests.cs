@@ -59,7 +59,7 @@ public sealed class VerifyEmailTests(PostgresFixture postgres, IdentityApiFactor
         using var response = await _auth.VerifyEmailAsync(unknown);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        await ReadProblemAsync(response);
+        await ReadProblemAsync(response, "Dữ liệu không hợp lệ");
     }
 
     public static TheoryData<string> MalformedTokens => new()
@@ -79,7 +79,7 @@ public sealed class VerifyEmailTests(PostgresFixture postgres, IdentityApiFactor
         using var response = await _auth.VerifyEmailAsync(token);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        var problem = await ReadProblemAsync(response);
+        var problem = await ReadProblemAsync(response, "Dữ liệu không hợp lệ");
         Assert.True(problem.TryGetProperty("errors", out var errors) && errors.TryGetProperty("token", out _),
             $"errors không có key 'token': {problem}");
     }
@@ -94,7 +94,7 @@ public sealed class VerifyEmailTests(PostgresFixture postgres, IdentityApiFactor
         using var response = await _auth.VerifyEmailAsync(token);
 
         Assert.Equal(HttpStatusCode.Gone, response.StatusCode);
-        await ReadProblemAsync(response);
+        await ReadProblemAsync(response, "Liên kết không còn hiệu lực");
         Assert.DoesNotContain(email, await response.Content.ReadAsStringAsync(), StringComparison.OrdinalIgnoreCase);
         var row = await _auth.QueryRowAsync("SELECT email_verified_at FROM identity.users WHERE user_id = $1", userId);
         Assert.Null(row!["email_verified_at"]);
@@ -148,11 +148,13 @@ public sealed class VerifyEmailTests(PostgresFixture postgres, IdentityApiFactor
         return (body.GetProperty("userId").GetGuid(), email, factory.Emails.LatestTokenFor(email));
     }
 
-    private static async Task<JsonElement> ReadProblemAsync(HttpResponseMessage response)
+    /// <summary>Title bắt buộc truyền: hợp đồng <c>required: [title, status, traceId]</c>, 410 từng ra KHÔNG có title (D9).</summary>
+    private static async Task<JsonElement> ReadProblemAsync(HttpResponseMessage response, string expectedTitle)
     {
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
         var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
         Assert.False(string.IsNullOrWhiteSpace(problem.GetProperty("traceId").GetString()));
+        Assert.Equal(expectedTitle, problem.TryGetProperty("title", out var title) ? title.GetString() : null);
         return problem;
     }
 }

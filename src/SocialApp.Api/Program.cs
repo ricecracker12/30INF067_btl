@@ -235,6 +235,11 @@ builder.Services
         // KHÔNG dùng cách xóa DefaultInboundClaimTypeMap: đó là static toàn cục, ảnh hưởng mọi handler.
         o.MapInboundClaims = false;
 
+        // Mặc định JwtBearer ghi LÝ DO từ chối vào header: `WWW-Authenticate: Bearer error="invalid_token", error_description="The
+        // signature key was not found"` / "The token expired at '…'" — cho kẻ dò token phân biệt sai chữ ký, hết hạn, bị thu hồi.
+        // FE chỉ cần mã 401 (interceptor refresh). Tắt: header còn `Bearer` (D9, ProblemDetailsTests).
+        o.IncludeErrorDetails = false;
+
         o.TokenValidationParameters = new TokenValidationParameters
         {
             ValidIssuer = jwt.Issuer,

@@ -9,10 +9,11 @@
 > nào tài liệu này lệch ba nguồn đó thì sửa ở đây — trừ các quyết định ở Mục 1 được đánh dấu **"ghi
 > ngược"**: những chỗ đó tài liệu gốc đang thiếu hoặc sai, phải sửa `giai-doan-1.md` trong cùng commit.
 
-> **Trạng thái: đang làm — `D0`–`D8` xong (xem "Thực tế thi công" cuối Mục 2–10). Đã commit + push lên
+> **Trạng thái: đang làm — `D0`–`D9` xong (xem "Thực tế thi công" cuối Mục 2–11). Đã commit + push lên
 > `loveart1210`: `D0`–`D2` (`37b6b76`, CI xanh — run 34837717169), `D3` + `D7` (`adea0c3`, CI xanh — run 34841092562),
-> `D4` (`a8ce2a2`, CI xanh — run 34843657708), `D5` (`166165f`, CI xanh — run 34858791751), `D6` (`ef50aec`); `D8` chưa
-> commit. Tiếp theo `D9`.** Khối A, B, C đã xong
+> `D4` (`a8ce2a2`, CI xanh — run 34843657708), `D5` (`166165f`, CI xanh — run 34858791751), `D6` (`ef50aec`, CI xanh — run
+> 34864425653), `D8` (`f9416ca`, CI xanh — run 34873308602); `D9` chưa commit. Tiếp theo `D11`** (`D10` làm cùng mỗi controller,
+> đã xanh). Khối A, B, C đã xong
 > (commit `105077c` → `2d25ae6`, merge ở `455b597`).
 
 | | |
@@ -1846,6 +1847,104 @@ chỉ thấy status code nào action khai ra.
   dạng. `RegisterTests` của D1 **chưa** so title — D9 thêm assert `title == "Dữ liệu không hợp lệ"` vào case dữ liệu sai.
 - **Sửa `identity-v1.yaml` cho khớp code** khi trọng tài đỏ. Hợp đồng đã chốt ở cổng mở và FE đã sinh type từ
   nó — sửa code. Chỉ sửa yaml khi cả nhóm đồng ý đổi hợp đồng, và báo lane FE.
+
+### Thực tế thi công
+
+**Bằng chứng.** `dotnet test SocialApp.sln`: Unit 68 → 78 (+7 `ValidationErrorsTests`, +3 `ProblemTitlesTests`), Architecture 9,
+Integration 137 → 154 (+17 `ProblemDetailsTests`; assert `title` thêm vào `RegisterTests` 409/400, `VerifyEmailTests` 400/410,
+`LoginTests` 400/401/403/423, `MeTests` và `RefreshTests` 401; 1 Skip vẫn là `Contract_must_be_fully_implemented`). AuthZ matrix
+12/12. **Trọng tài chiều 2 chạy cục bộ không Skip: xanh** — cả trước lẫn sau khi bỏ `required`/`[Consumes]` (Swagger vẫn ghi
+`required` và request body `application/json`); Skip đã khôi phục, gỡ thật ở `D11`.
+
+Bước 1–2 (rà `[ProducesResponseType]` và `[Required]`) **không phải sửa gì**: D1–D7 đã khai đúng tập mã và required — trọng tài
+xanh ngay lần chạy đầu. Phần việc thật của D9 là hình dạng lỗi, và rà nó tìm ra 4 lỗi (bảng dưới).
+
+**Thiết kế cuối — một chỗ cho mọi Problem Details, module GĐ2+ thừa hưởng không phải cấu hình:**
+
+| Nguồn lỗi | Đi qua | Title/type | Chạm file |
+|---|---|---|---|
+| Lỗi nghiệp vụ `Result`/`Error` → `ToActionResult` | `SharedKernelProblemDetailsFactory` | `Error.Title`, không đặt thì `ProblemTitles.For(status)` | `Results/Result.cs`, `Http/ResultHttpExtensions.cs` |
+| 400 validation (FluentValidation, body hỏng), `ValidationProblem()`, 415/404 của `ClientErrorResultFilter` | `SharedKernelProblemDetailsFactory` (thay `DefaultProblemDetailsFactory`) | `ProblemTitles`; `errors` qua `ValidationErrors` | `Http/SharedKernelProblemDetailsFactory.cs`, `Http/ValidationErrors.cs` |
+| 401/403/404/405/429 body rỗng (JwtBearer, authorization, routing, rate limiter) | status code pages, handler riêng | `ProblemTitles.For(status)` | `UseSharedKernel` |
+| 500 | `GlobalExceptionHandler` | `ProblemTitles.InternalError`, không `detail` | `Errors/GlobalExceptionHandler.cs` |
+| `type` của mọi nguồn | `CustomizeProblemDetails` | thay link `tools.ietf.org` của framework bằng `https://httpstatuses.io/{status}` | `AddSharedKernel` |
+
+**Chỗ lệch so với các bước trên — đã làm như sau:**
+
+- **Title theo LỖI, không chỉ theo status.** Hợp đồng dùng ba title khác nhau cho cùng 401 — login "Xác thực thất bại", refresh
+  "Phiên không hợp lệ", thiếu token "Chưa xác thực" — nên "title theo status" không khớp được. `Error` thêm tham số tùy chọn `Title`
+  (mọi `new Error(code, message, status)` cũ vẫn biên dịch); `IdentityErrors` ghi title tường minh theo ví dụ hợp đồng; bảng mặc
+  định theo status ở `SharedKernel/Errors/ProblemTitles.cs` (`AppException` dùng chung hằng số).
+- **Thay `ProblemDetailsFactory` thay vì chỉ đặt `InvalidModelStateResponseFactory`.** Response factory chỉ phủ 400 validation tự
+  động; controller gọi `ValidationProblem(ModelState)` hay `Problem()`, và 415 của `ClientErrorResultFilter`, đi vòng qua nó. Factory
+  là điểm mở rộng chính thức mà mọi đường của MVC cùng đi qua. Đăng ký bằng `Replace` — đúng dù `AddSharedKernel` gọi trước hay sau
+  `AddControllers`. (Bản trung gian dùng `ClientErrorMapping` + `InvalidModelStateResponseFactory` đã thay hẳn.)
+- **Status code pages dùng handler riêng**: `ProblemDetailsDefaults` điền "Unauthorized"/"Too Many Requests" TRƯỚC
+  `CustomizeProblemDetails`, nên không sửa được ở đó.
+- `ApiFactory` thêm `FakeRemoteIpStartupFilter` (Đ-D7): `ProblemDetailsTests` gọi `/auth/login` hơn 10 lần trong một lớp.
+- `AGENTS.md` Mục 9 ghi quy ước cho GĐ2+ (không tự dựng ProblemDetails, `Error.Title`, DTO không `required`, không `[Consumes]`,
+  401 cho ẩn danh sai method/route lạ).
+
+**Lỗi tìm ra khi rà — đã sửa trong D9:**
+
+| # | Lỗi (có từ) | Hệ quả | Sửa |
+|---|---|---|---|
+| 1 | 409 ra `"Conflict"`, **410/423 không có `title`**, 400 validation `"One or more validation errors occurred."`, 401/429 tiếng Anh, `type` là link rfc9110 (D1–D8) | Trái `required: [title, status, traceId]` của hợp đồng; FE nhận nhiều hình dạng cho cùng loại lỗi | Thiết kế ở bảng trên |
+| 2 | **Response 500 mất header `X-Correlation-ID`** (GĐ0) | `UseExceptionHandler` gọi `Response.Clear()` xóa header đã gắn — trái hợp đồng "traceId == X-Correlation-ID" | `CorrelationIdMiddleware` gắn header trong `Response.OnStarting` |
+| 3 | **Body hỏng lộ chi tiết nội bộ** (D1): field lạ, sai kiểu, JSON hỏng, body là mảng trả thông điệp System.Text.Json — tên kiểu `SocialApp.Modules.Identity.Application.Login.LoginRequest`, `System.String`, vị trí byte, tiếng Anh; key `$.role`/`$`/`""` | Lộ cấu trúc code; FE không map được key về trường | Hai lớp: `JsonOptions.AllowInputFormatterExceptionMessages = false` + `ValidationErrors` (key → tên trường client gửi / `body`; lỗi ở đường dẫn JSON luôn nhận thông điệp cố định). Thông điệp model binding của MVC Việt hóa, không lặp giá trị client gửi (`ValidationErrors.Localize`) — phủ luôn query/route param của GĐ2+ |
+| 4 | **DTO dùng từ khóa `required`** (D1): body thiếu trường bị System.Text.Json chặn TRƯỚC FluentValidation | `{}` hay thiếu `password` không bao giờ nhận "Mật khẩu là bắt buộc." | Bỏ `required`, giữ `[Required]` (Swagger) + `= ""`; validator (đã `Cascade(Stop)`) bắt cả thiếu lẫn `null` |
+| 5 | **`[Consumes("application/json")]`** (D1): loại action lúc CHỌN ENDPOINT, request rơi vào endpoint 415 nội bộ không có `[AllowAnonymous]` | Gọi ẩn danh sai content type tới `/auth/*` nhận 401 "Chưa xác thực" thay vì 415 | Bỏ `[Consumes]`; input formatter JSON trả 415 SAU bước phân quyền |
+| 6 | **JwtBearer ghi lý do từ chối vào header** (C4, tìm ra lúc kiểm tay D9): `WWW-Authenticate: Bearer error="invalid_token", error_description="The signature key was not found"` / "The token expired at '…'" | Kẻ dò token phân biệt được sai chữ ký, hết hạn, bị thu hồi; FE không cần | `IncludeErrorDetails = false` ở `Program.cs` — header còn `Bearer`, body vẫn là 401 "Chưa xác thực" |
+
+**Quyết định có ý thức — không phải lỗi:** gọi **ẩn danh** sai method (`GET /auth/login`) hoặc route lạ nhận **401**, không 405/404.
+Hai trường hợp này bị quyết định ở bước chọn endpoint, trước khi biết endpoint đích có công khai không; trả 405/404 cho người chưa
+đăng nhập là cho dò được route nào tồn tại. Có token thì nhận đúng 405 (kèm `Allow`) / 404. Khóa bằng
+`ProblemDetailsTests.An_danh_sai_method_va_route_la_deu_401_khong_lo_route`.
+
+Thử cho đỏ ở local rồi khôi phục (`git diff` sau mỗi đợt không còn đột biến). Đợt đầu chạy trên bản trung gian, hai đợt sau trên
+thiết kế cuối:
+
+| Đột biến | Test đỏ |
+|---|---|
+| `ToActionResult` không truyền `Error.Title` | 401 login ra "Chưa xác thực", 410/423 ra title chung, 401 của refresh và `/me` |
+| Title validation để mặc định | 17 test 400 — "One or more validation errors occurred." |
+| Title status code pages để mặc định | 401/404/429 và 415 ra reason phrase tiếng Anh |
+| `X-Correlation-ID` gắn ngay thay vì `OnStarting` | `Loi_khong_mong_muon_500_…` — "The given header was not found" |
+| Bỏ `[ProducesResponseType(423)]` của login (trọng tài đang gỡ Skip) | `Contract_must_be_fully_implemented` — "POST /auth/login: 423" |
+| Bỏ `Replace` factory (quay về factory của MVC) | 24 test: 22 test 400 + 415 ra title tiếng Anh |
+| Bỏ `ValidationErrors.Localize` | body rỗng / `null` ra "A non-empty request body is required." |
+| Gắn lại `required` cho `LoginRequest` | `{}` và thiếu `password` không có key `email`/`password` (response vẫn sạch nhờ lớp 2) |
+| Gắn lại `[Consumes]` cho login | Ẩn danh sai content type nhận 401 thay vì 415 |
+| `ValidationErrors` để lọt thông điệp ở đường dẫn JSON | 4 unit test `ValidationErrorsTests` |
+| `IncludeErrorDetails = true` (mặc định của JwtBearer) | `Token_sai_chu_ky_hoac_het_han_…` — header lộ `error_description="The signature key was not found"` |
+
+Không test HTTP nào đỏ khi chỉ bỏ `AllowInputFormatterExceptionMessages = false` — đúng thiết kế: lớp 2 (`ValidationErrors`) vẫn chặn,
+và lớp 2 có unit test riêng.
+
+Kiểm tay trên dev (API chạy từ `bin/` với `Development`, gọi bằng `curl`): body rỗng → `errors.body` "Thiếu nội dung yêu cầu."; `{}` tới
+register → `email`/`password` "… là bắt buộc."; field lạ `role`, `password` sai kiểu → key đúng tên trường, thông điệp cố định; JSON hỏng →
+`body`; không response nào chứa `SocialApp.`, `System.` hay vị trí byte. Ẩn danh `text/plain` tới `/auth/login` → **415**; ẩn danh `GET
+/auth/login` → 401 (quyết định ở trên); email không tồn tại → 401 "Xác thực thất bại"; `/ping/boom` → 500 không `detail`. **Mọi response
+có `X-Correlation-ID`**, kể cả 500. Lượt kiểm tay này tìm ra lỗi #6 (`error_description` trong `WWW-Authenticate` với token sai chữ ký)
+— sửa rồi khóa bằng test, không kiểm tay lại.
+
+**Bảng rà thông điệp** — mọi lỗi nhóm auth có thể trả ra (không email, id, tên bảng, tên kiểu .NET, stack trace):
+
+| Nguồn | Status | `title` | `detail` / `errors` |
+|---|---|---|---|
+| `IdentityErrors.EmailTaken` | 409 | Xung đột dữ liệu | Email này đã được đăng ký. |
+| `IdentityErrors.VerifyTokenInvalid` | 400 | Dữ liệu không hợp lệ | Liên kết xác minh không hợp lệ. |
+| `IdentityErrors.VerifyTokenGone` | 410 | Liên kết không còn hiệu lực | Liên kết xác minh đã hết hạn hoặc đã được sử dụng. |
+| `IdentityErrors.InvalidCredentials` (AC-02, cả hai nhánh) | 401 | Xác thực thất bại | Email hoặc mật khẩu không đúng. |
+| `IdentityErrors.EmailNotVerified` | 403 | Bị từ chối | Tài khoản chưa xác minh email. Vui lòng kiểm tra hộp thư. |
+| `IdentityErrors.Locked` | 423 | Tài khoản tạm khóa | Tài khoản tạm khóa do đăng nhập sai nhiều lần. Vui lòng thử lại sau 15 phút. |
+| `IdentityErrors.SessionInvalid` (refresh, `/me` user đã xóa) | 401 | Phiên không hợp lệ | Phiên đăng nhập không còn hiệu lực. Vui lòng đăng nhập lại. |
+| FluentValidation | 400 | Dữ liệu không hợp lệ | `errors`: "Email là bắt buộc.", "Email tối đa 254 ký tự.", "Email không đúng định dạng.", "Mật khẩu là bắt buộc.", "Mật khẩu phải có ít nhất 8 ký tự.", "Mật khẩu tối đa 72 byte.", "Liên kết xác minh không hợp lệ." |
+| Body hỏng / model binding | 400 | Dữ liệu không hợp lệ | `errors`: "Thiếu nội dung yêu cầu.", "Nội dung yêu cầu không đúng định dạng JSON.", "Giá trị không hợp lệ hoặc trường không được hỗ trợ." — key là tên trường hoặc `body` |
+| JwtBearer: thiếu / sai chữ ký / hết hạn / bị thu hồi (D8) | 401 | Chưa xác thực | không có; header `WWW-Authenticate: Bearer`, không `error_description` |
+| Tầng 2 từ chối | 403 | Bị từ chối | không có |
+| Route lạ / sai method / sai content type / rate limit | 404 / 405 / 415 / 429 | Không tìm thấy tài nguyên / Phương thức không được hỗ trợ / Kiểu nội dung không được hỗ trợ / Quá nhiều yêu cầu | không có |
+| `GlobalExceptionHandler` | 500 | Đã xảy ra lỗi không mong muốn | không có (giấu chi tiết) |
 
 ---
 

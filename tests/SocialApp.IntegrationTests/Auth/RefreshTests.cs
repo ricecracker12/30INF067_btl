@@ -233,6 +233,7 @@ public sealed class RefreshTests(PostgresFixture postgres, IdentityApiFactory fa
         }
 
         Assert.Single(bodies.Distinct());
+        Assert.Equal("Phiên không hợp lệ", JsonNode.Parse(bodies[0])!["title"]?.GetValue<string>());
     }
 
     /// <summary>Endpoint không nhận body (hợp đồng): body lạ đi kèm cookie hợp lệ không gây 400.</summary>

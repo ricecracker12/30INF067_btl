@@ -98,6 +98,7 @@ public sealed class RegisterTests(PostgresFixture postgres, IdentityApiFactory f
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
         var text = await response.Content.ReadAsStringAsync();
         Assert.False(string.IsNullOrWhiteSpace(JsonDocument.Parse(text).RootElement.GetProperty("traceId").GetString()));
+        Assert.Equal("Xung đột dữ liệu", JsonDocument.Parse(text).RootElement.GetProperty("title").GetString());
         Assert.DoesNotContain(email, text, StringComparison.OrdinalIgnoreCase);
         Assert.Single(factory.Emails.SentTo(email));
     }
@@ -146,6 +147,7 @@ public sealed class RegisterTests(PostgresFixture postgres, IdentityApiFactory f
         var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
         Assert.True(problem.GetProperty("errors").TryGetProperty(field, out _), $"errors không có key '{field}': {problem}");
         Assert.False(string.IsNullOrWhiteSpace(problem.GetProperty("traceId").GetString()));
+        Assert.Equal("Dữ liệu không hợp lệ", problem.GetProperty("title").GetString());   // cùng title AppException.Validation (D9)
         Assert.Empty(factory.Emails.SentTo(target));
     }
 

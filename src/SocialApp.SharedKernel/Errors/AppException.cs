@@ -24,15 +24,15 @@ public class AppException : Exception
     }
 
     public static AppException NotFound(string detail) =>
-        new(StatusCodes.Status404NotFound, "Không tìm thấy tài nguyên", detail);
+        new(StatusCodes.Status404NotFound, ProblemTitles.NotFound, detail);
 
     public static AppException Forbidden(string detail = "Bạn không có quyền thực hiện thao tác này") =>
-        new(StatusCodes.Status403Forbidden, "Bị từ chối", detail);
+        new(StatusCodes.Status403Forbidden, ProblemTitles.Forbidden, detail);
 
     public static AppException Conflict(string detail) =>
-        new(StatusCodes.Status409Conflict, "Xung đột dữ liệu", detail);
+        new(StatusCodes.Status409Conflict, ProblemTitles.Conflict, detail);
 
     public static AppException Validation(IReadOnlyDictionary<string, string[]> errors,
-        string detail = "Dữ liệu đầu vào không hợp lệ") =>
-        new(StatusCodes.Status400BadRequest, "Dữ liệu không hợp lệ", detail, errors);
+        string detail = ProblemTitles.ValidationDetail) =>
+        new(StatusCodes.Status400BadRequest, ProblemTitles.BadRequest, detail, errors);
 }

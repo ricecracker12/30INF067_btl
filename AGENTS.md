@@ -107,7 +107,14 @@ client_msg_id khử trùng), `notifications`(UQ recipient+group_key), `reports`,
   lặng, không lỗi (`PresentationBoundaryTests` bắt).
 - **Hợp đồng API là `Modules/<Module>/Presentation/<nhóm>.yaml`, không phải Swagger runtime.** Đổi
   hợp đồng → sửa file đó **trong cùng commit**; `Category=Contract` là cổng CI so hai bên.
-- Lỗi theo **RFC 7807 Problem Details** `{type,title,status,errors,traceId}`.
+- Lỗi theo **RFC 7807 Problem Details** `{type,title,status,errors,traceId}` — **SharedKernel dựng, module không tự chế**:
+  - Lỗi nghiệp vụ: trả `Result`/`Error` rồi `ToActionResult`. Cần nhãn riêng (vd hai 401 khác nhau) thì đặt `Error.Title`;
+    không đặt thì title/type mặc định theo status ở `ProblemTitles`. Title/thông điệp **không** chứa email, id, tên kiểu, stack trace.
+  - Mọi Problem Details của MVC đi qua `SharedKernelProblemDetailsFactory`; `errors` của 400 được `ValidationErrors` làm sạch (key là
+    tên trường, không lộ thông điệp System.Text.Json, không lặp giá trị client gửi). Đừng thay factory hay tự dựng `ProblemDetails`.
+  - DTO request **không** dùng từ khóa C# `required` (body thiếu trường phải tới FluentValidation) — dùng `[Required]` cho Swagger
+    + `= ""`. Action **không** dùng `[Consumes]` (loại action lúc chọn endpoint → gọi ẩn danh sai content type nhận 401 thay vì 415).
+  - Gọi ẩn danh sai method / route lạ → **401**, không 405/404 — cố ý, không cho dò route (`ProblemDetailsTests`).
 - Phân trang **keyset/cursor** (limit 20, tối đa 50), sort ổn định `(created_at, id)` — không OFFSET.
 - Rate limit 100 req/phút/user (10 cho auth). Idempotency: PUT reaction, message theo `client_msg_id`.
 - `JsonStringEnumConverter` + `UnmappedMemberHandling = Disallow` (gửi field lạ → 400).

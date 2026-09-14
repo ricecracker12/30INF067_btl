@@ -32,8 +32,12 @@ public readonly record struct Result<T>(bool IsSuccess, T? Value, Error? Error)
     public static implicit operator Result<T>(Error error) => Failure(error);
 }
 
-/// <summary>Mô tả lỗi nghiệp vụ (mã + thông điệp + status HTTP gợi ý) — trung lập với tầng HTTP.</summary>
-public readonly record struct Error(string Code, string Message, int Status)
+/// <summary>
+/// Mô tả lỗi nghiệp vụ (mã + thông điệp + status HTTP gợi ý) — trung lập với tầng HTTP. <paramref name="Title"/> là nhãn ngắn
+/// ổn định theo LOẠI lỗi (<c>title</c> của Problem Details); để trống thì dùng mặc định theo status
+/// (<see cref="Errors.ProblemTitles"/>). Cả Message lẫn Title KHÔNG chứa dữ liệu người dùng.
+/// </summary>
+public readonly record struct Error(string Code, string Message, int Status, string? Title = null)
 {
     /// <summary>
     /// Một thông điệp duy nhất cho mọi 403 tầng 3 — không nêu id. Service trả CÙNG lỗi này cho "không tồn

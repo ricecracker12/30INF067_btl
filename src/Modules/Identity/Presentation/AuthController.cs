@@ -20,6 +20,10 @@ namespace SocialApp.Modules.Identity.Presentation;
 ///
 /// Không khai <c>[Produces("application/json")]</c> ở class: filter đó ép content type của CẢ lỗi thành
 /// application/json, trong khi hợp đồng yêu cầu application/problem+json.
+///
+/// Không khai <c>[Consumes("application/json")]</c> (bỏ ở D9): nó loại action ngay lúc CHỌN ENDPOINT, request sai content type rơi
+/// vào endpoint 415 nội bộ không có <c>[AllowAnonymous]</c> → gọi ẩn danh nhận 401 "Chưa xác thực" thay vì 415. Không có nó, input
+/// formatter JSON tự trả 415 SAU bước phân quyền, và Swagger vẫn ghi request body <c>application/json</c>.
 /// </summary>
 [ApiController]
 [Route("api/v1/auth")]
@@ -33,7 +37,6 @@ public sealed class AuthController(
 {
     [AllowAnonymous]
     [HttpPost("register")]
-    [Consumes("application/json")]   // không đặt ở class: refresh/logout không có body
     [ProducesResponseType<RegisterResponse>(StatusCodes.Status201Created)]
     [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest, "application/problem+json")]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict, "application/problem+json")]
@@ -47,7 +50,6 @@ public sealed class AuthController(
 
     [AllowAnonymous]
     [HttpPost("verify-email")]
-    [Consumes("application/json")]
     [ProducesResponseType<VerifyEmailResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest, "application/problem+json")]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status410Gone, "application/problem+json")]
@@ -60,7 +62,6 @@ public sealed class AuthController(
 
     [AllowAnonymous]
     [HttpPost("login")]
-    [Consumes("application/json")]
     [ProducesResponseType<TokenResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest, "application/problem+json")]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized, "application/problem+json")]

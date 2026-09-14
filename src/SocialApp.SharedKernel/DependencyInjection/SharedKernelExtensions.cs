@@ -2,8 +2,11 @@ using System.Security.Claims;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Infrastructure;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using SocialApp.SharedKernel.Authentication;
 using SocialApp.SharedKernel.Errors;
 using SocialApp.SharedKernel.Http;
@@ -23,17 +26,36 @@ public static class SharedKernelExtensions
 
     public static IServiceCollection AddSharedKernel(this IServiceCollection services)
     {
-        // RFC 7807: mọi ProblemDetails đều có traceId (= correlation id), instance và type mặc định.
+        // RFC 7807: mọi ProblemDetails đều có traceId (= correlation id), instance và type theo hợp đồng.
         services.AddProblemDetails(options =>
         {
             options.CustomizeProblemDetails = ctx =>
             {
                 ctx.ProblemDetails.Instance ??= ctx.HttpContext.Request.Path;
                 ctx.ProblemDetails.Extensions["traceId"] = ctx.HttpContext.TraceIdentifier;
-                ctx.ProblemDetails.Type ??=
-                    $"https://httpstatuses.io/{ctx.ProblemDetails.Status ?? StatusCodes.Status500InternalServerError}";
+
+                // Framework điền link rfc9110 (ProblemDetailsDefaults, ClientErrorMapping mặc định) TRƯỚC khi hàm này chạy, nên
+                // `Type ??=` không bao giờ kích hoạt — 401/409/500 từng ra tools.ietf.org thay vì type của hợp đồng. Thay link của
+                // framework; type do code tự đặt (khác tools.ietf.org) thì giữ.
+                if (ctx.ProblemDetails.Type is null
+                    || ctx.ProblemDetails.Type.StartsWith("https://tools.ietf.org/", StringComparison.Ordinal))
+                    ctx.ProblemDetails.Type = ProblemTitles.TypeFor(
+                        ctx.ProblemDetails.Status ?? ctx.HttpContext.Response.StatusCode);
             };
         });
+
+        // MỘT factory cho mọi Problem Details do MVC sinh (Problem(), ValidationProblem(), 400 validation tự động, 415/404 của
+        // ClientErrorResultFilter): title/type mặc định + errors đã làm sạch. Replace chứ không TryAdd — đúng dù gọi trước hay sau
+        // AddControllers (MVC chỉ TryAdd factory mặc định). Dùng factory thay vì chỉnh InvalidModelStateResponseFactory: controller
+        // gọi ValidationProblem(ModelState) hay Problem() sẽ đi vòng qua response factory đó.
+        services.Replace(ServiceDescriptor.Singleton<ProblemDetailsFactory, SharedKernelProblemDetailsFactory>());
+
+        // Lớp chặn thứ nhất: System.Text.Json không đưa thông điệp gốc vào ModelState (lộ tên kiểu .NET nội bộ, vị trí byte, tiếng
+        // Anh). Lớp thứ hai là ValidationErrors — vẫn thay mọi lỗi ở đường dẫn JSON nếu ai đó bật lại cờ này.
+        services.PostConfigure<Microsoft.AspNetCore.Mvc.JsonOptions>(options => options.AllowInputFormatterExceptionMessages = false);
+
+        // Thông điệp model binding của MVC — tiếng Việt, không lặp lại giá trị client gửi (ValidationErrors.Localize).
+        services.PostConfigure<MvcOptions>(options => ValidationErrors.Localize(options.ModelBindingMessageProvider));
 
         services.AddExceptionHandler<GlobalExceptionHandler>();
 
@@ -80,7 +102,18 @@ public static class SharedKernelExtensions
         // 401 của JwtBearer và 403 của authorization có BODY RỖNG. Đã AddProblemDetails nên middleware này
         // sinh ProblemDetails (kèm traceId qua CustomizeProblemDetails) cho mọi response 4xx/5xx chưa có body
         // — AGENTS.md Mục 9. AuthZ matrix khẳng định problem+json cho mọi dòng 401/403.
-        app.UseStatusCodePages();
+        // Handler riêng thay mặc định chỉ để đặt title tiếng Việt: mặc định ghi "Unauthorized"/"Too Many Requests"
+        // (ProblemDetailsDefaults điền TRƯỚC CustomizeProblemDetails, nên không sửa được ở đó).
+        app.UseStatusCodePages(async context =>
+        {
+            var http = context.HttpContext;
+            var status = http.Response.StatusCode;
+            await http.RequestServices.GetRequiredService<IProblemDetailsService>().TryWriteAsync(new ProblemDetailsContext
+            {
+                HttpContext = http,
+                ProblemDetails = new ProblemDetails { Status = status, Title = ProblemTitles.For(status) },
+            });
+        });
         return app;
     }
 

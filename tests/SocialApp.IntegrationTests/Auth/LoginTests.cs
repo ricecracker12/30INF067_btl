@@ -95,7 +95,7 @@ public sealed class LoginTests(PostgresFixture postgres, IdentityApiFactory fact
         using var response = await _auth.PostLoginAsync(email, WrongPassword);
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
-        await ReadProblemAsync(response);
+        await ReadProblemAsync(response, "Xác thực thất bại");
         Assert.Null(AuthTestClient.ReadSetCookie(response));
         var row = await _auth.QueryRowAsync("SELECT failed_login_count FROM identity.users WHERE user_id = $1", userId);
         Assert.Equal((short)1, row!["failed_login_count"]);
@@ -153,7 +153,7 @@ public sealed class LoginTests(PostgresFixture postgres, IdentityApiFactory fact
         using var sixth = await _auth.PostLoginAsync(email, AuthTestClient.Password);
 
         Assert.Equal(HttpStatusCode.Locked, sixth.StatusCode);
-        await ReadProblemAsync(sixth);
+        await ReadProblemAsync(sixth, "Tài khoản tạm khóa");
         var row = await _auth.QueryRowAsync("SELECT failed_login_count, locked_until FROM identity.users WHERE user_id = $1", userId);
         Assert.Equal((short)0, row!["failed_login_count"]);
         var lockedUntil = new DateTimeOffset((DateTime)row["locked_until"]!);
@@ -233,7 +233,7 @@ public sealed class LoginTests(PostgresFixture postgres, IdentityApiFactory fact
         using var response = await _auth.PostLoginAsync(email, AuthTestClient.Password);
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
-        await ReadProblemAsync(response);
+        await ReadProblemAsync(response, "Bị từ chối");
         Assert.Null(AuthTestClient.ReadSetCookie(response));
         var count = await _auth.QueryRowAsync("SELECT count(*) AS n FROM identity.refresh_tokens WHERE user_id = $1", userId);
         Assert.Equal(0L, count!["n"]);
@@ -292,7 +292,7 @@ public sealed class LoginTests(PostgresFixture postgres, IdentityApiFactory fact
         using var response = await _auth.PostLoginAsync(email, password);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        var problem = await ReadProblemAsync(response);
+        var problem = await ReadProblemAsync(response, "Dữ liệu không hợp lệ");
         Assert.True(problem.GetProperty("errors").TryGetProperty(field, out _), $"errors không có key '{field}': {problem}");
     }
 
@@ -343,11 +343,13 @@ public sealed class LoginTests(PostgresFixture postgres, IdentityApiFactory fact
             .OrderBy(h => h.Key, StringComparer.OrdinalIgnoreCase)
             .Select(h => $"{h.Key}: {string.Join(",", h.Value)}"));
 
-    private static async Task<JsonElement> ReadProblemAsync(HttpResponseMessage response)
+    /// <summary>Title bắt buộc truyền: hợp đồng <c>required: [title, status, traceId]</c>, 423 từng ra KHÔNG có title (D9).</summary>
+    private static async Task<JsonElement> ReadProblemAsync(HttpResponseMessage response, string expectedTitle)
     {
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
         var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
         Assert.False(string.IsNullOrWhiteSpace(problem.GetProperty("traceId").GetString()));
+        Assert.Equal(expectedTitle, problem.TryGetProperty("title", out var title) ? title.GetString() : null);
         return problem;
     }
 }

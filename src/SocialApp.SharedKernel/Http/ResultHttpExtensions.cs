@@ -46,6 +46,10 @@ public static class ResultHttpExtensions
     /// </summary>
     public static ObjectResult ToActionResult(this Error error, ControllerBase controller) => Problem(controller, error);
 
+    /// <summary>
+    /// <see cref="Error.Title"/> null thì <c>SharedKernelProblemDetailsFactory</c> điền title mặc định theo status — factory mặc
+    /// định của MVC để 410/423 KHÔNG có title, trái <c>required</c> của hợp đồng (D9).
+    /// </summary>
     private static ObjectResult Problem(ControllerBase controller, Error error) =>
-        controller.Problem(statusCode: error.Status, detail: error.Message);
+        controller.Problem(statusCode: error.Status, detail: error.Message, title: error.Title);
 }
