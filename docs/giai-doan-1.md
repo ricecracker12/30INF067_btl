@@ -52,7 +52,7 @@ xuyên suốt tài liệu và cả GĐ2–GĐ8.
 |---|---|---|
 | FR-001 | Đăng ký tài khoản + xác minh email | US-001 |
 | FR-002 | Đăng nhập cấp JWT (access 15 phút) + refresh token rotation | US-002, ADR-002 |
-| FR-003 | Khóa tài khoản sau 5 lần đăng nhập sai trong 15 phút | US-002 AC-03 |
+| FR-003 | Khóa tài khoản 15 phút sau 5 lần đăng nhập sai **liên tiếp** (chốt 2026-09-14 thay cho "trong 15 phút" — không có cửa sổ thời gian) | US-002 AC-03 |
 | Mục 6.7.1 | Ba tầng kiểm soát truy cập hoạt động đầy đủ (AuthN → RBAC → Ownership) | Báo cáo 6.7.1 |
 | Mục 6.7.2 | RBAC **dữ liệu hóa**: ma trận Role–Permission nằm trong DB, không hard-code | ENT-10/10a/10b |
 | NFR-SEC-01 | BCrypt cost 12; refresh token lưu dạng băm, không lưu bản rõ | Báo cáo 6.7 |
@@ -82,7 +82,7 @@ bị chặn đúng mã lỗi.
   401→refresh**. Đây là thay đổi so với bản A của kế hoạch tổng, nơi frontend hoãn tới GĐ2
 - **Cổng mở / cổng đóng hợp đồng API** — OpenAPI stub chốt ở đầu giai đoạn, ráp thật trên staging ở
   cuối giai đoạn (Mục 9)
-- Lockout 5 lần / 15 phút
+- Lockout: 5 lần sai liên tiếp → khóa 15 phút
 - `[RequirePermission]` + policy handler trong SharedKernel (dùng chung cho mọi module sau)
 - Quy ước kiểm tra ownership (tầng 3) + khuôn test AuthZ matrix
 - Harness integration test trên Postgres thật (Testcontainers)
@@ -1424,7 +1424,8 @@ trước khi xanh, kèm một bảng đột biến thử một lần (hướng d
 ### 10.3 Unit test
 
 BCrypt (cost đúng 12, verify đúng/sai), sinh & xác thực JWT (claims đủ, hết hạn, sai chữ ký),
-quy tắc lockout (ngưỡng 5, cửa sổ 15 phút, reset sau đăng nhập thành công), validator đăng ký.
+quy tắc lockout (ngưỡng 5 lần sai **liên tiếp**, khóa 15 phút, reset sau đăng nhập thành công — không có cửa sổ
+thời gian cho các lần sai), validator đăng ký.
 
 ### 10.4 Architecture test
 
@@ -2219,7 +2220,7 @@ không đổi kể cả khi lịch trượt.
 |---|---|---|---|
 | **FR-001** | Đăng ký + xác minh email | D1, D2 | AC-04, E2E-01 |
 | **FR-002** | Đăng nhập cấp JWT + refresh rotation | D3, D5 | AC-01, RT-01→04 |
-| **FR-003** | Khóa tài khoản sau 5 lần sai trong 15 phút | D3 | AC-03 |
+| **FR-003** | Khóa tài khoản 15 phút sau 5 lần sai liên tiếp | D3 | AC-03 |
 | **Mục 6.7.1** | Ba tầng kiểm soát truy cập chạy đủ | C4 (tầng 1) · C1–C3, C5 (tầng 2) · **C6** (khuôn tầng 3) | TC-A01/A02, RBAC-01/02/02b/02c, DEFAULT-DENY, OWN-00 |
 | **Mục 6.7.2** | RBAC **dữ liệu hóa** — ma trận trong DB, không hard-code | A4, C5 | SEED-02, kiểm tay ở Mục 12 |
 | **NFR-SEC-01** | BCrypt cost 12; refresh token lưu băm | D1, D5 | Đọc trực tiếp DB (Mục 12) |

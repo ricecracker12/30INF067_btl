@@ -253,7 +253,7 @@ còn biên độ thêm index/cache nếu trượt; và thứ cắt được thì
 > matrix thành cổng chặn trong CI.
 
 - **Làm gì:** Đăng ký + xác minh email (FR-001), đăng nhập cấp JWT + refresh rotation (FR-002),
-  lockout 5 lần/15 phút (FR-003), RBAC 3 tầng (Mục 6.7.1), seed roles/permissions (ENT-10/10a/10b).
+  lockout 5 lần sai liên tiếp → khóa 15 phút (FR-003), RBAC 3 tầng (Mục 6.7.1), seed roles/permissions (ENT-10/10a/10b).
 - **Quyết định thiết kế đã chốt** *(4 điểm đầu lệch v5.0 — xem Mục "Sai khác so với báo cáo v5.0")*:
   1. JWT claim `role` mang `code` chuỗi (`'USER'`/`'MODERATOR'`/`'ADMIN'`) — **mọi vai trò, không
      riêng Admin**; `role_id` kiểu số chỉ sống trong DB. `code` bất biến theo hợp đồng API.
