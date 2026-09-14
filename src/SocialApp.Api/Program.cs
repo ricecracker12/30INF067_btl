@@ -16,6 +16,7 @@ using SocialApp.SharedKernel.Authentication;
 using SocialApp.SharedKernel.Authorization;
 using SocialApp.SharedKernel.Configuration;
 using SocialApp.SharedKernel.DependencyInjection;
+using SocialApp.SharedKernel.Http;
 
 // Service `migrate` (one-shot, chạy ở bước deploy) gọi với cờ --migrate: apply EF migration cho
 // mọi module context, nạp dữ liệu nền + kiểm tra vai trò hệ thống, rồi thoát 0 (lỗi thì thoát khác 0).
@@ -171,6 +172,48 @@ builder.Services.AddIdentityModule(postgres);
 // mang giá trị staging.
 builder.Services.AddIdentityEmail(builder.Configuration, builder.Environment);
 
+// --- CORS cho lane frontend (quyết định 7 của cổng mở): origin TƯỜNG MINH + AllowCredentials ---
+// Kiểm SAU AddIdentityEmail: StartupConfigurationTests dựng Staging thiếu cấu hình mail và khẳng định thông báo nêu Smtp:*.
+const string FrontendCorsPolicy = "frontend";
+var corsOrigins = RequireCorsOrigins();
+builder.Services.AddCors(o => o.AddPolicy(FrontendCorsPolicy, p => p
+    .WithOrigins(corsOrigins)          // chuẩn CORS cấm AllowCredentials kèm AllowAnyOrigin — ASP.NET ném ở request đầu
+    .AllowAnyHeader()
+    .AllowAnyMethod()
+    .AllowCredentials()                // thiếu: trình duyệt IM LẶNG không gửi cookie refresh → /auth/refresh luôn 401
+    .WithExposedHeaders(CorrelationIdMiddleware.HeaderName)));   // FE đọc được X-Correlation-ID = traceId của lỗi
+
+// Ngoài Development thiếu origin thì chết ngay, cùng tinh thần RequireConnectionString; Development lấy http://localhost:3000
+// từ appsettings.Development.json. Origin phải đúng dạng trình duyệt gửi — scheme://host[:port], không path, không "/" cuối:
+// lệch một ký tự là không bao giờ khớp và không có lỗi nào báo, nên sai dạng cũng từ chối khởi động (ở mọi môi trường).
+string[] RequireCorsOrigins()
+{
+    var origins = (builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [])
+        .Where(o => !string.IsNullOrWhiteSpace(o))
+        .Select(o => o.Trim())
+        .ToArray();
+
+    var invalid = origins
+        .Where(o => !Uri.TryCreate(o, UriKind.Absolute, out var uri)
+                 || uri.Scheme is not ("http" or "https")
+                 || uri.PathAndQuery != "/"
+                 || o.EndsWith('/'))
+        .ToList();
+    if (invalid.Count > 0)
+        throw new InvalidOperationException(
+            $"Cors:AllowedOrigins có giá trị không phải origin hợp lệ ở môi trường '{builder.Environment.EnvironmentName}': "
+          + $"{string.Join(", ", invalid)}. Origin có dạng scheme://host[:port] — không path, không dấu / ở cuối. "
+          + "Sửa biến môi trường Cors__AllowedOrigins__<n> trong deploy/.env rồi deploy lại.");
+
+    if (origins.Length == 0 && !builder.Environment.IsDevelopment())
+        throw new InvalidOperationException(
+            $"Thiếu Cors:AllowedOrigins ở môi trường '{builder.Environment.EnvironmentName}'. "
+          + "Đặt biến môi trường Cors__AllowedOrigins__0=https://<domain frontend> trong deploy/.env rồi deploy lại. "
+          + "App từ chối khởi động thay vì chạy tiếp với cấu hình thiếu.");
+
+    return origins;
+}
+
 // --- Tầng 1 (AuthN, Mục 6.1): JWT Bearer ---
 // JwtOptions đã validate và đã giải fallback deploy/.env: phát token (D3) và TTL revoked:user (D8) lấy
 // IOptions<JwtOptions> từ đây, KHÔNG đọc lại section "Jwt" — đọc lại thì mất khóa lấy từ deploy/.env.
@@ -237,6 +280,10 @@ if (app.Environment.IsDevelopment() || app.Environment.IsStaging())
             c.SwaggerEndpoint($"/swagger/{name}/swagger.json", title);
     });
 }
+
+// CORS TRƯỚC tầng 1 + tầng 2. Đứng sau UseAuthorization thì preflight (không mang token) bị fallback policy trả 401, và
+// 401 thật không mang header CORS nên trình duyệt báo "CORS error" thay vì cho FE thấy mã 401 (CorsTests canh cả hai).
+app.UseCors(FrontendCorsPolicy);
 
 // Tầng 1 + tầng 2, TRƯỚC rate limiter — xem UseSharedKernelRateLimiter. Không test tự động nào bắt được
 // thứ tự này (B.9 điều 3): đổi chỗ ba dòng dưới phải qua code review.

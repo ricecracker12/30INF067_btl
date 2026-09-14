@@ -9,8 +9,9 @@
 > nào tài liệu này lệch ba nguồn đó thì sửa ở đây — trừ các quyết định ở Mục 1 được đánh dấu **"ghi
 > ngược"**: những chỗ đó tài liệu gốc đang thiếu hoặc sai, phải sửa `giai-doan-1.md` trong cùng commit.
 
-> **Trạng thái: đang làm — `D0`–`D3` và `D7` xong (xem "Thực tế thi công" cuối Mục 2, 3, 4, 5, 9). `D0`–`D2` đã
-> commit + push lên `loveart1210` (`37b6b76`, CI xanh — run 34837717169); `D3`, `D7` chưa commit. Tiếp theo `D4`.** Khối A, B, C đã xong
+> **Trạng thái: đang làm — `D0`–`D4` và `D7` xong (xem "Thực tế thi công" cuối Mục 2–6, 9). Đã commit + push lên
+> `loveart1210`: `D0`–`D2` (`37b6b76`, CI xanh — run 34837717169), `D3` + `D7` (`adea0c3`, CI xanh — run 34841092562);
+> `D4` chưa commit. Tiếp theo `D5`.** Khối A, B, C đã xong
 > (commit `105077c` → `2d25ae6`, merge ở `455b597`).
 
 | | |
@@ -1083,6 +1084,48 @@ app.UseSharedKernelRateLimiter();
 | 4 | **FE dev ở `localhost:3000` gọi thẳng API staging** → khác site → `SameSite=Lax` chặn cookie trên `fetch` → refresh luôn 401 | Báo lane FE: dev dùng API local, hoặc Next.js `rewrites` proxy `/api` về cùng origin. Staging: FE và API **cùng site** |
 | 5 | Test đọc cookie bằng cookie jar của `HttpClient` với `BaseAddress` `http://` → cookie `Secure` không bao giờ gửi lại | `AuthTestClient` tự quản cookie (D0 bước 6) |
 | 6 | Staging `.env` thiếu `Cors__AllowedOrigins__0` → api crash-loop sau merge | Ghi vào checklist F1 cạnh `Jwt__SigningKey` |
+
+### Thực tế thi công
+
+**Bằng chứng.** `dotnet test SocialApp.sln`: Unit 53 → 59 (+6 `RefreshCookieFormatTests`), Architecture 9, Integration
+97 → 107 (+5 `CorsTests`, +1 `Auth/RefreshCookieTests`, +4 test CORS trong `StartupConfigurationTests`). D4 không thêm
+endpoint nên cổng hợp đồng không đổi.
+
+Kiểm tay trên dev (API chạy từ `bin/` với `Development`, gửi request thô không qua trình duyệt): preflight `login` từ
+`http://localhost:3000` → 204 kèm `Access-Control-Allow-Origin: http://localhost:3000` + `Access-Control-Allow-Credentials:
+true`; từ `https://evil.example` → 204 **không** có header CORS nào; preflight `/me` → 204 (không 401); `GET /me` không token
+từ `localhost:3000` → 401 **vẫn** mang hai header trên.
+
+Thời gian: bộ integration chạy 45 s ở cả hai lần sau D4 (D3/D7 từng đo 25 s). Tách theo lớp bằng trx: phần D4 thêm chỉ khoảng
+3,7 s (`StartupConfigurationTests` 2,4 s cả lớp, `RefreshCookieTests` 0,9 s, `CorsTests` 0,4 s). Nặng nhất là
+`LoginTests` 26,1 s (16 test, hàng chục phép BCrypt cost 12 — phụ thuộc CPU lúc chạy), rồi `SmokeEndpointsTests` 9,6 s
+(chờ Redis timeout, có từ GĐ0). Khi collection Postgres vượt ~3 phút thì tách collection theo ghi chú ở `PostgresFixture`.
+
+Thử cho đỏ ở local rồi khôi phục:
+
+| Đột biến | Test đỏ |
+|---|---|
+| `UseCors` chuyển xuống sau `UseAuthorization` | 3 `CorsTests`: preflight tới `/me` **và** tới `/auth/login` nhận **401** (preflight `OPTIONS` không khớp endpoint nào nên fallback policy chặn), 401 thật không mang `Access-Control-Allow-Origin` |
+| Bỏ `.AllowCredentials()` — chạy **riêng**, vì lần đầu bị đột biến trên che | `Preflight_tu_frontend_…` và `Response_401_…`: thiếu `Access-Control-Allow-Credentials: true` |
+| Tắt fail-fast khi thiếu origin | `Missing_cors_origins_must_fail_fast_outside_development` |
+| `RefreshCookie.Clear` dùng `Cookies.Delete(Name)` (bẫy 3) | `RefreshCookieFormatTests.Clear_…` — `Max-Age` ra `null` thay vì 0 |
+
+**Chỗ lệch so với các bước trên — đã làm như sau:**
+
+- **`RefreshCookie.cs` đã có từ `D3`**; D4 chỉ thêm test. Ngoài test integration (login → 5 thuộc tính, cả dạng đã parse lẫn
+  chuỗi thô, không có `Domain`) còn có unit test trên `DefaultHttpContext` cho `Set`/`Clear`/`Read`, nên `Clear` cùng Path
+  được canh ngay từ D4 thay vì chờ D5/D6.
+- **Preflight gọi `/api/v1/auth/login` và `/api/v1/me`** thay vì `/auth/refresh` (chưa có ở D4). `/me` đòi token nên canh
+  đúng thứ tự `UseCors`.
+- **Kiểm cấu hình CORS đặt sau `AddIdentityEmail`**, không "cạnh `RequireJwtOptions`": các test fail-fast mail chạy Staging
+  không đặt CORS. Helper `StagingWithEmailConfig` đặt thêm `Cors:AllowedOrigins:0`.
+- **Thêm ngoài tài liệu:**
+  - 401 thật vẫn mang header CORS — interceptor 401→refresh của FE mới đọc được mã 401;
+  - `Access-Control-Expose-Headers` có `X-Correlation-ID` (kiểm trên `/api/v1/ping`);
+  - origin **sai dạng** (`/` cuối, có path, thiếu scheme) cũng từ chối khởi động ở mọi môi trường, vì lệch một ký tự là không
+    bao giờ khớp mà không lỗi nào báo;
+  - `CorsTests` chạy trên `ApiFactory`, không cần DB.
+- Kiểm tay DevTools từ `localhost:3000` cần lane FE có màn đăng nhập — vẫn để ở checklist Mục 15.
 
 ---
 

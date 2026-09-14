@@ -174,6 +174,37 @@ public sealed class StartupConfigurationTests
         Assert.Contains($"http://localhost:3000/verify-email?token={token}", FakeSmtpServer.DecodeBody(raw), StringComparison.Ordinal);
     }
 
+    /// <summary>D4: ngoài Development thiếu origin CORS thì từ chối khởi động — thiếu là FE bị trình duyệt chặn ở mọi request.</summary>
+    [Fact]
+    public void Missing_cors_origins_must_fail_fast_outside_development()
+    {
+        using var factory = StagingWithEmailConfig(b => b.UseSetting("Cors:AllowedOrigins:0", string.Empty));
+
+        var ex = Assert.Throws<InvalidOperationException>(() => factory.CreateClient());
+
+        Assert.Contains("Cors:AllowedOrigins", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("Cors__AllowedOrigins__0", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("Staging", ex.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// D4: trình duyệt gửi Origin dạng scheme://host[:port]. Cấu hình có "/" cuối hay path thì không bao giờ khớp mà không lỗi nào
+    /// báo — nên từ chối khởi động, thông báo nêu đúng giá trị sai.
+    /// </summary>
+    [Theory]
+    [InlineData("https://app.example.com/")]
+    [InlineData("https://app.example.com/app")]
+    [InlineData("app.example.com")]
+    public void Invalid_cors_origin_must_fail_fast(string origin)
+    {
+        using var factory = StagingWithEmailConfig(b => b.UseSetting("Cors:AllowedOrigins:0", origin));
+
+        var ex = Assert.Throws<InvalidOperationException>(() => factory.CreateClient());
+
+        Assert.Contains("Cors:AllowedOrigins", ex.Message, StringComparison.Ordinal);
+        Assert.Contains(origin, ex.Message, StringComparison.Ordinal);
+    }
+
     private static WebApplicationFactory<Program> StagingWithEmailConfig(Action<IWebHostBuilder> tweak) =>
         new WebApplicationFactory<Program>().WithWebHostBuilder(b =>
         {
@@ -185,6 +216,7 @@ public sealed class StartupConfigurationTests
             b.UseSetting("Smtp:Port", "1025");
             b.UseSetting("Smtp:From", "no-reply@example.com");
             b.UseSetting("Frontend:BaseUrl", "https://app.example.com");
+            b.UseSetting("Cors:AllowedOrigins:0", "https://app.example.com");   // D4 — thiếu thì Staging từ chối khởi động
             tweak(b);
         });
 
