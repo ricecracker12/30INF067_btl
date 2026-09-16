@@ -2031,10 +2031,11 @@ liệu seed thật. Nguồn quyền giả chỉ còn trong unit test.
 ### E1 — Scaffold Next.js 16 + shadcn/ui preset
 
 - **Mục tiêu:** có nền để dựng màn, và bộ primitive dùng lại được cho GĐ2–GĐ8.
-- **Cách thực thi:** `pnpm dlx shadcn@latest init --preset b2C6hQKDg --template next --name frontend` **chạy từ `src/`** — Next.js 16
+- **Cách thực thi:** `pnpm dlx shadcn@latest init --preset b50KEhMiu --template next --name frontend` **chạy từ `src/`** — Next.js 16
   App Router + TypeScript + Tailwind v4 + shadcn/ui (Base UI, style `base-maia`). Token nằm trong `app/globals.css` do
   preset sinh; primitive (button, input, field, alert) thêm bằng `pnpm exec shadcn add` trước khi dựng màn — dựng màn
-  trước thì mỗi màn một kiểu. *(Chốt 2026-09-15: Next.js 14 → 16, npm → pnpm.)*
+  trước thì mỗi màn một kiểu. *(Chốt 2026-09-15: Next.js 14 → 16, npm → pnpm. Sửa 2026-09-16: mã preset `b2C6hQKDg` →
+  `b50KEhMiu` — theme `rose`, font `inter`; lý do ở `huong-dan-khoi-e-frontend.md` Đ-E9.)*
 - **Cấu trúc thư mục — bốn tầng, chốt 2026-09-16** (Đ-E13, thay tầng `components/<tính-năng>/` chốt trước đó):
   `app/` chỉ ráp trang → `features/<màn>/` giữ nghiệp vụ → `components/` (`ui/` kit, `form/`, `shell/`) giữ UI **không biết
   nghiệp vụ** → `lib/` (`api/`, `auth/`, `validation/`) giữ hạ tầng. Phụ thuộc một chiều, ESLint chặn import ngược và import

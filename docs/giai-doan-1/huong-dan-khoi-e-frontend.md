@@ -8,7 +8,7 @@
 > Chỗ nào tài liệu này lệch ba nguồn đó thì sửa ở đây — trừ các quyết định ở Mục 1 đánh dấu **"cần ghi ngược"**: tài
 > liệu gốc đang thiếu hoặc mâu thuẫn ở những chỗ đó, phải sửa `giai-doan-1.md` trong cùng commit với việc tương ứng.
 
-> **Trạng thái: E1 đang dở (cập nhật 2026-09-16)** — Bước 1 đã chạy: `src/frontend/` có scaffold thật (`app/`, `components/ui/button.tsx`, `lib/utils.ts`, `components.json`, `pnpm-lock.yaml`), `.git` lồng đã xóa, tất cả đang staged. **Bước 2–8 chưa làm** — xem bảng ở Mục 2. **Stack FE chốt 2026-09-15: Next.js 16 + pnpm + shadcn/ui preset `b2C6hQKDg`** (Đ-E9, Đ-E12). **Khối D đã xong** (`37b6b76` → `14e843f`): sáu endpoint
+> **Trạng thái: E1 đang dở (cập nhật 2026-09-16)** — Bước 1 đã chạy lại từ đầu bằng preset **`b50KEhMiu`** (thay `b2C6hQKDg`, lý do ở Đ-E9): `src/frontend/` có scaffold thật (`app/`, `components/ui/` 10 component, `lib/utils.ts`, `components.json`, `pnpm-lock.yaml`), `.git` lồng đã xóa, `lint`/`typecheck`/`build` xanh, chưa commit. **Bước 2–8 còn dở** — xem bảng ở Mục 2. **Stack FE chốt 2026-09-15: Next.js 16 + pnpm + shadcn/ui preset `b50KEhMiu`** (Đ-E9, Đ-E12). **Khối D đã xong** (`37b6b76` → `14e843f`): sáu endpoint
 > chạy thật trên dev, cookie + CORS đã kiểm bằng test. Hệ quả: E3–E7 không phải chờ ai — kiểm được trên **API dev thật**
 > ngay khi xong trên mock, và `E7` (vốn cần `D4`) làm được luôn.
 
@@ -24,7 +24,7 @@
 
 | Mã | Đầu việc | Mục tiêu — việc này tồn tại để làm gì | Kết quả mong đợi — thứ kiểm chứng được |
 |---|---|---|---|
-| **E1** | Scaffold Next.js 16 + shadcn/ui preset `b2C6hQKDg` | Có nền để dựng màn, và bộ primitive dùng lại cho GĐ2–GĐ8 lấy từ **một** kit — dựng màn trước thì mỗi màn một kiểu | `src/frontend/` sinh bằng `shadcn init --preset b2C6hQKDg --template next`, không repo lồng; `pnpm dev`/`lint`/`typecheck`/`build` xanh; kit `button input label field alert card skeleton spinner sonner`; composite `TextField`; font có subset `vietnamese`; ESLint chặn màu thô, import Base UI trực tiếp, icon ngoài lucide (đã thử cho đỏ); layout `(auth)` dùng kit |
+| **E1** | Scaffold Next.js 16 + shadcn/ui preset `b50KEhMiu` | Có nền để dựng màn, và bộ primitive dùng lại cho GĐ2–GĐ8 lấy từ **một** kit — dựng màn trước thì mỗi màn một kiểu | `src/frontend/` sinh bằng `shadcn init --preset b50KEhMiu --template next`, không repo lồng; `pnpm dev`/`lint`/`typecheck`/`build` xanh; kit `button input label field alert card skeleton spinner sonner`; composite `TextField`; font có subset `vietnamese`; ESLint chặn màu thô, import Base UI trực tiếp, icon ngoài lucide (đã thử cho đỏ); layout `(auth)` dùng kit |
 | **E2** | Sinh type từ hợp đồng + api client + mock MSW | Biến "đổi hợp đồng mà quên sửa FE" thành **lỗi compile** trên máy và **đỏ CI**, thay vì lỗi runtime ở staging | `pnpm gen:api` sinh `lib/api/schema.d.ts` (commit vào repo); type test `RoleCode` = `'USER' \| 'MODERATOR' \| 'ADMIN'`; `fetch` chỉ xuất hiện trong `http.ts` (ESLint chặn); mọi lời gọi `credentials: 'include'` (unit test); `ApiError` đọc được Problem Details kể cả khi body không phải JSON; job CI `frontend` có cổng **codegen lệch → đỏ** (đã thử cho đỏ một lần) |
 | **E3** | Màn đăng ký | FR-001 phía người dùng; validation client **không chặt hơn** server, riêng mật khẩu **khớp đúng** | `/register` trên mock: 201 → `/register/check-email`; 400 hiện lỗi **theo trường** từ `errors`; 409 có thông điệp + link đăng nhập; 429/500/mất mạng có giao diện. Unit test bảng ngưỡng mật khẩu: 7 ký tự đỏ, 8 xanh, 72 byte xanh, 73 byte đỏ, chuỗi tiếng Việt 40 ký tự > 72 byte đỏ |
 | **E4** | Màn đăng nhập | Dịch mã lỗi thành thông điệp người đọc hiểu **mà không lộ email có tồn tại hay không**; token chỉ ở memory | `/login` trên mock: 401/403/423/429 mỗi mã một thông điệp (401 **một** thông điệp duy nhất); 200 → về `next` (đã lọc open redirect) hoặc `/me`; ESLint cấm `localStorage`/`sessionStorage`; Playwright trên API dev: sau đăng nhập `localStorage` + `sessionStorage` rỗng, `document.cookie` không có `refresh_token` |
@@ -177,11 +177,23 @@ Tài liệu gốc chưa nói đủ để gõ code ở những chỗ dưới đâ
   tay ghi bằng chứng" của khối D.
 - Job CI `frontend`: `pnpm install --frozen-lockfile` → cổng codegen → lint → typecheck → Vitest → build (E2).
 
-**Đ-E9 — Stack FE: Next.js 16 + pnpm + shadcn/ui preset `b2C6hQKDg`; ghim phiên bản chính xác.** *(chốt 2026-09-15 — thay Next.js 14 + npm; đã ghi ngược `AGENTS.md` Mục 3, `giai-doan-1.md` B.7/E1, `ke-hoach-trien-khai.md`, `README.md`)*
+**Đ-E9 — Stack FE: Next.js 16 + pnpm + shadcn/ui preset `b50KEhMiu`; ghim phiên bản chính xác.** *(chốt 2026-09-15 — thay Next.js 14 + npm; đã ghi ngược `AGENTS.md` Mục 3, `giai-doan-1.md` B.7/E1, `ke-hoach-trien-khai.md`, `README.md`)* *(sửa 2026-09-16 — mã preset `b2C6hQKDg` → `b50KEhMiu`, xem ghi chú ngay dưới)*
+
+> **Đổi preset 2026-09-16 (nhóm chốt).** Mã cũ `b2C6hQKDg` được mô tả trong tài liệu là theme `emerald`, nhưng scaffold thật
+> trên đĩa lại ra theme `rose` + font `dm-sans` + `Noto_Serif` cho heading (`shadcn info` báo `b5EiQOC4fY`) — tài liệu và mã
+> nguồn đã lệch nhau từ bước 1. Chốt lấy `b50KEhMiu` làm mã thật: cùng `maia` / `neutral` / `lucide`, theme `rose`, nhưng
+> **font `inter`, `fontHeading: inherit`, radius `medium`** — tức preset làm sẵn ba dòng đầu của bảng "Bước 2" bên dưới,
+> không phải sửa tay nữa. Đã chạy lại `init` với mã mới (2026-09-16): `lint`/`typecheck`/`build` xanh.
 
 - **Vì sao đổi:** kit shadcn/ui của preset (Base UI, style `base-maia`) dựng trên Tailwind v4 + React 19 — ép về Next 14 là
-  không dùng được kit. Đã chạy thử `init --preset b2C6hQKDg --template next` (2026-09-15): ra Next 16.3.4, React 19.2.8,
-  Tailwind v4, ESLint 10, pnpm, `next-themes`.
+  không dùng được kit. Đã chạy `init --preset b50KEhMiu --template next` (2026-09-16): ra Next 16.3.4, React 19.2.8,
+  Tailwind v4, pnpm, `next-themes`.
+- **Template ghim `eslint: "^10"` nhưng ESLint 10 chạy không được ở đây.** `eslint-config-next@16.3.4` kéo
+  `eslint-plugin-react@7.37.5`, bản này gọi API cũ của ESLint → `pnpm lint` ném
+  `TypeError: contextOrFilename.getFilename is not a function` ngay ở `app/page.tsx`. Sau init phải hạ:
+  `pnpm add -D "eslint@^9"` → giải ra `9.39.5`. Lưu ý `--save-exact` **không** thắng được spec `^9`: `package.json` vẫn ghi
+  `"^9.39.5"`. Muốn ghim cứng thì sửa tay lúc làm nốt phần ghim của Đ-E9. Gỡ chốt này khi `eslint-config-next` lên bản hỗ
+  trợ ESLint 10.
 - Ba thay đổi của Next 16 chạm tới tài liệu này: `middleware.ts` **đổi tên thành `proxy.ts`**; `next lint` bị bỏ (script
   `lint` gọi thẳng `eslint`, cấu hình flat `eslint.config.mjs`); Node **≥ 20.9**. Template không dùng `src/` — mã FE nằm ở
   `src/frontend/app`, `src/frontend/components`, `src/frontend/lib`.
@@ -221,10 +233,11 @@ Template ghi `^` cho gần hết gói: sau init, **xóa mọi `^`/`~`** trong `p
   - mọi lời gọi API chạy **phía client** (token ở memory của trình duyệt); GĐ1 không có Server Component nào gọi API.
 - `.dockerignore` gốc đang loại `src/frontend/` khỏi context của image backend — đúng, giữ nguyên; FE có `.dockerignore` riêng.
 
-**Đ-E12 — Mọi UI theo kit shadcn/ui của preset `b2C6hQKDg`; lệch kit là lỗi, không phải phong cách.** *(chốt 2026-09-15)*
+**Đ-E12 — Mọi UI theo kit shadcn/ui của preset `b50KEhMiu`; lệch kit là lỗi, không phải phong cách.** *(chốt 2026-09-15; sửa mã preset 2026-09-16 — xem ghi chú ở Đ-E9)*
 
-Preset (đã giải mã bằng `shadcn preset decode b2C6hQKDg`): Base UI · style `maia` · base color `neutral` · theme `emerald` · icon
-`lucide` · font `inter` · radius `medium` · có dark mode (`next-themes`, mặc định theo hệ thống).
+Preset (đã giải mã bằng `shadcn preset decode b50KEhMiu`): Base UI · style `maia` · base color `neutral` · theme `rose` ·
+chart color `rose` · icon `lucide` · font `inter` · fontHeading `inherit` · radius `medium` · có dark mode (`next-themes`,
+mặc định theo hệ thống). Token thật sau init: `--primary: oklch(0.514 0.222 16.935)`, `--radius: 0.625rem`.
 
 1. **`components.json` là nguồn sự thật của kit**, commit vào repo. Không sửa tay `style`, `baseColor` — shadcn ghi rõ hai trường
    này không đổi được sau init.
@@ -293,7 +306,7 @@ Preset (đã giải mã bằng `shadcn preset decode b2C6hQKDg`): Base UI · sty
 
 ---
 
-## 2. E1 — Scaffold Next.js 16 + shadcn/ui preset `b2C6hQKDg`
+## 2. E1 — Scaffold Next.js 16 + shadcn/ui preset `b50KEhMiu`
 
 **Mục tiêu.** Có nền để dựng màn, và bộ primitive dùng lại cho GĐ2–GĐ8 — lấy từ **một** kit (Đ-E9, Đ-E12) thay vì tự viết.
 Kit có trước màn thì mọi màn cùng một cách hiển thị nhãn, lỗi, trạng thái đang gửi — thứ GĐ2 (composer), GĐ5 (chat), GĐ6
@@ -314,18 +327,19 @@ Kit có trước màn thì mọi màn cùng một cách hiển thị nhãn, lỗ
 
 ### Đã chạy tới đâu — kiểm 2026-09-16
 
-Scaffold đang **staged, chưa commit**. Bước 1 xong, phần còn lại chưa động tới:
+Scaffold đã **dựng lại từ đầu bằng preset `b50KEhMiu`** (2026-09-16, xem ghi chú đổi preset ở Đ-E9), đang chưa commit. Bước 1
+xong, phần còn lại chưa động tới:
 
 | Bước | Trạng thái |
 |---|---|
-| 1 — sinh dự án | ✅ có `app/`, `components/ui/button.tsx`, `components/theme-provider.tsx`, `lib/utils.ts`, `components.json`, `pnpm-lock.yaml`; **không** còn `.git` lồng |
-| 2 — sửa sau init | ❌ còn `lang="en"`, `ThemeHotkey` còn nguyên, chưa có `metadata`, font chưa phải Inter |
+| 1 — sinh dự án | ✅ có `app/`, `components/ui/` (`button` + 9 component kit), `components/theme-provider.tsx`, `lib/utils.ts`, `components.json`, `pnpm-lock.yaml`; **không** còn `.git` lồng; `lint`/`typecheck`/`build` xanh |
+| 2 — sửa sau init | 🟡 preset lo xong phần font (`Inter` cho `--font-sans`, `--font-heading: var(--font-sans)`, hết `Noto_Serif`); **còn lại**: `lang="en"`, `ThemeHotkey` còn nguyên, chưa có `metadata`, `Inter` chưa có subset `vietnamese`, `Geist` import thừa |
 | 3 — cấu trúc thư mục | ❌ chưa có `features/`, `lib/api/`, `lib/auth/`, `lib/validation/`, `components/form/`, `components/shell/`, `mocks/`, `test/`, `e2e/` |
-| 4 — composite `TextField` | ❌ kit mới có `button`; còn thiếu `input label field alert card skeleton spinner sonner` |
+| 4 — composite `TextField` | 🟡 kit đã có `button input label field alert card separator skeleton spinner sonner`; chưa có `components/form/text-field.tsx` |
 | 5 — ESLint | ❌ `eslint.config.mjs` còn nguyên bản template, chưa có luật Đ-E2/Đ-E12/Đ-E13 |
 | 6 — `AGENTS.md` | ❌ mới có khối `nextjs-agent-rules`, chưa có mục "UI kit" |
-| 7–8 — Vitest, Playwright | ❌ chưa cài, chưa có `vitest.config.ts` / `playwright.config.ts` |
-| Ghim phiên bản (Đ-E9) | ❌ `package.json` còn **16** chỗ `^`, chưa `packageManager`, chưa `.nvmrc` / `.npmrc` / `.env.example` / `.dockerignore` |
+| 7–8 — Vitest, Playwright | 🟡 gói đã cài (`vitest 5.0.1`, `@playwright/test 1.63.0`, Testing Library, `jsdom`); chưa có `vitest.config.ts` / `playwright.config.ts` |
+| Ghim phiên bản (Đ-E9) | 🟡 `eslint` đã ghim `9.39.5` (bắt buộc, xem Đ-E9); `package.json` còn **16** chỗ `^`, chưa `packageManager`, chưa `.nvmrc` / `.npmrc` / `.env.example` / `.dockerignore` |
 
 ### Các bước
 
@@ -334,35 +348,36 @@ Scaffold đang **staged, chưa commit**. Bước 1 xong, phần còn lại chưa
 ```powershell
 cd src
 Remove-Item -Recurse -Force frontend              # hiện chỉ có .gitkeep; init --name tạo thư mục mới
-pnpm dlx shadcn@latest init --preset b2C6hQKDg --template next --name frontend
+pnpm dlx shadcn@latest init --preset b50KEhMiu --template next --name frontend
 Remove-Item -Recurse -Force frontend\.git         # template tự `git init` → repo lồng trong repo
 cd frontend
+pnpm exec shadcn add input label field alert card separator skeleton spinner sonner
 pnpm add -D --save-exact vitest @vitejs/plugin-react jsdom @testing-library/react @testing-library/user-event @testing-library/jest-dom @playwright/test
-pnpm exec shadcn add input label field alert card skeleton spinner sonner
+pnpm add -D "eslint@^9"                           # template ghim ^10, ESLint 10 làm `pnpm lint` nổ — xem Đ-E9
 ```
 
 Sau đó xóa mọi `^`/`~` trong `package.json` (Đ-E9), thêm `"packageManager"` đúng bản `pnpm -v`, chạy `pnpm install`.
-Kiểm: `pnpm exec shadcn info` ra `style base-maia`, `base base`, `iconLibrary lucide`, `theme emerald`, `font inter`.
+Kiểm: `pnpm exec shadcn info` ra `style base-maia`, `base base`, `iconLibrary lucide`, `theme rose`, `font inter`.
 
-> `shadcn info` báo mã preset `b2C6hQKAa` thay vì `b2C6hQKDg` — **vô hại**. Hai mã chỉ khác `radius` (`medium` / `default`),
-> hai giá trị cho cùng `--radius: 0.625rem`; đã chạy `shadcn apply --preset b2C6hQKDg` lên bản thử (2026-09-15): không giá
-> trị nào đổi.
+> `shadcn info` báo mã preset `b50KEhMfo` thay vì `b50KEhMiu` — **vô hại**. Hai mã chỉ khác `radius` (`medium` / `default`),
+> hai giá trị cho cùng `--radius: 0.625rem` (kiểm trên scaffold thật 2026-09-16). Đừng "sửa" bằng `shadcn apply` — xem Đ-E12
+> mục 7.
 
 **Bước 2 — sửa ngay sau init.**
 
 | File | Template sinh | Sửa thành | Vì sao |
 |---|---|---|---|
-| `app/layout.tsx` | `DM_Sans` (`--font-sans`) + `Noto_Serif` (`--font-heading`) + `Geist_Mono` | một `Inter({ subsets: ['latin', 'vietnamese'], … })` | Đ-E12 mục 6 chốt **font chỉ Inter**; thiếu subset `vietnamese` thì dấu vẽ bằng font dự phòng, lệch nét |
-| `app/globals.css` | `--font-heading: var(--font-heading)` trỏ `Noto_Serif` | trỏ về Inter, hoặc bỏ token nếu không dùng | Hệ quả của dòng trên — bỏ `Noto_Serif` mà để token treo thì heading rơi về font hệ thống |
+| `app/layout.tsx` | `Inter({ subsets: ['latin'] })` cho `--font-sans` | thêm subset: `Inter({ subsets: ['latin', 'vietnamese'], … })` | Thiếu subset `vietnamese` thì dấu vẽ bằng font dự phòng, lệch nét |
 | `app/layout.tsx` | `<html lang="en">` | `lang="vi"` | Trình đọc màn hình và gạch chân chính tả |
 | `app/layout.tsx` | `Geist` import nhưng không dùng (chỉ dùng `Geist_Mono`) | bỏ `Geist` | Lint |
 | `components/theme-provider.tsx` | `ThemeHotkey` — phím `d` đổi sáng/tối ở mọi nơi ngoài ô nhập | xóa `ThemeHotkey` | Mạng xã hội có nhiều phím tắt, `d` bấm nhầm là đổi giao diện |
 | `app/layout.tsx` | chưa có `metadata` | `title: 'SocialApp'` | |
 
-> **Preset khai `font inter` nhưng template `next` sinh ra `DM_Sans` + `Noto_Serif`** (kiểm trên scaffold thật 2026-09-16).
-> `shadcn info` vẫn báo `font inter` — nó đọc `components.json`, không đọc `layout.tsx`. Nên đây là việc **phải sửa tay**, không
-> phải chạy lại `shadcn apply` cho ra. Nếu sau này muốn giữ một font serif riêng cho heading thì đó là **sửa Đ-E12 mục 6**, làm
-> thành quyết định có ngày tháng, không sửa lặng ở `layout.tsx`.
+> **Mã preset cũ `b2C6hQKDg` từng sinh ra `DM_Sans` + `Noto_Serif` dù khai `font inter`** — đó là một trong hai lý do đổi sang
+> `b50KEhMiu` (Đ-E9, 2026-09-16). Với mã mới, `layout.tsx` ra thẳng `Inter` và `globals.css` có `--font-heading:
+> var(--font-sans)`, nên chỉ còn thiếu subset `vietnamese`. Lưu ý `shadcn info` đọc `components.json` chứ không đọc
+> `layout.tsx` — font phải kiểm bằng mắt trong `app/layout.tsx`. Muốn giữ một font serif riêng cho heading thì đó là **sửa
+> Đ-E12 mục 6**, làm thành quyết định có ngày tháng, không sửa lặng ở `layout.tsx`.
 
 **Bước 3 — cấu trúc thư mục** (template **không** dùng `src/` của riêng nó; bốn tầng của Đ-E13, chốt ngay để GĐ2+ không phải
 dời file):
@@ -1377,7 +1392,7 @@ playwright-report
 
 | # | Nội dung | CI sau khi push | Thông điệp gợi ý |
 |---|---|---|---|
-| 1 | `E1` — scaffold preset, sửa sau init, `TextField`, ESLint, Vitest | 🟢 (chưa có job `frontend` — kiểm local) | `feat(gd1-e): E1 — Next.js 16 + shadcn/ui preset b2C6hQKDg, luat UI kit` |
+| 1 | `E1` — scaffold preset, sửa sau init, `TextField`, ESLint, Vitest | 🟢 (chưa có job `frontend` — kiểm local) | `feat(gd1-e): E1 — Next.js 16 + shadcn/ui preset b50KEhMiu, luat UI kit` |
 | 2 | `E2` — codegen, client, token store, MSW, job CI `frontend` | 🟢 job `frontend` chạy lần đầu | `feat(gd1-e): E2 — type tu hop dong, api client, mock MSW, cong codegen CI` |
 | 3 | `E4` | 🟢 | `feat(gd1-e): E4 — man dang nhap, 401 mot thong diep, token chi o memory` |
 | 4 | `E3` | 🟢 | `feat(gd1-e): E3 — man dang ky, nguong mat khau 8 ky tu / 72 byte` |
