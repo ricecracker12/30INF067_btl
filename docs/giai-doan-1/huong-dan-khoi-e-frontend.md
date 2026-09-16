@@ -8,7 +8,13 @@
 > Chỗ nào tài liệu này lệch ba nguồn đó thì sửa ở đây — trừ các quyết định ở Mục 1 đánh dấu **"cần ghi ngược"**: tài
 > liệu gốc đang thiếu hoặc mâu thuẫn ở những chỗ đó, phải sửa `giai-doan-1.md` trong cùng commit với việc tương ứng.
 
-> **Trạng thái: E1 đang dở (cập nhật 2026-09-16)** — Bước 1 đã chạy lại từ đầu bằng preset **`b50KEhMiu`** (thay `b2C6hQKDg`, lý do ở Đ-E9): `src/frontend/` có scaffold thật (`app/`, `components/ui/` 10 component, `lib/utils.ts`, `components.json`, `pnpm-lock.yaml`), `.git` lồng đã xóa, `lint`/`typecheck`/`build` xanh, chưa commit. **Bước 2–8 còn dở** — xem bảng ở Mục 2. **Stack FE chốt 2026-09-15: Next.js 16 + pnpm + shadcn/ui preset `b50KEhMiu`** (Đ-E9, Đ-E12). **Khối D đã xong** (`37b6b76` → `14e843f`): sáu endpoint
+> **Trạng thái: E1 + E2 xong và đã rà lại, E4 là việc tiếp theo (cập nhật 2026-09-17)** — `src/frontend/` dựng bằng preset
+> **`b50KEhMiu`** (thay `b2C6hQKDg`, lý do ở Đ-E9). `pnpm lint`, `typecheck`, `test`, `build` xanh; **Vitest 28/28**;
+> **Playwright 2/2** trên Chrome đã cài, cả lượt bật mock lẫn lượt không mock; `lib/api/schema.d.ts` sinh từ hợp đồng;
+> job `frontend` trong `ci.yml` có **hai cổng** (codegen, bundle sạch MSW). Đã thử cho đỏ: sáu luật ESLint, hai cổng CI,
+> và sáu đột biến trên api client / token store / config. **Node đổi 22 → 24** (đổi Đ-E9 ngày 2026-09-17).
+> Chỗ lệch và chỗ còn treo: "Thực tế thi công" của Mục 2 và Mục 3.
+> **Khối D đã xong** (`37b6b76` → `14e843f`): sáu endpoint
 > chạy thật trên dev, cookie + CORS đã kiểm bằng test. Hệ quả: E3–E7 không phải chờ ai — kiểm được trên **API dev thật**
 > ngay khi xong trên mock, và `E7` (vốn cần `D4`) làm được luôn.
 
@@ -177,6 +183,13 @@ Tài liệu gốc chưa nói đủ để gõ code ở những chỗ dưới đâ
   tay ghi bằng chứng" của khối D.
 - Job CI `frontend`: `pnpm install --frozen-lockfile` → cổng codegen → lint → typecheck → Vitest → build (E2).
 
+> **Lệch Đ-E8 (2026-09-16, nhóm chốt): Playwright chạy trên Chrome đã cài trên máy, không tải Chromium.**
+> `playwright.config.ts` đặt `channel: "chrome"`. Playwright 1.63.0 ghim Chromium bản 1243 (153.0.8010.12); máy làm E1 chỉ có
+> bản 1234 của dự án khác (không dùng được) và Chrome hệ thống 152.0.7977.84 — đã thử mở trang bằng Chrome đó, chạy được.
+> **Giá phải trả:** Chrome tự cập nhật và khác bản giữa các máy trong nhóm, nên kết quả E2E của người này có thể không tái
+> hiện ở người kia. Dán kết quả Playwright vào PR thì **ghi kèm bản Chrome đã chạy**. Muốn quay về Chromium ghim: bỏ
+> `channel`, chạy `pnpm exec playwright install chromium`.
+
 **Đ-E9 — Stack FE: Next.js 16 + pnpm + shadcn/ui preset `b50KEhMiu`; ghim phiên bản chính xác.** *(chốt 2026-09-15 — thay Next.js 14 + npm; đã ghi ngược `AGENTS.md` Mục 3, `giai-doan-1.md` B.7/E1, `ke-hoach-trien-khai.md`, `README.md`)* *(sửa 2026-09-16 — mã preset `b2C6hQKDg` → `b50KEhMiu`, xem ghi chú ngay dưới)*
 
 > **Đổi preset 2026-09-16 (nhóm chốt).** Mã cũ `b2C6hQKDg` được mô tả trong tài liệu là theme `emerald`, nhưng scaffold thật
@@ -200,7 +213,7 @@ Tài liệu gốc chưa nói đủ để gõ code ở những chỗ dưới đâ
 
 | Gói | Phiên bản | Ghi chú |
 |---|---|---|
-| Node | 22 LTS (`src/frontend/.nvmrc`, `engines`) | Next 16 đòi ≥ 20.9; Node 20 đã hết hỗ trợ (04/2026) |
+| Node | **24 LTS** (`src/frontend/.nvmrc`, `engines`) | *(đổi 2026-09-17, xem ghi chú dưới bảng)* Next 16 đòi ≥ 20.9; Node 20 hết hỗ trợ 04/2026, Node 22 đã sang bảo trì |
 | pnpm | 10.x (`"packageManager"` trong `package.json`) | CI dùng `pnpm/action-setup` đọc đúng trường này |
 | `next`, `react`, `react-dom` | bản do template sinh (16.3.x / 19.2.x), ghim chính xác | Không tự nâng major giữa giai đoạn |
 | `tailwindcss`, `@tailwindcss/postcss` | 4.x | Không có `tailwind.config.ts` — token ở `app/globals.css` |
@@ -209,6 +222,15 @@ Tài liệu gốc chưa nói đủ để gõ code ở những chỗ dưới đâ
 | `openapi-typescript` | `7.13.0` | Bản đã kiểm chứng ở cổng mở (`Presentation/README.md`). Đổi version là đổi file sinh ra → cổng codegen đỏ |
 | `msw` | 2.x | Chép `public/mockServiceWorker.js` bằng `pnpm exec msw init public --save` (template đặt `allowBuilds: msw: false`, không chạy postinstall — file worker commit vào repo) |
 | `vitest`, `@testing-library/react`, `@playwright/test` | bản ổn định hiện hành | `pnpm-lock.yaml` commit |
+
+> **Đổi Đ-E9 (2026-09-17, nhóm chốt): Node 22 → Node 24.** Ba lý do: (1) máy thi công lane FE đang chạy 24.15.0, và toàn
+> bộ E1 + E2 đã chạy xanh trên đó — giữ `.nvmrc` ở 22 nghĩa là **máy, CI và image staging ba bản khác nhau**, và bản đầu
+> tiên chạy 22 sẽ là CI, chỗ khó sửa nhất khi nó đỏ; (2) theo lịch phát hành của Node, 24 là bản LTS đang hoạt động, 22 đã
+> sang giai đoạn bảo trì; (3) Next 16 chỉ đòi ≥ 20.9 nên không có ràng buộc nào ngăn. Đã sửa cùng lúc: `.nvmrc` = `24`,
+> `engines` = `>=24`, `@types/node` = `24.13.5`, Dockerfile của E8 dùng `node:24-alpine`, `frontend-rules.md` Mục 10,
+> `src/frontend/README.md`. `ci.yml` **không** phải sửa — nó đọc `node-version-file: src/frontend/.nvmrc`.
+> **Chưa kiểm được:** `node:24-alpine` trên `linux/arm64` — chỉ biết chắc khi E8 build image thật (ảnh chính thức có
+> arm64, rủi ro thấp).
 
 Template ghi `^` cho gần hết gói: sau init, **xóa mọi `^`/`~`** trong `package.json` rồi `pnpm install`; đặt
 `save-exact=true` trong `src/frontend/.npmrc` để các lần `pnpm add` sau tự ghim.
@@ -321,25 +343,9 @@ Kit có trước màn thì mọi màn cùng một cách hiển thị nhãn, lỗ
 - Kit component: `button` (có sẵn) + `input`, `label`, `field`, `alert`, `card`, `skeleton`, `spinner`, `sonner`.
 - `components/form/text-field.tsx` — composite dùng chung cho E3–E5, ghép từ `Field` + `Input`.
 - `eslint.config.mjs` có luật Đ-E2 + Đ-E12; `src/frontend/AGENTS.md` có mục "UI kit" (Đ-E12) dưới khối luật Next.
-- `.nvmrc` (`22`), `.npmrc` (`save-exact=true`), `.env.example`, `.dockerignore`.
+- `.nvmrc` (`24`), `.npmrc` (`save-exact=true`), `.env.example`, `.dockerignore`.
 - Layout `app/(auth)/layout.tsx` + khung tĩnh `/login` dùng `Card`, `TextField`, `Button` — chính là màn E4 sau này.
 - `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build` xanh; Vitest `text-field.test.tsx` xanh; đã thử cho đỏ luật màu thô.
-
-### Đã chạy tới đâu — kiểm 2026-09-16
-
-Scaffold đã **dựng lại từ đầu bằng preset `b50KEhMiu`** (2026-09-16, xem ghi chú đổi preset ở Đ-E9), đang chưa commit. Bước 1
-xong, phần còn lại chưa động tới:
-
-| Bước | Trạng thái |
-|---|---|
-| 1 — sinh dự án | ✅ có `app/`, `components/ui/` (`button` + 9 component kit), `components/theme-provider.tsx`, `lib/utils.ts`, `components.json`, `pnpm-lock.yaml`; **không** còn `.git` lồng; `lint`/`typecheck`/`build` xanh |
-| 2 — sửa sau init | 🟡 preset lo xong phần font (`Inter` cho `--font-sans`, `--font-heading: var(--font-sans)`, hết `Noto_Serif`); **còn lại**: `lang="en"`, `ThemeHotkey` còn nguyên, chưa có `metadata`, `Inter` chưa có subset `vietnamese`, `Geist` import thừa |
-| 3 — cấu trúc thư mục | ❌ chưa có `features/`, `lib/api/`, `lib/auth/`, `lib/validation/`, `components/form/`, `components/shell/`, `mocks/`, `test/`, `e2e/` |
-| 4 — composite `TextField` | 🟡 kit đã có `button input label field alert card separator skeleton spinner sonner`; chưa có `components/form/text-field.tsx` |
-| 5 — ESLint | ❌ `eslint.config.mjs` còn nguyên bản template, chưa có luật Đ-E2/Đ-E12/Đ-E13 |
-| 6 — `AGENTS.md` | ❌ mới có khối `nextjs-agent-rules`, chưa có mục "UI kit" |
-| 7–8 — Vitest, Playwright | 🟡 gói đã cài (`vitest 5.0.1`, `@playwright/test 1.63.0`, Testing Library, `jsdom`); chưa có `vitest.config.ts` / `playwright.config.ts` |
-| Ghim phiên bản (Đ-E9) | 🟡 `eslint` đã ghim `9.39.5` (bắt buộc, xem Đ-E9); `package.json` còn **16** chỗ `^`, chưa `packageManager`, chưa `.nvmrc` / `.npmrc` / `.env.example` / `.dockerignore` |
 
 ### Các bước
 
@@ -516,6 +522,91 @@ thêm polyfill vào chính file này, không rải trong từng test.
 | 5 | Sửa màu/radius trong từng màn | Kit trôi dần, mỗi màn một kiểu | ESLint bước 5; đổi ở `app/globals.css` hoặc biến thể trong `components/ui` |
 | 6 | Chạy `shadcn apply` "cho chắc" | Đảo thứ tự dòng trong `globals.css` → diff thừa trong PR | Chỉ `apply` khi đổi preset thật (Đ-E12) |
 | 7 | Giữ `ThemeHotkey` | Bấm `d` ở bất kỳ đâu ngoài ô nhập là đổi giao diện | Bước 2 |
+
+### Thực tế thi công — 2026-09-16
+
+Cả tám bước đã chạy. Những chỗ **khác** hướng dẫn ở trên, và những thứ chỉ lộ ra khi gõ thật:
+
+**`@types/node` bám theo `.nvmrc`, không theo template.** Template ghim `@types/node@^20` — để nguyên là kiểu Node lệch
+một major so với bản chạy thật. E1 nâng lên 22 cho khớp Đ-E9 lúc đó; sau khi đổi Đ-E9 sang Node 24 (2026-09-17) thì ghim
+`24.13.5`, `pnpm typecheck` vẫn xanh. `engines` đặt `{"node": ">=24"}` chứ không `>=24 <25`: chặn trần chỉ làm
+`pnpm install` cằn nhằn trên máy chạy Node mới hơn mà không đổi được gì về hành vi build.
+
+**`components/form/form-alert.tsx` chuyển sang E4.** Bước 4 có nhắc nó, nhưng E1 không có chỗ nào hiện lỗi cả form —
+tạo sẵn là thêm một component không người dùng, không test. E4 dựng nó cùng lúc với nhánh 401/423/429/500.
+
+**`aria-describedby` phải nối tay — đúng như bước 4 đã ngờ.** `FieldDescription` và `FieldError` của kit không tự sinh
+`id`, nên `toHaveAccessibleDescription` đỏ nếu chỉ ráp theo mẫu. `TextField` tự sinh `id` cho hai phần tử đó và ghép
+vào `aria-describedby` của `Input`. **Không** sửa `components/ui/field.tsx` — kit giữ nguyên bản gốc (Đ-E12 mục 1).
+
+**`vitest.config.ts` để `globals: false` nên phải tự gọi `cleanup`.** Testing Library chỉ tự dọn DOM khi có
+`afterEach` toàn cục. Thiếu nó thì DOM của test trước còn lại, `getByLabelText("Email")` thấy **hai** phần tử và đỏ vô
+cớ — mất 10 phút để thấy đó không phải lỗi của `TextField`. `test/setup.ts` gọi `afterEach(cleanup)` một lần cho cả bộ.
+
+**`typecheck: { enabled: true }` không đỏ khi chưa có file `*.test-d.ts`** — Vitest báo `Type Errors  no errors` và đi
+tiếp, nên bật sẵn từ E1 được, E2 thả type test `RoleCode` vào là chạy ngay.
+
+**`e2e/` có `.gitkeep`.** `playwright.config.ts` trỏ `testDir: "./e2e"`; git không theo dõi thư mục rỗng nên thiếu
+`.gitkeep` là người clone về không có thư mục đó. Spec đầu tiên vào ở E4. **Chưa** chạy `playwright install chromium` —
+để lại cho E4, khi đã có spec để chạy.
+
+**`.gitignore` của template chặn `.env*` không chừa ngoại lệ** — đã thêm `!.env.example`, nếu không `.env.example` mà
+E1 phải giao không bao giờ vào được commit.
+
+**`app/page.tsx`** thành trang tĩnh tiếng Việt trỏ sang `/login` (E6 đổi thành redirect → `/me`). Trang mẫu của template
+có dòng "Press `d` to toggle dark mode" — bỏ `ThemeHotkey` mà giữ dòng đó là nói dối người đọc.
+
+**Kit ra khỏi phạm vi Prettier — `components/ui/` trong `.prettierignore` (nhóm chốt 2026-09-16).** CLI shadcn không chạy
+Prettier của dự án: `sonner.tsx` và `spinner.tsx` ra đúng kiểu của registry (cả thẻ `<Loader2Icon …/>` trên một dòng), nên
+`pnpm format` sẽ viết lại chúng. Hệ quả là diff chỉ khác cách xuống dòng lọt vào PR không liên quan, `shadcn add --overwrite`
+sinh diff đảo ngược, và `shadcn add <tên> --diff` (Đ-E12 mục 2) mất tác dụng vì mọi dòng đều "khác". Bỏ kit khỏi Prettier
+thì kit trong repo giống hệt bản shadcn sinh ra. Kiểm: `prettier --check "**/*.{ts,tsx}"` — đúng glob của `pnpm format` —
+xanh toàn bộ.
+
+**Ghi nhận, không phải lệch:** `pnpm exec shadcn info` in ra `preset b50KEhMfo`, `radius default` — đúng như cảnh báo ở
+bước 1, vô hại. `style base-maia`, `base base`, `iconLibrary lucide`, `theme rose`, `font inter` khớp Đ-E12.
+
+**Bằng chứng.**
+
+| Cổng | Kết quả |
+|---|---|
+| `pnpm lint` | xanh, 0 lỗi |
+| `pnpm typecheck` | xanh |
+| `pnpm test` | **3/3** xanh (`components/form/text-field.test.tsx`), `Type Errors no errors` |
+| `pnpm build` | xanh — 3 route: `/`, `/_not-found`, `/login`, đều static |
+| `pnpm dev` + `GET /login` | `200`, `<html lang="vi">`, có "Đăng nhập" và "Mật khẩu" |
+
+Thử cho đỏ ESLint — thêm vi phạm, `pnpm lint` đỏ đúng thông điệp, rồi khôi phục (`git status` sạch trước/sau):
+
+| Vi phạm cắm vào | Luật bắt | Thông điệp |
+|---|---|---|
+| `import { Button } from "@base-ui/react/button"` trong `app/page.tsx` | `no-restricted-imports` | Đ-E12: dùng components/ui… |
+| `className="bg-blue-600"` trong `app/(auth)/layout.tsx` | `no-restricted-syntax` | Đ-E12: dùng token… |
+| `className="text-[#ff0000]"` | `no-restricted-syntax` | Đ-E12: không mã màu tùy ý |
+| `localStorage.setItem(…)` | `no-restricted-globals` | Đ-E2: token chỉ ở memory |
+| `fetch("/api/v1/me")` ngoài `http.ts` | `no-restricted-globals` | Đ-E2: gọi API qua lib/api/http.ts |
+| `document.cookie` | `no-restricted-properties` | Đ-E2: cookie refresh là HttpOnly… |
+| `features/tmp-thu/` import `@/features/auth/…` | `no-restricted-imports` | Đ-E13: features/ không import chéo nhau |
+| `components/form/` import `@/features/auth/…` | `no-restricted-imports` | Đ-E13: lib/ và components/ không import ngược lên |
+
+Khối `components/ui/**` đứng cuối có tác dụng thật: kit vẫn `import … from "@base-ui/react/input"` mà lint xanh.
+
+**Playwright chạy được, và bài smoke đầu tiên bắt được hai lỗi thật (2026-09-17).** `e2e/smoke.spec.ts` vào `/`, bấm sang
+`/login`, đòi không có lỗi console và Web Storage rỗng. Hai thứ nó bắt được ngay lần chạy đầu:
+
+1. **`<Button render={<Link/>}>` dán ngữ nghĩa nút lên thẻ `<a>`.** Base UI cảnh báo trong console
+   ("expected a native `<button>`… can impact forms and accessibility"), và hạ `nativeButton={false}` thì thẻ `<a>` mất
+   `role="link"` — `getByRole("link")` không thấy nữa. Điều hướng thì phải là **link thật**: dùng
+   `<Link className={buttonVariants()}>`. `render` của Base UI hợp khi thứ được render **vẫn là nút**.
+2. **`CardTitle` của kit render ra `div`, không phải thẻ heading.** Màn `/login` do đó chưa có heading thật; test bám
+   `[data-slot="card-title"]`. **Để lại cho E4 quyết**: thêm heading thật cho ba màn `(auth)` hay chấp nhận như kit.
+
+Bài test cũng đụng chính luật Đ-E2 của mình: đọc `window.localStorage` trong `page.evaluate` bị ESLint chặn. Mở ngoại lệ
+**ngay tại dòng** kèm lý do ("đây là bài test chứng minh luật đó, code chạy trong trang đang kiểm") — không nới luật cho cả
+`e2e/**`.
+
+**Bốn cổng chạy trên Node 24.15.0.** Lúc làm E1 con số này lệch `.nvmrc` (khi đó là `22`); đã xử bằng cách đổi hẳn
+Đ-E9 sang Node 24 ngày 2026-09-17, nên máy thi công, `.nvmrc` mà CI đọc, và image của E8 giờ cùng một major.
 
 ---
 
@@ -815,6 +906,101 @@ Job riêng chạy song song nên không cộng vào thời gian job .NET (NFR CI
 | 3 | Gửi `body: {}` "cho chắc" ở `refresh`/`logout` → trái hợp đồng ("không nhận body"), và cổng hợp đồng phía server **không** bắt được lỗi phía client | `authApi.refresh`/`logout` không truyền `body`; `http.test.ts` khẳng định request không body, không `Content-Type` |
 | 4 | MSW `onUnhandledRequest: 'bypass'` → gõ sai path mock vẫn "chạy" bằng mạng thật, lỗi lộ muộn | `'error'` |
 | 5 | Prettier/ESLint sửa `schema.d.ts` → cổng codegen đỏ vĩnh viễn | Thêm file vào `.prettierignore` và `globalIgnores` của `eslint.config.mjs` |
+
+### Thực tế thi công — 2026-09-16
+
+Bảy bước đã chạy. Những chỗ **khác** hướng dẫn ở trên, và những thứ chỉ lộ ra khi gõ thật:
+
+**Lệch Đ-E7 (nhóm chốt): mock cần THÊM điều kiện `NODE_ENV === 'development'`, không chỉ
+`NEXT_PUBLIC_API_MOCKING`.** Gác `import('@/mocks/browser')` bằng một mình cờ mocking là **không đủ**:
+Turbopack vẫn sinh ra chunk động cho nó, và `pnpm build` để lại một file 285 KB chứa cả `setupWorker`
+lẫn `mockServiceWorker` trong `.next/static/chunks/`. Chunk đó không bao giờ được tải, nhưng nó vẫn
+nằm trong image staging — và cổng của E8 ("không dòng nào khớp `mockServiceWorker` trong
+`.next/static`") sẽ đỏ. Thêm `process.env.NODE_ENV !== "development"` ngay trước `import()` thì
+bundler gấp được thành hằng false và cắt cả cây MSW; sau khi sửa, grep `.next/static` ra rỗng.
+**Hệ quả chấp nhận:** mock chỉ chạy ở `next dev`, không chạy ở `pnpm build && pnpm start`. Đúng với
+tinh thần "cấm nghiệm thu trên mock", nhưng là **hai** điều kiện chứ không phải một — ai đọc Đ-E7 rồi
+đi tìm một cờ duy nhất sẽ không thấy.
+
+Hai điều kiện đó phải **giống hệt nhau** ở hai chỗ trong `app/providers.tsx` (biến `mocking` dùng cho
+state `ready`, và chỗ gác `import()`). Lệch nhau là trang treo ở khung trắng: `ready` đợi một worker
+không bao giờ khởi động.
+
+**`git diff --exit-code` không bắt được file CHƯA COMMIT — đã đổi cổng.** Lần thử cho đỏ đầu tiên, hợp đồng đã cắm
+`ROOT` vào `RoleCode` mà cổng vẫn **xanh**, vì `schema.d.ts` lúc đó còn untracked và `git diff` chỉ so index với worktree.
+Cổng giờ dùng `git status --porcelain -- lib/api/schema.d.ts` phải rỗng, bắt cả `??` lẫn ` M`. Đã kiểm bốn trạng thái
+trong một repo nháp: chưa commit → đỏ · đã commit không đổi → xanh · đã commit rồi hợp đồng đổi → đỏ · khôi phục → xanh.
+
+**Vòng đời MSW đặt ở `test/setup.ts`, không lặp trong từng file test.** `server.listen` một lần cho cả
+bộ, `resetHandlers` + `events.removeAllListeners` + `mockControls.reset()` sau mỗi test. Không làm vậy
+thì phiên giả của mock rò rỉ từ test này sang test khác (nó nhớ trong `sessionStorage` của jsdom).
+
+**`mocks/session.ts` tách riêng khỏi `handlers.ts`** — phiên giả là trạng thái, handler là ánh xạ; để
+chung thì ba chỗ ngoại lệ ESLint cho `sessionStorage` nằm lẫn giữa logic kịch bản.
+
+**`problem.test.ts` dựng `new Response(...)` trực tiếp, không đi qua MSW.** `toApiError` là hàm thuần
+túy nhận một `Response` — dùng MSW ở đây chỉ thêm một lớp giữa bài test và thứ đang kiểm.
+
+**Thêm ba test ngoài bảng:** 204 trả `undefined` (không cố parse JSON), body JSON nhưng không phải
+Problem Details (không nhận bừa làm `problem`), và JSON hỏng giữa chừng (không ném, chỉ mất phần
+`problem`).
+
+**`.env.example` đổi giá trị.** E1 để `NEXT_PUBLIC_API_BASE_URL=` rỗng; E2 đặt thẳng
+`http://localhost:5259/api/v1` theo bước 2, kèm một câu nói rõ bỏ trống cũng ra đúng giá trị đó vì
+`config.ts` đã có mặc định.
+
+**`onUnhandledRequest: 'error'` trần trụi là sai — đã đo bằng trình duyệt thật (2026-09-17).** Lượt
+`e2e/smoke.spec.ts` bật mock cho ra bốn lỗi đỏ: Next dev tự gọi `POST /__nextjs_original-stack-frames` (cùng origin, không
+liên quan gì tới API) và MSW báo "intercepted a request without a matching request handler" kèm 500. Không hạ xuống
+`'bypass'` — gõ sai path API sẽ lặng lẽ đi ra mạng thật. Cách ở giữa nằm trong `mocks/browser.ts`: chỉ `print.error()` cho
+request bắt đầu bằng **chính gốc API**. Lỗ hổng còn lại: gõ sai chính cái gốc (sai host) thì không bắt được — chấp nhận.
+
+**`worker.start()` bị gọi hai lần vì StrictMode.** Triệu chứng: `Failed to call "configure()" on the network: cannot
+configure an already enabled network.` Chặn bằng một promise cấp module trong `mocks/browser.ts`, **không** dùng `useRef`
+— StrictMode dựng lại component nên ref cũng mất (cùng cạm bẫy với Đ-E10).
+
+**Chờ worker rồi mới render thì React cảnh báo về thẻ `<script>`.** `Providers` trả `null` trên server nên thẻ `<script>`
+Next chèn vào cây RSC bị render ở phía client: `Encountered a script tag while rendering React component`. Chỉ có ở lượt
+bật mock, không đụng bản production. Smoke test **bỏ qua đúng một cảnh báo này, có ghi lý do**, thay vì tắt cả phép kiểm
+console. **Để lại cho E6** — `RequireAuth` cũng có trạng thái chờ, xem lại cách chờ một thể.
+
+**Bằng chứng.**
+
+| Cổng | Kết quả |
+|---|---|
+| `pnpm lint` / `typecheck` | xanh |
+| `pnpm test` | **19/19** xanh (4 file), `Type Errors no errors` |
+| `pnpm build` | xanh; grep `.next/static` cho `setupWorker`, `mockServiceWorker`, `localhost:5259` — **rỗng** |
+| `pnpm dev` + `GET /login` | `200`, còn nguyên sau khi bọc thêm `Providers` |
+| `pnpm test:e2e` (Chrome 152) | 2/2 xanh, **cả hai lượt**: không mock, và `NEXT_PUBLIC_API_MOCKING=enabled` |
+| CI | job `frontend` trong `ci.yml`: 10 bước, hai cổng `CI GATE` |
+
+Thử cho đỏ cổng codegen (sau khi `git add` file sinh):
+
+| Cắm vào | Kết quả |
+|---|---|
+| `RoleCode.enum` thêm `ROOT` trong `identity-v1.yaml` | `pnpm gen:api` + `git diff --exit-code` → **exit 1** |
+| cùng đột biến đó | `schema.test-d.ts` **đỏ** ở `toEqualTypeOf` |
+| khôi phục yaml + `gen:api` | exit 0, `git status` sạch |
+
+Việc siết thêm sau khi rà lại E1 + E2 (2026-09-17) — chi tiết ở mục tương ứng phía trên:
+
+| Việc | Thử cho đỏ |
+|---|---|
+| Cổng codegen đổi sang `git status --porcelain` | bốn trạng thái trong repo nháp, xem trên |
+| Cổng CI mới: bundle production sạch MSW | bỏ điều kiện `NODE_ENV` ở `providers.tsx` → cổng đỏ đúng một chunk; khôi phục → xanh |
+| `lib/auth/token-store.test.ts` (5 ca) | bỏ `if (next === accessToken) return` → đỏ |
+| `lib/api/config.test.ts` (4 ca) | bỏ nhánh `throw` → đỏ; bỏ cắt `/` cuối → đỏ |
+| Ghim env của Vitest (`test.env`) | trước khi ghim, `NEXT_PUBLIC_API_BASE_URL=/api/v1 pnpm test` làm **8** test của `http.test.ts` đỏ (Node không `fetch` được đường dẫn tương đối); sau khi ghim, cả hai kiểu chạy đều xanh |
+
+Thử cho đỏ bốn đột biến trên chính code vừa viết (từng cái một, rồi khôi phục):
+
+| Đột biến | Test bắt |
+|---|---|
+| Bỏ `credentials: "include"` khỏi `http.ts` | "gắn credentials: 'include' ở CẢ SÁU lời gọi" |
+| `refresh` gửi `body: {}` | "refresh KHÔNG gửi body và KHÔNG gửi Content-Type" |
+| `login` quên `auth: false` | "register/login/verifyEmail KHÔNG gắn Authorization" |
+| `toApiError` parse JSON bất kể content-type | 2 test: 502 text/html, và JSON hỏng giữa chừng |
 
 ---
 
@@ -1291,7 +1477,7 @@ build image `api` — không có image FE thì F1 không có gì để deploy.
 
 **Kết quả mong đợi.**
 - `next.config.ts`: `output: "standalone"`.
-- `src/frontend/Dockerfile` (multi-stage, `node:22-alpine`, pnpm qua corepack, chạy non-root) + `src/frontend/.dockerignore`.
+- `src/frontend/Dockerfile` (multi-stage, `node:24-alpine`, pnpm qua corepack, chạy non-root) + `src/frontend/.dockerignore`.
 - `docker buildx build --platform linux/arm64 src/frontend` xanh; `docker run -p 3000:3000` → `/login` trả 200.
 - Bundle production **không** chứa MSW và **không** chứa `localhost:5259` (bảng Test).
 - Không route FE nào dưới `/api`, `/health`, `/swagger`; không `app/api/**`.
@@ -1312,13 +1498,13 @@ export default nextConfig
 
 ```dockerfile
 # src/frontend/Dockerfile — context = src/frontend/. Build cho OCI Ampere: --platform linux/arm64 (AGENTS.md luật 8)
-FROM node:22-alpine AS deps
+FROM node:24-alpine AS deps
 WORKDIR /app
 RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 RUN pnpm install --frozen-lockfile
 
-FROM node:22-alpine AS build
+FROM node:24-alpine AS build
 WORKDIR /app
 RUN corepack enable
 COPY --from=deps /app/node_modules ./node_modules
@@ -1328,7 +1514,7 @@ ARG NEXT_PUBLIC_API_BASE_URL=/api/v1
 ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL NEXT_TELEMETRY_DISABLED=1
 RUN pnpm build
 
-FROM node:22-alpine AS runner
+FROM node:24-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 HOSTNAME=0.0.0.0
 RUN addgroup -S app && adduser -S app -G app

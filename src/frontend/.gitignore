@@ -10,6 +10,11 @@
 
 # testing
 /coverage
+# Playwright: báo cáo và ảnh/trace của lần chạy đỏ — kết quả dán vào PR, không commit file
+/test-results/
+/playwright-report/
+/blob-report/
+/.playwright/
 
 # next.js
 /.next/
@@ -30,6 +35,7 @@ pnpm-debug.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # typescript
 *.tsbuildinfo

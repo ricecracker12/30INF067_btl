@@ -71,6 +71,8 @@ Bốn tầng, phụ thuộc **một chiều**: `app/` → `features/` → `compo
 - Base UI ghép bằng prop `render`, **không có `asChild`**.
 - Icon chỉ `lucide-react`. Font chỉ Inter, subset `latin` + `vietnamese`, nạp bằng `next/font`.
 - Không `shadcn eject`. Không `shadcn apply` tùy tiện — nó đảo thứ tự dòng trong `globals.css`.
+- Kit **không chạy Prettier** (`components/ui/` trong `.prettierignore`) — giữ đúng kiểu shadcn sinh ra, để
+  `shadcn add --diff` không bị nhiễu bởi khác biệt trình bày.
 - Form dùng `components/form/text-field.tsx`, không tự ráp `Field` + `Input` ở từng màn.
 
 ## 4. Gọi API (Đ-E1, Đ-E2, Đ-E6)
@@ -118,8 +120,9 @@ Bốn tầng, phụ thuộc **một chiều**: `app/` → `features/` → `compo
 
 ## 8. Mock MSW (Đ-E7)
 
-- Mặc định dev dùng **API thật**. Mock chỉ bật khi `NEXT_PUBLIC_API_MOCKING=enabled`, nạp bằng
-  `import()` động để bundle production không chứa MSW.
+- Mặc định dev dùng **API thật**. Mock bật khi `NEXT_PUBLIC_API_MOCKING=enabled` **và** đang chạy
+  `next dev` — hai điều kiện, gác ngay tại chỗ `import()` động. Chỉ cờ mocking là **không đủ**:
+  Turbopack vẫn để lại chunk MSW trong `.next/static` của bản production (đo được ở E2).
 - Fixture chép **giá trị** từ `example` của hợp đồng và gắn kiểu bằng `satisfies` — hợp đồng đổi hình
   dạng thì mock đỏ compile. Không parse yaml lúc chạy.
 - Mock tồn tại chủ yếu để **tái hiện nhánh lỗi khó tạo thật** (423, 410, 429, 500) và để dựng màn khi
@@ -131,10 +134,11 @@ Bốn tầng, phụ thuộc **một chiều**: `app/` → `features/` → `compo
 | Công cụ | Kiểm | Chạy ở |
 |---|---|---|
 | Vitest + Testing Library + `msw/node` | validation, `ApiError`, client (`credentials`, bearer), single-flight trong tab, form trên mock, type | local + **CI** |
-| Playwright (Chromium) | guard, không token trong Web Storage, 3 tab một refresh, lượt E2E trên dev | local, **`workers: 1`** (rate limit theo IP) |
+| Playwright (Chrome đã cài, `channel: "chrome"`) | guard, không token trong Web Storage, 3 tab một refresh, lượt E2E trên dev | local, **`workers: 1`** (rate limit theo IP) |
 
 - Playwright **không vào CI ở GĐ1** (cần API + Postgres + Redis + Mailpit chạy). Kết quả chạy local
-  dán vào PR — cùng nếp "kiểm tay ghi bằng chứng" của khối D.
+  dán vào PR — cùng nếp "kiểm tay ghi bằng chứng" của khối D — **kèm bản Chrome đã chạy** (lệch Đ-E8:
+  dùng Chrome hệ thống, bản khác nhau giữa các máy).
 - File test nằm **cạnh mã nguồn** (`lib/validation/auth.test.ts`). `test/` chỉ chứa `setup.ts`;
   `e2e/` chứa spec Playwright.
 - Thêm một luật ESLint hay một cổng CI thì phải **thử cho đỏ một lần** rồi khôi phục — `git status`
@@ -144,7 +148,8 @@ Bốn tầng, phụ thuộc **một chiều**: `app/` → `features/` → `compo
 
 - pnpm, không npm. Chạy từ `src/frontend/`: `pnpm dev | lint | typecheck | test | build`.
 - Ghim chính xác: không `^`/`~`; `save-exact=true` trong `.npmrc`; `"packageManager"` trong
-  `package.json` (CI đọc trường này); Node 22 LTS trong `.nvmrc`.
+  `package.json` (CI đọc trường này); **Node 24 LTS** trong `.nvmrc` (đổi Đ-E9 ngày 2026-09-17, trước đó là 22) —
+  `@types/node` luôn cùng major với `.nvmrc`.
 - **Next 16:** `middleware.ts` đổi tên thành `proxy.ts` · `next lint` bị bỏ, script `lint` gọi thẳng
   `eslint` với cấu hình flat · Node `>= 20.9`.
 - **Tailwind v4:** không có `tailwind.config.ts`, token nằm trong `app/globals.css`.

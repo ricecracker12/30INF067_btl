@@ -36,6 +36,7 @@ staging. Chi tiết: `docs/ke-hoach-trien-khai.md` Mục 0C.
 - **Auth:** JWT (HS256, access 15') + refresh token **rotation** (lưu băm). RBAC + ownership.
 - **Frontend:** Next.js 16 (App Router, TS, Tailwind v4) + shadcn/ui preset `b50KEhMiu` (Base UI, style `base-maia`),
   **pnpm** — `src/frontend/`. Luật UI kit: `docs/giai-doan-1/huong-dan-khoi-e-frontend.md` Đ-E12; cấu trúc bốn tầng: Đ-E13.
+  **Sửa FE thì đọc `src/frontend/AGENTS.md` trước** — mục "UI kit" ở đó là bản thi hành của Đ-E12.
   *(Chốt 2026-09-15, thay Next.js 14 + npm. Mã preset đổi `b2C6hQKDg` → `b50KEhMiu` ngày 2026-09-16 — lý do ở Đ-E9.)*
 - **Hạ tầng:** Docker Compose, Caddy (TLS) sau Cloudflare, VPS OCI Ampere A1 (**ARM64** — image phải arm64).
 - **Quan sát:** Serilog (JSON + correlation ID), Prometheus + Grafana, Uptime Kuma.
