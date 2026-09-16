@@ -20,6 +20,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # CONG LANE FE: template Next.js tu chay `git init`, de sot src/frontend/.git thi `git add` ghi
+      # mot GITLINK (mode 160000) thay vi file. Clone/checkout ra thu muc RONG, nen moi buoc
+      # lint/typecheck/build cua FE chay tren hu khong ma van xanh. Kiem thang vao mode thay vi dem
+      # file: dem file se do oan tren nhanh chua co lane FE.
+      - name: Khong co repo Git long trong src/ (CI GATE)
+        run: |
+          if git ls-files -s src | grep -q '^160000'; then
+            echo "::error::Co gitlink trong src/ -- xoa .git long (vd src/frontend/.git) roi git add lai"
+            git ls-files -s src | grep '^160000'
+            exit 1
+          fi
+
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'

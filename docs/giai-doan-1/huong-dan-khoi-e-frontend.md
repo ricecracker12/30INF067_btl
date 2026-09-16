@@ -8,7 +8,7 @@
 > Chỗ nào tài liệu này lệch ba nguồn đó thì sửa ở đây — trừ các quyết định ở Mục 1 đánh dấu **"cần ghi ngược"**: tài
 > liệu gốc đang thiếu hoặc mâu thuẫn ở những chỗ đó, phải sửa `giai-doan-1.md` trong cùng commit với việc tương ứng.
 
-> **Trạng thái: chưa bắt đầu** — `src/frontend/` mới có `.gitkeep`. **Stack FE chốt 2026-09-15: Next.js 16 + pnpm + shadcn/ui preset `b2C6hQKDg`** (Đ-E9, Đ-E12). **Khối D đã xong** (`37b6b76` → `14e843f`): sáu endpoint
+> **Trạng thái: E1 đang dở (cập nhật 2026-09-16)** — Bước 1 đã chạy: `src/frontend/` có scaffold thật (`app/`, `components/ui/button.tsx`, `lib/utils.ts`, `components.json`, `pnpm-lock.yaml`), `.git` lồng đã xóa, tất cả đang staged. **Bước 2–8 chưa làm** — xem bảng ở Mục 2. **Stack FE chốt 2026-09-15: Next.js 16 + pnpm + shadcn/ui preset `b2C6hQKDg`** (Đ-E9, Đ-E12). **Khối D đã xong** (`37b6b76` → `14e843f`): sáu endpoint
 > chạy thật trên dev, cookie + CORS đã kiểm bằng test. Hệ quả: E3–E7 không phải chờ ai — kiểm được trên **API dev thật**
 > ngay khi xong trên mock, và `E7` (vốn cần `D4`) làm được luôn.
 
@@ -311,6 +311,21 @@ Kit có trước màn thì mọi màn cùng một cách hiển thị nhãn, lỗ
 - `.nvmrc` (`22`), `.npmrc` (`save-exact=true`), `.env.example`, `.dockerignore`.
 - Layout `app/(auth)/layout.tsx` + khung tĩnh `/login` dùng `Card`, `TextField`, `Button` — chính là màn E4 sau này.
 - `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build` xanh; Vitest `text-field.test.tsx` xanh; đã thử cho đỏ luật màu thô.
+
+### Đã chạy tới đâu — kiểm 2026-09-16
+
+Scaffold đang **staged, chưa commit**. Bước 1 xong, phần còn lại chưa động tới:
+
+| Bước | Trạng thái |
+|---|---|
+| 1 — sinh dự án | ✅ có `app/`, `components/ui/button.tsx`, `components/theme-provider.tsx`, `lib/utils.ts`, `components.json`, `pnpm-lock.yaml`; **không** còn `.git` lồng |
+| 2 — sửa sau init | ❌ còn `lang="en"`, `ThemeHotkey` còn nguyên, chưa có `metadata`, font chưa phải Inter |
+| 3 — cấu trúc thư mục | ❌ chưa có `features/`, `lib/api/`, `lib/auth/`, `lib/validation/`, `components/form/`, `components/shell/`, `mocks/`, `test/`, `e2e/` |
+| 4 — composite `TextField` | ❌ kit mới có `button`; còn thiếu `input label field alert card skeleton spinner sonner` |
+| 5 — ESLint | ❌ `eslint.config.mjs` còn nguyên bản template, chưa có luật Đ-E2/Đ-E12/Đ-E13 |
+| 6 — `AGENTS.md` | ❌ mới có khối `nextjs-agent-rules`, chưa có mục "UI kit" |
+| 7–8 — Vitest, Playwright | ❌ chưa cài, chưa có `vitest.config.ts` / `playwright.config.ts` |
+| Ghim phiên bản (Đ-E9) | ❌ `package.json` còn **16** chỗ `^`, chưa `packageManager`, chưa `.nvmrc` / `.npmrc` / `.env.example` / `.dockerignore` |
 
 ### Các bước
 
