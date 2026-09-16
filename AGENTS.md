@@ -31,7 +31,9 @@ staging. Chi tiết: `docs/ke-hoach-trien-khai.md` Mục 0C.
 - **Object storage:** Cloudflare R2 (S3-compatible) — local dev dùng MinIO. Ảnh upload/serve qua
   **pre-signed URL**, KHÔNG đi qua API.
 - **Auth:** JWT (HS256, access 15') + refresh token **rotation** (lưu băm). RBAC + ownership.
-- **Frontend:** Next.js 14 (App Router, TS, Tailwind) — `src/frontend/`.
+- **Frontend:** Next.js 16 (App Router, TS, Tailwind v4) + shadcn/ui preset `b2C6hQKDg` (Base UI, style `base-maia`),
+  **pnpm** — `src/frontend/`. Luật UI kit: `docs/giai-doan-1/huong-dan-khoi-e-frontend.md` Đ-E12; cấu trúc bốn tầng: Đ-E13.
+  *(Chốt 2026-09-15, thay Next.js 14 + npm.)*
 - **Hạ tầng:** Docker Compose, Caddy (TLS) sau Cloudflare, VPS OCI Ampere A1 (**ARM64** — image phải arm64).
 - **Quan sát:** Serilog (JSON + correlation ID), Prometheus + Grafana, Uptime Kuma.
 
@@ -49,13 +51,17 @@ mxh/
 │  │     ├─ Identity  Profile  SocialGraph  Content  Messaging  Notification  Moderation
 │  │     └─ mỗi module: Domain/ Application/ Infrastructure/ Presentation/
 │  │                    Presentation/ = controller + <nhóm>.yaml (hợp đồng API, build input của lane FE)
-│  └─ frontend/                  # Next.js 14 (lane FE, song song từ GĐ1)
+│  └─ frontend/                  # Next.js 16 + shadcn/ui (pnpm) — bốn tầng, phụ thuộc MỘT CHIỀU
+│     ├─ app/                    # route, chỉ ráp trang
+│     ├─ features/<màn>/         # nghiệp vụ (auth/ ở GĐ1; post/ feed/ chat/… ở GĐ2+)
+│     ├─ components/             # ui/ (kit shadcn) · form/ · shell/ — KHÔNG biết nghiệp vụ
+│     └─ lib/                    # api/ (sinh từ <nhóm>.yaml) · auth/ · validation/
 ├─ tests/  (UnitTests · IntegrationTests · ArchitectureTests[ArchUnitNET] · load[k6])  ← chỉ test backend
 └─ deploy/   # docker-compose.staging.yml, Caddyfile (KHÔNG chứa .env)
 ```
 
 **Hai lane nằm dưới `src/`** (chốt 2026-09-16, trước đó backend chiếm chỗ `src/`). Đường dẫn hay dùng:
-`dotnet run --project src/backend/SocialApp.Api`, và lane FE chạy từ `src/frontend/`. Vì frontend và backend
+`dotnet run --project src/backend/SocialApp.Api`, `pnpm --dir src/frontend dev`. Vì frontend và backend
 là anh em, script `gen:api` của FE trỏ `../backend/Modules/<Module>/Presentation/<nhóm>.yaml` — đường dẫn
 tương đối đó **đúng**, đừng "sửa" thành `src/backend/`.
 
@@ -185,7 +191,8 @@ dotnet ef migrations add <Ten> \
 docker compose -f deploy/docker-compose.dev.yml up -d
 
 # Frontend
-cd src/frontend && npm run dev
+cd src/frontend && pnpm dev      # pnpm, không npm — lockfile là pnpm-lock.yaml
+# Thêm component UI: pnpm exec shadcn add <tên>   (bản CLI ghim trong src/frontend/, không dlx @latest)
 ```
 - **Migration:** EF Core, versioned, expand–contract (backward-compatible 1 phiên bản). **KHÔNG
   auto-migrate lúc app start** — chạy ở bước deploy (service `migrate`, cờ `--migrate`).

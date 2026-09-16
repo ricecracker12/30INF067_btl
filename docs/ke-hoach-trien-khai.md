@@ -22,7 +22,7 @@ RFC 7807 + chạy thử staging + cập nhật Swagger.
 ## 0. Chuẩn bị & quy ước (áp dụng cả dự án)
 
 **Tech stack cố định:** ASP.NET Core 8 (Web API + SignalR), EF Core + Npgsql, PostgreSQL 16, Redis 7,
-Cloudflare R2 (S3-compatible), Docker Compose, Caddy (TLS), Next.js 14 (frontend), Serilog +
+Cloudflare R2 (S3-compatible), Docker Compose, Caddy (TLS), Next.js 16 + shadcn/ui, pnpm (frontend — chốt 2026-09-15, thay Next.js 14), Serilog +
 Prometheus + Grafana + Uptime Kuma.
 
 **Cấu trúc solution (modular monolith — theo Mục 6.4, 7 module + Shared Kernel):**
@@ -39,7 +39,7 @@ SocialApp.sln
  │   │   ├─ Modules/Messaging        (CMP-05: conversations, messages, ChatHub)
  │   │   ├─ Modules/Notification     (CMP-06: notifications, Hub)
  │   │   └─ Modules/Moderation       (CMP-07: reports, audit_logs, admin)
- │   └─ frontend/ (Next.js 14)
+ │   └─ frontend/ (Next.js 16 + shadcn/ui, pnpm)
  ├─ tests/  (Unit, Integration, Architecture[ArchUnitNET], Load[k6])
  └─ deploy/ (docker-compose.*.yml, Caddyfile, prometheus.yml, grafana/)
 ```
@@ -95,7 +95,7 @@ trả 200; CI (build + test) xanh; ArchUnitNET test khung chạy được (dù c
 
 ---
 
-## 0C. Nhánh FRONTEND chạy song song (từ GĐ1) — Next.js 14
+## 0C. Nhánh FRONTEND chạy song song (từ GĐ1) — Next.js 16 + shadcn/ui
 
 > Kế hoạch gốc nhắc Next.js 14 ở tech stack nhưng **không giai đoạn nào giao việc làm frontend**.
 > Mục này lấp lỗ hổng đó.
@@ -299,7 +299,7 @@ còn biên độ thêm index/cache nếu trượt; và thứ cắt được thì
     cho cả dự án** (đọc quyền từ DB, cache TTL 60s) + fallback policy = default deny + ownership
     check ở service (tầng 3).
   - Endpoints: `POST /auth/register|login|refresh|logout`, `POST /auth/verify-email`, `GET /me`.
-  - **Lane frontend (1 người, song song từ Ngày 3 — Mục 0C):** scaffold Next.js 14 App Router +
+  - **Lane frontend (1 người, song song từ Ngày 3 — Mục 0C):** scaffold Next.js 16 App Router + shadcn/ui preset (pnpm) +
     design token + primitive · sinh type từ OpenAPI stub (`openapi-typescript`) · api client bọc
     `fetch` với **`credentials: 'include'`** · mock MSW để dựng UI không chờ backend · màn đăng ký /
     đăng nhập / xác minh email · app shell + route guard · **access token giữ trong memory, không

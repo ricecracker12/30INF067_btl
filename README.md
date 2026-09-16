@@ -21,7 +21,7 @@ mxh/
 │  │     ├─ Messaging                # conversations, messages, ChatHub
 │  │     ├─ Notification             # notifications, Hub
 │  │     └─ Moderation               # reports, audit_logs, admin
-│  └─ frontend/                      # Next.js 14 (lane FE, song song từ GĐ1)
+│  └─ frontend/                      # Next.js 16 + shadcn/ui (pnpm)
 ├─ tests/
 │  ├─ SocialApp.UnitTests
 │  ├─ SocialApp.IntegrationTests

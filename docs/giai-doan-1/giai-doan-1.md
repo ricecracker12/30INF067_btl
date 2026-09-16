@@ -2025,16 +2025,22 @@ liệu seed thật. Nguồn quyền giả chỉ còn trong unit test.
 > **Không chờ backend:** chỉ cần hợp đồng API, đã có từ cổng mở.
 
 > **Hướng dẫn thi công từng bước:** [huong-dan-khoi-e-frontend.md](huong-dan-khoi-e-frontend.md) — danh sách việc (thêm
-> `E8` đóng gói cho staging; thứ tự `E1 → E2 → E4 → E3 → E5 → E6 → E7 → E8`), mục tiêu, kết quả mong đợi, 12 quyết định bổ
+> `E8` đóng gói cho staging; thứ tự `E1 → E2 → E4 → E3 → E5 → E6 → E7 → E8`), mục tiêu, kết quả mong đợi, 13 quyết định bổ
 > sung. **Chưa ghi ngược** vào mục này: Đ-E4 (single-flight giữa các tab — E7, E2E-02) và Đ-E11 (E8 + phần frontend của F1).
 
 ### E1 — Scaffold Next.js 16 + shadcn/ui preset
 
 - **Mục tiêu:** có nền để dựng màn, và bộ primitive dùng lại được cho GĐ2–GĐ8.
-- **Cách thực thi:** `pnpm dlx shadcn@latest init --preset b2C6hQKDg --template next --name frontend` — Next.js 16
+- **Cách thực thi:** `pnpm dlx shadcn@latest init --preset b2C6hQKDg --template next --name frontend` **chạy từ `src/`** — Next.js 16
   App Router + TypeScript + Tailwind v4 + shadcn/ui (Base UI, style `base-maia`). Token nằm trong `app/globals.css` do
   preset sinh; primitive (button, input, field, alert) thêm bằng `pnpm exec shadcn add` trước khi dựng màn — dựng màn
   trước thì mỗi màn một kiểu. *(Chốt 2026-09-15: Next.js 14 → 16, npm → pnpm.)*
+- **Cấu trúc thư mục — bốn tầng, chốt 2026-09-16** (Đ-E13, thay tầng `components/<tính-năng>/` chốt trước đó):
+  `app/` chỉ ráp trang → `features/<màn>/` giữ nghiệp vụ → `components/` (`ui/` kit, `form/`, `shell/`) giữ UI **không biết
+  nghiệp vụ** → `lib/` (`api/`, `auth/`, `validation/`) giữ hạ tầng. Phụ thuộc một chiều, ESLint chặn import ngược và import
+  chéo giữa các feature. `lib/api/` bám tên module backend 1-1 (sinh từ `<nhóm>.yaml`); tên `features/` bám **màn hình**, vì
+  ánh xạ module ↔ màn không 1-1 — `Content` một module đẻ ra `post/`, `comment/`, `reaction/`, `feed/` qua ba giai đoạn.
+  GĐ1 chỉ có `features/auth/`; không tạo sẵn thư mục rỗng cho giai đoạn chưa tới.
 - **Xong là:** `pnpm dev` lên được, có ít nhất một trang dùng primitive của kit.
 - **Chặn / Cần:** chặn E2.
 
