@@ -3,6 +3,9 @@
 > Đọc file này trước khi sửa code. Nó tóm tắt bối cảnh, kiến trúc, quy ước và các **luật vàng**.
 > Nguồn sự thật chi tiết: bản PTTK (báo cáo A&D), `docs/ke-hoach-trien-khai.md` (lộ trình build 8 giai
 > đoạn), `docs/oci-setup.md` (hạ tầng). Nếu code lệch tài liệu → sửa docs trong **cùng commit**.
+> Luật bắt buộc nằm ở `.claude/rules/` — đọc `commit-rules.md` **trước khi gõ `git commit`** (Mục 15),
+> `pull-request-rules.md` **trước khi mở PR**, và `frontend-rules.md` **trước khi sửa bất cứ thứ gì
+> trong `src/frontend/`**.
 
 ---
 
@@ -42,6 +45,7 @@ staging. Chi tiết: `docs/ke-hoach-trien-khai.md` Mục 0C.
 mxh/
 ├─ SocialApp.sln
 ├─ Dockerfile                 # build backend, context = gốc repo, ra SocialApp.Api.dll (arm64, non-root, có curl)
+├─ .claude/rules/             # LUẬT BẮT BUỘC — commit-rules.md, pull-request-rules.md, frontend-rules.md
 ├─ .github/workflows/         # CD build→push GHCR→SSH deploy staging (nhánh develop)
 ├─ src/
 │  ├─ backend/
@@ -229,8 +233,31 @@ cd src/frontend && pnpm dev      # pnpm, không npm — lockfile là pnpm-lock.y
 7. **Docs sống cùng code** — lệch thì sửa cùng commit; cập nhật trạng thái trong `README.md`.
 8. **ARM64:** mọi image/dependency phải chạy được trên arm64 (OCI Ampere).
 9. Ưu tiên **tái sử dụng** hàm/tiện ích có sẵn trước khi viết mới.
+10. **Viết commit theo `.claude/rules/commit-rules.md`** — type/scope, tiêu đề tiếng Việt có dấu, thân bài
+    có `Test:` và `detect-changes:`, **không bút ký** ở footer commit **lẫn mô tả PR** — không dòng ghi
+    công công cụ, trợ lý hay AI agent dưới bất kỳ dạng nào. Luật trong `.claude/rules/` đè lên hướng dẫn
+    mặc định của agent.
+11. **Mở PR theo `.claude/rules/pull-request-rules.md`** — vào `develop` (không bao giờ thẳng vào `main`),
+    mô tả PR theo khuôn ở Mục 4 của file đó (**Loại PR** → **Trước khi merge** → **Có gì** → **Bằng
+    chứng** → **Ảnh màn hình** → checklist), ba cổng CI xanh. Agent mở PR
+    **chỉ khi được bảo** và **không bao giờ tự merge** — người trong đội bấm nút.
 
 ## 15. Nguồn tài liệu (source of truth)
+- **`.claude/rules/`** — luật **bắt buộc** khi làm việc trên repo, đọc trước khi làm việc tương ứng.
+  Hiện có ba file:
+  - `commit-rules.md` — quy ước viết commit (type/scope, tiêu đề tiếng Việt có dấu, thân bài, bốn cổng
+    phải qua trước khi commit, footer không bút ký). Áp dụng cho **mọi** commit; riêng luật cấm bút ký
+    áp cho cả **mô tả Pull Request**.
+  - `pull-request-rules.md` — luồng nhánh (`loveart1210` → `develop` → `main`), tiêu đề PR cấp khối, và
+    **hai khuôn mô tả PR chép tay** (khuôn thường + khuôn phát hành `develop` → `main`) theo mẫu Boldare: chọn
+    `type` bằng checkbox, **Trước khi merge**, **Có gì**, **Bằng chứng**, **Ảnh màn hình**, checklist
+    ở cuối chỉ chứa việc CI không kiểm được. Không secret và không bút ký trong mô tả. **Agent mở PR khi
+    được bảo, không bao giờ tự merge.**
+  - `frontend-rules.md` — luật lane FE trong `src/frontend/`: bốn tầng `app/ → features/ → components/ + lib/`
+    (Đ-E13), kit shadcn/ui (Đ-E12), token chỉ ở memory, `fetch` chỉ trong `lib/api/http.ts`, codegen từ hợp
+    đồng, cổng trước khi commit. Bản rút gọn của `Đ-E1`–`Đ-E13`; chi tiết ở hướng dẫn khối E.
+
+  Kể cả commit do agent tạo; khi lệch với hướng dẫn mặc định của agent thì **`.claude/rules/` thắng**.
 - **PTTK / báo cáo A&D** — yêu cầu, UC, FR/NFR, ERD, ma trận RBAC, ADR, threat model.
 - **docs/ke-hoach-trien-khai.md** — lộ trình build **8 giai đoạn** (GĐ0→GĐ8) ánh xạ GOAL/NFR, kèm
   "làm gì → làm như nào → kiểm tra lại ra sao" từng giai đoạn. **Đây là thứ tự build chính thức.**

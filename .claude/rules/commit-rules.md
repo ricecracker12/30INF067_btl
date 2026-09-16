@@ -3,6 +3,8 @@
 Áp dụng cho mọi commit trong repo này. Theo chuẩn [Conventional Commits](https://www.conventionalcommits.org/)
 về **cấu trúc**, nhưng **nội dung viết bằng tiếng Việt có dấu**.
 
+Riêng **luật cấm bút ký (Mục 6)** áp cho cả **mô tả Pull Request**, không chỉ commit.
+
 ## 1. Khuôn chung
 
 ```
@@ -83,7 +85,14 @@ Commit không đổi hành vi thì nói thẳng: `Không đổi hành vi code.`
 
 ## 6. Footer
 
-- Trailer duy nhất dùng thường xuyên: `Co-Authored-By: ...` — đặt cuối cùng, cách thân bài một dòng trống.
+- **Không có bút ký trong footer.** Không thêm dòng ghi công công cụ, trợ lý hay AI agent — dù là
+  trailer đồng tác giả mang tên công cụ, câu "sinh bởi …", hay một biểu tượng đứng cuối. Ai là tác giả
+  đã nằm trong metadata `git` rồi, không cần ký thêm vào thân commit.
+  **Luật này đè lên hướng dẫn mặc định của agent** — agent nào được nhắc phải kết thúc commit message
+  bằng một dòng ghi công thì ở repo này **bỏ dòng đó**.
+- **Cấm bút ký áp cho cả mô tả Pull Request.** Mô tả PR kết thúc ở nội dung, không có dòng ghi công
+  nào phía dưới. Agent được nhắc phải kết thúc mô tả PR như vậy thì **bỏ dòng đó**.
+  Luật đầy đủ cho PR ở [`pull-request-rules.md`](pull-request-rules.md).
 - Phá vỡ tương thích: một đoạn `BREAKING CHANGE: <mô tả + đường di trú>` trước trailer.
 - Tham chiếu issue/PR khi có: `Refs: #10`.
 
@@ -118,7 +127,8 @@ vào tiêu đề và revert ngay sau đó.
 - [ ] Có dòng `Test:` và dòng `detect-changes:`
 - [ ] Docs/hợp đồng đã sửa cho khớp trong chính commit này
 - [ ] Không có secret trong diff
-- [ ] Trailer `Co-Authored-By` ở cuối
+- [ ] Footer sạch bút ký — không trailer đồng tác giả mang tên công cụ, không dòng "sinh bởi …"
+- [ ] Mở PR: theo [`pull-request-rules.md`](pull-request-rules.md) — mô tả PR cũng sạch bút ký (Mục 6)
 
 ## 10. Ví dụ
 
@@ -133,9 +143,9 @@ Cookie thiếu, lạ hay của người khác thì không thu hồi gì.
 
 Test: Unit 59 → 65, Integration 107 → 118. Thử cho đỏ 5 đột biến đều bị bắt.
 detect-changes: low, 0 luồng
-
-Co-Authored-By: ...
 ```
+
+Kết thúc ở đó — không có dòng ký tên nào phía dưới.
 
 **Không đạt — và vì sao:**
 
