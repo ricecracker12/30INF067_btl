@@ -6,6 +6,7 @@
 deploy/origin-cert/
 *.pem
 *.key
+*.ppk
 
 # ---- .NET ----
 bin/
