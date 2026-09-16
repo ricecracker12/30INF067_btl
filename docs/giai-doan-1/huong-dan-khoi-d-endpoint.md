@@ -5,7 +5,7 @@
 > đã xong thật*.
 >
 > **Nguồn sự thật vẫn là `giai-doan-1.md`** (Mục 7 luồng nghiệp vụ, Mục 8 hợp đồng, Mục 10.1 mã test),
-> hợp đồng [`identity-v1.yaml`](../src/Modules/Identity/Presentation/identity-v1.yaml) và `AGENTS.md`. Chỗ
+> hợp đồng [`identity-v1.yaml`](../../src/backend/Modules/Identity/Presentation/identity-v1.yaml) và `AGENTS.md`. Chỗ
 > nào tài liệu này lệch ba nguồn đó thì sửa ở đây — trừ các quyết định ở Mục 1 được đánh dấu **"ghi
 > ngược"**: những chỗ đó tài liệu gốc đang thiếu hoặc sai, phải sửa `giai-doan-1.md` trong cùng commit.
 
@@ -187,7 +187,7 @@ cùng commit với code của việc đó.
   `"anon"` → test thứ 11 của cả lớp nhận **429**, đỏ ngẫu nhiên theo thứ tự chạy.
 - **Quyết định:** `Harness/FakeRemoteIpStartupFilter` (chỉ trong assembly test) đứng đầu pipeline: có header
   `X-Test-Remote-Ip` thì dùng, không thì sinh IP ngẫu nhiên. Test rate limit riêng (`Auth_rate_limit_429`) gửi
-  cùng một IP 11 lần. **Không** thêm cờ tắt rate limit vào `src/`.
+  cùng một IP 11 lần. **Không** thêm cờ tắt rate limit vào `src/backend/`.
 
 **Đ-D8 — `ITokenRevocationStore` và hiện thực Redis ở SharedKernel.**
 
@@ -250,9 +250,9 @@ cùng commit với code của việc đó.
 tiên — nếu không mỗi endpoint dựng dần một cách băm token và một kiểu factory test.
 
 **Kết quả mong đợi.**
-- `src/Modules/Identity/Application/Security/`: `SecureToken.cs`, `IPasswordHasher.cs`, `IAccessTokenIssuer.cs`.
-- `src/Modules/Identity/Application/IdentityErrors.cs` — mọi `Error` của nhóm auth ở một chỗ.
-- `src/Modules/Identity/Infrastructure/Security/`: `BCryptPasswordHasher.cs`, `JwtAccessTokenIssuer.cs`.
+- `src/backend/Modules/Identity/Application/Security/`: `SecureToken.cs`, `IPasswordHasher.cs`, `IAccessTokenIssuer.cs`.
+- `src/backend/Modules/Identity/Application/IdentityErrors.cs` — mọi `Error` của nhóm auth ở một chỗ.
+- `src/backend/Modules/Identity/Infrastructure/Security/`: `BCryptPasswordHasher.cs`, `JwtAccessTokenIssuer.cs`.
 - `JwtOptions` thêm `RefreshTokenDays` (mặc định 7) và hằng số `ClockSkewSeconds = 30`; `RequireJwtOptions`
   kiểm `RefreshTokenDays > 0`; `Program.cs` dùng `JwtOptions.ClockSkewSeconds` thay số `30`.
 - Unit test xanh: `SecureTokenTests`, `BCryptPasswordHasherTests`, `JwtAccessTokenIssuerTests`.
@@ -1308,7 +1308,7 @@ Thử cho đỏ ở local, hai đợt vì một đột biến che đột biến 
 - **Test RT-06** tạo trigger `BEFORE INSERT` **chỉ trong database test** giữ lượt xoay T2 lại 2 giây ngay sau khi INSERT T3 (T2
   đang bị khóa, T3 chưa commit), chờ tới khi `pg_stat_activity` thấy session đó ngủ, rồi mới cho lượt reuse T1 chen vào. Viết
   test **trước**: trên code chỉ có `FOR UPDATE` nó đỏ ("bỏ sót 1 token còn sống"); thêm khóa family thì xanh 5/5. Không thêm cờ
-  hay hook nào vào `src/`.
+  hay hook nào vào `src/backend/`.
 - **Hệ quả cho D6:** `RevokeFamilyAsync` (logout) cũng thu hồi theo family nên phải gọi `LockFamilyAsync` **trước** câu UPDATE —
   cùng thứ tự "khóa family rồi mới khóa dòng" với `RotateAsync`, không thì lại hở và có thể deadlock.
 - Đã ghi ngược: `giai-doan-1.md` Mục 7.3 và mô tả `POST /auth/refresh` trong `identity-v1.yaml` (chỉ mô tả, hợp đồng không đổi).
@@ -1677,7 +1677,7 @@ lưới `AuthHarnessTests` đang dùng.
 | # | Bẫy | Chặn bằng |
 |---|---|---|
 | 1 | TTL = `AccessTokenSeconds` đúng như tài liệu gốc → cửa sổ 30 giây | Đ-D4 + test TTL |
-| 2 | Hai chỗ đọc hai hằng số khác nhau cùng bằng 900 | **Không test nào bắt** (B.9 điều 2) — review: grep `900` và `AccessTokenSeconds` trong `src/` |
+| 2 | Hai chỗ đọc hai hằng số khác nhau cùng bằng 900 | **Không test nào bắt** (B.9 điều 2) — review: grep `900` và `AccessTokenSeconds` trong `src/backend/` |
 | 3 | Redis **trước** DB ở nhánh reuse | **Không test nào bắt** (B.9 điều 1) — review `SessionService` |
 | 4 | `ConnectionMultiplexer.Connect` mặc định `abortConnect=true` → app không khởi động khi Redis chết | `AbortOnConnectFail = false`; quên thì smoke + cổng hợp đồng đỏ ngay trên CI (`ApiFactory` trỏ Redis không tới được) |
 | 5 | Chờ timeout Redis ở mỗi request có token | Kiểm `IsConnected` trước; RV-04 đòi < 1 giây |
@@ -1692,7 +1692,7 @@ lỗi vẫn 401), Architecture 9, Integration 129 → 137 (+8 `TokenRevocationTe
 test): **1 s trước D8, 1 s sau D8, 461 ms sau đợt sửa** — fail-open không làm chậm. `TokenRevocationTests`
 cả lớp ~15 s (RV-03 và TTL mỗi test ~1–4 s vì BCrypt + chờ sang giây kế tiếp, còn lại < 0,4 s).
 
-Grep `900`/`930` trong `src/`: chỉ `appsettings.json` và giá trị mặc định trong `JwtOptions` (+ comment) — cạm bẫy 2 sạch.
+Grep `900`/`930` trong `src/backend/`: chỉ `appsettings.json` và giá trị mặc định trong `JwtOptions` (+ comment) — cạm bẫy 2 sạch.
 
 Kiểm tay trên dev (API chạy từ `bin/` với `Development`, Postgres/Redis/Mailpit của compose dev, gọi bằng `curl`): register 201 → verify
 200 (token lấy từ API Mailpit) → login → refresh c1 **200** → access token của lần login gọi `/me` **200** → **chờ 11 giây thật** →
@@ -1784,7 +1784,7 @@ Thử cho đỏ ở local, hai đợt, rồi khôi phục (`git diff` sau khi kh
 - **Test:**
   - `InitializeAsync` ghi một key rác qua `ITokenRevocationStore` của app trước test đầu tiên: bên đọc fail-open tới khi kết nối nền
     xong, không làm nóng thì RV-01 có thể nhận 404 ở request đầu. Bên ghi chờ kết nối nên đây là cách chắc chắn, không cần hook trong
-    `src/`.
+    `src/backend/`.
   - **RV-03 và TTL chờ sang giây kế tiếp của `iat`** trước khi dùng lại token cũ: mốc làm tròn xuống giây và so chặt, reuse cùng giây
     đăng nhập thì access token đó (đúng thiết kế) không bị chặn — test sẽ đỏ ngẫu nhiên. Hệ quả thiết kế đã chấp nhận: token phát
     trong **cùng giây** với mốc thu hồi không bị chặn (đánh đổi của cạm bẫy 6).
@@ -2075,10 +2075,10 @@ che nhau), khôi phục bằng `git checkout -- <file>` và kiểm `git status` 
 
 - [ ] Nhánh reuse: **DB commit trước**, `RevokeUserAsync` sau (B.9 điều 1)
 - [ ] TTL `revoked:user` và `exp` của access token cùng đọc `JwtOptions` — grep `900`, `AccessTokenSeconds`,
-      `ClockSkew` trong `src/` chỉ ra `JwtOptions`, `Program.cs`, `JwtAccessTokenIssuer`, `RedisTokenRevocationStore` (B.9 điều 2)
+      `ClockSkew` trong `src/backend/` chỉ ra `JwtOptions`, `Program.cs`, `JwtAccessTokenIssuer`, `RedisTokenRevocationStore` (B.9 điều 2)
 - [ ] `[AllowAnonymous]` chỉ ở 4 action công khai, không ở class
 - [ ] Không log nào chứa mật khẩu, token bản rõ, link xác minh, giá trị cookie
-- [ ] Grep `SystemRoles.Admin|RoleCodes.Admin|"ADMIN"` trong `src/` vẫn chỉ ra 4 file cho phép (khối D không thêm)
+- [ ] Grep `SystemRoles.Admin|RoleCodes.Admin|"ADMIN"` trong `src/backend/` vẫn chỉ ra 4 file cho phép (khối D không thêm)
 - [ ] Code khớp ba quyết định đã ghi ngược: ân hạn phát token mới cùng family (Đ-D3), TTL = access + `ClockSkew`
       (Đ-D4), gửi mail đọc `Smtp__*` không ghi cứng host (Đ-D9)
 

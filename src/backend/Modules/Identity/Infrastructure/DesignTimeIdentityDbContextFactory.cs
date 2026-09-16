@@ -14,8 +14,8 @@ namespace SocialApp.Modules.Identity.Infrastructure;
 ///
 /// Lệnh (chạy từ gốc repo — xem AGENTS.md Mục 13):
 ///   dotnet ef migrations add &lt;Tên&gt; \
-///     --project src/Modules/Identity/SocialApp.Modules.Identity.csproj \
-///     --startup-project src/Modules/Identity/SocialApp.Modules.Identity.csproj \
+///     --project src/backend/Modules/Identity/SocialApp.Modules.Identity.csproj \
+///     --startup-project src/backend/Modules/Identity/SocialApp.Modules.Identity.csproj \
 ///     --output-dir Infrastructure/Migrations
 ///
 /// Chuỗi kết nối: biến môi trường <c>ConnectionStrings__Postgres</c> nếu có (trỏ vào DB khác — DB tạm,

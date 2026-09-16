@@ -10,23 +10,24 @@ mxh/
 ├─ .dockerignore / .gitignore
 ├─ .github/workflows/                # CD lên staging
 ├─ src/
-│  ├─ SocialApp.Api                  # host: controllers, SignalR Hubs, DI, middleware
-│  ├─ SocialApp.SharedKernel         # AuthN/AuthZ, RFC7807, correlation ID, rate limit
-│  └─ Modules/                       # 7 module — mỗi module tách Domain/Application/Infrastructure
-│     ├─ Identity                    # users, roles, refresh_tokens, JWT
-│     ├─ Profile                     # profiles
-│     ├─ SocialGraph                 # friendships, follows
-│     ├─ Content                     # posts, comments, reactions, media, feed
-│     ├─ Messaging                   # conversations, messages, ChatHub
-│     ├─ Notification                # notifications, Hub
-│     └─ Moderation                  # reports, audit_logs, admin
+│  ├─ backend/
+│  │  ├─ SocialApp.Api               # host: controllers, SignalR Hubs, DI, middleware
+│  │  ├─ SocialApp.SharedKernel      # AuthN/AuthZ, RFC7807, correlation ID, rate limit
+│  │  └─ Modules/                    # 7 module — mỗi module tách Domain/Application/Infrastructure
+│  │     ├─ Identity                 # users, roles, refresh_tokens, JWT
+│  │     ├─ Profile                  # profiles
+│  │     ├─ SocialGraph              # friendships, follows
+│  │     ├─ Content                  # posts, comments, reactions, media, feed
+│  │     ├─ Messaging                # conversations, messages, ChatHub
+│  │     ├─ Notification             # notifications, Hub
+│  │     └─ Moderation               # reports, audit_logs, admin
+│  └─ frontend/                      # Next.js 14 (lane FE, song song từ GĐ1)
 ├─ tests/
 │  ├─ SocialApp.UnitTests
 │  ├─ SocialApp.IntegrationTests
 │  ├─ SocialApp.ArchitectureTests    # ArchUnitNET chặn tham chiếu chéo module
 │  └─ load/                          # k6 (feed @1.000 CCU)
-├─ deploy/                           # compose dev + staging (2 biến thể: caddy / apache), không chứa .env
-└─ frontend/                         # Next.js 14 (làm sau khi backend ổn định)
+└─ deploy/                           # compose dev + staging (2 biến thể: caddy / apache), không chứa .env
 ```
 
 ## Quy ước
@@ -45,7 +46,7 @@ path-based (`/api`,`/swagger`,`/health` → API; `/` để dành cho Next.js sau
 (`run --rm migrate` → `up -d --remove-orphans`). Script deploy có `set -e` nên deploy hỏng thì
 CD báo **đỏ** — tránh lặp lại sự cố CD báo xanh trong khi staging đã sập.
 
-**GĐ1 — Identity & Access: đang làm** (`docs/giai-doan-1.md`).
+**GĐ1 — Identity & Access: đang làm** (`docs/giai-doan-1/giai-doan-1.md`).
 - **Xong:** khối A (schema `identity`, seeder idempotent, kiểm tra vai trò hệ thống lúc khởi động),
   khối B (harness Testcontainers dùng chung, AuthZ matrix data-driven làm cổng CI chặn thật) và khối C
   (JwtBearer + default deny, `[RequirePermission]` đọc quyền từ `role_permissions` với cache 60 s, Admin

@@ -24,7 +24,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\SocialApp.Api\SocialApp.Api.csproj" />
+    <ProjectReference Include="..\..\src\backend\SocialApp.Api\SocialApp.Api.csproj" />
   </ItemGroup>
 
 </Project>

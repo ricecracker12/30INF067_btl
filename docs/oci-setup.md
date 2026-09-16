@@ -106,7 +106,7 @@ chmod 600 .env
 ```
 > ASP.NET Core map biến `Section__Key` → config (`__` = lồng cấp). Sinh khóa: `openssl rand -base64 48`.
 >
-> **Email theo môi trường (`docs/huong-dan-khoi-d-endpoint.md` Đ-D9 — staging chốt lại 2026-09-15):**
+> **Email theo môi trường (`docs/giai-doan-1/huong-dan-khoi-d-endpoint.md` Đ-D9 — staging chốt lại 2026-09-15):**
 >
 > | Môi trường | Gửi qua | Xem mail |
 > |---|---|---|
@@ -136,7 +136,7 @@ chmod 600 .env
 > **Repo = `mxh`.** File này đặt tại `mxh/.github/workflows/deploy-staging.yml` (đúng chuẩn — workflow
 > phải nằm ở gốc repo). `${{ github.repository }}` tự thành `<username>/mxh` → image tự là
 > `ghcr.io/<username>/mxh/api`. `context: .` = gốc repo `mxh` ⇒ Dockerfile ở `mxh/Dockerfile`,
-> publish `src/SocialApp.Api/SocialApp.Api.csproj`.
+> publish `src/backend/SocialApp.Api/SocialApp.Api.csproj`.
 
 `.github/workflows/deploy-staging.yml`:
 ```yaml

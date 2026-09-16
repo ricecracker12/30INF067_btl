@@ -29,8 +29,8 @@ trượt của khối D.
 | **A3** | Migration đầu tiên | Biến schema thành artifact có version, tái lập y hệt ở mọi môi trường — không ai "sửa tay trên staging" | Thư mục `Infrastructure/Migrations/` có `<timestamp>_InitialIdentity.cs` + `.Designer.cs` + `IdentityDbContextModelSnapshot.cs` đã commit; `dotnet ef database update` trên compose dev chạy sạch; test schema xanh trên Postgres thật |
 | **A4** | Seeder idempotent | Ma trận quyền là **dữ liệu**, không phải code; và CD deploy lại 10 lần/ngày cũng không nhân bản hay ghi đè cấu hình mà Admin đã sửa | `IdentitySeeder.SeedAsync` seed đúng 3 vai trò + 17 quyền + 24 dòng gán quyền; `SEED-01` và `SEED-02` xanh trên Postgres thật |
 | **A5** | Kiểm tra vai trò hệ thống lúc khởi động | Bắt kịch bản nguy hiểm nhất của GĐ1: ai đó đổi `roles.code` bằng tay → short-circuit `role == "ADMIN"` không khớp → mất sạch quyền quản trị, im lặng, không đường phục hồi | ~5 dòng nằm **trong** seeder, ném `InvalidOperationException` nêu đúng tên vai trò thiếu; `SEED-03` xanh |
-| **A6** | Nối vào hook `--migrate` | Một lệnh duy nhất ở bước deploy làm trọn ba việc: nâng schema → nạp dữ liệu nền → tự kiểm tra | `dotnet run --project src/SocialApp.Api -- --migrate` trên DB sạch cho exit code 0 và in dòng xác nhận; chạy lần hai vẫn 0, dữ liệu không đổi |
-| **A7** | Gỡ `Skip` của `Identity_Domain_namespace_must_not_be_empty` | Đóng "lưới giả" mà `PersistenceBoundaryTests` tự cảnh báo về chính nó: rule dùng `WithoutRequiringPositiveResults` nên gõ sai namespace là xanh vĩnh viễn | Thuộc tính `Skip` biến mất khỏi [PersistenceBoundaryTests.cs](../tests/SocialApp.ArchitectureTests/PersistenceBoundaryTests.cs); test chạy thật và xanh |
+| **A6** | Nối vào hook `--migrate` | Một lệnh duy nhất ở bước deploy làm trọn ba việc: nâng schema → nạp dữ liệu nền → tự kiểm tra | `dotnet run --project src/backend/SocialApp.Api -- --migrate` trên DB sạch cho exit code 0 và in dòng xác nhận; chạy lần hai vẫn 0, dữ liệu không đổi |
+| **A7** | Gỡ `Skip` của `Identity_Domain_namespace_must_not_be_empty` | Đóng "lưới giả" mà `PersistenceBoundaryTests` tự cảnh báo về chính nó: rule dùng `WithoutRequiringPositiveResults` nên gõ sai namespace là xanh vĩnh viễn | Thuộc tính `Skip` biến mất khỏi [PersistenceBoundaryTests.cs](../../tests/SocialApp.ArchitectureTests/PersistenceBoundaryTests.cs); test chạy thật và xanh |
 
 **Thứ tự bắt buộc:** `A1 → A2 → A3 → A4 → A5 → A6`. Riêng **`A7` đi kèm `A1` trong cùng một commit** —
 để sang commit sau là nó thành nợ, và nợ loại này không ai nhớ trả.
@@ -94,7 +94,7 @@ không phải sửa lại:
 chạy trong chân không" mà `PersistenceBoundaryTests` đang tự cảnh báo bằng một `Skip`.
 
 **Kết quả mong đợi.**
-- 6 file entity + 3 file hằng số dưới `src/Modules/Identity/Domain/`, đúng namespace
+- 6 file entity + 3 file hằng số dưới `src/backend/Modules/Identity/Domain/`, đúng namespace
   `SocialApp.Modules.Identity.Domain`.
 - Grep `using Microsoft.EntityFrameworkCore` trong `Domain/` ra **0 kết quả**.
 - `dotnet build SocialApp.sln` xanh.
@@ -119,7 +119,7 @@ nơi sẽ đọc nó: seeder (`A4`), kiểm tra khởi động (`A5`), và Admin
 .NET 9; dự án đang net8.0. `Guid.NewGuid()` là v4 ngẫu nhiên → phân mảnh index B-tree, đúng thứ GĐ4
 sẽ trả giá khi feed cần index tốt.
 
-Tạo `src/SocialApp.SharedKernel/Ids/Uuid7.cs` — một hàm tĩnh gói lời gọi UUIDNext lại:
+Tạo `src/backend/SocialApp.SharedKernel/Ids/Uuid7.cs` — một hàm tĩnh gói lời gọi UUIDNext lại:
 
 ```csharp
 namespace SocialApp.SharedKernel.Ids;
@@ -190,7 +190,7 @@ public sealed class RefreshToken
   `DateTimeOffset` (hoặc `DateTime` có `Kind = Utc`); dùng `DateTime` mặc định `Kind = Unspecified`
   sẽ ném lúc lưu. Thống nhất `DateTimeOffset` cho toàn bộ khối A.
 - **`Guid.NewGuid()` lọt vào vì quen tay.** Sau khi viết xong 6 entity, grep một lượt:
-  `grep -rn "Guid.NewGuid" src/` phải ra rỗng.
+  `grep -rn "Guid.NewGuid" src/backend/` phải ra rỗng.
 - **`RoleId` để EF tự sinh.** `roles.role_id` và `permissions.permission_id` là số cố định do seeder
   gán. Chưa cấu hình `ValueGeneratedNever()` (việc của `A2`) thì EF sẽ sinh cột `identity` và
   migration ra sai — bắt được ở bước đọc lại file migration của `A3`.
@@ -207,7 +207,7 @@ cho cột `is_system` đã bị loại bỏ (Mục 3.4) — nó làm cho `DELETE
 thể**, ở tầng dưới cùng, không phụ thuộc tầng app nhớ kiểm.
 
 **Kết quả mong đợi.**
-- 6 file dưới `src/Modules/Identity/Infrastructure/Configurations/`.
+- 6 file dưới `src/backend/Modules/Identity/Infrastructure/Configurations/`.
 - 6 `DbSet<>` trong `IdentityDbContext`, và `HasPostgresExtension("citext")` trong `OnModelCreating`.
 - Override `SaveChanges`/`SaveChangesAsync` trong `IdentityDbContext` gán `UpdatedAt` cho entity bị
   sửa — đồng hồ app, không trigger (Mục 4 "Nguồn thời gian").
@@ -316,13 +316,13 @@ biến "sửa tay trên staging" từ một thói quen thành một chuyện kh�
 ### Các bước
 
 **Bước 1 — sinh migration.** Startup project là **chính project module**, nhờ
-[DesignTimeIdentityDbContextFactory.cs](../src/Modules/Identity/Infrastructure/DesignTimeIdentityDbContextFactory.cs)
+[DesignTimeIdentityDbContextFactory.cs](../../src/backend/Modules/Identity/Infrastructure/DesignTimeIdentityDbContextFactory.cs)
 — Api không phải kéo EF vào (ADR-001). Chạy từ gốc repo:
 
 ```bash
 dotnet ef migrations add InitialIdentity \
-  --project src/Modules/Identity/SocialApp.Modules.Identity.csproj \
-  --startup-project src/Modules/Identity/SocialApp.Modules.Identity.csproj \
+  --project src/backend/Modules/Identity/SocialApp.Modules.Identity.csproj \
+  --startup-project src/backend/Modules/Identity/SocialApp.Modules.Identity.csproj \
   --output-dir Infrastructure/Migrations
 ```
 
@@ -346,14 +346,14 @@ lệch với migration và migration kế tiếp sẽ sinh ra rác.
 
 ```bash
 dotnet ef migrations remove \
-  --project src/Modules/Identity/SocialApp.Modules.Identity.csproj \
-  --startup-project src/Modules/Identity/SocialApp.Modules.Identity.csproj
+  --project src/backend/Modules/Identity/SocialApp.Modules.Identity.csproj \
+  --startup-project src/backend/Modules/Identity/SocialApp.Modules.Identity.csproj
 ```
 
 **Bước 3 — áp lên compose dev.** Lệnh này **chạm DB thật**. Ở máy dev **không cần đặt biến nào**:
 `DesignTimeIdentityDbContextFactory` tự dựng chuỗi `Host=localhost;Port=5432` với mật khẩu đọc từ
 `POSTGRES_PASSWORD` trong `deploy/.env` — cùng file mà compose dev dùng
-(`src/SocialApp.SharedKernel/Configuration/DevEnvFile.cs`). Repo không giữ mật khẩu ghi cứng nào.
+(`src/backend/SocialApp.SharedKernel/Configuration/DevEnvFile.cs`). Repo không giữ mật khẩu ghi cứng nào.
 
 > Chỉ đặt `ConnectionStrings__Postgres` khi muốn trỏ vào **DB khác** (DB tạm, staging) — biến môi trường
 > thắng `deploy/.env`. Khi đó **đừng chép nguyên** `ConnectionStrings__Postgres` trong `deploy/.env`: chuỗi
@@ -364,8 +364,8 @@ dotnet ef migrations remove \
 
 ```bash
 dotnet ef database update \
-  --project src/Modules/Identity/SocialApp.Modules.Identity.csproj \
-  --startup-project src/Modules/Identity/SocialApp.Modules.Identity.csproj
+  --project src/backend/Modules/Identity/SocialApp.Modules.Identity.csproj \
+  --startup-project src/backend/Modules/Identity/SocialApp.Modules.Identity.csproj
 ```
 
 Kiểm nhanh bằng mắt một lần (chỉ lần này, về sau để test lo):
@@ -399,7 +399,7 @@ vai trò = thêm dữ liệu, không sửa code" thành sự thật thay vì kh�
 cũng không được nhân bản dữ liệu hay ghi đè cấu hình mà Admin đã cố ý sửa.
 
 **Kết quả mong đợi.**
-- `src/Modules/Identity/Infrastructure/Seed/IdentitySeeder.cs` với một hàm public
+- `src/backend/Modules/Identity/Infrastructure/Seed/IdentitySeeder.cs` với một hàm public
   `SeedAsync(IdentityDbContext db, CancellationToken ct)`.
 - Sau khi chạy: đúng **3** dòng `roles`, **17** dòng `permissions`, **24** dòng `role_permissions`
   (USER 11 + MODERATOR 13 + ADMIN 0).
@@ -556,14 +556,14 @@ một cách hỏng database rất khó dò.
 
 **Kết quả mong đợi.**
 - `MigrateIdentityModuleAsync` chạy **đúng thứ tự**: apply migration → seed → kiểm tra vai trò → thoát 0.
-- `dotnet run --project src/SocialApp.Api -- --migrate` trên DB sạch: exit code **0**, in dòng xác nhận.
+- `dotnet run --project src/backend/SocialApp.Api -- --migrate` trên DB sạch: exit code **0**, in dòng xác nhận.
 - Chạy **lần hai**: vẫn exit 0, số dòng trong 3 bảng không đổi.
 - Đổi `roles.code` rồi chạy lại: exit code **khác 0**, thông báo nêu tên vai trò thiếu.
 
 ### Các bước
 
 **Bước 1 — mở rộng
-[IdentityModuleExtensions.cs](../src/Modules/Identity/DependencyInjection/IdentityModuleExtensions.cs).**
+[IdentityModuleExtensions.cs](../../src/backend/Modules/Identity/DependencyInjection/IdentityModuleExtensions.cs).**
 Chỗ nối đã được chuẩn bị sẵn từ trước, chỉ thêm một dòng:
 
 ```csharp
@@ -604,7 +604,7 @@ Các lệnh:
 
 ```bash
 # lần 1 — DB sạch
-dotnet run --project src/SocialApp.Api -- --migrate
+dotnet run --project src/backend/SocialApp.Api -- --migrate
 echo $?                # bash       -> phải là 0
 ```
 
@@ -621,7 +621,7 @@ docker compose -f deploy/docker-compose.dev.yml exec postgres psql -U socialapp 
 #  -> 3 | 17 | 24
 
 # lần 2 — chạy lại, ba con số phải y hệt và exit vẫn 0
-dotnet run --project src/SocialApp.Api -- --migrate
+dotnet run --project src/backend/SocialApp.Api -- --migrate
 ```
 
 ### Cạm bẫy đã biết
@@ -637,7 +637,7 @@ dotnet run --project src/SocialApp.Api -- --migrate
 
 ## 8. A7 — Gỡ `Skip` của `Identity_Domain_namespace_must_not_be_empty`
 
-**Mục tiêu.** Đóng cái "lưới giả" mà [PersistenceBoundaryTests.cs](../tests/SocialApp.ArchitectureTests/PersistenceBoundaryTests.cs)
+**Mục tiêu.** Đóng cái "lưới giả" mà [PersistenceBoundaryTests.cs](../../tests/SocialApp.ArchitectureTests/PersistenceBoundaryTests.cs)
 tự cảnh báo về chính nó: rule `Domain_and_Application_must_not_depend_on_EfCore` dùng
 `WithoutRequiringPositiveResults`, nên nếu gõ sai namespace thì nó không khớp type nào và **xanh vĩnh
 viễn mà không kiểm gì cả**. Test này bắt đúng chuyện đó.

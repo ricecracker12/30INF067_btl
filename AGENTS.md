@@ -31,7 +31,7 @@ staging. Chi tiết: `docs/ke-hoach-trien-khai.md` Mục 0C.
 - **Object storage:** Cloudflare R2 (S3-compatible) — local dev dùng MinIO. Ảnh upload/serve qua
   **pre-signed URL**, KHÔNG đi qua API.
 - **Auth:** JWT (HS256, access 15') + refresh token **rotation** (lưu băm). RBAC + ownership.
-- **Frontend:** Next.js 14 (App Router, TS, Tailwind) — `frontend/`.
+- **Frontend:** Next.js 14 (App Router, TS, Tailwind) — `src/frontend/`.
 - **Hạ tầng:** Docker Compose, Caddy (TLS) sau Cloudflare, VPS OCI Ampere A1 (**ARM64** — image phải arm64).
 - **Quan sát:** Serilog (JSON + correlation ID), Prometheus + Grafana, Uptime Kuma.
 
@@ -42,16 +42,29 @@ mxh/
 ├─ Dockerfile                 # build backend, context = gốc repo, ra SocialApp.Api.dll (arm64, non-root, có curl)
 ├─ .github/workflows/         # CD build→push GHCR→SSH deploy staging (nhánh develop)
 ├─ src/
-│  ├─ SocialApp.Api           # HOST: DI, middleware, Program.cs, nhóm Swagger (KHÔNG giữ controller module)
-│  ├─ SocialApp.SharedKernel  # AuthN/AuthZ, RFC7807, correlation ID, rate limit, result types
-│  └─ Modules/                # 7 module, mỗi module tự chứa cả tầng HTTP của mình
-│     ├─ Identity  Profile  SocialGraph  Content  Messaging  Notification  Moderation
-│     └─ mỗi module: Domain/ Application/ Infrastructure/ Presentation/
-│                    Presentation/ = controller + <nhóm>.yaml (hợp đồng API, build input của lane FE)
-├─ tests/  (UnitTests · IntegrationTests · ArchitectureTests[ArchUnitNET] · load[k6])
-├─ deploy/   # docker-compose.staging.yml, Caddyfile (KHÔNG chứa .env)
-└─ frontend/ # Next.js 14
+│  ├─ backend/
+│  │  ├─ SocialApp.Api           # HOST: DI, middleware, Program.cs, nhóm Swagger (KHÔNG giữ controller module)
+│  │  ├─ SocialApp.SharedKernel  # AuthN/AuthZ, RFC7807, correlation ID, rate limit, result types
+│  │  └─ Modules/                # 7 module, mỗi module tự chứa cả tầng HTTP của mình
+│  │     ├─ Identity  Profile  SocialGraph  Content  Messaging  Notification  Moderation
+│  │     └─ mỗi module: Domain/ Application/ Infrastructure/ Presentation/
+│  │                    Presentation/ = controller + <nhóm>.yaml (hợp đồng API, build input của lane FE)
+│  └─ frontend/                  # Next.js 14 (lane FE, song song từ GĐ1)
+├─ tests/  (UnitTests · IntegrationTests · ArchitectureTests[ArchUnitNET] · load[k6])  ← chỉ test backend
+└─ deploy/   # docker-compose.staging.yml, Caddyfile (KHÔNG chứa .env)
 ```
+
+**Hai lane nằm dưới `src/`** (chốt 2026-09-16, trước đó backend chiếm chỗ `src/`). Đường dẫn hay dùng:
+`dotnet run --project src/backend/SocialApp.Api`, và lane FE chạy từ `src/frontend/`. Vì frontend và backend
+là anh em, script `gen:api` của FE trỏ `../backend/Modules/<Module>/Presentation/<nhóm>.yaml` — đường dẫn
+tương đối đó **đúng**, đừng "sửa" thành `src/backend/`.
+
+**`tests/` cố ý ở gốc, không nằm trong `src/backend/`.** Biết là lệch: test FE sống trong
+`src/frontend/` (`test/`, `e2e/`) nên hai lane không đối xứng. Giữ nguyên vì `tests/*.csproj`, `ci.yml`
+và `SocialApp.sln` đều đã trỏ ổn định vào đó, đổi thêm lần nữa giữa GĐ1 chỉ thêm nhiễu cho review mà
+không đổi gì về chức năng. **Xét lại ở đầu GĐ2** khi không có khối nào đang dở — nếu chuyển thì là
+`tests/` → `src/backend/tests/`, kèm sửa `SocialApp.sln`, 3 `ProjectReference` lùi một cấp, hai bước
+CI GATE nhắm `tests/SocialApp.IntegrationTests/...csproj`, và các link `../../tests/` trong docs.
 
 ## 5. Kiến trúc & ranh giới (bắt buộc tuân thủ)
 - **Modular monolith** (ADR-001): deploy 1 khối, nhưng module tách bạch.
@@ -60,7 +73,7 @@ mxh/
 - **Module SỞ HỮU tầng HTTP của mình.** Controller nằm ở `Modules/<Module>/Presentation/`, không nằm
   ở `SocialApp.Api`; host chỉ nạp assembly qua `AddApplicationPart` (1 dòng/module ở `Program.cs`) và
   dựng một nhóm Swagger riêng cho nó. Nhờ vậy hợp đồng, hiện thực và mã lỗi của module ở cạnh nhau.
-  *(Lệch báo cáo v5.0 — xem `docs/giai-doan-1.md` Mục 13.)*
+  *(Lệch báo cáo v5.0 — xem `docs/giai-doan-1/giai-doan-1.md` Mục 13.)*
 - **Chỉ `Presentation` được chạm `Microsoft.AspNetCore.Mvc`**, chỉ `Infrastructure` được chạm EF Core.
   `PresentationBoundaryTests` + `PersistenceBoundaryTests` chặn vi phạm — cả hai kiểu rò đều compile
   được và không lộ ra trong code review, vì ASP.NET Core và EF đã có sẵn ở mọi file trong module.
@@ -129,7 +142,7 @@ client_msg_id khử trùng), `notifications`(UQ recipient+group_key), `reports`,
 > `tests/SocialApp.IntegrationTests/AuthZ/AuthZMatrix.cs` thì coi như CHƯA XONG.** Kiểm ownership ở tầng
 > Application, trả `Result.Forbidden()`, danh tính người gọi lấy từ `User.GetUserId()` — không bao giờ từ
 > route/body. Không có nhánh Admin ở tầng 3 (Admin short-circuit CHỈ ở `PermissionHandler`, tầng 2). "Không
-> tồn tại" và "không được phép thấy" trả cùng một phản hồi (`docs/giai-doan-1.md` Mục 6.3 quy ước 3b).
+> tồn tại" và "không được phép thấy" trả cùng một phản hồi (`docs/giai-doan-1/giai-doan-1.md` Mục 6.3 quy ước 3b).
 > Controller trả `result.ToActionResult(this)` — không ném exception cho luồng từ chối.
 
 - Mật khẩu: **BCrypt cost ≥ 12**, không lưu plaintext. Access token 15', refresh rotation + reuse
@@ -157,13 +170,13 @@ i18n, email digest, app mobile, xếp hạng feed theo quan tâm (chỉ sắp th
 # Backend
 dotnet build SocialApp.sln
 dotnet test
-dotnet run --project src/SocialApp.Api        # dev
+dotnet run --project src/backend/SocialApp.Api        # dev
 
 # Tạo migration cho MỘT module (ví dụ Identity). Startup project = chính project module đó, nhờ
 # IDesignTimeDbContextFactory trong Infrastructure/ — Api không phải kéo EF vào (ADR-001).
 dotnet ef migrations add <Ten> \
-  --project src/Modules/Identity/SocialApp.Modules.Identity.csproj \
-  --startup-project src/Modules/Identity/SocialApp.Modules.Identity.csproj \
+  --project src/backend/Modules/Identity/SocialApp.Modules.Identity.csproj \
+  --startup-project src/backend/Modules/Identity/SocialApp.Modules.Identity.csproj \
   --output-dir Infrastructure/Migrations
 
 # Local infra (compose dev — Postgres/Redis/MinIO/Mailpit): nằm ở deploy/, tự nạp deploy/.env
@@ -172,7 +185,7 @@ dotnet ef migrations add <Ten> \
 docker compose -f deploy/docker-compose.dev.yml up -d
 
 # Frontend
-cd frontend && npm run dev
+cd src/frontend && npm run dev
 ```
 - **Migration:** EF Core, versioned, expand–contract (backward-compatible 1 phiên bản). **KHÔNG
   auto-migrate lúc app start** — chạy ở bước deploy (service `migrate`, cờ `--migrate`).
@@ -214,11 +227,11 @@ cd frontend && npm run dev
 - **PTTK / báo cáo A&D** — yêu cầu, UC, FR/NFR, ERD, ma trận RBAC, ADR, threat model.
 - **docs/ke-hoach-trien-khai.md** — lộ trình build **8 giai đoạn** (GĐ0→GĐ8) ánh xạ GOAL/NFR, kèm
   "làm gì → làm như nào → kiểm tra lại ra sao" từng giai đoạn. **Đây là thứ tự build chính thức.**
-- **src/Modules/<Module>/Presentation/<nhóm>.yaml** — hợp đồng API của module, chốt ở cổng mở từng
+- **src/backend/Modules/<Module>/Presentation/<nhóm>.yaml** — hợp đồng API của module, chốt ở cổng mở từng
   giai đoạn (`Identity/Presentation/identity-v1.yaml` = nhóm auth + `/me`, GĐ1). Đây là **nguồn sự
   thật của hợp đồng**, không phải Swagger sinh lúc runtime; lane frontend sinh type + mock MSW từ đó.
   Đổi hợp đồng → sửa file này **trong cùng commit** với code, và cổng CI `Category=Contract` so hai
-  bên. Xem `src/Modules/Identity/Presentation/README.md`.
+  bên. Xem `src/backend/Modules/Identity/Presentation/README.md`.
 - **docs/oci-setup.md** — hạ tầng OCI, Cloudflare R2, Caddy TLS, CD (lệnh trên VPS Ubuntu).
 
 > Lưu ý: `ROADMAP.md` (bản cũ, tên `SocialMedia`/`socialmedia_api`) **KHÔNG dùng nữa** — đã thay bằng

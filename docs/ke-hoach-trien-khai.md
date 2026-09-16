@@ -29,18 +29,19 @@ Prometheus + Grafana + Uptime Kuma.
 ```
 SocialApp.sln
  ├─ src/
- │   ├─ SocialApp.Api                (host: controllers, SignalR Hubs, DI, middleware)
- │   ├─ SocialApp.SharedKernel       (AuthN/AuthZ, RFC7807, correlation ID, rate limit, result types)
- │   ├─ Modules/Identity             (CMP-01: users, roles, refresh_tokens, JWT)
- │   ├─ Modules/Profile              (CMP-02: profiles)
- │   ├─ Modules/SocialGraph          (CMP-03: friendships, follows)
- │   ├─ Modules/Content              (CMP-04: posts, comments, reactions, media, feed)
- │   ├─ Modules/Messaging            (CMP-05: conversations, messages, ChatHub)
- │   ├─ Modules/Notification         (CMP-06: notifications, Hub)
- │   └─ Modules/Moderation           (CMP-07: reports, audit_logs, admin)
+ │   ├─ backend/
+ │   │   ├─ SocialApp.Api            (host: controllers, SignalR Hubs, DI, middleware)
+ │   │   ├─ SocialApp.SharedKernel   (AuthN/AuthZ, RFC7807, correlation ID, rate limit, result types)
+ │   │   ├─ Modules/Identity         (CMP-01: users, roles, refresh_tokens, JWT)
+ │   │   ├─ Modules/Profile          (CMP-02: profiles)
+ │   │   ├─ Modules/SocialGraph      (CMP-03: friendships, follows)
+ │   │   ├─ Modules/Content          (CMP-04: posts, comments, reactions, media, feed)
+ │   │   ├─ Modules/Messaging        (CMP-05: conversations, messages, ChatHub)
+ │   │   ├─ Modules/Notification     (CMP-06: notifications, Hub)
+ │   │   └─ Modules/Moderation       (CMP-07: reports, audit_logs, admin)
+ │   └─ frontend/ (Next.js 14)
  ├─ tests/  (Unit, Integration, Architecture[ArchUnitNET], Load[k6])
- ├─ deploy/ (docker-compose.*.yml, Caddyfile, prometheus.yml, grafana/)
- └─ frontend/ (Next.js 14)
+ └─ deploy/ (docker-compose.*.yml, Caddyfile, prometheus.yml, grafana/)
 ```
 Mỗi module: `Domain` (entity + business rule) / `Application` (service + DTO + validator) /
 `Infrastructure` (EF repository). Module chỉ giao tiếp qua interface ở Application — ArchUnitNET
@@ -245,7 +246,7 @@ còn biên độ thêm index/cache nếu trượt; và thứ cắt được thì
 
 ### GĐ 1 — Identity & Access: UC-01, UC-02 (Ngày 3–6)
 
-> 📄 **Tài liệu thi công chi tiết: [`giai-doan-1.md`](./giai-doan-1.md)** — schema DDL, dữ liệu seed,
+> 📄 **Tài liệu thi công chi tiết: [`giai-doan-1.md`](./giai-doan-1/giai-doan-1.md)** — schema DDL, dữ liệu seed,
 > code mẫu `[RequirePermission]`, kế hoạch 3 người theo ngày, checklist nghiệm thu.
 >
 > **Bắt đầu bằng Mục 9.0 — dọn 4 khoản nợ kỹ thuật GĐ0 để lại** (nửa ngày đầu Ngày 3): thêm EF Core
@@ -520,7 +521,7 @@ cập nhật Swagger · không lộ secret/PII.
 ## Sai khác so với báo cáo v5.0
 
 Ghi lại để lúc bảo vệ giải thích được — chắc chắn sẽ có người đối chiếu với bản đã chốt.
-Chi tiết đầy đủ ở [`giai-doan-1.md`](./giai-doan-1.md) Mục 13.
+Chi tiết đầy đủ ở [`giai-doan-1.md`](./giai-doan-1/giai-doan-1.md) Mục 13.
 
 | # | Báo cáo v5.0 | Thực hiện | Lý do | GĐ |
 |---|---|---|---|---|

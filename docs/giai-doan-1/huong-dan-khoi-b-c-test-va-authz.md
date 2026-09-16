@@ -145,7 +145,7 @@ Tài liệu gốc chưa nói đủ để gõ code ở năm chỗ dưới đây. 
 - **Vì sao:** tài liệu gốc cần stub vì *"C viết được khi A chưa xong"* — **A đã xong**, lý do đó hết. Bỏ
   stub thì: không còn bước "gỡ stub" dễ quên; không có giai đoạn matrix xanh trên dữ liệu viết tay; matrix
   đỏ thì không mơ hồ handler hay SQL, vì logic handler đã có unit test cô lập.
-- **Không đổi:** không stub nào trong `src/`.
+- **Không đổi:** không stub nào trong `src/backend/`.
 - **Ghi ở:** `giai-doan-1.md` B.2, B.5/`C3`, `C5`, `C2`.
 
 **Đ4 — "Không tồn tại" và "không được phép thấy" trả cùng một phản hồi (quy ước 3b).**
@@ -571,7 +571,7 @@ public sealed class AuthZApiFactory : WebApplicationFactory<Program>
 đăng ký tay 17 policy cùng mọi quyền thêm ở GĐ sau.
 
 **Kết quả mong đợi.**
-- `src/SocialApp.SharedKernel/Authorization/`: `RequirePermissionAttribute.cs`, `PermissionRequirement.cs`,
+- `src/backend/SocialApp.SharedKernel/Authorization/`: `RequirePermissionAttribute.cs`, `PermissionRequirement.cs`,
   `PermissionPolicyProvider.cs`, `AuthorizationExtensions.cs`.
 - Unit test `tests/SocialApp.UnitTests/Authorization/PermissionPolicyProviderTests.cs` xanh, ba khẳng
   định: (1) `perm:post.hide` → policy có đúng một `PermissionRequirement("post.hide")` và yêu cầu đã
@@ -1149,7 +1149,7 @@ liệu, không sửa code" (Mục 6.7.2) thành sự thật — và làm việc 
 đầu tiên đã là xanh trên dữ liệu thật (Đ3).
 
 **Kết quả mong đợi.**
-- `src/Modules/Identity/Infrastructure/Authorization/RolePermissionSource.cs`, đăng ký scoped trong
+- `src/backend/Modules/Identity/Infrastructure/Authorization/RolePermissionSource.cs`, đăng ký scoped trong
   `AddIdentityModule`.
 - `RolePermissionSourceTests` (Postgres thật, `SeededIdentityDatabaseAsync`) xanh: USER → đúng 11 mã;
   MODERATOR → 13 mã, có `post.hide`, không có `user.lock`; ADMIN → **tập rỗng** (thiết kế 3.2); `ROOT` →
@@ -1241,7 +1241,7 @@ public static class SystemRoles
 ```
 
 ```csharp
-// src/Modules/Identity/Domain/RoleCodes.cs — cập nhật docstring: "trỏ về SystemRoles.Admin (Đ1)"
+// src/backend/Modules/Identity/Domain/RoleCodes.cs — cập nhật docstring: "trỏ về SystemRoles.Admin (Đ1)"
 public const string Admin = SystemRoles.Admin;
 ```
 
@@ -1322,7 +1322,7 @@ Không dòng code nào đổi giữa bước 1 và 3 — đó chính là "nâng 
   chép thẳng giá trị vào IL, nên trong assembly không còn dấu vết tham chiếu tới `SystemRoles` hay
   `RoleCodes`. Lưới duy nhất là **grep khi review**:
   ```bash
-  grep -rn "SystemRoles.Admin\|RoleCodes.Admin\|\"ADMIN\"" src --include=*.cs
+  grep -rn "SystemRoles.Admin\|RoleCodes.Admin\|\"ADMIN\"" backend --include=*.cs
   ```
   Chỉ được ra: `SystemRoles.cs`, `RoleCodes.cs`, `PermissionHandler.cs`, seeder. Thêm dòng này vào
   checklist review của mọi PR từ GĐ2.
@@ -1337,7 +1337,7 @@ Không dòng code nào đổi giữa bước 1 và 3 — đó chính là "nâng 
 cổng, vì nó tạo cảm giác an toàn giả.
 
 **Kết quả mong đợi.**
-- Bước `AuthZ matrix (CI GATE)` trong [.github/workflows/ci.yml](../.github/workflows/ci.yml) nhắm vào
+- Bước `AuthZ matrix (CI GATE)` trong [.github/workflows/ci.yml](../../.github/workflows/ci.yml) nhắm vào
   project `SocialApp.IntegrationTests` kèm `TreatNoTestsAsError=true`; comment "chưa có test nào…" được
   thay bằng comment mô tả trạng thái thật.
 - Link một CI run **đỏ** do cố tình gõ sai trait, và link run **xanh** sau khi hoàn tác — cả hai trong PR.
@@ -1497,7 +1497,7 @@ Khi GĐ2 viết TC-A03, dòng mới **cùng hình dạng**: `ArrangePath` tạo 
 > `tests/SocialApp.IntegrationTests/AuthZ/AuthZMatrix.cs` thì coi như CHƯA XONG.** Kiểm ownership ở tầng
 > Application, trả `Result.Forbidden()`, danh tính người gọi lấy từ `User.GetUserId()` — không bao giờ từ
 > route/body. Không có nhánh Admin ở tầng 3. "Không tồn tại" và "không được phép thấy" trả cùng một
-> phản hồi (`docs/giai-doan-1.md` Mục 6.3 quy ước 3b).
+> phản hồi (`docs/giai-doan-1/giai-doan-1.md` Mục 6.3 quy ước 3b).
 
 ### Cạm bẫy đã biết
 
@@ -1670,7 +1670,7 @@ hoặc `truncated` thì chạy lại, không coi là sạch.
 **Code review — không test tự động nào bắt được**
 
 - [x] `UseAuthentication()` đứng **trước** `UseSharedKernelRateLimiter()` (B.9 điều 3)
-- [x] Grep `SystemRoles.Admin|RoleCodes.Admin|"ADMIN"` trong `src/` chỉ ra 4 file cho phép
+- [x] Grep `SystemRoles.Admin|RoleCodes.Admin|"ADMIN"` trong `src/backend/` chỉ ra 4 file cho phép
 - [x] Không có khóa ký JWT nào trong repo: `git grep -n "SigningKey" -- ':!*.md'` chỉ ra tên cấu hình, không ra giá trị
 - [ ] `D3` và `D8` đọc `JwtOptions.AccessTokenSeconds`, không tự khai 900 (test TTL của `D8` chỉ bắt lệch giá trị)
       — **thuộc khối D**, kiểm khi review D3/D8

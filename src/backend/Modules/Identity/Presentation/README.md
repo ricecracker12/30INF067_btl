@@ -34,7 +34,7 @@ thuận, Swagger = điều code thật sự làm, CI = trọng tài.
 Kiểm tra tại chỗ trước khi commit:
 
 ```bash
-npx @redocly/cli lint src/Modules/Identity/Presentation/identity-v1.yaml
+npx @redocly/cli lint src/backend/Modules/Identity/Presentation/identity-v1.yaml
 dotnet test --filter "Category=Contract"
 ```
 
@@ -45,9 +45,9 @@ giữ xanh.
 ## Lane frontend dùng file này thế nào
 
 ```bash
-# chạy từ frontend/ — đã kiểm chứng với openapi-typescript 7.13.0
-npx openapi-typescript ../src/Modules/Identity/Presentation/identity-v1.yaml \
-    -o src/lib/api/schema.d.ts
+# chạy từ src/frontend/ — script gen:api ghim openapi-typescript 7.13.0 (bản đã kiểm chứng)
+pnpm gen:api
+# = openapi-typescript ../backend/Modules/Identity/Presentation/identity-v1.yaml -o lib/api/schema.d.ts
 ```
 
 `RoleCode` ra union `'USER' | 'MODERATOR' | 'ADMIN'`, body là interface có `required` đúng — nên đổi
@@ -64,7 +64,7 @@ Hai ràng buộc bắt buộc phía client, đã ghi trong `info.description` c�
 
 ## Bảy quyết định đứng sau hợp đồng này
 
-Chốt ở cổng mở GĐ1. Nguồn đầy đủ: `docs/ke-hoach-trien-khai.md` GĐ1 và `docs/giai-doan-1.md` Mục 3.
+Chốt ở cổng mở GĐ1. Nguồn đầy đủ: `docs/ke-hoach-trien-khai.md` GĐ1 và `docs/giai-doan-1/giai-doan-1.md` Mục 3.
 Bảng dưới chỉ ghi **phần hiện ra trong hợp đồng**.
 
 | # | Quyết định | Hiện ra ở đâu |

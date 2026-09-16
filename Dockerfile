@@ -3,12 +3,12 @@
 
 # ---------- Build stage ----------
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
-WORKDIR /src
+WORKDIR /build
 
 # Chỉ cần project API (+ các project nó tham chiếu) để restore/publish, không cần tests.
 COPY . .
-RUN dotnet restore src/SocialApp.Api/SocialApp.Api.csproj
-RUN dotnet publish src/SocialApp.Api/SocialApp.Api.csproj \
+RUN dotnet restore src/backend/SocialApp.Api/SocialApp.Api.csproj
+RUN dotnet publish src/backend/SocialApp.Api/SocialApp.Api.csproj \
       -c Release -o /app/publish \
       /p:UseAppHost=false
 

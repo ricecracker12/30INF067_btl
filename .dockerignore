@@ -5,14 +5,14 @@
 .github/
 .vs/
 *.user
-frontend/
+src/frontend/
 tests/
 deploy/
 docs/
 # Hop dong API song trong module (Presentation/) nhung khong co viec gi trong image chay production:
 # no la build input cua lane frontend va cua test doi chieu hop dong.
-src/Modules/*/Presentation/*.yaml
-src/Modules/*/Presentation/*.md
+src/backend/Modules/*/Presentation/*.yaml
+src/backend/Modules/*/Presentation/*.md
 **/appsettings.*.json
 !**/appsettings.json
 .env

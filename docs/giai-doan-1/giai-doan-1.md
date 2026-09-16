@@ -78,7 +78,7 @@ bị chặn đúng mã lỗi.
 - Đăng ký, xác minh email, đăng nhập, refresh, đăng xuất
 - **CORS** cho origin frontend + refresh token trong `httpOnly` cookie (Mục 8)
 - **Lane frontend chạy song song từ Ngày 3** (1 người — `ke-hoach-trien-khai.md` Mục 0C): scaffold
-  Next.js 14, màn đăng ký/đăng nhập/xác minh email, app shell + route guard, **interceptor
+  Next.js 16, màn đăng ký/đăng nhập/xác minh email, app shell + route guard, **interceptor
   401→refresh**. Đây là thay đổi so với bản A của kế hoạch tổng, nơi frontend hoãn tới GĐ2
 - **Cổng mở / cổng đóng hợp đồng API** — OpenAPI stub chốt ở đầu giai đoạn, ráp thật trên staging ở
   cuối giai đoạn (Mục 9)
@@ -1157,7 +1157,7 @@ Hiện `SocialApp.Modules.Identity.csproj` chỉ tham chiếu SharedKernel.
 
 *(thực tế)* **Đặt `Design` ở module là chưa đủ.** EF tools đòi gói này ở **startup project**, mà
 `Design` luôn đi kèm `<PrivateAssets>all</PrivateAssets>` nên **không chảy** từ Identity sang Api.
-Hệ quả: lệnh `migrations add` với `--startup-project src/SocialApp.Api` báo *"Your startup project
+Hệ quả: lệnh `migrations add` với `--startup-project src/backend/SocialApp.Api` báo *"Your startup project
 'SocialApp.Api' doesn't reference Microsoft.EntityFrameworkCore.Design"* — đúng cái lỗi khó đoán vừa
 nói tới.
 
@@ -1245,10 +1245,10 @@ từ chính stub này để bắt đầu ngay trong ngày, thay vì chờ backen
 không ai gõ dòng code nào.**
 
 > **Trạng thái: đã xong.** Stub nằm ở
-> [`src/Modules/Identity/Presentation/identity-v1.yaml`](../src/Modules/Identity/Presentation/identity-v1.yaml)
+> [`src/backend/Modules/Identity/Presentation/identity-v1.yaml`](../../src/backend/Modules/Identity/Presentation/identity-v1.yaml)
 > (OpenAPI 3.0.3, 6 endpoint, đủ mã lỗi 400/401/403/409/410/423 + 429/500, `redocly lint` không
 > error). Biên bản cổng mở — 7 quyết định, hợp đồng token, luật sửa hợp đồng — ở
-> [`Presentation/README.md`](../src/Modules/Identity/Presentation/README.md).
+> [`Presentation/README.md`](../../src/backend/Modules/Identity/Presentation/README.md).
 >
 > **Hợp đồng nằm trong module vì module sở hữu tầng HTTP của mình** (Mục 9.1). Và nó không còn được
 > đối chiếu bằng mắt: `IdentityContractTests` so file này với `/swagger/identity-v1/swagger.json`
@@ -1320,7 +1320,7 @@ Khối **D (endpoint)** ghép sau khi A và C xong.
   `IPermissionCache` + JwtBearer + fallback policy. *(Bản đầu dùng stub repository tới Ngày 4; khối A
   xong sớm nên nối nguồn quyền thật ngay — xem B.2, chú thích ·.)*
 - **BE — khối B:** bảng AuthZ matrix data-driven, viết TC-A01/A02/RBAC-01/RBAC-02 **cho đỏ trước**.
-- **FE — khối E:** scaffold Next.js 14 App Router · design token + primitive · sinh type từ
+- **FE — khối E:** scaffold Next.js 16 App Router + shadcn/ui preset · design token + primitive · sinh type từ
   OpenAPI stub · api client bọc `fetch` với `credentials: 'include'` · mock MSW.
 
 ### Ngày 4
@@ -1561,13 +1561,13 @@ cổng AuthZ).
 
 | Mốc | Kết quả để lại | Bằng chứng |
 |---|---|---|
-| **Cổng mở** (Mục 9) | Hợp đồng API 6 endpoint đủ mã lỗi, đã chốt 7 quyết định thiết kế | `src/Modules/Identity/Presentation/identity-v1.yaml`; `redocly lint` 0 error; `openapi-typescript` sinh type dùng được |
+| **Cổng mở** (Mục 9) | Hợp đồng API 6 endpoint đủ mã lỗi, đã chốt 7 quyết định thiết kế | `src/backend/Modules/Identity/Presentation/identity-v1.yaml`; `redocly lint` 0 error; `openapi-typescript` sinh type dùng được |
 | **Dọn nợ kỹ thuật** (Mục 9.0) | EF Core cho Identity, `IdentityDbContext` schema riêng, 4 package ghim version, CI tách cổng AuthZ | `IdentityDbContextSchemaTests` chạy thật trên Postgres qua Testcontainers |
 | **Module sở hữu tầng HTTP** (Mục 9.1) | Tầng `Presentation/`, Swagger tách nhóm theo module, ba lưới chặn mới | `PresentationBoundaryTests` (4 test), `IdentityContractTests` (cổng CI `Category=Contract`) |
 
 **Hệ quả cho mọi việc phía sau — đọc kỹ ba dòng này:**
 
-1. **Controller viết vào `src/Modules/Identity/Presentation/`**, không viết vào `SocialApp.Api/Controllers/`.
+1. **Controller viết vào `src/backend/Modules/Identity/Presentation/`**, không viết vào `SocialApp.Api/Controllers/`.
 2. **Mọi controller phải khai `[ApiExplorerSettings(GroupName = IdentityApiGroup.Name)]`** — thiếu là
    endpoint biến mất khỏi Swagger trong im lặng, và `PresentationBoundaryTests` sẽ đỏ.
 3. **Đổi hình dạng API là phải sửa `identity-v1.yaml` trong cùng commit** — `IdentityContractTests`
@@ -1613,7 +1613,7 @@ liệu seed thật. Nguồn quyền giả chỉ còn trong unit test.
 - **Mục tiêu:** có mô hình nghiệp vụ để mọi tầng khác bám vào, và đóng luôn lỗ hổng "rule persistence
   chạy trong chân không" mà `PersistenceBoundaryTests` đang cảnh báo bằng một `Skip`.
 - **Cách thực thi:** `Role`, `Permission`, `RolePermission`, `User`, `RefreshToken`,
-  `EmailVerificationToken` trong `src/Modules/Identity/Domain/`. Đúng cột theo Mục 4 — **không tự bịa
+  `EmailVerificationToken` trong `src/backend/Modules/Identity/Domain/`. Đúng cột theo Mục 4 — **không tự bịa
   thêm cột**. `roles` tách `code` + `display_name` (Mục 3.3); `refresh_tokens` có **cả**
   `family_id` lẫn `replaced_by_id` (Mục 3.5). PK sinh bằng `UUIDNext` (UUID v7), **không dùng**
   `Guid.NewGuid()`. Tầng này tuyệt đối không `using Microsoft.EntityFrameworkCore`.
@@ -1645,8 +1645,8 @@ liệu seed thật. Nguồn quyền giả chỉ còn trong unit test.
 
   ```bash
   dotnet ef migrations add InitialIdentity \
-    --project src/Modules/Identity/SocialApp.Modules.Identity.csproj \
-    --startup-project src/Modules/Identity/SocialApp.Modules.Identity.csproj \
+    --project src/backend/Modules/Identity/SocialApp.Modules.Identity.csproj \
+    --startup-project src/backend/Modules/Identity/SocialApp.Modules.Identity.csproj \
     --output-dir Infrastructure/Migrations
   ```
 
@@ -1689,7 +1689,7 @@ liệu seed thật. Nguồn quyền giả chỉ còn trong unit test.
 - **Cách thực thi:** mở rộng `MigrateIdentityModuleAsync` theo đúng thứ tự **apply migration → seed →
   kiểm tra vai trò → thoát 0**. Service `migrate` trong compose staging đã gọi sẵn
   `dotnet SocialApp.Api.dll --migrate`.
-- **Xong là:** `dotnet run --project src/SocialApp.Api -- --migrate` trên máy sạch cho exit code 0 và
+- **Xong là:** `dotnet run --project src/backend/SocialApp.Api -- --migrate` trên máy sạch cho exit code 0 và
   in dòng xác nhận; chạy lần hai vẫn 0 và dữ liệu không đổi.
 - **Chặn / Cần:** chặn F1. Cần A5.
 
@@ -1832,7 +1832,7 @@ liệu seed thật. Nguồn quyền giả chỉ còn trong unit test.
 - **Cách thực thi:** `IRolePermissionSource` + `IPermissionCache` ở SharedKernel, cache theo `role code`,
   TTL 60 giây, đồng hồ qua `TimeProvider` để test không phải chờ. GĐ1 chưa cần đẩy invalidate (quyền chưa
   sửa được lúc runtime — việc đó ở GĐ6); TTL là đủ và đơn giản hơn. Nguồn giả **chỉ dùng trong unit
-  test** — không có stub nào trong `src/` hay trong integration test (B.2, chú thích ·).
+  test** — không có stub nào trong `src/backend/` hay trong integration test (B.2, chú thích ·).
 - **Xong là:** unit test với đồng hồ giả: giây 59 vẫn trả dữ liệu cũ, giây 61 đọc lại nguồn; lỗi từ
   nguồn không bị cache. Phần "hành vi đổi theo trên dữ liệu thật" nghiệm thu ở C2.
 - **Chặn / Cần:** chặn C5, C2. Cần C1.
@@ -2024,12 +2024,18 @@ liệu seed thật. Nguồn quyền giả chỉ còn trong unit test.
 > **Mục tiêu khối:** giao trọn lát cắt dọc — người dùng thật thao tác được trên trình duyệt thật.
 > **Không chờ backend:** chỉ cần hợp đồng API, đã có từ cổng mở.
 
-### E1 — Scaffold Next.js 14 + design token
+> **Hướng dẫn thi công từng bước:** [huong-dan-khoi-e-frontend.md](huong-dan-khoi-e-frontend.md) — danh sách việc (thêm
+> `E8` đóng gói cho staging; thứ tự `E1 → E2 → E4 → E3 → E5 → E6 → E7 → E8`), mục tiêu, kết quả mong đợi, 12 quyết định bổ
+> sung. **Chưa ghi ngược** vào mục này: Đ-E4 (single-flight giữa các tab — E7, E2E-02) và Đ-E11 (E8 + phần frontend của F1).
+
+### E1 — Scaffold Next.js 16 + shadcn/ui preset
 
 - **Mục tiêu:** có nền để dựng màn, và bộ primitive dùng lại được cho GĐ2–GĐ8.
-- **Cách thực thi:** App Router + TypeScript + Tailwind trong `frontend/`. Design token + primitive
-  (button, input, form field, alert) trước khi dựng màn — dựng màn trước thì mỗi màn một kiểu.
-- **Xong là:** `npm run dev` lên được, có ít nhất một trang dùng primitive.
+- **Cách thực thi:** `pnpm dlx shadcn@latest init --preset b2C6hQKDg --template next --name frontend` — Next.js 16
+  App Router + TypeScript + Tailwind v4 + shadcn/ui (Base UI, style `base-maia`). Token nằm trong `app/globals.css` do
+  preset sinh; primitive (button, input, field, alert) thêm bằng `pnpm exec shadcn add` trước khi dựng màn — dựng màn
+  trước thì mỗi màn một kiểu. *(Chốt 2026-09-15: Next.js 14 → 16, npm → pnpm.)*
+- **Xong là:** `pnpm dev` lên được, có ít nhất một trang dùng primitive của kit.
 - **Chặn / Cần:** chặn E2.
 
 ### E2 — Sinh type từ hợp đồng + api client + mock MSW
@@ -2039,9 +2045,9 @@ liệu seed thật. Nguồn quyền giả chỉ còn trong unit test.
 - **Cách thực thi:**
 
   ```bash
-  # chạy từ frontend/
-  npx openapi-typescript ../src/Modules/Identity/Presentation/identity-v1.yaml \
-      -o src/lib/api/schema.d.ts
+  # chạy từ src/frontend/
+  pnpm gen:api
+  # = openapi-typescript ../backend/Modules/Identity/Presentation/identity-v1.yaml -o lib/api/schema.d.ts
   ```
 
   Đặt thành script `gen:api` trong `package.json` và **commit file sinh ra vào repo** — nghe ngược
