@@ -25,8 +25,8 @@ Lộ trình 8 giai đoạn (GĐ0 → GĐ8) ở [`docs/ke-hoach-trien-khai.md`](d
 | Giai đoạn | Trạng thái |
 |---|---|
 | **GĐ0 + GĐ0B** — Walking Skeleton, staging, CD | Xong. API chạy thật ở `https://mxh.banhgao.net` |
-| **GĐ1** — Identity & Access ([`docs/giai-doan-1/giai-doan-1.md`](docs/giai-doan-1/giai-doan-1.md)) | **Đang làm** |
-| GĐ2 → GĐ8 | Chưa bắt đầu. Các module `Profile`, `SocialGraph`, `Content`, `Messaging`, `Notification`, `Moderation` mới có khung thư mục |
+| **GĐ1** — Identity & Access ([`docs/giai-doan-1/giai-doan-1.md`](docs/giai-doan-1/giai-doan-1.md)) | **Xong** (2026-09-18) |
+| GĐ2 → GĐ8 | Được phép mở. Các module `Profile`, `SocialGraph`, `Content`, `Messaging`, `Notification`, `Moderation` mới có khung thư mục — bắt đầu bằng **cổng mở hợp đồng** module kế tiếp |
 
 Chi tiết GĐ1:
 
@@ -37,11 +37,17 @@ Chi tiết GĐ1:
     detection; thu hồi token qua Redis; lỗi RFC 7807
 - **Frontend (khối E) — xong** (merge `develop`, PR #11):
   - E1–E8: kit UI, BFF (trình duyệt không cầm JWT), màn auth, single-flight, image `frontend` arm64
-- **Cổng đóng (khối F):**
-  - **F1 — đang làm:** CD build `frontend:staging`, compose có service `frontend`, apache `ProxyPass /`, biến BFF
-    trong `.env` staging. Sau khi merge F1 + chỉnh `.env`/apache trên VPS **một lần**, UI ở
-    https://mxh.banhgao.net/login. Hướng dẫn: [`huong-dan-khoi-f-cong-dong.md`](docs/giai-doan-1/huong-dan-khoi-f-cong-dong.md).
-  - Chưa làm: F2–F7 (E2E staging, checklist Mục 12, đóng băng hợp đồng).
+- **Cổng đóng (khối F) — xong** (F1–F7, 2026-09-18). Hướng dẫn:
+  [`huong-dan-khoi-f-cong-dong.md`](docs/giai-doan-1/huong-dan-khoi-f-cong-dong.md). Staging
+  https://mxh.banhgao.net — E2E đăng ký/verify/login/refresh; checklist Mục 11–12; DoD đủ.
+- **Đóng băng hợp đồng:** `src/backend/Modules/Identity/Presentation/identity-v1.yaml` **không sửa**
+  cho phạm vi GĐ1. Đổi hình dạng API Identity sau điểm này = cổng mở GĐ2 (hoặc hotfix blocking đã thống nhất cả nhóm).
+- **Dễ hiểu nhầm:** vai trò nằm trong JWT → đổi role trên DB **không** có hiệu lực ngay trên access đang sống;
+  GĐ6 dùng `revoked:user` — không phải bug FE.
+- **Hoãn có địa chỉ** (chi tiết `giai-doan-1.md` «Ngoài phạm vi»):
+  - bên ghi `revoked:user` khi hạ quyền / khóa TK → **GĐ6**
+  - bất biến «≥ 1 Admin» + CRUD vai trò → **GĐ6 / GĐ8**
+  - đổi / quên mật khẩu → sau MVP
 
 ---
 
