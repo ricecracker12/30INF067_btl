@@ -1,7 +1,17 @@
-# Reverse proxy TLS cho API. Đổi "mxh.banhgao.net" thành subdomain thật của bạn (phải là subdomain
-# 1 cấp của domain có cert wildcard trên host). Cloudflare SSL mode = Full (strict).
+# Reverse proxy TLS: API theo path, mọi path còn lại → frontend (F1).
+# Đổi "mxh.banhgao.net" thành subdomain thật (subdomain 1 cấp của domain có cert wildcard).
+# Cloudflare SSL mode = Full (strict).
 mxh.banhgao.net {
-    encode gzip
-    tls /etc/ssl/cloudflare/banhgao.net.pem /etc/ssl/cloudflare/banhgao.net.key
-    reverse_proxy api:8080
+	encode gzip
+	tls /etc/ssl/cloudflare/banhgao.net.pem /etc/ssl/cloudflare/banhgao.net.key
+
+	# API trước — khớp Đ-E11: /api, /health, /swagger không được rơi vào Next.
+	@api path /api* /health* /swagger*
+	handle @api {
+		reverse_proxy api:8080
+	}
+
+	handle {
+		reverse_proxy frontend:3000
+	}
 }

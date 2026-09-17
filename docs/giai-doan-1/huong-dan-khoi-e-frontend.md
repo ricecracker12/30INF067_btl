@@ -2271,7 +2271,7 @@ Thử cho đỏ trên image thật (mỗi lần build lại stage cuối, chạy
 **Ghi ngược vào tài liệu gốc**
 
 - [x] Đ-E4 → `giai-doan-1.md` B.7/E7 và Mục 10.1 E2E-02 (single-flight giữa các tab) — 2026-09-17, cùng E7
-- [ ] Đ-E11 → `giai-doan-1.md` B.7 (thêm E8) và B.8/F1 (service `frontend`, apache, CD)
+- [ ] Đ-E11 → `giai-doan-1.md` B.7 (thêm E8) và B.8/F1 (service `frontend`, apache, CD) — **F1 trong repo**
 - [ ] `README.md` mục trạng thái: khối E xong
 
 ---

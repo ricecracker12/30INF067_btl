@@ -1,11 +1,17 @@
 # Biến thể staging cho VM ĐÃ CÓ apache (hoặc reverse proxy khác) giữ 80/443.
-# Không có Caddy; API chỉ mở 127.0.0.1:8080 (localhost) để apache proxy vào — KHÔNG lộ ra Internet.
+# Không có Caddy; API chỉ mở 127.0.0.1:18080, FE mở 127.0.0.1:3000 — apache proxy vào.
 # apache lo TLS + domain (xem deploy/apache-socialapp.conf.example). Dùng:
 #   docker compose -f docker-compose.staging.apache.yml up -d
+#
+# F1: mạng internal cố định subnet 172.28.0.0/16 để .env có thể khai
+# ReverseProxy__TrustedNetworks__0=172.28.0.0/16 (BFF → api được tin X-Forwarded-For).
 name: socialapp-staging
 
 networks:
   internal:
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
 
 volumes:
   pgdata:
@@ -28,6 +34,16 @@ services:
       start_period: 20s
     depends_on:
       postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  frontend:
+    image: ghcr.io/ricecracker12/30inf067_btl/frontend:staging
+    restart: unless-stopped
+    env_file: [./.env]                 # API_INTERNAL_URL, REDIS_URL, APP_ORIGIN, SESSION_ENCRYPTION_KEY, TRUSTED_PROXY_HOPS
+    ports: ["127.0.0.1:3000:3000"]     # chỉ localhost — apache ProxyPass / → đây
+    networks: [internal]
+    depends_on:
+      api: { condition: service_healthy }
       redis: { condition: service_healthy }
 
   migrate:

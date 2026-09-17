@@ -23,10 +23,28 @@ jobs:
           tags: |
             ghcr.io/ricecracker12/30inf067_btl/api:staging
             ghcr.io/ricecracker12/30inf067_btl/api:${{ github.sha }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: src/frontend
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ghcr.io/ricecracker12/30inf067_btl/frontend:staging
+            ghcr.io/ricecracker12/30inf067_btl/frontend:${{ github.sha }}
   deploy:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+      # Compose trên VPS không nằm trong image — sync từ repo trước khi pull/up (F1).
+      - uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ${{ secrets.STAGING_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          source: deploy/docker-compose.staging.apache.yml
+          target: app/deploy/
+          strip_components: 1
       - uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.STAGING_HOST }}

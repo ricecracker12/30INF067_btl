@@ -101,6 +101,14 @@ Smtp__Password=<SMTP key của Brevo>
 Smtp__From=<người gửi đã xác thực trên Brevo>
 Frontend__BaseUrl=https://mxh.banhgao.net
 Cors__AllowedOrigins__0=https://mxh.banhgao.net
+
+# F1 — BFF (container frontend) + tin X-Forwarded-For từ mạng compose
+API_INTERNAL_URL=http://api:8080/api/v1
+REDIS_URL=redis://redis:6379
+APP_ORIGIN=https://mxh.banhgao.net
+SESSION_ENCRYPTION_KEY=<openssl rand -base64 32>
+TRUSTED_PROXY_HOPS=1
+ReverseProxy__TrustedNetworks__0=172.28.0.0/16
 EOF
 chmod 600 .env
 ```
@@ -124,6 +132,11 @@ chmod 600 .env
 >
 > Thiếu `Smtp__Host`/`Smtp__From`/`Cors__AllowedOrigins__0` thì api **từ chối khởi động** (từ khối D GĐ1) —
 > kiểm `.env` trước khi merge vào `develop`.
+>
+> **F1:** thiếu `SESSION_ENCRYPTION_KEY` / `API_INTERNAL_URL` / `REDIS_URL` / `APP_ORIGIN` thì container
+> **frontend** không phục vụ `/bff` (exit 1 hoặc 503). `ReverseProxy__TrustedNetworks__0` phải khớp subnet
+> `internal` trong compose (`172.28.0.0/16`). Apache trên host: bật `ProxyPass /` → `127.0.0.1:3000`
+> **sau** `/api`/`/swagger`/`/health` (`deploy/apache-socialapp.conf.example`) — CD không sửa apache.
 
 **B. Trên CI** (GitHub → Settings → Secrets → Actions): `STAGING_HOST`, `STAGING_USER`, `STAGING_SSH_KEY`.
 
@@ -138,50 +151,17 @@ chmod 600 .env
 > `ghcr.io/<username>/mxh/api`. `context: .` = gốc repo `mxh` ⇒ Dockerfile ở `mxh/Dockerfile`,
 > publish `src/backend/SocialApp.Api/SocialApp.Api.csproj`.
 
-`.github/workflows/deploy-staging.yml`:
-```yaml
-name: deploy-staging
-on:
-  push:
-    branches: [develop]
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    permissions: { contents: read, packages: write }
-    steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
-        with: { registry: ghcr.io, username: ${{ github.actor }}, password: ${{ secrets.GITHUB_TOKEN }} }
-      - uses: docker/build-push-action@v6
-        with:
-          context: .
-          platforms: linux/arm64
-          push: true
-          tags: |
-            ghcr.io/${{ github.repository }}/api:staging
-            ghcr.io/${{ github.repository }}/api:${{ github.sha }}
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.STAGING_HOST }}
-          username: ${{ secrets.STAGING_USER }}
-          key: ${{ secrets.STAGING_SSH_KEY }}
-          script: |
-            cd ~/app/deploy
-            echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-            docker compose -f docker-compose.staging.yml pull
-            docker compose -f docker-compose.staging.yml run --rm migrate
-            docker compose -f docker-compose.staging.yml up -d
-            docker image prune -f
-```
+Nguồn sự thật: [`.github/workflows/deploy-staging.yml`](../.github/workflows/deploy-staging.yml) (VM apache
+đang dùng). Tóm tắt F1:
+
+- Build **hai** image `linux/arm64`: `api:staging` (context `.`) và `frontend:staging` (context `src/frontend`).
+- Deploy: SCP `docker-compose.staging.apache.yml` → `~/app/deploy/` → `pull` → `run --rm migrate` → `up -d`.
+- Biến thể Caddy: `docker-compose.staging.yml` + `Caddyfile` (path `/api*` `/health*` `/swagger*` → api, còn lại → frontend).
+
 > Migration chạy trong bước deploy (service `migrate`), **KHÔNG auto-migrate lúc app start**.
 
-**Kiểm tra:** push commit lên `develop` → Actions xanh → staging tự cập nhật, không thao tác tay.
+**Kiểm tra:** push commit lên `develop` → Actions xanh → staging tự cập nhật image + compose. **Một lần** trên
+VM trước F1: bổ sung biến BFF/`ReverseProxy__*` vào `.env` và bật `ProxyPass /` trong apache (mục vi).
 
 ---
 
@@ -271,12 +251,18 @@ Postgres/redis **không có `ports:`** → không lộ ra ngoài. Chỉ `caddy` 
 > ⚠️ Cert `*.banhgao.net` **chỉ khớp domain dưới `banhgao.net`** (vd `mxh.banhgao.net`), KHÔNG khớp
 > `banhgao.com` hay apex `banhgao.net`. Domain phục vụ phải là subdomain 1 cấp của `banhgao.net`.
 
-`~/app/deploy/Caddyfile`:
+`~/app/deploy/Caddyfile` (F1 — API theo path, còn lại → frontend):
 ```
 mxh.banhgao.net {
     encode gzip
     tls /etc/ssl/cloudflare/banhgao.net.pem /etc/ssl/cloudflare/banhgao.net.key
-    reverse_proxy api:8080
+    @api path /api* /health* /swagger*
+    handle @api {
+        reverse_proxy api:8080
+    }
+    handle {
+        reverse_proxy frontend:3000
+    }
 }
 ```
 
