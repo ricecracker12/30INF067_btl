@@ -195,7 +195,7 @@ public sealed class TokenRevocationTests(PostgresFixture postgres, RedisFixture 
 
     /// <summary>
     /// Health check và thu hồi token dùng CHUNG một kết nối: số client Redis mang tên của app không tăng sau khi gọi /health/ready và
-    /// request có token. Tên client đặt qua chuỗi kết nối (<c>name=</c>), không cần hook trong <c>src/</c>.
+    /// request có token. Tên client đặt qua chuỗi kết nối (<c>name=</c>), không cần hook trong <c>src/backend/</c>.
     /// </summary>
     [Fact]
     public async Task Health_ready_200_va_dung_chung_mot_ket_noi_Redis_voi_thu_hoi_token()

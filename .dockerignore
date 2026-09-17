@@ -4,17 +4,32 @@
 .git/
 .github/
 .vs/
+.vscode/
+.gitnexus/
+.claude/
 *.user
-frontend/
+src/frontend/
 tests/
 deploy/
 docs/
+
+# Bí mật: .gitignore đã chặn khỏi git, chặn nốt khỏi đây. Khoá SSH của CD không có việc gì trong lớp
+# build, và nếu sau này bật cache-to thì lớp build là thứ ĐI RA NGOÀI.
+*.key
+*.ppk
+*.pem
+
 # Hop dong API song trong module (Presentation/) nhung khong co viec gi trong image chay production:
 # no la build input cua lane frontend va cua test doi chieu hop dong.
-src/Modules/*/Presentation/*.yaml
-src/Modules/*/Presentation/*.md
+src/backend/Modules/*/Presentation/*.yaml
+src/backend/Modules/*/Presentation/*.md
+
+# Chỉ loại bản ghi đè theo môi trường (appsettings.Development.json, appsettings.Production.json…).
+# KHÔNG thêm `!**/appsettings.json` ở đây: mẫu dưới vốn đã không khớp `appsettings.json` (thiếu đoạn
+# giữa hai dấu chấm) nên phủ định là thừa — mà phủ định lại THẮNG mọi dòng phía trên, kéo ngược
+# appsettings.json nằm trong bin/ và tests/ vào context. Đã dính đúng một lần, 2026-09-16.
 **/appsettings.*.json
-!**/appsettings.json
+
 .env
 *.md
 Dockerfile

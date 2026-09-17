@@ -10,7 +10,7 @@ namespace SocialApp.IntegrationTests.Harness;
 /// → test thứ 11 của lớp nhận 429, đỏ ngẫu nhiên theo thứ tự chạy (Đ-D7).
 ///
 /// Đứng ĐẦU pipeline: có header <see cref="Header"/> thì dùng IP đó (test rate limit gửi cùng một IP), không thì sinh
-/// IP ngẫu nhiên. Chỉ tồn tại trong assembly test — KHÔNG thêm cờ tắt rate limit vào src/.
+/// IP ngẫu nhiên. Chỉ tồn tại trong assembly test — KHÔNG thêm cờ tắt rate limit vào src/backend/.
 /// </summary>
 public sealed class FakeRemoteIpStartupFilter : IStartupFilter
 {

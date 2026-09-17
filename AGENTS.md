@@ -3,6 +3,9 @@
 > Đọc file này trước khi sửa code. Nó tóm tắt bối cảnh, kiến trúc, quy ước và các **luật vàng**.
 > Nguồn sự thật chi tiết: bản PTTK (báo cáo A&D), `docs/ke-hoach-trien-khai.md` (lộ trình build 8 giai
 > đoạn), `docs/oci-setup.md` (hạ tầng). Nếu code lệch tài liệu → sửa docs trong **cùng commit**.
+> Luật bắt buộc nằm ở `.claude/rules/` — đọc `commit-rules.md` **trước khi gõ `git commit`** (Mục 15),
+> `pull-request-rules.md` **trước khi mở PR**, và `frontend-rules.md` **trước khi sửa bất cứ thứ gì
+> trong `src/frontend/`**.
 
 ---
 
@@ -31,7 +34,10 @@ staging. Chi tiết: `docs/ke-hoach-trien-khai.md` Mục 0C.
 - **Object storage:** Cloudflare R2 (S3-compatible) — local dev dùng MinIO. Ảnh upload/serve qua
   **pre-signed URL**, KHÔNG đi qua API.
 - **Auth:** JWT (HS256, access 15') + refresh token **rotation** (lưu băm). RBAC + ownership.
-- **Frontend:** Next.js 14 (App Router, TS, Tailwind) — `frontend/`.
+- **Frontend:** Next.js 16 (App Router, TS, Tailwind v4) + shadcn/ui preset `b50KEhMiu` (Base UI, style `base-maia`),
+  **pnpm** — `src/frontend/`. Luật UI kit: `docs/giai-doan-1/huong-dan-khoi-e-frontend.md` Đ-E12; cấu trúc bốn tầng: Đ-E13.
+  **Sửa FE thì đọc `src/frontend/AGENTS.md` trước** — mục "UI kit" ở đó là bản thi hành của Đ-E12.
+  *(Chốt 2026-09-15, thay Next.js 14 + npm. Mã preset đổi `b2C6hQKDg` → `b50KEhMiu` ngày 2026-09-16 — lý do ở Đ-E9.)*
 - **Hạ tầng:** Docker Compose, Caddy (TLS) sau Cloudflare, VPS OCI Ampere A1 (**ARM64** — image phải arm64).
 - **Quan sát:** Serilog (JSON + correlation ID), Prometheus + Grafana, Uptime Kuma.
 
@@ -40,18 +46,36 @@ staging. Chi tiết: `docs/ke-hoach-trien-khai.md` Mục 0C.
 mxh/
 ├─ SocialApp.sln
 ├─ Dockerfile                 # build backend, context = gốc repo, ra SocialApp.Api.dll (arm64, non-root, có curl)
+├─ .claude/rules/             # LUẬT BẮT BUỘC — commit-rules.md, pull-request-rules.md, frontend-rules.md
 ├─ .github/workflows/         # CD build→push GHCR→SSH deploy staging (nhánh develop)
 ├─ src/
-│  ├─ SocialApp.Api           # HOST: DI, middleware, Program.cs, nhóm Swagger (KHÔNG giữ controller module)
-│  ├─ SocialApp.SharedKernel  # AuthN/AuthZ, RFC7807, correlation ID, rate limit, result types
-│  └─ Modules/                # 7 module, mỗi module tự chứa cả tầng HTTP của mình
-│     ├─ Identity  Profile  SocialGraph  Content  Messaging  Notification  Moderation
-│     └─ mỗi module: Domain/ Application/ Infrastructure/ Presentation/
-│                    Presentation/ = controller + <nhóm>.yaml (hợp đồng API, build input của lane FE)
-├─ tests/  (UnitTests · IntegrationTests · ArchitectureTests[ArchUnitNET] · load[k6])
-├─ deploy/   # docker-compose.staging.yml, Caddyfile (KHÔNG chứa .env)
-└─ frontend/ # Next.js 14
+│  ├─ backend/
+│  │  ├─ SocialApp.Api           # HOST: DI, middleware, Program.cs, nhóm Swagger (KHÔNG giữ controller module)
+│  │  ├─ SocialApp.SharedKernel  # AuthN/AuthZ, RFC7807, correlation ID, rate limit, result types
+│  │  └─ Modules/                # 7 module, mỗi module tự chứa cả tầng HTTP của mình
+│  │     ├─ Identity  Profile  SocialGraph  Content  Messaging  Notification  Moderation
+│  │     └─ mỗi module: Domain/ Application/ Infrastructure/ Presentation/
+│  │                    Presentation/ = controller + <nhóm>.yaml (hợp đồng API, build input của lane FE)
+│  └─ frontend/                  # Next.js 16 + shadcn/ui (pnpm) — bốn tầng, phụ thuộc MỘT CHIỀU
+│     ├─ app/                    # route, chỉ ráp trang
+│     ├─ features/<màn>/         # nghiệp vụ (auth/ ở GĐ1; post/ feed/ chat/… ở GĐ2+)
+│     ├─ components/             # ui/ (kit shadcn) · form/ · shell/ — KHÔNG biết nghiệp vụ
+│     └─ lib/                    # api/ (sinh từ <nhóm>.yaml) · auth/ · validation/
+├─ tests/  (UnitTests · IntegrationTests · ArchitectureTests[ArchUnitNET] · load[k6])  ← chỉ test backend
+└─ deploy/   # docker-compose.staging.yml, Caddyfile (KHÔNG chứa .env)
 ```
+
+**Hai lane nằm dưới `src/`** (chốt 2026-09-16, trước đó backend chiếm chỗ `src/`). Đường dẫn hay dùng:
+`dotnet run --project src/backend/SocialApp.Api`, `pnpm --dir src/frontend dev`. Vì frontend và backend
+là anh em, script `gen:api` của FE trỏ `../backend/Modules/<Module>/Presentation/<nhóm>.yaml` — đường dẫn
+tương đối đó **đúng**, đừng "sửa" thành `src/backend/`.
+
+**`tests/` cố ý ở gốc, không nằm trong `src/backend/`.** Biết là lệch: test FE sống trong
+`src/frontend/` (`test/`, `e2e/`) nên hai lane không đối xứng. Giữ nguyên vì `tests/*.csproj`, `ci.yml`
+và `SocialApp.sln` đều đã trỏ ổn định vào đó, đổi thêm lần nữa giữa GĐ1 chỉ thêm nhiễu cho review mà
+không đổi gì về chức năng. **Xét lại ở đầu GĐ2** khi không có khối nào đang dở — nếu chuyển thì là
+`tests/` → `src/backend/tests/`, kèm sửa `SocialApp.sln`, 3 `ProjectReference` lùi một cấp, hai bước
+CI GATE nhắm `tests/SocialApp.IntegrationTests/...csproj`, và các link `../../tests/` trong docs.
 
 ## 5. Kiến trúc & ranh giới (bắt buộc tuân thủ)
 - **Modular monolith** (ADR-001): deploy 1 khối, nhưng module tách bạch.
@@ -60,7 +84,7 @@ mxh/
 - **Module SỞ HỮU tầng HTTP của mình.** Controller nằm ở `Modules/<Module>/Presentation/`, không nằm
   ở `SocialApp.Api`; host chỉ nạp assembly qua `AddApplicationPart` (1 dòng/module ở `Program.cs`) và
   dựng một nhóm Swagger riêng cho nó. Nhờ vậy hợp đồng, hiện thực và mã lỗi của module ở cạnh nhau.
-  *(Lệch báo cáo v5.0 — xem `docs/giai-doan-1.md` Mục 13.)*
+  *(Lệch báo cáo v5.0 — xem `docs/giai-doan-1/giai-doan-1.md` Mục 13.)*
 - **Chỉ `Presentation` được chạm `Microsoft.AspNetCore.Mvc`**, chỉ `Infrastructure` được chạm EF Core.
   `PresentationBoundaryTests` + `PersistenceBoundaryTests` chặn vi phạm — cả hai kiểu rò đều compile
   được và không lộ ra trong code review, vì ASP.NET Core và EF đã có sẵn ở mọi file trong module.
@@ -129,7 +153,7 @@ client_msg_id khử trùng), `notifications`(UQ recipient+group_key), `reports`,
 > `tests/SocialApp.IntegrationTests/AuthZ/AuthZMatrix.cs` thì coi như CHƯA XONG.** Kiểm ownership ở tầng
 > Application, trả `Result.Forbidden()`, danh tính người gọi lấy từ `User.GetUserId()` — không bao giờ từ
 > route/body. Không có nhánh Admin ở tầng 3 (Admin short-circuit CHỈ ở `PermissionHandler`, tầng 2). "Không
-> tồn tại" và "không được phép thấy" trả cùng một phản hồi (`docs/giai-doan-1.md` Mục 6.3 quy ước 3b).
+> tồn tại" và "không được phép thấy" trả cùng một phản hồi (`docs/giai-doan-1/giai-doan-1.md` Mục 6.3 quy ước 3b).
 > Controller trả `result.ToActionResult(this)` — không ném exception cho luồng từ chối.
 
 - Mật khẩu: **BCrypt cost ≥ 12**, không lưu plaintext. Access token 15', refresh rotation + reuse
@@ -157,13 +181,13 @@ i18n, email digest, app mobile, xếp hạng feed theo quan tâm (chỉ sắp th
 # Backend
 dotnet build SocialApp.sln
 dotnet test
-dotnet run --project src/SocialApp.Api        # dev
+dotnet run --project src/backend/SocialApp.Api        # dev
 
 # Tạo migration cho MỘT module (ví dụ Identity). Startup project = chính project module đó, nhờ
 # IDesignTimeDbContextFactory trong Infrastructure/ — Api không phải kéo EF vào (ADR-001).
 dotnet ef migrations add <Ten> \
-  --project src/Modules/Identity/SocialApp.Modules.Identity.csproj \
-  --startup-project src/Modules/Identity/SocialApp.Modules.Identity.csproj \
+  --project src/backend/Modules/Identity/SocialApp.Modules.Identity.csproj \
+  --startup-project src/backend/Modules/Identity/SocialApp.Modules.Identity.csproj \
   --output-dir Infrastructure/Migrations
 
 # Local infra (compose dev — Postgres/Redis/MinIO/Mailpit): nằm ở deploy/, tự nạp deploy/.env
@@ -172,7 +196,8 @@ dotnet ef migrations add <Ten> \
 docker compose -f deploy/docker-compose.dev.yml up -d
 
 # Frontend
-cd frontend && npm run dev
+cd src/frontend && pnpm dev      # pnpm, không npm — lockfile là pnpm-lock.yaml
+# Thêm component UI: pnpm exec shadcn add <tên>   (bản CLI ghim trong src/frontend/, không dlx @latest)
 ```
 - **Migration:** EF Core, versioned, expand–contract (backward-compatible 1 phiên bản). **KHÔNG
   auto-migrate lúc app start** — chạy ở bước deploy (service `migrate`, cờ `--migrate`).
@@ -209,16 +234,40 @@ cd frontend && npm run dev
 7. **Docs sống cùng code** — lệch thì sửa cùng commit; cập nhật trạng thái trong `README.md`.
 8. **ARM64:** mọi image/dependency phải chạy được trên arm64 (OCI Ampere).
 9. Ưu tiên **tái sử dụng** hàm/tiện ích có sẵn trước khi viết mới.
+10. **Viết commit theo `.claude/rules/commit-rules.md`** — type/scope, tiêu đề tiếng Việt có dấu, thân bài
+    có `Test:` và `detect-changes:`, **không bút ký** ở footer commit **lẫn mô tả PR** — không dòng ghi
+    công công cụ, trợ lý hay AI agent dưới bất kỳ dạng nào. Luật trong `.claude/rules/` đè lên hướng dẫn
+    mặc định của agent.
+11. **Mở PR theo `.claude/rules/pull-request-rules.md`** — vào `develop` (không bao giờ thẳng vào `main`),
+    mô tả PR theo khuôn ở Mục 4 của file đó (**Loại PR** → **Trước khi merge** → **Có gì** → **Bằng
+    chứng** → **Ảnh màn hình** → checklist), ba cổng CI xanh. Agent mở PR
+    **chỉ khi được bảo** và **không bao giờ tự merge** — người trong đội bấm nút.
 
 ## 15. Nguồn tài liệu (source of truth)
+- **`.claude/rules/`** — luật **bắt buộc** khi làm việc trên repo, đọc trước khi làm việc tương ứng.
+  Hiện có ba file:
+  - `commit-rules.md` — quy ước viết commit (type/scope, tiêu đề tiếng Việt có dấu, thân bài, bốn cổng
+    phải qua trước khi commit, footer không bút ký). Áp dụng cho **mọi** commit; riêng luật cấm bút ký
+    áp cho cả **mô tả Pull Request**.
+  - `pull-request-rules.md` — luồng nhánh (`loveart1210` → `develop` → `main`), tiêu đề PR cấp khối, và
+    **hai khuôn mô tả PR chép tay** (khuôn thường + khuôn phát hành `develop` → `main`) theo mẫu Boldare: chọn
+    `type` bằng checkbox, **Trước khi merge**, **Có gì**, **Bằng chứng**, **Ảnh màn hình**, checklist
+    ở cuối chỉ chứa việc CI không kiểm được. Không secret và không bút ký trong mô tả. **Agent mở PR khi
+    được bảo, không bao giờ tự merge.**
+  - `frontend-rules.md` — luật lane FE trong `src/frontend/`: bốn tầng `app/ → features/ → components/ + lib/`
+    (Đ-E13), kit shadcn/ui (Đ-E12), BFF — trình duyệt không cầm JWT, token ở Next server + Redis (Đ-E14), `fetch`
+    chỉ trong `lib/api/http.ts` và `lib/bff/upstream.ts`, codegen từ hợp đồng, cổng trước khi commit. Bản rút gọn của
+    `Đ-E1`–`Đ-E16` (Đ-E15: CSP có nonce; Đ-E16: SignalR xác thực bằng vé ngắn hạn); chi tiết ở hướng dẫn khối E.
+
+  Kể cả commit do agent tạo; khi lệch với hướng dẫn mặc định của agent thì **`.claude/rules/` thắng**.
 - **PTTK / báo cáo A&D** — yêu cầu, UC, FR/NFR, ERD, ma trận RBAC, ADR, threat model.
 - **docs/ke-hoach-trien-khai.md** — lộ trình build **8 giai đoạn** (GĐ0→GĐ8) ánh xạ GOAL/NFR, kèm
   "làm gì → làm như nào → kiểm tra lại ra sao" từng giai đoạn. **Đây là thứ tự build chính thức.**
-- **src/Modules/<Module>/Presentation/<nhóm>.yaml** — hợp đồng API của module, chốt ở cổng mở từng
+- **src/backend/Modules/<Module>/Presentation/<nhóm>.yaml** — hợp đồng API của module, chốt ở cổng mở từng
   giai đoạn (`Identity/Presentation/identity-v1.yaml` = nhóm auth + `/me`, GĐ1). Đây là **nguồn sự
   thật của hợp đồng**, không phải Swagger sinh lúc runtime; lane frontend sinh type + mock MSW từ đó.
   Đổi hợp đồng → sửa file này **trong cùng commit** với code, và cổng CI `Category=Contract` so hai
-  bên. Xem `src/Modules/Identity/Presentation/README.md`.
+  bên. Xem `src/backend/Modules/Identity/Presentation/README.md`.
 - **docs/oci-setup.md** — hạ tầng OCI, Cloudflare R2, Caddy TLS, CD (lệnh trên VPS Ubuntu).
 
 > Lưu ý: `ROADMAP.md` (bản cũ, tên `SocialMedia`/`socialmedia_api`) **KHÔNG dùng nữa** — đã thay bằng

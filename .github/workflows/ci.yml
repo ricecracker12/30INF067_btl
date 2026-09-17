@@ -20,6 +20,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # CONG LANE FE: template Next.js tu chay `git init`, de sot src/frontend/.git thi `git add` ghi
+      # mot GITLINK (mode 160000) thay vi file. Clone/checkout ra thu muc RONG, nen moi buoc
+      # lint/typecheck/build cua FE chay tren hu khong ma van xanh. Kiem thang vao mode thay vi dem
+      # file: dem file se do oan tren nhanh chua co lane FE.
+      - name: Khong co repo Git long trong src/ (CI GATE)
+        run: |
+          if git ls-files -s src | grep -q '^160000'; then
+            echo "::error::Co gitlink trong src/ -- xoa .git long (vd src/frontend/.git) roi git add lai"
+            git ls-files -s src | grep '^160000'
+            exit 1
+          fi
+
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
@@ -33,7 +46,7 @@ jobs:
       # CONG HOP DONG API: file Modules/<Module>/Presentation/<nhom>.yaml phai khop
       # /swagger/<nhom>/swagger.json sinh tu code. Tach rieng de log chi thang vao "hop dong lech"
       # thay vi lan trong hang tram test khac. Day la thu THAY CHO viec doi chieu Swagger voi stub
-      # bang mat o cong dong GD1 (docs/giai-doan-1.md Muc 11).
+      # bang mat o cong dong GD1 (docs/giai-doan-1/giai-doan-1.md Muc 11).
       #
       # NHAM VAO PROJECT, KHONG NHAM VAO .sln -- day la dieu kien de cai cong nay dung duoc:
       # TreatNoTestsAsError xet RIENG TUNG test assembly. Chay tren .sln thi UnitTests.dll va
@@ -53,3 +66,67 @@ jobs:
       # test AuthZ se lam buoc nay do du AuthZ hoan toan dung.
       - name: AuthZ matrix (CI GATE)
         run: dotnet test tests/SocialApp.IntegrationTests/SocialApp.IntegrationTests.csproj -c Release --no-build --filter "Category=AuthZ" -- RunConfiguration.TreatNoTestsAsError=true
+
+  # Lane FE chay SONG SONG voi job .NET o tren: khong cong vao thoi gian cua no (NFR: CI <= 10 phut).
+  # Playwright KHONG o day o GD1 -- can API + Postgres + Redis + Mailpit chay that; chay local, ket
+  # qua dan vao PR (Đ-E8).
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4          # doc phien ban tu "packageManager" trong src/frontend/package.json
+        with:
+          package_json_file: src/frontend/package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: src/frontend/.nvmrc
+          cache: pnpm
+          cache-dependency-path: src/frontend/pnpm-lock.yaml
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # CONG CODEGEN: schema.d.ts commit trong repo phai khop identity-v1.yaml hien tai.
+      # Doi hop dong ma quen `pnpm gen:api` -> file sinh lech -> DO. Doi version openapi-typescript
+      # cung do: dung y, vi doi version la doi file sinh ra.
+      #
+      # DUNG `git status --porcelain`, KHONG dung `git diff --exit-code`: `git diff` chi so index voi
+      # worktree nen no IM LANG voi file chua commit. Da dinh dung cai bay do mot lan luc thu cho do
+      # o E2 -- hop dong hong ma cong van xanh, vi schema.d.ts luc ay con untracked. `status` bat ca
+      # hai: file bi sua (` M`) lan file chua vao repo (`??`).
+      - name: API types khop hop dong (CI GATE)
+        run: |
+          pnpm gen:api
+          changed=$(git status --porcelain -- lib/api/schema.d.ts)
+          if [ -n "$changed" ]; then
+            echo "::error::lib/api/schema.d.ts lech hop dong hoac chua duoc commit -- chay 'pnpm gen:api' roi commit file sinh ra"
+            echo "$changed"
+            git diff -- lib/api/schema.d.ts
+            exit 1
+          fi
+
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+
+      # Khong can bien nao luc build (Đ-E14): trinh duyet chi goi /bff cung origin; cau hinh BFF (API_INTERNAL_URL,
+      # REDIS_URL, SESSION_ENCRYPTION_KEY, APP_ORIGIN) doc LUOI luc chay, khong nhung vao bundle.
+      - name: Build
+        run: pnpm build
+
+      # CONG BUNDLE: bundle gui cho TRINH DUYET (.next/static) khong duoc chua MSW, URL API dev, hay code server cua
+      # BFF (Đ-E14): ioredis, ten bien cau hinh server, tien to key phien Redis. Lot vao la token/khoa co duong ra
+      # trinh duyet. `server-only` da chan luc build; cong nay la luoi thu hai, doc thang ban build.
+      - name: Bundle production sach MSW va code server BFF (CI GATE)
+        run: |
+          hits=$(grep -rlE "mockServiceWorker|setupWorker|localhost:5259|ioredis|SESSION_ENCRYPTION_KEY|API_INTERNAL_URL|bff:session" .next/static || true)
+          if [ -n "$hits" ]; then
+            echo "::error::MSW, URL API dev hoac code server BFF lot vao bundle trinh duyet"
+            echo "$hits"
+            exit 1
+          fi

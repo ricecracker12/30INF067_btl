@@ -22,25 +22,26 @@ RFC 7807 + chạy thử staging + cập nhật Swagger.
 ## 0. Chuẩn bị & quy ước (áp dụng cả dự án)
 
 **Tech stack cố định:** ASP.NET Core 8 (Web API + SignalR), EF Core + Npgsql, PostgreSQL 16, Redis 7,
-Cloudflare R2 (S3-compatible), Docker Compose, Caddy (TLS), Next.js 14 (frontend), Serilog +
+Cloudflare R2 (S3-compatible), Docker Compose, Caddy (TLS), Next.js 16 + shadcn/ui, pnpm (frontend — chốt 2026-09-15, thay Next.js 14), Serilog +
 Prometheus + Grafana + Uptime Kuma.
 
 **Cấu trúc solution (modular monolith — theo Mục 6.4, 7 module + Shared Kernel):**
 ```
 SocialApp.sln
  ├─ src/
- │   ├─ SocialApp.Api                (host: controllers, SignalR Hubs, DI, middleware)
- │   ├─ SocialApp.SharedKernel       (AuthN/AuthZ, RFC7807, correlation ID, rate limit, result types)
- │   ├─ Modules/Identity             (CMP-01: users, roles, refresh_tokens, JWT)
- │   ├─ Modules/Profile              (CMP-02: profiles)
- │   ├─ Modules/SocialGraph          (CMP-03: friendships, follows)
- │   ├─ Modules/Content              (CMP-04: posts, comments, reactions, media, feed)
- │   ├─ Modules/Messaging            (CMP-05: conversations, messages, ChatHub)
- │   ├─ Modules/Notification         (CMP-06: notifications, Hub)
- │   └─ Modules/Moderation           (CMP-07: reports, audit_logs, admin)
+ │   ├─ backend/
+ │   │   ├─ SocialApp.Api            (host: controllers, SignalR Hubs, DI, middleware)
+ │   │   ├─ SocialApp.SharedKernel   (AuthN/AuthZ, RFC7807, correlation ID, rate limit, result types)
+ │   │   ├─ Modules/Identity         (CMP-01: users, roles, refresh_tokens, JWT)
+ │   │   ├─ Modules/Profile          (CMP-02: profiles)
+ │   │   ├─ Modules/SocialGraph      (CMP-03: friendships, follows)
+ │   │   ├─ Modules/Content          (CMP-04: posts, comments, reactions, media, feed)
+ │   │   ├─ Modules/Messaging        (CMP-05: conversations, messages, ChatHub)
+ │   │   ├─ Modules/Notification     (CMP-06: notifications, Hub)
+ │   │   └─ Modules/Moderation       (CMP-07: reports, audit_logs, admin)
+ │   └─ frontend/ (Next.js 16 + shadcn/ui, pnpm)
  ├─ tests/  (Unit, Integration, Architecture[ArchUnitNET], Load[k6])
- ├─ deploy/ (docker-compose.*.yml, Caddyfile, prometheus.yml, grafana/)
- └─ frontend/ (Next.js 14)
+ └─ deploy/ (docker-compose.*.yml, Caddyfile, prometheus.yml, grafana/)
 ```
 Mỗi module: `Domain` (entity + business rule) / `Application` (service + DTO + validator) /
 `Infrastructure` (EF repository). Module chỉ giao tiếp qua interface ở Application — ArchUnitNET
@@ -94,7 +95,7 @@ trả 200; CI (build + test) xanh; ArchUnitNET test khung chạy được (dù c
 
 ---
 
-## 0C. Nhánh FRONTEND chạy song song (từ GĐ1) — Next.js 14
+## 0C. Nhánh FRONTEND chạy song song (từ GĐ1) — Next.js 16 + shadcn/ui
 
 > Kế hoạch gốc nhắc Next.js 14 ở tech stack nhưng **không giai đoạn nào giao việc làm frontend**.
 > Mục này lấp lỗ hổng đó.
@@ -245,7 +246,7 @@ còn biên độ thêm index/cache nếu trượt; và thứ cắt được thì
 
 ### GĐ 1 — Identity & Access: UC-01, UC-02 (Ngày 3–6)
 
-> 📄 **Tài liệu thi công chi tiết: [`giai-doan-1.md`](./giai-doan-1.md)** — schema DDL, dữ liệu seed,
+> 📄 **Tài liệu thi công chi tiết: [`giai-doan-1.md`](./giai-doan-1/giai-doan-1.md)** — schema DDL, dữ liệu seed,
 > code mẫu `[RequirePermission]`, kế hoạch 3 người theo ngày, checklist nghiệm thu.
 >
 > **Bắt đầu bằng Mục 9.0 — dọn 4 khoản nợ kỹ thuật GĐ0 để lại** (nửa ngày đầu Ngày 3): thêm EF Core
@@ -276,7 +277,8 @@ còn biên độ thêm index/cache nếu trượt; và thứ cắt được thì
      `users.role_id` FK `ON DELETE RESTRICT` + **kiểm tra vai trò hệ thống lúc khởi động** (app
      từ chối chạy nếu `roles.code` bị đổi tay) + bất biến "luôn còn ≥ 1 Admin hoạt động" (GĐ6/GĐ8).
   6. **Refresh token đặt trong `httpOnly` + `Secure` + `SameSite=Lax` cookie**, access token do
-     client giữ trong memory. Đây là **quyết định hợp đồng API, không phải quyết định frontend**:
+     client giữ trong memory *(từ 2026-09-17 "client" là BFF — Next server; trình duyệt không cầm token, xem Đ-E14 ở
+     hướng dẫn khối E GĐ1)*. Đây là **quyết định hợp đồng API, không phải quyết định frontend**:
      nó đổi chữ ký endpoint — `POST /auth/login` trả `{accessToken, expiresIn}` + `Set-Cookie`,
      và `POST /auth/refresh` **đọc từ cookie, không nhận body**. Chốt muộn là phải mở lại hợp đồng
      vừa đóng băng. Lý do chọn: refresh token sống lâu nhất và nguy hiểm nhất nếu bị XSS lấy mất;
@@ -298,7 +300,7 @@ còn biên độ thêm index/cache nếu trượt; và thứ cắt được thì
     cho cả dự án** (đọc quyền từ DB, cache TTL 60s) + fallback policy = default deny + ownership
     check ở service (tầng 3).
   - Endpoints: `POST /auth/register|login|refresh|logout`, `POST /auth/verify-email`, `GET /me`.
-  - **Lane frontend (1 người, song song từ Ngày 3 — Mục 0C):** scaffold Next.js 14 App Router +
+  - **Lane frontend (1 người, song song từ Ngày 3 — Mục 0C):** scaffold Next.js 16 App Router + shadcn/ui preset (pnpm) +
     design token + primitive · sinh type từ OpenAPI stub (`openapi-typescript`) · api client bọc
     `fetch` với **`credentials: 'include'`** · mock MSW để dựng UI không chờ backend · màn đăng ký /
     đăng nhập / xác minh email · app shell + route guard · **access token giữ trong memory, không
@@ -390,16 +392,18 @@ còn biên độ thêm index/cache nếu trượt; và thứ cắt được thì
   (FR-015/016, BR-06/09), idempotency chống trùng tin.
 - **Làm như nào:**
   - `conversations` UQ(a,b)+CHECK a<b+seq_counter; `messages` UQ(conv,seq)+UQ(conv,client_msg_id).
-  - SignalR `ChatHub` + Redis backplane (ADR-003); SEQ-02: SendMessage → validate JWT+BR-06+BR-09 →
+  - SignalR `ChatHub` + Redis backplane (ADR-003); **xác thực kết nối hub bằng vé ngắn hạn dùng một lần** (Đ-E16 của
+    hướng dẫn khối E GĐ1 — trình duyệt không cầm JWT từ Đ-E14): `POST /realtime/tickets` cấp vé 30 giây, băm lưu Redis,
+    hub `GETDEL` vé lúc bắt tay + kiểm `revoked:user`; SEQ-02: SendMessage → validate người gửi+BR-06+BR-09 →
     INSERT (message+seq+last_message atomically) → ACK Sent → tra presence Redis → đẩy B → Delivered/Seen.
   - B offline → tăng badge chưa đọc + tạo notification; mất WebSocket → fallback REST
     `POST /conversations/{id}/messages`; retry cùng `client_msg_id` khử trùng.
   - **Lane frontend:** danh sách hội thoại + cửa sổ chat + lịch sử cuộn ngược · SignalR JS client
-    (kết nối kèm access token, **tự kết nối lại**, mất kết nối thì chuyển REST fallback) · hiển thị
+    (kết nối bằng **vé** xin qua `/bff/api/realtime/tickets` — `accessTokenFactory` trả vé, **tự kết nối lại** xin vé mới, mất kết nối thì chuyển REST fallback) · hiển thị
     Sent/Delivered/Seen · sinh `client_msg_id` phía client để retry không tạo tin trùng · badge chưa
     đọc · **công cụ đo p95 gửi→nhận gắn thẳng vào màn chat thật**.
-  - **Cổng mở — chốt CẢ HAI hợp đồng:** REST cho lịch sử, **và hợp đồng SignalR** (tên hub method,
-    payload, thứ tự sự kiện, quy tắc `client_msg_id`). Hợp đồng realtime không nằm trong Swagger nên
+  - **Cổng mở — chốt CẢ HAI hợp đồng:** REST cho lịch sử **và endpoint vé realtime**, **và hợp đồng SignalR** (tên hub
+    method, payload, thứ tự sự kiện, quy tắc `client_msg_id`, 401 khi vé sai/hết hạn/đã dùng). Hợp đồng realtime không nằm trong Swagger nên
     dễ quên chốt; quên là frontend không mock được và lại rơi về nhịp "chờ backend".
 - **Kiểm tra:** AC US-015 (AC-01 B online nhận ≤1s + đủ trạng thái; AC-02 B offline → badge khi online;
   AC-03 retry cùng clientMsgId không trùng; AC-04 không phải bạn → 403 hội thoại chỉ đọc).
@@ -520,7 +524,7 @@ cập nhật Swagger · không lộ secret/PII.
 ## Sai khác so với báo cáo v5.0
 
 Ghi lại để lúc bảo vệ giải thích được — chắc chắn sẽ có người đối chiếu với bản đã chốt.
-Chi tiết đầy đủ ở [`giai-doan-1.md`](./giai-doan-1.md) Mục 13.
+Chi tiết đầy đủ ở [`giai-doan-1.md`](./giai-doan-1/giai-doan-1.md) Mục 13.
 
 | # | Báo cáo v5.0 | Thực hiện | Lý do | GĐ |
 |---|---|---|---|---|

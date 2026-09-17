@@ -4,7 +4,7 @@ namespace SocialApp.IntegrationTests.Auth;
 /// Dựng thứ tự đan xen CÓ ĐIỀU KHIỂN cho hai thao tác trên cùng một family refresh token (RT-06 của D5, logout song song với
 /// xoay vòng của D6). Trigger <c>BEFORE INSERT</c> chỉ tồn tại trong database test: lượt xoay đang giữ khóa dòng thì ngủ 2 giây
 /// ngay sau khi INSERT token mới (chưa commit), để thao tác thứ hai chen vào đúng khoảnh khắc đó. Không có cờ hay hook nào trong
-/// <c>src/</c>.
+/// <c>src/backend/</c>.
 /// </summary>
 internal static class RefreshFamilyRace
 {

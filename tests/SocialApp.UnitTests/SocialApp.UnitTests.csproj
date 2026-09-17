@@ -21,8 +21,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\SocialApp.SharedKernel\SocialApp.SharedKernel.csproj" />
-    <ProjectReference Include="..\..\src\Modules\Identity\SocialApp.Modules.Identity.csproj" />
+    <ProjectReference Include="..\..\src\backend\SocialApp.SharedKernel\SocialApp.SharedKernel.csproj" />
+    <ProjectReference Include="..\..\src\backend\Modules\Identity\SocialApp.Modules.Identity.csproj" />
   </ItemGroup>
 
 </Project>

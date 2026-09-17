@@ -1,0 +1,16 @@
+# E8 — context build của image frontend (src/frontend/). Build lại dependency trong image, không chép từ máy.
+node_modules
+.next
+# Playwright chạy ngoài image.
+e2e
+test-results
+playwright-report
+# Bí mật: .env.local có thể mang SESSION_ENCRYPTION_KEY — không bao giờ vào lớp image.
+.env*
+!.env.example
+*.key
+*.pem
+# Không cần trong image.
+Dockerfile
+.dockerignore
+*.log

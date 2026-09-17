@@ -14,7 +14,7 @@ public sealed class DevEnvFileTests : IDisposable
 
     public DevEnvFileTests()
     {
-        _project = Directory.CreateDirectory(Path.Combine(_repo, "src", "SocialApp.Api")).FullName;
+        _project = Directory.CreateDirectory(Path.Combine(_repo, "src", "backend", "SocialApp.Api")).FullName;
         Directory.CreateDirectory(Path.Combine(_repo, "deploy"));
         File.WriteAllText(Path.Combine(_repo, "deploy", ".env.example"), "POSTGRES_PASSWORD=\n");
     }
