@@ -37,8 +37,9 @@ Chi tiết GĐ1:
     detection; thu hồi token qua Redis; lỗi RFC 7807
 - **Frontend (khối E) — đang làm:**
   - xong: E1 (scaffold + kit UI), E2 (api client sinh từ hợp đồng, MSW cho Vitest), E4 (màn đăng nhập), E3 (màn đăng ký),
-    E5 (màn xác minh email), E6 (guard phía client + trang `/me` + đăng xuất)
-  - còn lại: E7 refresh single-flight, E8 đóng gói FE cho staging
+    E5 (màn xác minh email), E6 (guard phía client + trang `/me` + đăng xuất),
+    E7 (tự refresh khi 401, single-flight trong tab và giữa các tab)
+  - còn lại: E8 đóng gói FE cho staging
 - **Chưa làm:** ráp FE lên staging (F1–F3). Vì vậy **staging hiện chỉ có API**, chưa có giao diện (xem [Mục 7](#7-staging-xem-sản-phẩm-trên-internet)).
 
 ---
@@ -183,8 +184,9 @@ DB không seed sẵn người dùng nào. Cả vòng làm được trên giao di
    `POST /auth/refresh` bằng cookie); nút "Đăng xuất" ở đầu trang. Chưa đăng nhập mà vào `/me` (hoặc `/`) thì về
    `/login?next=%2Fme`.
 
-Access token hết hạn sau 15 phút và E7 (tự refresh) chưa xong: quá hạn thì bấm "Tải lại" ở `/me` sẽ báo lỗi — tải lại
-**trang** (F5) để lấy token mới.
+Access token hết hạn sau 15 phút: request đầu tiên nhận 401 thì FE tự `POST /auth/refresh` rồi gọi lại (E7) — nhiều
+request hay nhiều tab cùng lúc vẫn chỉ **một** lần refresh. Muốn thử mà không chờ 15 phút: xem đầu file
+`src/frontend/e2e/single-flight.spec.ts` (API riêng cổng 5260 với `Jwt__AccessTokenSeconds=10`).
 
 Không chạy FE thì làm cùng ba bước qua Swagger: `POST /api/v1/auth/register` →
 `POST /api/v1/auth/verify-email` với `{"token":"<token trong link>"}` → `POST /api/v1/auth/login`.

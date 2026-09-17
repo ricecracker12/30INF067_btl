@@ -8,7 +8,10 @@
 > Chỗ nào tài liệu này lệch ba nguồn đó thì sửa ở đây — trừ các quyết định ở Mục 1 đánh dấu **"cần ghi ngược"**: tài
 > liệu gốc đang thiếu hoặc mâu thuẫn ở những chỗ đó, phải sửa `giai-doan-1.md` trong cùng commit với việc tương ứng.
 
-> **Trạng thái: E1 + E2 + E4 + E3 + E5 + E6 xong, E7 là việc tiếp theo (cập nhật 2026-09-17)** — E6: guard phía client
+> **Trạng thái: E1–E7 xong, E8 là việc tiếp theo (cập nhật 2026-09-17)** — E7: interceptor 401→refresh single-flight hai
+> lớp, **Vitest 177/177**, **Playwright** `single-flight.spec.ts` xanh trên API `Jwt__AccessTokenSeconds=10` (bộ thường 7/7
+> + 1 bỏ qua), thử cho đỏ 16 đột biến + 1 đột biến E2E; Đ-E4 đã ghi ngược vào `giai-doan-1.md`; chỗ lệch ở "Thực tế thi
+> công" của Mục 8. E6: guard phía client
 > của `(app)`, `/me`, đăng xuất trên API dev thật, **Vitest 163/163**, **Playwright 7/7** (thêm `guard.spec.ts`), thử cho đỏ
 > 16 đột biến + 2 đột biến E2E; coordinator **lớp 1** đã có (E7 thêm lớp giữa tab + interceptor); chỗ lệch ở "Thực tế thi
 > công" của Mục 7. E5: màn `/verify-email` chạy
@@ -1567,7 +1570,7 @@ mẫu, `endSession` đổi `status` → guard chạy effect **sau** `router.repl
 lần với `/login`.
 
 **Không có `auth-context.tsx`.** `useSession()` ở `lib/auth/use-session.ts` đọc thẳng store qua `useSyncExternalStore`
-(snapshot server = `unknown`) — store là biến module, Context/Provider không thêm gì. `providers.tsx` không đổi.
+(snapshot server = `unknown`) — store là biến module, Context/Provider không thêm gì. `providers.tsx` không đổi (E7 thêm import `session.ts` cho `configureRefresh`).
 
 **`RequireAuth` ở `features/auth/require-auth.tsx`, không phải `lib/auth/`.** Nó render UI (khung chờ, lỗi + nút) và biết
 nghiệp vụ phiên; `lib/` theo Đ-E13 là logic không cần render. Header nằm **trong** guard (`app/(app)/layout.tsx`) — chưa biết
@@ -1794,6 +1797,81 @@ Playwright chạy `workers: 1`, và nên chạy spec này **riêng** — cả sp
 | 4 | Nhầm "không ai bị đăng xuất" với "single-flight đúng" | Ân hạn 10 giây của server che mất lỗi; lộ ra khi request cách nhau > 10 giây hoặc khi reuse thật xảy ra | Đếm **số request refresh**, không chỉ nhìn trạng thái đăng nhập |
 | 5 | Đọc `tokenStore.get()` **sau** `await` rồi mới gắn vào request gọi lại, nhưng truyền `stale` là token đọc lại | `stale` luôn bằng token mới → coordinator tưởng "đã có token mới" và không refresh | `stale` là biến `token` chụp **trước** `fetch` (bước 2) |
 
+### Thực tế thi công — 2026-09-17
+
+Ba bước đã chạy (lớp 1 của bước 1 có từ E6). Những chỗ **khác** hướng dẫn ở trên, và những thứ chỉ lộ ra khi gõ thật:
+
+**Thêm một nhánh vào coordinator (nhóm chốt): request bay đi với token, giờ token đã bị xóa → `SessionExpiredError`, KHÔNG
+refresh.** Mẫu bước 1 chỉ có "token khác `stale` → dùng luôn". Thiếu nhánh này thì: 3 request `/me` cùng 401, refresh trả 401
+→ phiên kết thúc; request thứ hai, thứ ba tới sau khi promise chung đã xong, thấy `current = null` và **gọi refresh lần nữa**
+— bảng Test đòi đúng 1. Giữa tab cũng vậy: tab A refresh 401 và phát `logout`, tab B đang chờ khóa không được "hồi sinh" phiên.
+Khởi động phiên (`stale = null`) không đi nhánh này.
+
+**`announceLogout()` trên coordinator; `logout()` báo các tab.** Mẫu bước 3 của E6 ghi `endSession({ broadcast: true })`;
+store không biết kênh, nên kênh ở coordinator: `logout()` gọi `tokenStore.endSession('logout')` rồi
+`coordinator.announceLogout()`. Tab nhận `logout` kết thúc phiên do **hết hạn** → guard kèm `?next=` (người ở tab đó không tự
+bấm đăng xuất).
+
+**`session.ts` chỉ tạo `BroadcastChannel`/`navigator.locks` khi có `window`.** Next prerender chạy module của client
+component trên server; Node 24 có sẵn `BroadcastChannel` (mở kênh là giữ tiến trình sống) và `navigator`. `navigator.locks`
+bọc lại thành `{ request(name, cb) }` — kiểu `LockManager.request` (callback nhận `Lock | null`) không gán thẳng vào `Deps`.
+
+**`providers.tsx` import `@/lib/auth/session`** để `configureRefresh` chạy ở **mọi** trang — không chỉ trang đã import
+`session.ts` qua guard.
+
+**Tên hằng khóa `REFRESH_LOCK` export từ coordinator.** Không đổi hành vi, để test và code dùng chung một chuỗi.
+
+**Lệch cách chạy `single-flight.spec.ts` (nhóm chốt): API + FE RIÊNG, không khởi động lại API dev đang dùng.**
+- API thứ hai cổng **5260** với `Jwt__AccessTokenSeconds=10`, `Cors__AllowedOrigins__0=http://localhost:3001`,
+  `dotnet run --no-build --no-launch-profile` (API 5259 đang giữ file trong `bin/` nên không build lại được). Instance riêng
+  còn có bộ đếm rate limit riêng.
+- FE cổng **3001** là bản **build** (`next start`), không `next dev`: Next 16 từ chối dev server thứ hai trên cùng thư mục
+  ("Another next dev server is already running"). Bản build nhúng `NEXT_PUBLIC_API_BASE_URL=http://localhost:5260/api/v1`
+  — xong phải `pnpm build` lại với `/api/v1` (đã làm; grep `.next/static` không còn `5259`/`5260`). Bản production không có
+  StrictMode — không ảnh hưởng: kịch bản là ba vùng nhớ, không phải effect chạy hai lần.
+- Lệnh đầy đủ ở đầu file spec. Spec **tự bỏ qua** khi không đặt `PLAYWRIGHT_API_URL` (lượt `pnpm test:e2e` thường, không tốn
+  request), và bỏ qua kèm `expiresIn` đọc được nếu API vẫn phát token dài.
+- Tốn **7** lượt `/auth/*` (thêm một lần đăng nhập qua API để đọc `expiresIn`), không phải 6. Chạy ~55 giây.
+
+**Hai lỗ hổng test lộ ra khi thử đột biến, đã vá:**
+- **Bẫy 5 (đọc `stale` sau `await`) sống sót lần đầu.** Ở ca "3 request đồng thời" cả ba 401 về **trước** khi refresh xong nên
+  `tokenStore.get()` lúc đó vẫn là token cũ — không phân biệt được. Thêm ca "401 về MUỘN": request đầu bị giữ lại tới khi
+  request thứ hai đã refresh + gọi lại xong, rồi mới nhận 401 → phải dùng token mới, tổng vẫn 1 refresh.
+- **Bỏ `_retried` làm treo cả tiến trình Vitest** thay vì đỏ (vòng lặp vô hạn, `--testTimeout` không cắt được). Ca "gọi lại vẫn
+  401" giờ từ chối 5 lần rồi mới cho qua: code đúng dừng ở lần 2; code lặp thì lần 6 resolve và test đỏ gọn.
+
+**Bằng chứng.**
+
+| Cổng | Kết quả |
+|---|---|
+| `pnpm lint` / `typecheck` | xanh |
+| `pnpm test` | **177/177** xanh (20 file; trước E7 là 163/163), `Type Errors no errors` |
+| `pnpm build` (`NEXT_PUBLIC_API_BASE_URL=/api/v1`) | xanh; grep `.next/static` cho `setupWorker`, `mockServiceWorker`, `localhost:5259`, `localhost:5260` — **rỗng** |
+| `single-flight.spec.ts` (Chrome 152.0.7977.84), API 5260 `Jwt__AccessTokenSeconds=10` + FE build 3001 | **1/1** xanh, 55,5 giây — đúng 1 `POST /auth/refresh` khi 3 tab bấm đồng thời; bấm lần hai: 0 |
+| `pnpm test:e2e` thường (API 5259) | **7** xanh, **1** bỏ qua (`single-flight`, có chủ đích), 1,6 phút |
+
+Thử cho đỏ (từng đột biến một, rồi khôi phục — checksum bốn file nguồn khớp trước/sau):
+
+| Đột biến | Test bắt |
+|---|---|
+| Bỏ `inflight` (`=` thay `??=`) | `http.interceptor` "3 lời gọi /me" + "refresh 401"; `refresh-coordinator` "3 lời gọi"; `session`; `require-auth` 2 ca |
+| Bỏ điều kiện `current !== stale` | `refresh-coordinator` "hai tab", "ba tab", "đã có token khác stale"; `session` "đã đăng nhập sẵn" |
+| Chỉ bỏ `/auth/login` khỏi `NEVER_REFRESH` | **không test nào đỏ — đúng thiết kế:** `auth: false` của `authApi.login` là lớp thứ hai |
+| Bỏ `/auth/login` khỏi `NEVER_REFRESH` **và** bỏ `auth: false` | `http.interceptor` "login 401 → 0 refresh"; `http.test` "không gắn Authorization" |
+| Bỏ `_retried` | `http.interceptor` "gọi lại VẫN 401" (sau khi vá — xem trên) |
+| Refresh hỏng mà vẫn gọi lại | `http.interceptor` "refresh 401", "refresh 500" |
+| Đọc `stale` sau `await` (bẫy 5) | `http.interceptor` "401 về MUỘN" (sau khi vá) |
+| 403 cũng refresh | `http.interceptor` "403 → 0 refresh" |
+| `session.ts` không `configureRefresh` | `http.interceptor` 5 ca |
+| Không phát token mới qua kênh | `refresh-coordinator` "hai tab", "ba tab" |
+| Refresh 401 không phát `logout` | `refresh-coordinator` "tab đang chờ khóa kết thúc phiên" |
+| Kênh nhận `logout` mà không `endSession` | `refresh-coordinator` 2 ca |
+| Kênh nhận `token` mà không `setToken` | `refresh-coordinator` "hai tab", "ba tab" |
+| Bỏ nhánh chặn hồi sinh phiên đã kết thúc | `refresh-coordinator` 2 ca |
+| `logout()` không báo tab khác | `session` "báo các tab khác qua BroadcastChannel" |
+| Refresh không chạy trong khóa | `refresh-coordinator` 3 ca lớp 2 |
+| **E2E:** bỏ `locks` ở `session.ts` (FE build lại) | `single-flight.spec.ts` — `Expected: 1, Received: 3` |
+
 ---
 
 ## 9. E8 — Đóng gói frontend cho staging *(bổ sung)*
@@ -1960,7 +2038,7 @@ playwright-report
 
 **Ghi ngược vào tài liệu gốc**
 
-- [ ] Đ-E4 → `giai-doan-1.md` B.7/E7 và Mục 10.1 E2E-02 (single-flight giữa các tab)
+- [x] Đ-E4 → `giai-doan-1.md` B.7/E7 và Mục 10.1 E2E-02 (single-flight giữa các tab) — 2026-09-17, cùng E7
 - [ ] Đ-E11 → `giai-doan-1.md` B.7 (thêm E8) và B.8/F1 (service `frontend`, apache, CD)
 - [ ] `README.md` mục trạng thái: khối E xong
 

@@ -1392,7 +1392,7 @@ Xem bảng đầy đủ (kèm version ghim và project đích) ở **Mục 9.0 �
 | SEED-03 | `UPDATE roles SET code='ROOT' WHERE code='ADMIN'` rồi khởi động lại app | **App từ chối khởi động**, thông báo nêu tên vai trò thiếu (Mục 5.5) |
 | FK-01 | Xóa vai trò đang có user | Lỗi RESTRICT |
 | E2E-01 | Đăng ký → mail qua Brevo tới hộp thư thật → verify → login → `/me` → ép 401 → refresh → gọi lại, **trên trình duyệt thật qua HTTPS** | Xuyên suốt không lỗi. Kiểm chứng cookie `httpOnly`, `SameSite`, `Path` scoping, CORS preflight — integration test không chạm tới |
-| E2E-02 | 3 request nhận 401 cùng lúc | Interceptor chỉ gọi `/auth/refresh` **một lần**; không kích hoạt reuse detection; không ai bị đăng xuất |
+| E2E-02 | Hai kịch bản (Đ-E4): **(a)** 3 request trong **một** tab nhận 401 cùng lúc · **(b)** **3 tab** cùng nhận 401 | Chỉ gọi `/auth/refresh` **một lần** ở cả hai; không kích hoạt reuse detection; không ai bị đăng xuất. (a) chặn bằng promise chia sẻ trong tab — Vitest. (b) promise không gộp được giữa ba vùng nhớ → refresh chạy trong Web Lock, tab thắng khóa phát token mới qua BroadcastChannel — Playwright `single-flight.spec.ts` (dev: API `Jwt__AccessTokenSeconds=10`), F4 lặp lại trên staging. **Đếm số request refresh**, không chỉ nhìn "có bị đăng xuất không": ân hạn 10 giây của server che mất lỗi (b) |
 
 ### 10.2 AuthZ matrix — CI gate từ GĐ1
 
@@ -2026,7 +2026,8 @@ liệu seed thật. Nguồn quyền giả chỉ còn trong unit test.
 
 > **Hướng dẫn thi công từng bước:** [huong-dan-khoi-e-frontend.md](huong-dan-khoi-e-frontend.md) — danh sách việc (thêm
 > `E8` đóng gói cho staging; thứ tự `E1 → E2 → E4 → E3 → E5 → E6 → E7 → E8`), mục tiêu, kết quả mong đợi, 13 quyết định bổ
-> sung. **Chưa ghi ngược** vào mục này: Đ-E4 (single-flight giữa các tab — E7, E2E-02) và Đ-E11 (E8 + phần frontend của F1).
+> sung. Đ-E4 (single-flight giữa các tab) **đã ghi ngược** vào E7 dưới đây và Mục 10.1 E2E-02 (2026-09-17). **Chưa ghi
+> ngược:** Đ-E11 (E8 + phần frontend của F1).
 
 ### E1 — Scaffold Next.js 16 + shadcn/ui preset
 
@@ -2104,10 +2105,18 @@ liệu seed thật. Nguồn quyền giả chỉ còn trong unit test.
 
 - **Mục tiêu:** giữ phiên đăng nhập mượt, và **không để chính frontend kích hoạt reuse detection của
   server**.
-- **Cách thực thi:** nhiều request nhận 401 cùng lúc chỉ được gọi `/auth/refresh` **một lần**, số còn
-  lại xếp hàng chờ kết quả của lần gọi đó (một promise chia sẻ). Nhận 401 **từ chính `/auth/refresh`**
-  thì xóa access token trong memory và chuyển về màn đăng nhập — **không thử refresh lại**.
-- **Xong là:** E2E-02 xanh (3 tab, ép hết hạn token đồng thời, không ai bị đăng xuất).
+- **Cách thực thi:** nhiều request nhận 401 cùng lúc chỉ được gọi `/auth/refresh` **một lần** — hai lớp
+  (Đ-E4, ghi ngược 2026-09-17):
+  - **trong tab:** số còn lại xếp hàng chờ kết quả của lần gọi đó (một promise chia sẻ);
+  - **giữa các tab:** promise không gộp được giữa ba vùng nhớ, nên refresh chạy trong
+    `navigator.locks.request('socialapp:auth-refresh')`; tab thắng khóa phát token mới qua
+    `BroadcastChannel('socialapp:auth')`; tab đang chờ khóa, tới lượt, thấy token hiện tại **khác** token đã làm request
+    của nó nhận 401 thì dùng luôn, không gọi refresh. Thiếu Web Locks (Safari < 15.4) thì rơi về lớp trong tab.
+
+  Nhận 401 **từ chính `/auth/refresh`** thì xóa access token trong memory, báo các tab khác (`logout`) và chuyển về màn
+  đăng nhập — **không thử refresh lại**. Request gọi lại mà vẫn 401 thì trả lỗi, không refresh lần hai.
+- **Xong là:** E2E-02 xanh cả hai kịch bản — 3 request trong một tab (Vitest) và 3 tab (Playwright, API dev chạy
+  `Jwt__AccessTokenSeconds=10`) — đúng **một** `POST /auth/refresh`, không ai bị đăng xuất.
 - **Chặn / Cần:** cần E6, D4. **Không làm đúng ở đây thì triệu chứng trông hệt lỗi backend và cả
   nhóm sẽ debug nhầm chỗ rất lâu.**
 

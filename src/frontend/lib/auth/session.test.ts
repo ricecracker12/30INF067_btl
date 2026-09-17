@@ -125,4 +125,18 @@ describe("logout (E6 bước 3)", () => {
       endedBy: "logout",
     })
   })
+
+  it("báo các tab khác qua BroadcastChannel('socialapp:auth') — E7", async () => {
+    tokenStore.startSession(fakeSession.start())
+    // Một "tab khác": kênh cùng tên trong cùng tiến trình nhận được tin, như hai tab cùng origin.
+    const otherTab = new BroadcastChannel("socialapp:auth")
+    const received = new Promise<unknown>((resolve) => {
+      otherTab.onmessage = (e) => resolve(e.data)
+    })
+
+    await logout()
+
+    await expect(received).resolves.toEqual({ type: "logout" })
+    otherTab.close()
+  })
 })
