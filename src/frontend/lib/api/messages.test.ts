@@ -80,6 +80,28 @@ describe("errorMessage('register', …)", () => {
   })
 })
 
+describe("errorMessage('verify-email', …)", () => {
+  it("400 và 410 theo bảng, bất kể detail của server; 410 không nhắc gửi lại", () => {
+    expect(
+      errorMessage(
+        "verify-email",
+        problem(400, { detail: "Liên kết xác minh không hợp lệ." })
+      )
+    ).toBe(
+      "Liên kết xác minh không hợp lệ. Hãy mở lại đúng liên kết trong thư, không sao chép thiếu ký tự."
+    )
+    const gone = errorMessage("verify-email", problem(410, { detail: "x" }))
+    expect(gone).toBe(
+      "Liên kết xác minh đã hết hạn hoặc đã được sử dụng. Nếu bạn đã xác minh trước đó, hãy đăng nhập."
+    )
+    expect(gone).not.toMatch(/gửi lại/i)
+  })
+
+  it("400 của màn khác vẫn là câu chung", () => {
+    expect(errorMessage("login", problem(400))).toBe("Dữ liệu không hợp lệ.")
+  })
+})
+
 describe("validationErrors", () => {
   it("gắn lỗi đầu tiên của từng trường màn đang có, không có lỗi cấp form", () => {
     const err = problem(400, {

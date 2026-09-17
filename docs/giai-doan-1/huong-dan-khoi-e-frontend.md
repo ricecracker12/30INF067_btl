@@ -8,7 +8,9 @@
 > Chỗ nào tài liệu này lệch ba nguồn đó thì sửa ở đây — trừ các quyết định ở Mục 1 đánh dấu **"cần ghi ngược"**: tài
 > liệu gốc đang thiếu hoặc mâu thuẫn ở những chỗ đó, phải sửa `giai-doan-1.md` trong cùng commit với việc tương ứng.
 
-> **Trạng thái: E1 + E2 + E4 + E3 xong, E5 là việc tiếp theo (cập nhật 2026-09-17)** — E3: màn `/register` và
+> **Trạng thái: E1 + E2 + E4 + E3 + E5 xong, E6 là việc tiếp theo (cập nhật 2026-09-17)** — E5: màn `/verify-email` chạy
+> trên API dev thật dưới StrictMode (đúng 1 POST), **Vitest 136/136**, **Playwright 5/5** (thêm `verify-email.spec.ts`), thử
+> cho đỏ 11 đột biến + 1 đột biến E2E; chỗ lệch ở "Thực tế thi công" của Mục 6. E3: màn `/register` và
 > `/register/check-email` chạy trên API dev thật, **Vitest 109/109**, **Playwright 4/4** (thêm `register.spec.ts`), thử cho
 > đỏ 14 đột biến (1 tương đương); chỗ lệch ở "Thực tế thi công" của Mục 5. E4: màn `/login` chạy trên API dev
 > thật, **Vitest 67/67**, **Playwright 3/3** (có `login-storage.spec.ts`), thử cho đỏ 10 đột biến + 1 đột biến E2E; chỗ lệch ở
@@ -1383,6 +1385,72 @@ export function verifyOnce(token: string) {
 - **Dev: API chạy với `Frontend__BaseUrl` của staging** (vd lỡ đặt biến trong shell) → link trong Mailpit trỏ
   `https://mxh.banhgao.net`, token lại nằm trong DB local → 400. Không đặt biến đó ở dev (Đ-D9).
 
+### Thực tế thi công — 2026-09-17
+
+Bốn bước đã chạy. Những chỗ **khác** hướng dẫn ở trên, và những thứ chỉ lộ ra khi gõ thật:
+
+**Lệch bước 3 (nhóm chốt): chỉ xóa token khỏi URL khi có kết quả CUỐI (200 / 400 / 410).** 429, 5xx và mất mạng **giữ**
+`?token=` và hiện nút "Thử lại" — xóa đi thì cả "Thử lại" lẫn tải lại trang đều không còn gì để gửi, người dùng phải quay
+về mail. Để "Thử lại" gửi được request mới, `verifyOnce` **bỏ promise hỏng khỏi `Map`** khi lỗi không phải 400/410; 200,
+400, 410 vẫn nhớ suốt đời tab (gọi lại token đã tiêu thụ chỉ ra 410). Token sai dạng bị chặn ở client cũng **không**
+`router.replace` — không có kết quả nào từ server để giữ, và `setState` trong effect chỉ để đổi URL là thừa.
+
+**Câu 400 và 410 nằm trong bảng `messages.ts` (context `"verify-email"`), không viết cứng trong màn.** Server có **hai** kiểu
+400: validator (có `errors.token`) và token đúng dạng nhưng không tồn tại (`IdentityErrors.VerifyTokenInvalid`, không có
+`errors`) — màn gộp cả hai vào một câu. Trạng thái 400 của token sai dạng hỏi bảng bằng `new ApiError(400, null)` để một lỗi
+không có hai câu.
+
+**Sau `router.replace` URL không còn token — trạng thái phải sống trong state, không tính lại từ URL.** Render: có kết quả thì
+hiện kết quả; chưa có mà token sai dạng thì 400; còn lại "Đang xác minh…". Effect có cờ `ignore` ở cleanup nên dưới
+StrictMode chỉ lần chạy thứ hai cập nhật state và gọi `replace` — test đếm `replace` đúng **một** lần (bỏ cờ là đỏ).
+
+**Bẫy mock khi test: `useRouter` phải trả CÙNG một object.** `router` nằm trong deps của effect; mock `() => ({ replace })`
+tạo object mới mỗi render → effect chạy lại sau mỗi render → `replace` hai lần và lỗi tạm thời tự thử lại. Next thật trả
+router ổn định. Test của E4/E3 không có effect nên không lộ.
+
+**`isVerifyToken` ở `lib/validation/auth.ts`** (cạnh các hàm Đ-E5 khác), chữ ký `token is string`. `$` của JS không cờ `m`
+không khớp trước `\n` cuối chuỗi — có ca test riêng, khớp chú thích bên `VerifyEmailRequestValidator`.
+
+**Mock 400 sửa câu cho đúng server:** `mocks/handlers.ts` ghi "Liên kết không hợp lệ.", server thật là "Liên kết xác minh
+không hợp lệ.". Không ảnh hưởng giao diện (màn dùng bảng), nhưng fixture phải chép đúng.
+
+**Tên file theo kebab-case:** `features/auth/verify-email.test.tsx`, `lib/auth/verify-once.test.ts`.
+
+**`e2e/mailpit.ts` gom helper Mailpit** (`API`, `MAILPIT`, `emailMoi`, `linkXacMinh`) đang lặp ở `login-storage.spec.ts` và
+`register.spec.ts`; hai spec cũ đổi sang dùng nó. Không khớp `testMatch` của Playwright nên không bị chạy như spec.
+
+**`e2e/verify-email.spec.ts` trên `pnpm dev`** (App Router bật StrictMode — lượt thật của Đ-E10): đăng ký qua API → mở link
+lấy từ Mailpit → đúng **1** `POST /auth/verify-email` (chỉ đếm POST, bỏ preflight), chữ "đã được xác minh", URL còn
+`/verify-email` → mở lại **cùng** link → 410 đúng câu, không có "Gửi lại" → bấm "Đăng nhập" → đăng nhập UI 200. Tốn 4 lượt
+`/auth/*`; cả bộ Playwright là 9 lượt, vừa dưới hạn mức 10/phút. **Bỏ** bước "trước khi xác minh đăng nhập trả 403" của kiểm
+tay — thêm một lượt là cả bộ chạm 10/phút, và 403 đã có integration test ở khối D cùng Vitest ở E4.
+
+**Bằng chứng.**
+
+| Cổng | Kết quả |
+|---|---|
+| `pnpm lint` / `typecheck` | xanh |
+| `pnpm test` | **136/136** xanh (15 file; trước E5 là 109/109), `Type Errors no errors` |
+| `pnpm build` (`NEXT_PUBLIC_API_BASE_URL=/api/v1`) | xanh; `/verify-email` prerender tĩnh (`○`), không cảnh báo `useSearchParams`; grep `.next/static` cho `setupWorker`, `mockServiceWorker`, `localhost:5259` — **rỗng** |
+| `pnpm test:e2e` (Chrome 152.0.7977.84), API dev thật | **5/5** xanh |
+
+Thử cho đỏ (từng đột biến một, rồi khôi phục — `git status` như trước):
+
+| Đột biến | Test bắt |
+|---|---|
+| `verifyOnce` không gộp | `verify-once` 2 ca; `verify-email` "StrictMode: ĐÚNG 1 POST", "URL đổi sau replace", "500 … Thử lại" |
+| Bỏ cờ `ignore` ở nhánh thành công | `verify-email` "router.replace đúng một lần" |
+| Không chặn token sai dạng trước khi gọi API | `verify-email` 4 ca "→ 400, 0 request" |
+| Token nhận cả hex in hoa (cờ `i`) | `auth.test.ts` "in hoa"; `verify-email` "64 ký tự in hoa" |
+| Không `router.replace` sau thành công | `verify-email` "router.replace", "500 … Thử lại" |
+| Lỗi tạm thời cũng xóa token khỏi URL | `verify-email` 500, 429, mất mạng |
+| Lỗi tạm thời bị nhớ mãi | `verify-once` "mất mạng … request mới"; `verify-email` "500 … Thử lại" |
+| 410 hiện như 400 | `verify-email` "410: đúng câu" |
+| Bảng thiếu 410 `verify-email` | `messages.test.ts`; `verify-email` "410" |
+| "Thử lại" không chạy lại effect | `verify-email` "500 … Thử lại" |
+| 400/410 không được nhớ | `verify-once` "410 là kết quả cuối"; `verify-email` "500 … Thử lại" |
+| **E2E:** `verifyOnce` không gộp, trên `pnpm dev` | `verify-email.spec.ts` — lần chạy thứ hai của StrictMode nhận 410, không thấy "đã được xác minh" |
+
 ---
 
 ## 7. E6 — App shell + route guard + trang `/me`
@@ -1770,7 +1838,7 @@ playwright-report
 - [ ] Job CI `frontend` xanh, gồm cổng `API types khop hop dong (CI GATE)`; đã thử cho đỏ một lần (E2)
 - [ ] Vitest: `text-field`, `schema.test-d`, `http`, `problem`, `messages`, `safe-next`, `auth` (bảng ngưỡng), `login-form`, `register-form`,
       `check-email`, `password-field`,
-      `VerifyEmail` (StrictMode 1 request), `RequireAuth`, `refresh-coordinator` (gồm hai coordinator), `http.interceptor`
+      `verify-email` (StrictMode 1 request), `verify-once`, `RequireAuth`, `refresh-coordinator` (gồm hai coordinator), `http.interceptor`
 - [ ] Luật ESLint Đ-E2/Đ-E12 đã thử cho đỏ (E1)
 - [ ] Bảng "thử cho đỏ" của E7 đã chạy
 

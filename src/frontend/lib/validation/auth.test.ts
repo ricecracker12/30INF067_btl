@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  isVerifyToken,
   passwordError,
   registerEmailError,
   utf8ByteLength,
@@ -123,6 +124,24 @@ describe("registerEmailError — NỚI hơn MailAddress của server (Đ-E5)", (
     const e254 = "a".repeat(242) + "@example.com"
     expect(registerEmailError(` ${e254} `)).toBeUndefined()
     expect(registerEmailError("a" + e254)).toBe("Email tối đa 254 ký tự.")
+  })
+})
+
+describe("isVerifyToken — khớp VerifyEmailRequestValidator", () => {
+  it("64 hex thường → hợp lệ", () => {
+    expect(isVerifyToken("0123456789abcdef".repeat(4))).toBe(true)
+  })
+
+  it.each([
+    ["null", null],
+    ["rỗng", ""],
+    ["63 ký tự", "a".repeat(63)],
+    ["65 ký tự", "a".repeat(65)],
+    ["in hoa", "A".repeat(64)],
+    ["ngoài hex", "g".repeat(64)],
+    ["xuống dòng cuối", `${"a".repeat(64)}\n`],
+  ])("%s → không hợp lệ", (_, token) => {
+    expect(isVerifyToken(token)).toBe(false)
   })
 })
 

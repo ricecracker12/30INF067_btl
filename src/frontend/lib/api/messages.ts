@@ -4,8 +4,8 @@ import { ApiError, NetworkError } from "./problem"
 // dự phòng cho status chưa có trong bảng — hiện `detail` cho 401 đăng nhập là để AC-02 phụ thuộc vào
 // việc server không bao giờ sửa một chữ ở nhánh "email không tồn tại", mà không test backend nào canh.
 
-/** Màn gọi API. E5 thêm `"verify-email"`. */
-export type ErrorContext = "login" | "register"
+/** Màn gọi API. */
+export type ErrorContext = "login" | "register" | "verify-email"
 
 const COMMON = {
   400: "Dữ liệu không hợp lệ.",
@@ -28,6 +28,14 @@ const BY_CONTEXT: Record<ErrorContext, Partial<Record<number, string>>> = {
     // Ngoại lệ CÓ Ý THỨC của hợp đồng so với AC-02: không báo trùng thì người dùng không biết vì sao
     // đăng ký hỏng. Form hiện câu này dưới trường email, kèm link "Đăng nhập".
     409: "Email này đã được đăng ký.",
+  },
+  "verify-email": {
+    // Cùng câu cho token sai dạng (validator, có `errors.token`) và token không tồn tại (không có
+    // `errors`) — người dùng làm cùng một việc: mở lại đúng liên kết.
+    400: "Liên kết xác minh không hợp lệ. Hãy mở lại đúng liên kết trong thư, không sao chép thiếu ký tự.",
+    // 410 có HAI nghĩa: hết hạn hoặc đã dùng. Câu phải đúng cho cả hai — người bấm link lần hai là ca phổ
+    // biến nhất, và họ đăng nhập được. GĐ1 không có endpoint gửi lại mail → không nhắc "gửi lại".
+    410: "Liên kết xác minh đã hết hạn hoặc đã được sử dụng. Nếu bạn đã xác minh trước đó, hãy đăng nhập.",
   },
 }
 

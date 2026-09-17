@@ -75,6 +75,14 @@ export function validateLogin(input: {
   return errors
 }
 
+/**
+ * Khớp `VerifyEmailRequestValidator`: đúng 64 ký tự hex THƯỜNG — thứ `SecureToken.Generate` sinh ra. Sai dạng
+ * thì màn hiện trạng thái 400 mà không gọi API. `$` của JS (không cờ `m`) không khớp trước "\n" cuối chuỗi.
+ */
+export function isVerifyToken(token: string | null): token is string {
+  return token !== null && /^[0-9a-f]{64}$/.test(token)
+}
+
 /** Khớp `RegisterRequestValidator`: email như `registerEmailError`, mật khẩu 8 ký tự – 72 byte. */
 export function validateRegister(input: {
   email: string

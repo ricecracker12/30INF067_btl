@@ -36,8 +36,9 @@ Chi tiết GĐ1:
   - khối D: 6 endpoint `register`, `verify-email`, `login`, `refresh`, `logout`, `GET /me`; refresh rotation + reuse
     detection; thu hồi token qua Redis; lỗi RFC 7807
 - **Frontend (khối E) — đang làm:**
-  - xong: E1 (scaffold + kit UI), E2 (api client sinh từ hợp đồng, MSW cho Vitest), E4 (màn đăng nhập), E3 (màn đăng ký)
-  - còn lại: E5 xác minh email, E6 guard + `/me`, E7 refresh single-flight, E8 đóng gói FE cho staging
+  - xong: E1 (scaffold + kit UI), E2 (api client sinh từ hợp đồng, MSW cho Vitest), E4 (màn đăng nhập), E3 (màn đăng ký),
+    E5 (màn xác minh email)
+  - còn lại: E6 guard + `/me`, E7 refresh single-flight, E8 đóng gói FE cho staging
 - **Chưa làm:** ráp FE lên staging (F1–F3). Vì vậy **staging hiện chỉ có API**, chưa có giao diện (xem [Mục 7](#7-staging-xem-sản-phẩm-trên-internet)).
 
 ---
@@ -173,13 +174,15 @@ file `.env.local`). CORS với `credentials` được bật cho origin `http://l
 
 ### 4.7. Thử luồng đăng ký → đăng nhập trên dev
 
-DB không seed sẵn người dùng nào. Màn xác minh (E5) chưa xong nên bước 3 còn làm qua Swagger:
+DB không seed sẵn người dùng nào. Cả vòng làm được trên giao diện:
 
-1. Đăng ký ở http://localhost:3000/register (hoặc `POST /api/v1/auth/register` với
-   `{"email":"a@example.com","password":"matkhau123"}` trong Swagger) → 201.
-2. Mở Mailpit http://localhost:8025, mở mail xác minh, lấy giá trị `token=` trong link.
-3. `POST /api/v1/auth/verify-email` với `{"token":"<token>"}` → 200.
-4. Đăng nhập ở http://localhost:3000/login, hoặc `POST /api/v1/auth/login` trong Swagger.
+1. Đăng ký ở http://localhost:3000/register → màn "Kiểm tra hộp thư".
+2. Mở Mailpit http://localhost:8025, mở mail xác minh, bấm link (`http://localhost:3000/verify-email?token=…`) → màn báo
+   "đã được xác minh". Link chỉ dùng được **một lần**: mở lại là "đã hết hạn hoặc đã được sử dụng" — đúng, không phải lỗi.
+3. Đăng nhập ở http://localhost:3000/login.
+
+Không chạy FE thì làm cùng ba bước qua Swagger: `POST /api/v1/auth/register` →
+`POST /api/v1/auth/verify-email` với `{"token":"<token trong link>"}` → `POST /api/v1/auth/login`.
 
 Muốn tài khoản `ADMIN`/`MODERATOR`: đổi `role_id` trong DB ([Mục 5](#5-xem-database-redis-và-mail)), rồi **đăng nhập
 lại** (vai trò nằm trong access token).

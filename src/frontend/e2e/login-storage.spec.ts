@@ -1,16 +1,16 @@
 import { expect, test, type APIRequestContext } from "@playwright/test"
 
+import { API, emailMoi, linkXacMinh } from "./mailpit"
+
 // E4 trên API DEV THẬT.
 // Cần: `dotnet run --project src/backend/SocialApp.Api` (5259) + postgres, redis, mailpit của compose dev.
-const API = process.env.PLAYWRIGHT_API_URL ?? "http://localhost:5259/api/v1"
-const MAILPIT = process.env.PLAYWRIGHT_MAILPIT_URL ?? "http://localhost:8025"
 
 /**
  * Tự dựng một tài khoản đã xác minh: register → đọc link trong Mailpit → verify-email. Tốn 2 lượt
  * trong hạn mức 10 req/phút của /auth/* (theo IP), cộng 1 lượt đăng nhập trên UI.
  */
 async function taoTaiKhoanDaXacMinh(request: APIRequestContext) {
-  const email = `e4-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@example.com`
+  const email = emailMoi("e4")
   const password = "MatKhau-E4-an-toan"
 
   const reg = await request.post(`${API}/auth/register`, {
@@ -18,32 +18,9 @@ async function taoTaiKhoanDaXacMinh(request: APIRequestContext) {
   })
   expect(reg.status(), await reg.text()).toBe(201)
 
-  let token: string | undefined
-  await expect
-    .poll(
-      async () => {
-        const search = await request.get(`${MAILPIT}/api/v1/search`, {
-          params: { query: `to:"${email}"` },
-        })
-        const { messages } = (await search.json()) as {
-          messages: { ID: string }[]
-        }
-        if (messages.length === 0) return false
-        const msg = await request.get(
-          `${MAILPIT}/api/v1/message/${messages[0].ID}`
-        )
-        const { Text, HTML } = (await msg.json()) as {
-          Text: string
-          HTML: string
-        }
-        token = /verify-email\?token=([0-9a-f]{64})/.exec(
-          `${Text}\n${HTML}`
-        )?.[1]
-        return token !== undefined
-      },
-      { timeout: 15_000, message: "Không thấy mail xác minh trong Mailpit" }
-    )
-    .toBe(true)
+  const token = new URL(await linkXacMinh(request, email)).searchParams.get(
+    "token"
+  )
 
   const verify = await request.post(`${API}/auth/verify-email`, {
     data: { token },

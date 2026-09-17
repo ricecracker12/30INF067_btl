@@ -1,46 +1,16 @@
-import { expect, test, type APIRequestContext } from "@playwright/test"
+import { expect, test } from "@playwright/test"
+
+import { emailMoi, linkXacMinh } from "./mailpit"
 
 // E3 trên API DEV THẬT.
 // Cần: `dotnet run --project src/backend/SocialApp.Api` (5259) + postgres, redis, mailpit của compose dev.
 // Tốn 2 lượt trong hạn mức 10 req/phút của /auth/* (theo IP): một 201, một 409.
-const MAILPIT = process.env.PLAYWRIGHT_MAILPIT_URL ?? "http://localhost:8025"
-
-/** Đọc link xác minh trong mail gửi tới `email`, qua API REST của Mailpit. */
-async function linkXacMinh(request: APIRequestContext, email: string) {
-  let link: string | undefined
-  await expect
-    .poll(
-      async () => {
-        const search = await request.get(`${MAILPIT}/api/v1/search`, {
-          params: { query: `to:"${email}"` },
-        })
-        const { messages } = (await search.json()) as {
-          messages: { ID: string }[]
-        }
-        if (messages.length === 0) return false
-        const msg = await request.get(
-          `${MAILPIT}/api/v1/message/${messages[0].ID}`
-        )
-        const { Text, HTML } = (await msg.json()) as {
-          Text: string
-          HTML: string
-        }
-        link = /https?:\/\/[^\s"'<>]+\/verify-email\?token=[^\s"'<>]+/.exec(
-          `${Text}\n${HTML}`
-        )?.[0]
-        return link !== undefined
-      },
-      { timeout: 15_000, message: "Không thấy mail xác minh trong Mailpit" }
-    )
-    .toBe(true)
-  return link!
-}
 
 test("đăng ký: 201 → màn kiểm tra hộp thư (email không vào URL), mail có link xác minh; đăng ký lại → 409 dưới trường email", async ({
   page,
   request,
 }) => {
-  const email = `e3-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@example.com`
+  const email = emailMoi("e3")
   const password = "MatKhau-E3-an-toan"
 
   await page.goto("/login")

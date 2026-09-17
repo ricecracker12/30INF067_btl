@@ -97,7 +97,8 @@ export const handlers = [
       )
     }
     if (body.token === BAD_TOKEN) {
-      return validationResponse({ token: ["Liên kết không hợp lệ."] })
+      // Câu thật của VerifyEmailRequestValidator / IdentityErrors.VerifyTokenInvalid.
+      return validationResponse({ token: ["Liên kết xác minh không hợp lệ."] })
     }
 
     return HttpResponse.json(verifyEmailResponse, { status: 200 })
