@@ -6,7 +6,7 @@
 **Nguồn sự thật, theo thứ tự ưu tiên khi mâu thuẫn:**
 
 1. Hợp đồng API — `src/backend/Modules/<Module>/Presentation/<nhóm>.yaml`
-2. Mười bốn quyết định `Đ-E1`–`Đ-E14` trong [`docs/giai-doan-1/huong-dan-khoi-e-frontend.md`](../../docs/giai-doan-1/huong-dan-khoi-e-frontend.md)
+2. Mười lăm quyết định `Đ-E1`–`Đ-E15` trong [`docs/giai-doan-1/huong-dan-khoi-e-frontend.md`](../../docs/giai-doan-1/huong-dan-khoi-e-frontend.md)
 3. `src/frontend/AGENTS.md` (luật Next.js của template + mục "UI kit")
 4. File này
 
@@ -24,7 +24,7 @@ quyết định mới, có ngày tháng, ghi vào tài liệu gốc trong cùng 
 - Đọc mục tương ứng trong hướng dẫn khối E trước khi làm một việc `E*` — mỗi mục có sẵn phần
   "cạm bẫy đã biết".
 
-## 1. Mười hai điều không bao giờ làm
+## 1. Mười ba điều không bao giờ làm
 
 | # | Cấm | Vì |
 |---|---|---|
@@ -35,11 +35,12 @@ quyết định mới, có ngày tháng, ghi vào tài liệu gốc trong cùng 
 | 5 | Màu thô (`bg-blue-600`), mã màu tùy ý, radius riêng theo màn | Đ-E12 — token ở `app/globals.css` |
 | 6 | Import `@base-ui/react` ngoài `components/ui/` | Đ-E12 |
 | 7 | Tạo `app/api/**`, hoặc route FE dưới `/api`, `/health`, `/swagger` — Route Handler chỉ dưới `app/bff/**` | Đ-E11, Đ-E14 — apache đẩy hết `/api` về backend |
-| 8 | Guard bằng `proxy.ts` (tên mới của `middleware.ts`) | Đ-E3 |
+| 8 | Guard hay logic đăng nhập trong `proxy.ts` — file đó CHỈ gắn CSP có nonce | Đ-E3, Đ-E15 |
 | 9 | `npm`/`yarn`, hoặc thêm `^`/`~` vào `package.json` | Đ-E9 — pnpm, ghim chính xác |
 | 10 | `features/` import chéo nhau; `lib/` hay `components/` import ngược lên `features/`, `app/` | Đ-E13 |
 | 11 | Trả access/refresh token (hay `Set-Cookie` của API) ra trình duyệt từ bất kỳ route BFF nào | Đ-E14 — trình duyệt không bao giờ cầm JWT |
 | 12 | Module server của BFF thiếu `import "server-only"`, hoặc biến cấu hình server mang tiền tố `NEXT_PUBLIC_` | Đ-E14 — `NEXT_PUBLIC_*` bị nhúng vào bundle |
+| 13 | Script inline tự viết không mang nonce, `dangerouslySetInnerHTML` chứa script, thêm `'unsafe-inline'` / `'strict-dynamic'` / domain lạ vào CSP | Đ-E15 — CSP chặn; nới CSP là quyết định mới |
 
 ## 2. Đặt file ở đâu (Đ-E13)
 

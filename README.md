@@ -588,6 +588,7 @@ Repo được index bởi GitNexus để phân tích tác động trước khi s
 | Đăng nhập báo "Đã xảy ra lỗi không mong muốn" (502) | BFF không gọi được API: API chưa chạy ở `5259`, hoặc `API_INTERNAL_URL` sai |
 | Mọi thao tác báo lỗi 503 / không giữ được phiên | Redis chưa chạy: `docker compose -f deploy/docker-compose.dev.yml up -d redis` |
 | `POST /bff/…` trả 403 | Request không có `Origin` đúng `APP_ORIGIN` (chống CSRF) — FE chạy ở cổng khác 3000 thì đặt `APP_ORIGIN` |
+| Console: `Refused to execute inline script … Content Security Policy` | Script inline không mang nonce (Đ-E15). Dùng `next/script` hoặc đọc nonce từ header `x-nonce`; không nới CSP |
 | Vừa `pnpm dev` lại thì bị đăng xuất | Bình thường ở dev: khóa mã hóa phiên sinh lại mỗi lần khởi động. Đặt `SESSION_ENCRYPTION_KEY` trong `.env.local` nếu cần giữ |
 | 429 Too Many Requests | Rate limit `/auth/*` 10 request/phút/IP. Chờ một phút |
 | Integration test lỗi `Docker is either not running…` | Bật Docker Desktop |

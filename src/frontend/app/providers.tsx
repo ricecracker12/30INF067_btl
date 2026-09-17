@@ -9,6 +9,13 @@ import "@/lib/auth/session"
 
 // Không có mock trình duyệt (đổi Đ-E7 ngày 2026-09-17): dev luôn gọi API thật. MSW chỉ còn trong
 // Vitest qua `msw/node`.
-export function Providers({ children }: { children: ReactNode }) {
-  return <ThemeProvider>{children}</ThemeProvider>
+export function Providers({
+  children,
+  nonce,
+}: {
+  children: ReactNode
+  /** Đ-E15: next-themes chèn script inline đặt theme trước khi trang hiện — thiếu nonce là CSP chặn, trang nháy sáng/tối. */
+  nonce?: string
+}) {
+  return <ThemeProvider nonce={nonce}>{children}</ThemeProvider>
 }

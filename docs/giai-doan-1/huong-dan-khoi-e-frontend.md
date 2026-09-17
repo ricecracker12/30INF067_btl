@@ -8,7 +8,10 @@
 > Chỗ nào tài liệu này lệch ba nguồn đó thì sửa ở đây — trừ các quyết định ở Mục 1 đánh dấu **"cần ghi ngược"**: tài
 > liệu gốc đang thiếu hoặc mâu thuẫn ở những chỗ đó, phải sửa `giai-doan-1.md` trong cùng commit với việc tương ứng.
 
-> **Trạng thái: E1–E7 xong + đổi sang BFF (Đ-E14), E8 là việc tiếp theo (cập nhật 2026-09-17)** — Đ-E14: trình duyệt
+> **Trạng thái: E1–E7 xong + BFF (Đ-E14) + CSP có nonce (Đ-E15), E8 là việc tiếp theo (cập nhật 2026-09-17)** — Đ-E15:
+> Content-Security-Policy nonce theo request ở `proxy.ts`, mọi trang render động; `<img onerror>`, `<script>` inline chèn
+> động và `javascript:` bị chặn trên Chrome thật (dev và bản build); **Vitest 238/238**, Playwright `csp.spec.ts` 3/3; thử
+> cho đỏ 11 đột biến. Đ-E14: trình duyệt
 > không còn cầm JWT; Next server giữ token trong Redis (mã hóa), trình duyệt chỉ có cookie `__Host-sid` HttpOnly.
 > **Vitest 214/214**, **Playwright** 8 xanh + 1 bỏ qua trên API dev, `single-flight.spec.ts` xanh trên API token 10 giây
 > (API thật nhận đúng 1 refresh cho 9 request đồng thời); thử cho đỏ 25 đột biến Vitest + 2 đột biến E2E; chi tiết ở Mục
@@ -104,7 +107,7 @@ dotnet run --project src/backend/SocialApp.Api          # API dev: http://localh
 5. **Không nghiệm thu trên mock** (Mục 12). Dev chạy đủ FE + BE (không còn mock trình duyệt — đổi Đ-E7); mock chỉ dựng nhánh
    lỗi khó tái hiện trong Vitest. "Xong" của E3–E7 luôn có một lượt trên API dev thật, và cổng đóng F2 là trên staging.
 
-### Mười bốn quyết định đã chốt
+### Mười lăm quyết định đã chốt
 
 Tài liệu gốc chưa nói đủ để gõ code ở những chỗ dưới đây.
 
@@ -415,8 +418,54 @@ thay Đ-E1, Đ-E4; đổi Đ-E2, Đ-E3, Đ-E11; ghi ngược `giai-doan-1.md` qu
   đầu ném lỗi nêu tên biến. `next build` không cần biến nào.
 - **Giá phải trả:** container FE phụ thuộc Redis (F1); mỗi lời gọi API thêm một chặng Next server; access token 15 phút
   không còn "chết theo tab" — nó sống trong Redis tới khi hết hạn hoặc đăng xuất (bù lại: đăng xuất xóa ngay ở server).
-- **Chưa làm:** Content-Security-Policy (cần nonce theo request qua `proxy.ts` — việc riêng). SignalR GĐ5: trình duyệt
-  không có token để gắn vào hub — phải đi qua BFF hoặc vé ngắn hạn; quyết định ở GĐ5.
+- **Chưa làm lúc chốt Đ-E14:** Content-Security-Policy — đã làm ở Đ-E15. SignalR GĐ5: trình duyệt không có token để gắn
+  vào hub — phải đi qua BFF hoặc vé ngắn hạn; quyết định ở GĐ5.
+
+**Đ-E15 — Content-Security-Policy có nonce theo từng request; `proxy.ts` chỉ làm việc này.** *(chốt 2026-09-17 — đổi Đ-E3:
+có `proxy.ts`, nhưng không có logic đăng nhập trong đó)*
+
+- **Vì sao.** Sau Đ-E14 script lạ chạy trên trang không lấy được token, nhưng vẫn gọi `/bff/api/*` thay người dùng
+  (đọc hồ sơ, đăng/xóa bài). CSP chặn từ gốc: script không mang nonce của request thì trình duyệt không chạy.
+- **Cách làm (theo `content-security-policy.md` của Next 16).** `proxy.ts` sinh nonce 16 byte cho mỗi request trang,
+  gắn `Content-Security-Policy` vào response và vào header **request** (`x-nonce` + CSP) — Next đọc để tự gắn nonce cho
+  script của nó. Root layout đọc `x-nonce` bằng `headers()` và đưa cho `next-themes` (script inline đặt theme trước khi
+  trang hiện). Gọi `headers()` làm **mọi trang render động** — bắt buộc: trang tĩnh dựng lúc build, khi chưa có request
+  nào để có nonce. Matcher bỏ qua `/bff/*`, `_next/static`, `_next/image`, favicon và request prefetch.
+- **Chính sách** (`lib/security/csp.ts`, hàm thuần): `default-src 'self'` · `script-src 'self' 'nonce-…'` · `style-src 'self'
+  'nonce-…'` · `img-src 'self' blob: data:` · `font-src 'self'` · `connect-src 'self'` (trình duyệt chỉ gọi BFF) ·
+  `object-src 'none'` · `base-uri 'self'` · `form-action 'self'` · `frame-ancestors 'none'` · `upgrade-insecure-requests`.
+  Development thêm `'unsafe-eval'` (React dựng stack lỗi) và `style-src 'unsafe-inline'` (hot reload), bỏ
+  `upgrade-insecure-requests` (localhost là http).
+- **Lệch mẫu của Next (nhóm chốt): KHÔNG `'strict-dynamic'`.** Đã thử trên Chrome: có `'strict-dynamic'` thì một
+  `<script>` **inline** tạo bằng `createElement` rồi chèn vào trang **chạy được**, không phát sinh vi phạm nào; bỏ nó
+  thì bị chặn (`script-src-elem inline`). `'strict-dynamic'` cần khi app nạp script bên thứ ba qua loader — app không
+  có; mọi chunk của Next cùng origin nên `'self'` là đủ. Thêm script bên thứ ba sau này = quyết định mới.
+- **Chuẩn CSP cần biết khi đọc test:** chính sách đã có nonce thì trình duyệt **bỏ qua** `'unsafe-inline'` — thêm nó vào
+  `script-src` không làm E2E đỏ (Vitest bắt). Thẻ script trong DOM sau hydrate bị trình duyệt giấu giá trị `nonce`: kiểm
+  nonce phải đọc HTML gốc của response.
+- **Giá phải trả:** mọi trang render ở server mỗi request (trước là `○` tĩnh) — trang của app nhẹ, container Next chạy sẵn.
+
+**Bằng chứng (2026-09-17).**
+
+| Cổng | Kết quả |
+|---|---|
+| `pnpm test` | **238/238** (thêm `lib/security/csp.test.ts`, `proxy.test.ts` — 24 test) |
+| `pnpm build` | xanh; mọi trang `ƒ` (dynamic), `ƒ Proxy (Middleware)` |
+| `csp.spec.ts` trên `pnpm dev` (Chrome 152.0.7977.84) | **3/3**: `/login`, `/register`, `/verify-email`, `/me` — nonce mới mỗi trang, **mọi** thẻ script trong HTML gốc mang đúng nonce (19/19 ở `/login`), không vi phạm nào; `<img onerror>`, `<script>` inline chèn động, `javascript:` đều bị chặn; luồng đăng nhập → `/me` → tải lại → đăng xuất không vi phạm nào |
+| `csp.spec.ts` trên bản build (`next start` cổng 3001, API 5259) | **3/3** — chính sách production (không `unsafe-eval`, style nonce, `upgrade-insecure-requests`, HSTS) |
+
+| Đột biến | Test bắt |
+|---|---|
+| Thêm `'unsafe-inline'` vào `script-src` | Vitest 3 ca (E2E xanh — trình duyệt bỏ qua khi có nonce, xem trên) |
+| Thêm lại `'strict-dynamic'` | Vitest; E2E "XSS chèn vào trang" |
+| `'unsafe-eval'` cả production | Vitest |
+| Bỏ `frame-ancestors` / bỏ `object-src` | Vitest; E2E "mỗi trang" |
+| `upgrade-insecure-requests` cả dev | Vitest |
+| Nonce cố định | Vitest 2 ca; E2E "nonce MỚI" |
+| `proxy.ts` không chuyển nonce vào header request | Vitest; E2E (script không mang nonce) |
+| `proxy.ts` không gắn CSP vào response | Vitest 2 ca; E2E 2 ca |
+| Matcher không bỏ qua `/bff` | Vitest |
+| Layout không đưa nonce cho `next-themes` | E2E — script theme bị chặn |
 
 ---
 
@@ -2147,7 +2196,7 @@ playwright-report
 - [ ] Vitest: `text-field`, `schema.test-d`, `http`, `problem`, `messages`, `safe-next`, `auth` (bảng ngưỡng), `login-form`, `register-form`,
       `check-email`, `password-field`,
       `verify-email` (StrictMode 1 request), `verify-once`, `require-auth`, `session`, `me-profile`; BFF (Đ-E14):
-      `lib/bff/handlers`, `crypto`, `config`, `session-store`
+      `lib/bff/handlers`, `crypto`, `config`, `session-store`; CSP (Đ-E15): `lib/security/csp`, `proxy`
 - [ ] Luật ESLint Đ-E2/Đ-E12 đã thử cho đỏ (E1)
 - [ ] Bảng "thử cho đỏ" của E7 đã chạy
 

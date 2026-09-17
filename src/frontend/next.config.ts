@@ -1,9 +1,7 @@
 import type { NextConfig } from "next"
 
-// Đ-E14 — header bảo mật cho MỌI response của FE (trang lẫn /bff/*). Content-Security-Policy CHƯA có: Next chèn script
-// inline lúc hydrate, CSP đúng nghĩa cần nonce theo từng request (dựng động ở proxy.ts) — việc riêng, ghi ở hướng dẫn
-// khối E. Từ Đ-E14 token không còn ở trình duyệt nên XSS không lấy được token, nhưng vẫn hành động được thay người dùng
-// trong phiên — CSP vẫn đáng làm.
+// Đ-E14 — header bảo mật cho MỌI response của FE (trang lẫn /bff/*). Content-Security-Policy KHÔNG đặt ở đây: nó cần
+// nonce mới cho từng request, nên nằm ở proxy.ts (Đ-E15).
 const securityHeaders = [
   // Không cho trình duyệt đoán kiểu nội dung (JSON bị hiểu thành HTML/script).
   { key: "X-Content-Type-Options", value: "nosniff" },

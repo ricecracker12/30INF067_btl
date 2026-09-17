@@ -54,6 +54,8 @@ không phải phong cách. Chi tiết và lý do ở
 - **Không `fetch` ngoài `lib/api/http.ts` (trình duyệt) và `lib/bff/upstream.ts` (server); không `localStorage` /
   `sessionStorage` / `document.cookie`** (Đ-E2). ESLint chặn; ngoại lệ mở bằng `// eslint-disable-next-line` kèm lý do
   ngay tại dòng.
+- **CSP có nonce (Đ-E15):** `proxy.ts` chỉ gắn Content-Security-Policy, không có logic đăng nhập. Không viết script
+  inline không nonce; không nới CSP (`'unsafe-inline'`, `'strict-dynamic'`, domain lạ) mà không có quyết định mới.
 - **Route Handler chỉ dưới `app/bff/**`. Không tạo `app/api/**`, và không route FE nào bắt đầu bằng `/api`, `/health`,
   `/swagger`** (Đ-E11) — apache staging đẩy hết những đường đó về backend, Next không bao giờ nhận được.
 - **pnpm, ghim chính xác** (Đ-E9): không `npm`/`yarn`, không `^`/`~` trong `package.json`.
