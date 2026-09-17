@@ -103,7 +103,6 @@ export function RegisterForm() {
         label="Mật khẩu"
         name="password"
         autoComplete="new-password"
-        description="Ít nhất 8 ký tự, tối đa 72 byte — chữ có dấu tính 2–3 byte."
         value={password}
         onChange={(e) => {
           setPassword(e.target.value)
