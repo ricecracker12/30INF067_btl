@@ -8,7 +8,10 @@
 > Chỗ nào tài liệu này lệch ba nguồn đó thì sửa ở đây — trừ các quyết định ở Mục 1 đánh dấu **"cần ghi ngược"**: tài
 > liệu gốc đang thiếu hoặc mâu thuẫn ở những chỗ đó, phải sửa `giai-doan-1.md` trong cùng commit với việc tương ứng.
 
-> **Trạng thái: E1 + E2 + E4 + E3 + E5 xong, E6 là việc tiếp theo (cập nhật 2026-09-17)** — E5: màn `/verify-email` chạy
+> **Trạng thái: E1 + E2 + E4 + E3 + E5 + E6 xong, E7 là việc tiếp theo (cập nhật 2026-09-17)** — E6: guard phía client
+> của `(app)`, `/me`, đăng xuất trên API dev thật, **Vitest 163/163**, **Playwright 7/7** (thêm `guard.spec.ts`), thử cho đỏ
+> 16 đột biến + 2 đột biến E2E; coordinator **lớp 1** đã có (E7 thêm lớp giữa tab + interceptor); chỗ lệch ở "Thực tế thi
+> công" của Mục 7. E5: màn `/verify-email` chạy
 > trên API dev thật dưới StrictMode (đúng 1 POST), **Vitest 136/136**, **Playwright 5/5** (thêm `verify-email.spec.ts`), thử
 > cho đỏ 11 đột biến + 1 đột biến E2E; chỗ lệch ở "Thực tế thi công" của Mục 6. E3: màn `/register` và
 > `/register/check-email` chạy trên API dev thật, **Vitest 109/109**, **Playwright 4/4** (thêm `register.spec.ts`), thử cho
@@ -1416,7 +1419,8 @@ không hợp lệ.". Không ảnh hưởng giao diện (màn dùng bảng), như
 
 **Tên file theo kebab-case:** `features/auth/verify-email.test.tsx`, `lib/auth/verify-once.test.ts`.
 
-**`e2e/mailpit.ts` gom helper Mailpit** (`API`, `MAILPIT`, `emailMoi`, `linkXacMinh`) đang lặp ở `login-storage.spec.ts` và
+**`e2e/mailpit.ts` gom helper Mailpit** (E6 đổi tên thành `e2e/dev-api.ts`)
+(`API`, `MAILPIT`, `emailMoi`, `linkXacMinh`) đang lặp ở `login-storage.spec.ts` và
 `register.spec.ts`; hai spec cũ đổi sang dùng nó. Không khớp `testMatch` của Playwright nên không bị chạy như spec.
 
 **`e2e/verify-email.spec.ts` trên `pnpm dev`** (App Router bật StrictMode — lượt thật của Đ-E10): đăng ký qua API → mở link
@@ -1542,9 +1546,96 @@ ghi rõ) — FE xóa khỏi memory là phần việc của FE.
 - **Gắn thêm kiểm tra ở `proxy.ts` "cho chắc"** → `proxy.ts` không thấy token lẫn cookie (Đ-E3), chặn cả người đã đăng nhập.
 - **`next` chứa cả query** (`/me?tab=x`) — `encodeURIComponent(pathname)` bỏ query; GĐ1 không cần, GĐ2 thêm `searchParams` nếu có.
 
+### Thực tế thi công — 2026-09-17
+
+Bốn bước đã chạy. Những chỗ **khác** hướng dẫn ở trên, và những thứ chỉ lộ ra khi gõ thật:
+
+**Lệch thứ tự E6/E7 (nhóm chốt): E6 dựng coordinator LỚP 1, không đợi E7.** Bước 2 dùng `coordinator.getFreshToken(null)` của
+E7. `lib/auth/refresh-coordinator.ts` có ở E6 với phần trong tab: promise chia sẻ, so `stale`, 401 → `endSession` +
+`SessionExpiredError`, 429/500/mạng ném nguyên lỗi. **Còn lại cho E7:** `locks`/`channel` (lớp 2 giữa các tab) và nhánh 401
+trong `http.ts` (`configureRefresh`). Hai thứ đó thêm phụ thuộc tiêm vào, không đổi chữ ký `getFreshToken`.
+
+**Token store mở rộng bằng hàm chuyển trạng thái, bỏ `set`.** `tokenStore.startSession(token)`, `endSession(endedBy)`,
+`markError()`, `markUnknown()`, `reset()` (chỉ test dùng); snapshot `getSession()` là object bất biến để
+`useSyncExternalStore` so bằng `Object.is`. `set(token)` cũ cho phép đặt token mà không đặt trạng thái — hai nửa lệch nhau.
+Đã chuyển `login-form.tsx` và các test sang hàm mới.
+
+**Lệch bước 3 (nhóm chốt): nút "Đăng xuất" KHÔNG tự `router.replace('/login')`; guard là chỗ duy nhất điều hướng.** Theo
+mẫu, `endSession` đổi `status` → guard chạy effect **sau** `router.replace('/login')` của nút → URL cuối là
+`/login?next=%2Fme` cho người vừa tự đăng xuất. Phiên giờ mang `endedBy: 'logout' | 'expired'`: guard đưa `logout` về
+`/login` trơn, `expired` (refresh 401 lúc khởi động hoặc của E7) kèm `next`. Test Vitest khẳng định `replace` đúng **một**
+lần với `/login`.
+
+**Không có `auth-context.tsx`.** `useSession()` ở `lib/auth/use-session.ts` đọc thẳng store qua `useSyncExternalStore`
+(snapshot server = `unknown`) — store là biến module, Context/Provider không thêm gì. `providers.tsx` không đổi.
+
+**`RequireAuth` ở `features/auth/require-auth.tsx`, không phải `lib/auth/`.** Nó render UI (khung chờ, lỗi + nút) và biết
+nghiệp vụ phiên; `lib/` theo Đ-E13 là logic không cần render. Header nằm **trong** guard (`app/(app)/layout.tsx`) — chưa biết
+phiên thì không hiện cả nút "Đăng xuất". `components/shell/app-header.tsx` nhận `actions` (shell không biết nghiệp vụ);
+`features/auth/logout-button.tsx`, `features/auth/me-profile.tsx` ráp vào. Khung chờ ở `components/shell/page-skeleton.tsx`.
+
+**`app/page.tsx` → `redirect('/me')` vẫn prerender tĩnh (`○`)**; `next start` trả `307 location: /me` — đã kiểm bằng `curl`.
+
+**`/me`: nút "Tải lại" không `disabled` khi đang chờ** — bấm lần nữa hủy request cũ (`AbortController`) và gửi request mới.
+Lỗi hiện qua `FormAlert` + `errorMessage("me", …)` (context mới, bảng rỗng). **Chưa có interceptor:** access token quá 15
+phút thì "Tải lại" báo lỗi, F5 mới lấy lại token — ghi ở `README.md` Mục 4.7 tới khi E7 xong.
+
+**Test giờ Việt Nam ép `TZ=UTC`** (`vi.hoisted` trong `me-profile.test.tsx`): máy nhóm ở UTC+7, không ép thì bỏ
+`timeZone: 'Asia/Ho_Chi_Minh'` vẫn ra 10:14 và test xanh vô nghĩa (bảng đột biến có dòng này).
+
+**Playwright: bộ đếm hạn mức `/auth/*` ở `e2e/dev-api.ts`.** Cả bộ spec tốn 17 lượt (smoke 1, guard 7, login-storage 3,
+register 2, verify-email 4) — quá 10/phút. Mỗi test gọi `giuHanMucAuth(n)` trước khi chạy; vượt thì chờ 75 giây (60 giây cửa
+sổ cố định của server + 15 giây cho request của test trước) và nới timeout của test đó. Lượt chạy đủ ~1,5 phút.
+`e2e/mailpit.ts` của E5 đổi tên thành `dev-api.ts`, thêm `taoTaiKhoanDaXacMinh(request, prefix)` (trước nằm riêng trong
+`login-storage.spec.ts`).
+
+**`smoke.spec.ts` đổi theo trang gốc mới:** `/` → `/me` → `/login?next=%2Fme`. Trình duyệt tự in response 401 ra console —
+riêng 401 của `/auth/refresh` khởi động được bỏ qua (đúng thiết kế Đ-E3), mọi lỗi console khác vẫn làm đỏ.
+
+**`guard.spec.ts` theo dõi `<main>`, không chỉ `me-profile`.** Chưa đăng nhập thì `/me` trả 401 nên hồ sơ không bao giờ hiện
+**kể cả khi guard hỏng** — theo dõi mỗi `me-profile` là test không bắt được gì (đã thấy khi viết). `<main>` chỉ có trong layout
+`(app)`, bên trong guard; `MutationObserver` cài bằng `addInitScript` ghi lại nếu nó từng xuất hiện.
+
+**Bằng chứng.**
+
+| Cổng | Kết quả |
+|---|---|
+| `pnpm lint` / `typecheck` | xanh |
+| `pnpm test` | **163/163** xanh (19 file; trước E6 là 136/136), `Type Errors no errors` |
+| `pnpm build` (`NEXT_PUBLIC_API_BASE_URL=/api/v1`) | xanh; `/`, `/me` prerender tĩnh; grep `.next/static` cho `setupWorker`, `mockServiceWorker`, `localhost:5259` — **rỗng** |
+| `pnpm test:e2e` (Chrome 152.0.7977.84), API dev thật | **7/7** xanh (thêm 2 ca `guard.spec.ts`), 1,5 phút |
+
+Thử cho đỏ (từng đột biến một, rồi khôi phục — checksum năm file nguồn khớp trước/sau):
+
+| Đột biến | Test bắt |
+|---|---|
+| Guard render children khi `unknown` | `require-auth` 401 (spy render), 200, 500 |
+| `error` cũng đẩy về `/login` | `require-auth` "refresh 500 … KHÔNG điều hướng" |
+| Đăng xuất vẫn kèm `next` | `require-auth` "bấm Đăng xuất … KHÔNG kèm next" |
+| Coordinator `=` thay `??=` (không gộp) | `refresh-coordinator` "3 lời gọi → 1"; `session` "2 lần đồng thời"; `require-auth` StrictMode 200, 500 |
+| Bỏ so token khác `stale` | `refresh-coordinator` "đã có token khác stale"; `session` "đã đăng nhập sẵn" |
+| Refresh 401 không `endSession` | `refresh-coordinator`; `session` 401; `require-auth` 401 |
+| Refresh 500 cũng kết thúc phiên | `refresh-coordinator` 429/500; `session` 500/429; `require-auth` 500 |
+| Bootstrap lỗi tạm thời → `anonymous` | `session` 500/429/mất mạng; `require-auth` 500 |
+| "Thử lại" không về `unknown` | `session` 3 ca |
+| `logout` không xóa phiên | `session` 2 ca; `require-auth` "bấm Đăng xuất" |
+| `logout` ném lỗi server ra ngoài | `session` "server lỗi … không ném" |
+| `/me` hiện `role` | `me-profile` "KHÔNG hiện role" |
+| Bỏ `timeZone: 'Asia/Ho_Chi_Minh'` | `me-profile` "giờ Việt Nam" (nhờ `TZ=UTC`) |
+| "Tải lại" không gọi lại `/me` | `me-profile` 2 ca |
+| Không hủy request khi rời trang | `me-profile` "rời trang … hủy request" |
+| Store sửa snapshot tại chỗ | `require-auth` 4 ca; `token-store` "tab mới mở" |
+| **E2E:** guard render children khi `unknown` | `guard.spec.ts` ca 1 — `__thayHoSo` `Expected: false, Received: true` |
+| **E2E:** coordinator không gộp, `pnpm dev` (StrictMode thật) | `guard.spec.ts` ca 2 — tải lại thấy **2** `POST /auth/refresh` |
+
 ---
 
 ## 8. E7 — Interceptor 401→refresh **single-flight**
+
+> **Đã có từ E6** (xem "Thực tế thi công" Mục 7): `lib/auth/refresh-coordinator.ts` lớp 1 + test, `lib/auth/session.ts`
+> (`coordinator`, `bootstrapSession`, `logout`), `tokenStore.startSession/endSession(endedBy)`. E7 thêm `locks` + `channel`
+> vào `Deps` của coordinator và nhánh 401 trong `http.ts` — mẫu dưới dùng `d.endSession()` không tham số, ở code thật là
+> `endSession: () => tokenStore.endSession("expired")` trong `session.ts`.
 
 **Mục tiêu.** Giữ phiên đăng nhập mượt khi access token 15 phút hết hạn — và **không để chính frontend kích hoạt reuse detection
 của server** (Mục 7.3). Làm sai ở đây thì người dùng bị đăng xuất ngẫu nhiên, triệu chứng trông hệt lỗi backend, và cả nhóm sẽ
@@ -1838,7 +1929,7 @@ playwright-report
 - [ ] Job CI `frontend` xanh, gồm cổng `API types khop hop dong (CI GATE)`; đã thử cho đỏ một lần (E2)
 - [ ] Vitest: `text-field`, `schema.test-d`, `http`, `problem`, `messages`, `safe-next`, `auth` (bảng ngưỡng), `login-form`, `register-form`,
       `check-email`, `password-field`,
-      `verify-email` (StrictMode 1 request), `verify-once`, `RequireAuth`, `refresh-coordinator` (gồm hai coordinator), `http.interceptor`
+      `verify-email` (StrictMode 1 request), `verify-once`, `require-auth`, `session`, `me-profile`, `refresh-coordinator` (gồm hai coordinator), `http.interceptor`
 - [ ] Luật ESLint Đ-E2/Đ-E12 đã thử cho đỏ (E1)
 - [ ] Bảng "thử cho đỏ" của E7 đã chạy
 

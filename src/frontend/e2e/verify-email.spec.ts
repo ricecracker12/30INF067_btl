@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test"
 
-import { API, emailMoi, linkXacMinh } from "./mailpit"
+import { API, emailMoi, giuHanMucAuth, linkXacMinh } from "./dev-api"
 
 // E5 trên API DEV THẬT, `pnpm dev` — App Router bật StrictMode ở dev nên đây là lượt thật của Đ-E10.
 // Cần: `dotnet run --project src/backend/SocialApp.Api` (5259) + postgres, redis, mailpit của compose dev.
@@ -10,6 +10,7 @@ test("xác minh: link trong Mailpit → đúng 1 POST dưới StrictMode, token 
   page,
   request,
 }) => {
+  await giuHanMucAuth(4)
   const email = emailMoi("e5")
   const password = "MatKhau-E5-an-toan"
 

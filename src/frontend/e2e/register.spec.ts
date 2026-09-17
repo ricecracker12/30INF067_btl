@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test"
 
-import { emailMoi, linkXacMinh } from "./mailpit"
+import { emailMoi, giuHanMucAuth, linkXacMinh } from "./dev-api"
 
 // E3 trên API DEV THẬT.
 // Cần: `dotnet run --project src/backend/SocialApp.Api` (5259) + postgres, redis, mailpit của compose dev.
@@ -10,6 +10,7 @@ test("đăng ký: 201 → màn kiểm tra hộp thư (email không vào URL), ma
   page,
   request,
 }) => {
+  await giuHanMucAuth(2)
   const email = emailMoi("e3")
   const password = "MatKhau-E3-an-toan"
 

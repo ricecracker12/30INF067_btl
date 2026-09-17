@@ -36,12 +36,12 @@ async function submit(email: string, password = "MatKhau123") {
 }
 
 beforeEach(() => {
-  tokenStore.set(null)
+  tokenStore.reset()
   replace.mockReset()
   search = new URLSearchParams()
 })
 afterEach(() => {
-  tokenStore.set(null)
+  tokenStore.reset()
 })
 
 describe("LoginForm — lỗi cấp form (Đ-E6)", () => {

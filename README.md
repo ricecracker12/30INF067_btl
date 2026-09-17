@@ -37,8 +37,8 @@ Chi tiết GĐ1:
     detection; thu hồi token qua Redis; lỗi RFC 7807
 - **Frontend (khối E) — đang làm:**
   - xong: E1 (scaffold + kit UI), E2 (api client sinh từ hợp đồng, MSW cho Vitest), E4 (màn đăng nhập), E3 (màn đăng ký),
-    E5 (màn xác minh email)
-  - còn lại: E6 guard + `/me`, E7 refresh single-flight, E8 đóng gói FE cho staging
+    E5 (màn xác minh email), E6 (guard phía client + trang `/me` + đăng xuất)
+  - còn lại: E7 refresh single-flight, E8 đóng gói FE cho staging
 - **Chưa làm:** ráp FE lên staging (F1–F3). Vì vậy **staging hiện chỉ có API**, chưa có giao diện (xem [Mục 7](#7-staging-xem-sản-phẩm-trên-internet)).
 
 ---
@@ -179,7 +179,12 @@ DB không seed sẵn người dùng nào. Cả vòng làm được trên giao di
 1. Đăng ký ở http://localhost:3000/register → màn "Kiểm tra hộp thư".
 2. Mở Mailpit http://localhost:8025, mở mail xác minh, bấm link (`http://localhost:3000/verify-email?token=…`) → màn báo
    "đã được xác minh". Link chỉ dùng được **một lần**: mở lại là "đã hết hạn hoặc đã được sử dụng" — đúng, không phải lỗi.
-3. Đăng nhập ở http://localhost:3000/login.
+3. Đăng nhập ở http://localhost:3000/login → trang `/me` (email, vai trò). Tải lại trang vẫn giữ phiên (một lần
+   `POST /auth/refresh` bằng cookie); nút "Đăng xuất" ở đầu trang. Chưa đăng nhập mà vào `/me` (hoặc `/`) thì về
+   `/login?next=%2Fme`.
+
+Access token hết hạn sau 15 phút và E7 (tự refresh) chưa xong: quá hạn thì bấm "Tải lại" ở `/me` sẽ báo lỗi — tải lại
+**trang** (F5) để lấy token mới.
 
 Không chạy FE thì làm cùng ba bước qua Swagger: `POST /api/v1/auth/register` →
 `POST /api/v1/auth/verify-email` với `{"token":"<token trong link>"}` → `POST /api/v1/auth/login`.
@@ -430,6 +435,10 @@ pnpm test         # Vitest + Testing Library + msw/node
 pnpm build
 pnpm test:e2e     # Playwright trên Chrome đã cài, workers: 1 — cần API dev + hạ tầng đang chạy; KHÔNG chạy trong CI
 ```
+
+Cả bộ Playwright tốn hơn 10 lượt `/auth/*` — vượt rate limit 10/phút. Mỗi spec khai số lượt qua `giuHanMucAuth(n)`
+(`e2e/dev-api.ts`); vượt thì tự chờ ~75 giây, nên một lượt chạy đủ mất khoảng 1,5 phút. Vừa thử tay trên API dev thì chờ
+một phút rồi mới chạy — bộ đếm không biết các request ngoài Playwright.
 
 ### 8.3. CI trên GitHub (`.github/workflows/ci.yml`)
 

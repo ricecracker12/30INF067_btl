@@ -1,41 +1,18 @@
-import { expect, test, type APIRequestContext } from "@playwright/test"
+import { expect, test } from "@playwright/test"
 
-import { API, emailMoi, linkXacMinh } from "./mailpit"
+import { giuHanMucAuth, taoTaiKhoanDaXacMinh } from "./dev-api"
 
 // E4 trên API DEV THẬT.
 // Cần: `dotnet run --project src/backend/SocialApp.Api` (5259) + postgres, redis, mailpit của compose dev.
-
-/**
- * Tự dựng một tài khoản đã xác minh: register → đọc link trong Mailpit → verify-email. Tốn 2 lượt
- * trong hạn mức 10 req/phút của /auth/* (theo IP), cộng 1 lượt đăng nhập trên UI.
- */
-async function taoTaiKhoanDaXacMinh(request: APIRequestContext) {
-  const email = emailMoi("e4")
-  const password = "MatKhau-E4-an-toan"
-
-  const reg = await request.post(`${API}/auth/register`, {
-    data: { email, password },
-  })
-  expect(reg.status(), await reg.text()).toBe(201)
-
-  const token = new URL(await linkXacMinh(request, email)).searchParams.get(
-    "token"
-  )
-
-  const verify = await request.post(`${API}/auth/verify-email`, {
-    data: { token },
-  })
-  expect(verify.status(), await verify.text()).toBe(200)
-
-  return { email, password }
-}
+// Tốn 3 lượt /auth/*: register + verify (dựng tài khoản) + đăng nhập trên UI.
 
 test("đăng nhập: token KHÔNG nằm trong Web Storage hay document.cookie; cookie refresh là HttpOnly", async ({
   page,
   context,
   request,
 }) => {
-  const { email, password } = await taoTaiKhoanDaXacMinh(request)
+  await giuHanMucAuth(3)
+  const { email, password } = await taoTaiKhoanDaXacMinh(request, "e4")
 
   await page.goto("/login?next=%2Fme")
   await page.getByLabel("Email").fill(email)
@@ -47,7 +24,7 @@ test("đăng nhập: token KHÔNG nằm trong Web Storage hay document.cookie; c
   await page.getByRole("button", { name: "Đăng nhập" }).click()
   expect((await login).status()).toBe(200)
 
-  // `/me` là việc của E6 — ở E4 chỉ cần điều hướng đã đi đúng chỗ.
+  // Đã đăng nhập trong tab này → guard của /me không gọi refresh (E6).
   await expect(page).toHaveURL(/\/me$/)
 
   // Đ-E2 / Mục 12: token chỉ ở memory.

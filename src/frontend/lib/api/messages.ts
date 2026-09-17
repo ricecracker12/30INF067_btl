@@ -5,7 +5,7 @@ import { ApiError, NetworkError } from "./problem"
 // việc server không bao giờ sửa một chữ ở nhánh "email không tồn tại", mà không test backend nào canh.
 
 /** Màn gọi API. */
-export type ErrorContext = "login" | "register" | "verify-email"
+export type ErrorContext = "login" | "register" | "verify-email" | "me"
 
 const COMMON = {
   400: "Dữ liệu không hợp lệ.",
@@ -37,6 +37,8 @@ const BY_CONTEXT: Record<ErrorContext, Partial<Record<number, string>>> = {
     // biến nhất, và họ đăng nhập được. GĐ1 không có endpoint gửi lại mail → không nhắc "gửi lại".
     410: "Liên kết xác minh đã hết hạn hoặc đã được sử dụng. Nếu bạn đã xác minh trước đó, hãy đăng nhập.",
   },
+  // `/me` không có mã riêng: 401 là việc của interceptor (E7), còn lại dùng nhánh chung.
+  me: {},
 }
 
 /** Thông điệp cấp form cho một lỗi bất kỳ ném ra từ `request()`. */

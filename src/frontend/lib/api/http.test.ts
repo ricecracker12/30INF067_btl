@@ -18,16 +18,16 @@ function recordRequests() {
 }
 
 beforeEach(() => {
-  tokenStore.set(null)
+  tokenStore.reset()
 })
 afterEach(() => {
-  tokenStore.set(null)
+  tokenStore.reset()
 })
 
 describe("request()", () => {
   it("gắn credentials: 'include' ở CẢ SÁU lời gọi — thiếu là cookie refresh im lặng không đi", async () => {
     const seen = recordRequests()
-    tokenStore.set("token-cua-phien")
+    tokenStore.startSession("token-cua-phien")
 
     await authApi.register({ email: "a@example.com", password: "MatKhau123" })
     await authApi.verifyEmail({ token: "c".repeat(64) })
@@ -54,7 +54,7 @@ describe("request()", () => {
 
   it("logout KHÔNG gửi body, nhưng VẪN gắn bearer", async () => {
     const seen = recordRequests()
-    tokenStore.set("token-cua-phien")
+    tokenStore.startSession("token-cua-phien")
 
     await authApi.logout()
 
@@ -65,7 +65,7 @@ describe("request()", () => {
 
   it("register/login/verifyEmail KHÔNG gắn Authorization dù store đang có token", async () => {
     const seen = recordRequests()
-    tokenStore.set("token-cua-phien")
+    tokenStore.startSession("token-cua-phien")
 
     await authApi.register({ email: "a@example.com", password: "MatKhau123" })
     await authApi.login({ email: "a@example.com", password: "MatKhau123" })
@@ -84,7 +84,7 @@ describe("request()", () => {
       email: "a@example.com",
       password: "MatKhau123",
     })
-    tokenStore.set(accessToken)
+    tokenStore.startSession(accessToken)
 
     const me = await authApi.me()
 

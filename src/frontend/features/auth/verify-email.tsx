@@ -90,7 +90,8 @@ export function VerifyEmail() {
             Email <span className="font-medium break-all">{outcome.email}</span>{" "}
             đã được xác minh.
           </p>
-          {/* Điều hướng là LINK thật, mang style nút của kit (xem app/page.tsx). */}
+          {/* Điều hướng thì phải là LINK thật, mang style nút của kit. `<Button render={<Link/>}>` của Base UI
+              dán ngữ nghĩa nút lên thẻ <a> (trình đọc màn hình đọc là "button") và cảnh báo `nativeButton`. */}
           <Link href="/login" className={buttonVariants()}>
             Đăng nhập
           </Link>
