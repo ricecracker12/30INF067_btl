@@ -35,7 +35,7 @@ services:
     # Repo name của GHCR phải viết THƯỜNG toàn bộ (30INF067_btl -> 30inf067_btl).
     image: ghcr.io/ricecracker12/30inf067_btl/api:staging
     restart: unless-stopped
-    env_file: [./.env]                   # gồm Smtp__* — mail xác minh đi qua Brevo, staging không chạy Mailpit (Đ-D9)
+    env_file: [./.env]                   # gồm Smtp__* — mail xác minh đi qua Resend, staging không chạy Mailpit (Đ-D9)
     environment:
       ASPNETCORE_ENVIRONMENT: Staging
       ASPNETCORE_URLS: "http://+:8080"

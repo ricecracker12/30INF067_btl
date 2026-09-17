@@ -30,7 +30,7 @@ hoàn thành": thiếu bất kỳ đầu nào thì **chưa tuyên bố GĐ1 xong
 |---|---|---|---|
 | **F1** | Deploy staging qua CD tự động (api + frontend) | Loại bỏ "chạy được trên máy tôi" khỏi định nghĩa xong — sản phẩm chỉ được coi là sống khi lên domain HTTPS thật bằng đường CD, không SSH sửa tay | Merge/`push` `develop` → CD build **hai** image arm64 (`api:staging`, `frontend:staging`) → GHCR → `migrate` rồi `up`; `curl -fsS https://mxh.banhgao.net/health/ready` → 200; `https://mxh.banhgao.net/login` → 200 + header CSP có nonce; `/api/v1/ping` vẫn JSON của API (apache không nuốt `/api` vào Next) |
 | **F2** | FE trên staging chạy BFF với dữ liệu thật | Đóng rủi ro "xanh trên mock / máy local, đỏ trên staging" — nghiệm thu chỉ trên hệ thống thật | Trình duyệt **chỉ** gọi `/bff/*` cùng origin; không MSW, không `NEXT_PUBLIC_*` API URL; ba màn auth (đăng ký / xác minh / đăng nhập) + `/me` chạy trên staging; DevTools: không có `Authorization` ra trình duyệt, Web Storage không chứa access token |
-| **F3** | E2E-01 — lát cắt dọc trên trình duyệt thật | Kiểm những thứ integration test không chạm: cookie phiên BFF, CORS/proxy cùng origin, mail thật, refresh sau hết hạn | Đăng ký → mail Brevo vào hộp thư thật → bấm link xác minh → đăng nhập → `/me` → ép hết hạn access (đợi TTL hoặc hạ TTL tạm) → request kế tiếp vẫn thành công nhờ refresh; ghi lại bằng chứng (ảnh/log/PR) |
+| **F3** | E2E-01 — lát cắt dọc trên trình duyệt thật | Kiểm những thứ integration test không chạm: cookie phiên BFF, CORS/proxy cùng origin, mail thật, refresh sau hết hạn | Đăng ký → mail Resend vào hộp thư thật → bấm link xác minh → đăng nhập → `/me` → ép hết hạn access (đợi TTL hoặc hạ TTL tạm) → request kế tiếp vẫn thành công nhờ refresh; ghi lại bằng chứng (ảnh/log/PR) |
 | **F4** | E2E-02 — single-flight dưới tải đồng thời | Đóng rủi ro đăng xuất oan khi nhiều tab cùng 401 — triệu chứng trông hệt lỗi backend | 3 tab cùng phiên, ép token hết hạn, quan sát **đúng một** `POST …/auth/refresh` (log api hoặc Playwright `single-flight`); không tab nào bị đá về `/login`; reuse detection **không** kích hoạt |
 | **F5** | Checklist nghiệm thu (Mục 12) | Rà bốn nhóm Bảo mật / Phân quyền / Dữ liệu / Vận hành bằng cách **kiểm tận nơi**, không suy đoán từ CI xanh | Mọi dòng Mục 12 được tick **hoặc** ghi lý do hoãn + địa chỉ hoãn (vd `revoked:user` ghi → GĐ6); có dòng bắt buộc psql / DevTools / code review |
 | **F6** | Definition of Done (Mục 11) | Chốt bằng tiêu chuẩn chung của dự án, không bằng cảm giác "chắc xong rồi" | Cả **7** mục Mục 11 tick; đặc biệt: đã chạy thử staging bằng tài khoản thật + lát cắt trình duyệt thật (phụ thuộc F1–F4) |
@@ -68,7 +68,7 @@ F1 ─→ F2 ─→ F3 ─→ F4 ─→ F5 ─→ F6 ─→ F7
 | 1 | Khối D + E đã có trên nhánh sẽ merge `develop` | Endpoint auth, cookie/CORS, BFF, image FE `standalone` arm64 |
 | 2 | CI trên PR/`develop` | Xanh: test BE, `Category=AuthZ`, `Category=Contract`, ArchUnitNET, job `frontend` |
 | 3 | `deploy/.env` **trên VPS staging** (không commit) | Đủ khóa ở mục F1 bên dưới — app **fail-fast** nếu thiếu |
-| 4 | Brevo | `Smtp__From` là người gửi đã xác thực; còn hạn mức gửi trong ngày |
+| 4 | Resend | Domain Verified; `Smtp__From` thuộc domain đó; còn hạn mức gửi trong ngày |
 | 5 | Cloudflare / VM | Chỉ mở 443 cho dải IP Cloudflare (bẫy `TRUSTED_PROXY_HOPS`) |
 
 ### Luật áp vào khối này
@@ -106,7 +106,7 @@ Checklist gốc nằm ở "Chuyển cho F1" trong hướng dẫn khối E — t�
    | `Jwt__SigningKey` | ≥ 32 byte |
    | `Cors__AllowedOrigins__0` | `https://mxh.banhgao.net` |
    | `Frontend__BaseUrl` | `https://mxh.banhgao.net` (link mail xác minh) |
-   | `Smtp__Host` / `Port` / `User` / `Password` / `From` | Brevo; `From` đã xác thực |
+   | `Smtp__Host` / `Port` / `User` / `Password` / `From` | Resend: `smtp.resend.com`, `587`, user `resend`, password = API key; `From` thuộc domain đã Verified |
    | `API_INTERNAL_URL` | `http://api:8080/api/v1` (FE/BFF) |
    | `REDIS_URL` | `redis://redis:6379` |
    | `APP_ORIGIN` | `https://mxh.banhgao.net` |
@@ -135,7 +135,8 @@ Checklist gốc nằm ở "Chuyển cho F1" trong hướng dẫn khối E — t�
 | 2 | `ProxyPass /` đặt **trước** `/api` | Mọi API thành 404 HTML của Next |
 | 3 | `frontend` không vào mạng `internal` | BFF 502/503 tới `api`/`redis` |
 | 4 | Quên `ReverseProxy__TrustedNetworks__0` | Mọi user sau NAT/Cloudflare ăn chung hạn mức auth 10 req/phút |
-| 5 | `Smtp__From` chưa xác thực Brevo | Đăng ký 201 nhưng không có mail → F3 chết |
+| 5 | `Smtp__From` chưa thuộc domain Verified trên Resend | Đăng ký 201 nhưng không có mail → F3 chết |
+| 6 | Cổng host 3000 bị chiếm lúc `up` | Frontend không bind; Apache 503 ở `/` và `/login`; `/health/ready` vẫn 200. Giải phóng 3000 rồi `up -d` lại |
 
 ---
 
@@ -172,7 +173,7 @@ Một đường FR-001 → FR-002 trên HTTPS + mail thật + refresh sau hết 
 ### Kịch bản (ghi bằng chứng vào PR / biên bản Ngày 6)
 
 1. Trình duyệt thật (Chrome/Firefox), cửa sổ sạch / profile sạch.
-2. Đăng ký email **nhóm kiểm được** (Brevo gửi được).
+2. Đăng ký email **nhóm kiểm được** (Resend gửi được).
 3. Mở hộp thư → click link `{Frontend__BaseUrl}/verify-email?token=…`.
 4. Đăng nhập → vào `/me` thấy đúng email / role.
 5. Ép access hết hạn (đợi đủ TTL staging, hoặc hạ `Jwt__AccessTokenSeconds` tạm trên staging **chỉ** cho phiên kiểm rồi trả lại — ghi rõ nếu đổi).
@@ -181,7 +182,7 @@ Một đường FR-001 → FR-002 trên HTTPS + mail thật + refresh sau hết 
 ### Kết quả mong đợi
 
 - [ ] Chạy xuyên suốt không lỗi trên `https://mxh.banhgao.net`
-- [ ] Ảnh hoặc ghi chép: mail Brevo + URL xác minh + màn `/me` sau login + request sau hết hạn thành công
+- [ ] Ảnh hoặc ghi chép: mail Resend + URL xác minh + màn `/me` sau login + request sau hết hạn thành công
 - [ ] Cookie / proxy: không lỗi CORS (cùng origin qua apache thì preflight cross-origin không còn là điểm nóng — vẫn xác nhận không 401 oan)
 
 Có thể tái sử dụng Playwright với `PLAYWRIGHT_BASE_URL=https://mxh.banhgao.net` nếu đã có spec; **bước mail phải là hộp thư thật**, không Mailpit.
@@ -290,7 +291,7 @@ Dán vào PR cổng đóng hoặc thư mục biên bản nhóm:
 | Link run CD xanh + thời điểm | F1 |
 | `curl` health + ảnh `/login` CSP | F1 |
 | Ảnh Network: chỉ `/bff`, không JWT trình duyệt | F2 |
-| Ảnh mail Brevo + `/me` sau verify/login | F3 |
+| Ảnh mail Resend + `/me` sau verify/login | F3 |
 | Log/đếm một lần refresh / kết quả Playwright single-flight | F4 |
 | Bản tick Mục 12 + Mục 11 | F5, F6 |
 | Thông báo đóng băng + danh sách hoãn | F7 |

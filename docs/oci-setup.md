@@ -93,12 +93,14 @@ R2__Bucket=socialmedia-staging
 R2__AccessKey=<access key id>
 R2__SecretKey=<secret access key>
 
-# Email (mail xác minh đăng ký — FR-001). Staging gửi qua Brevo (SMTP thật, STARTTLS).
-Smtp__Host=smtp-relay.brevo.com
+# Email (mail xác minh đăng ký — FR-001). Staging gửi qua Resend (SMTP thật, STARTTLS).
+# Smtp__User phải đúng chữ "resend" — không phải địa chỉ email. Password = API key (re_…).
+# Smtp__From phải thuộc domain đã Verified trên Resend. Cổng 587 (SmtpClient không dùng 465).
+Smtp__Host=smtp.resend.com
 Smtp__Port=587
-Smtp__User=<SMTP login của Brevo>
-Smtp__Password=<SMTP key của Brevo>
-Smtp__From=<người gửi đã xác thực trên Brevo>
+Smtp__User=resend
+Smtp__Password=<API key Resend, bắt đầu re_>
+Smtp__From=<noreply@domain-đã-xác-thực>
 Frontend__BaseUrl=https://mxh.banhgao.net
 Cors__AllowedOrigins__0=https://mxh.banhgao.net
 
@@ -119,16 +121,15 @@ chmod 600 .env
 > | Môi trường | Gửi qua | Xem mail |
 > |---|---|---|
 > | Local dev | Mailpit của `docker-compose.dev.yml` (`localhost:1025`) | `http://localhost:8025` |
-> | **Staging** | **Brevo** (`smtp-relay.brevo.com:587`, STARTTLS) — giả định **ISS-03** trong PTTK | Hộp thư thật của tài khoản đăng ký |
+> | **Staging** | **Resend** (`smtp.resend.com:587`, STARTTLS) — giả định **ISS-03** trong PTTK | Hộp thư thật của tài khoản đăng ký |
 >
-> Brevo là thiết lập staging từ GĐ0. Tài liệu khối D (2026-09-14) từng đổi staging sang Mailpit trong compose nhưng
-> `.env` chưa bao giờ đổi theo; nghiệm thu khối D (2026-09-15) chốt lại Brevo. Compose staging **không còn** service
-> `mailpit`.
+> Staging GĐ0–GĐ1 từng dùng Brevo; chuyển Resend **chỉ đổi `.env`** (cùng khóa `Smtp__*`, Đ-D9 không đổi code).
+> Compose staging **không có** service `mailpit`.
 >
-> ⚠️ **`Smtp__From` phải là người gửi / tên miền đã xác thực trên Brevo** (SPF/DKIM của domain nếu xác thực theo
-> domain) — chưa xác thực thì Brevo từ chối hoặc mail vào spam. `Smtp__Password` là SMTP key, chỉ nằm ở `.env`
-> (`chmod 600`). Có `Smtp__User` thì api tự bật STARTTLS. Brevo có hạn mức gửi theo ngày: E2E dùng tài khoản nhóm,
-> đừng đăng ký hàng loạt.
+> ⚠️ **`Smtp__From` phải thuộc domain đã Verified trên Resend** (SPF/DKIM xanh trên dashboard). `Smtp__User` là
+> đúng chữ `resend`. `Smtp__Password` là API key (`re_…`), chỉ nằm ở `.env` (`chmod 600`). Có `Smtp__User` thì
+> api tự bật STARTTLS. Không dùng cổng 465: `System.Net.Mail.SmtpClient` không implicit SSL. Hạn mức gửi theo
+> gói Resend: E2E dùng tài khoản nhóm, đừng đăng ký hàng loạt.
 >
 > Thiếu `Smtp__Host`/`Smtp__From`/`Cors__AllowedOrigins__0` thì api **từ chối khởi động** (từ khối D GĐ1) —
 > kiểm `.env` trước khi merge vào `develop`.

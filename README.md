@@ -375,12 +375,12 @@ cd src/frontend && pnpm gen:api     # sinh lại lib/api/schema.d.ts từ yaml, 
 
 ### 7.1. Thử luồng GĐ1 trên staging
 
-**Sau F1** (UI sống): mở https://mxh.banhgao.net/register → mail Brevo → verify → login → `/me`.
+**Sau F1** (UI sống): mở https://mxh.banhgao.net/register → mail Resend → verify → login → `/me`.
 
 **Swagger vẫn dùng được** (và là cách dự phòng nếu FE chưa proxy):
 
 1. Mở `/swagger`, chọn definition **Identity**.
-2. `POST /api/v1/auth/register` bằng **email thật**. Staging gửi mail qua Brevo — đừng đăng ký hàng loạt.
+2. `POST /api/v1/auth/register` bằng **email thật**. Staging gửi mail qua Resend — đừng đăng ký hàng loạt.
 3. Mail chứa link `https://mxh.banhgao.net/verify-email?token=…` (mở trên trình duyệt nếu FE đã proxy).
 4. `POST /api/v1/auth/login` → lấy token qua Swagger, hoặc dùng UI.
 
@@ -603,6 +603,7 @@ Repo được index bởi GitNexus để phân tích tác động trước khi s
 | `pnpm` sai phiên bản / lockfile lỗi | `corepack enable` rồi `pnpm install`. Không dùng `npm install` |
 | Không thấy mail xác minh (dev) | Mailpit chưa bật: `docker compose -f deploy/docker-compose.dev.yml up -d mailpit` |
 | Staging `/login` 404, `/` là trang apache | Bình thường ở thời điểm này: FE chưa deploy (F1) |
+| Trang Apache **503** (`Service Unavailable`), `/health/ready` vẫn 200 | Frontend không listen trên `127.0.0.1:3000`: container chưa `up` sau lần bind fail, hoặc crash thiếu biến BFF. `docker compose … ps` + `logs frontend` |
 | Container frontend dừng ngay, exit 1 | Thiếu / sai biến BFF — `docker logs` có dòng `[bff] …` nêu tên biến (`src/frontend/.env.example`) |
 
 ---

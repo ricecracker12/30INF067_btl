@@ -2165,10 +2165,10 @@ liệu seed thật. Nguồn quyền giả chỉ còn trong unit test.
   VPS.** Service `migrate` chạy trước `api`.
 - **Xong là:** `/health/ready` xanh trên domain HTTPS thật.
 - **Chặn / Cần:** cần A6, D. ⚠️ Kiểm `deploy/.env` có đủ `ConnectionStrings__Postgres`, `__Redis`,
-  `Jwt__SigningKey`, `Cors__AllowedOrigins__0`, `Smtp__Host=smtp-relay.brevo.com`, `Smtp__Port=587`,
-  `Smtp__User`, `Smtp__Password`, `Smtp__From`, `Frontend__BaseUrl` **trước khi merge** — app fail-fast khi thiếu,
-  sẽ crash-loop chỗ image cũ vẫn boot được. Staging gửi mail qua Brevo; `Smtp__From` phải là người gửi đã xác thực
-  trên Brevo — kiểm bằng một lần đăng ký thật sau deploy (`oci-setup.md` mục vi).
+  `Jwt__SigningKey`, `Cors__AllowedOrigins__0`, `Smtp__Host=smtp.resend.com`, `Smtp__Port=587`,
+  `Smtp__User=resend`, `Smtp__Password` (API key Resend), `Smtp__From`, `Frontend__BaseUrl` **trước khi merge** — app fail-fast khi thiếu,
+  sẽ crash-loop chỗ image cũ vẫn boot được. Staging gửi mail qua Resend; `Smtp__From` phải thuộc domain đã Verified
+  trên Resend — kiểm bằng một lần đăng ký thật sau deploy (`oci-setup.md` mục vi).
 - **Frontend (E8, Đ-E11 + Đ-E14 — bổ sung 2026-09-17):** CD build + push image `frontend:staging` (`context: src/frontend`,
   `linux/arm64`); compose thêm service `frontend` trong mạng `internal` (gọi `api:8080`, `redis:6379`), cổng
   `127.0.0.1:3000`; apache bỏ comment `ProxyPass /` và giữ nó **sau** `/api`, `/swagger`, `/health`. `.env` staging thêm

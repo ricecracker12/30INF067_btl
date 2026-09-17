@@ -56,5 +56,6 @@ jobs:
             echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
             docker compose -f docker-compose.staging.apache.yml pull
             docker compose -f docker-compose.staging.apache.yml run --rm migrate
-            docker compose -f docker-compose.staging.apache.yml up -d --remove-orphans
+            docker compose -f docker-compose.staging.apache.yml up -d --wait --wait-timeout 120 --remove-orphans
+            docker compose -f docker-compose.staging.apache.yml ps
             docker image prune -f
