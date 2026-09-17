@@ -392,16 +392,18 @@ còn biên độ thêm index/cache nếu trượt; và thứ cắt được thì
   (FR-015/016, BR-06/09), idempotency chống trùng tin.
 - **Làm như nào:**
   - `conversations` UQ(a,b)+CHECK a<b+seq_counter; `messages` UQ(conv,seq)+UQ(conv,client_msg_id).
-  - SignalR `ChatHub` + Redis backplane (ADR-003); SEQ-02: SendMessage → validate JWT+BR-06+BR-09 →
+  - SignalR `ChatHub` + Redis backplane (ADR-003); **xác thực kết nối hub bằng vé ngắn hạn dùng một lần** (Đ-E16 của
+    hướng dẫn khối E GĐ1 — trình duyệt không cầm JWT từ Đ-E14): `POST /realtime/tickets` cấp vé 30 giây, băm lưu Redis,
+    hub `GETDEL` vé lúc bắt tay + kiểm `revoked:user`; SEQ-02: SendMessage → validate người gửi+BR-06+BR-09 →
     INSERT (message+seq+last_message atomically) → ACK Sent → tra presence Redis → đẩy B → Delivered/Seen.
   - B offline → tăng badge chưa đọc + tạo notification; mất WebSocket → fallback REST
     `POST /conversations/{id}/messages`; retry cùng `client_msg_id` khử trùng.
   - **Lane frontend:** danh sách hội thoại + cửa sổ chat + lịch sử cuộn ngược · SignalR JS client
-    (kết nối kèm access token, **tự kết nối lại**, mất kết nối thì chuyển REST fallback) · hiển thị
+    (kết nối bằng **vé** xin qua `/bff/api/realtime/tickets` — `accessTokenFactory` trả vé, **tự kết nối lại** xin vé mới, mất kết nối thì chuyển REST fallback) · hiển thị
     Sent/Delivered/Seen · sinh `client_msg_id` phía client để retry không tạo tin trùng · badge chưa
     đọc · **công cụ đo p95 gửi→nhận gắn thẳng vào màn chat thật**.
-  - **Cổng mở — chốt CẢ HAI hợp đồng:** REST cho lịch sử, **và hợp đồng SignalR** (tên hub method,
-    payload, thứ tự sự kiện, quy tắc `client_msg_id`). Hợp đồng realtime không nằm trong Swagger nên
+  - **Cổng mở — chốt CẢ HAI hợp đồng:** REST cho lịch sử **và endpoint vé realtime**, **và hợp đồng SignalR** (tên hub
+    method, payload, thứ tự sự kiện, quy tắc `client_msg_id`, 401 khi vé sai/hết hạn/đã dùng). Hợp đồng realtime không nằm trong Swagger nên
     dễ quên chốt; quên là frontend không mock được và lại rơi về nhịp "chờ backend".
 - **Kiểm tra:** AC US-015 (AC-01 B online nhận ≤1s + đủ trạng thái; AC-02 B offline → badge khi online;
   AC-03 retry cùng clientMsgId không trùng; AC-04 không phải bạn → 403 hội thoại chỉ đọc).

@@ -6,7 +6,7 @@
 **Nguồn sự thật, theo thứ tự ưu tiên khi mâu thuẫn:**
 
 1. Hợp đồng API — `src/backend/Modules/<Module>/Presentation/<nhóm>.yaml`
-2. Mười lăm quyết định `Đ-E1`–`Đ-E15` trong [`docs/giai-doan-1/huong-dan-khoi-e-frontend.md`](../../docs/giai-doan-1/huong-dan-khoi-e-frontend.md)
+2. Mười sáu quyết định `Đ-E1`–`Đ-E16` trong [`docs/giai-doan-1/huong-dan-khoi-e-frontend.md`](../../docs/giai-doan-1/huong-dan-khoi-e-frontend.md)
 3. `src/frontend/AGENTS.md` (luật Next.js của template + mục "UI kit")
 4. File này
 

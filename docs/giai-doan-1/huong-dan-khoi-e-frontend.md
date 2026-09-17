@@ -107,7 +107,7 @@ dotnet run --project src/backend/SocialApp.Api          # API dev: http://localh
 5. **Không nghiệm thu trên mock** (Mục 12). Dev chạy đủ FE + BE (không còn mock trình duyệt — đổi Đ-E7); mock chỉ dựng nhánh
    lỗi khó tái hiện trong Vitest. "Xong" của E3–E7 luôn có một lượt trên API dev thật, và cổng đóng F2 là trên staging.
 
-### Mười lăm quyết định đã chốt
+### Mười sáu quyết định đã chốt
 
 Tài liệu gốc chưa nói đủ để gõ code ở những chỗ dưới đây.
 
@@ -419,7 +419,7 @@ thay Đ-E1, Đ-E4; đổi Đ-E2, Đ-E3, Đ-E11; ghi ngược `giai-doan-1.md` qu
 - **Giá phải trả:** container FE phụ thuộc Redis (F1); mỗi lời gọi API thêm một chặng Next server; access token 15 phút
   không còn "chết theo tab" — nó sống trong Redis tới khi hết hạn hoặc đăng xuất (bù lại: đăng xuất xóa ngay ở server).
 - **Chưa làm lúc chốt Đ-E14:** Content-Security-Policy — đã làm ở Đ-E15. SignalR GĐ5: trình duyệt không có token để gắn
-  vào hub — phải đi qua BFF hoặc vé ngắn hạn; quyết định ở GĐ5.
+  vào hub — đã chốt hướng vé ngắn hạn ở Đ-E16.
 
 **Đ-E15 — Content-Security-Policy có nonce theo từng request; `proxy.ts` chỉ làm việc này.** *(chốt 2026-09-17 — đổi Đ-E3:
 có `proxy.ts`, nhưng không có logic đăng nhập trong đó)*
@@ -466,6 +466,27 @@ có `proxy.ts`, nhưng không có logic đăng nhập trong đó)*
 | `proxy.ts` không gắn CSP vào response | Vitest 2 ca; E2E 2 ca |
 | Matcher không bỏ qua `/bff` | Vitest |
 | Layout không đưa nonce cho `next-themes` | E2E — script theme bị chặn |
+
+**Đ-E16 — Realtime (SignalR, GĐ5) xác thực bằng vé ngắn hạn dùng một lần, không bằng access token.** *(chốt 2026-09-17 —
+thi công ở GĐ5; ghi ngược `ke-hoach-trien-khai.md` GĐ5)*
+
+- **Vì sao phải chốt từ GĐ1.** SignalR JS client xác thực bằng cách gửi token qua `accessTokenFactory` — với WebSocket,
+  token đi trên query string `?access_token=`. Sau Đ-E14 trình duyệt không có token; và nếu có thì token 15 phút nằm trên
+  URL là nằm trong log truy cập của apache và API. Để tới cổng mở GĐ5 mới nghĩ thì dễ "tạm" đưa token ra trình duyệt.
+- **Loại bỏ:** proxy WebSocket qua Next server — Next phải giữ hàng loạt kết nối lâu dài, Route Handler không hợp làm
+  việc này, tốn tài nguyên và khó mở rộng.
+- **Luồng:**
+  1. Trình duyệt gọi `POST /bff/api/realtime/tickets` — proxy chung gắn bearer của phiên (Đ-E14), không route BFF mới.
+  2. API tạo vé: 32 byte ngẫu nhiên; Redis lưu **băm** của vé → `userId` + `iat` của access token đã xin, TTL **30 giây**.
+     Trả `{ ticket, expiresIn }`.
+  3. Trình duyệt mở `/hubs/chat` (cùng domain, apache chuyển WebSocket về API) với `accessTokenFactory` trả **vé**.
+  4. API xác thực kết nối hub bằng một scheme riêng: `GETDEL` vé trong Redis (**dùng một lần** — vé bị chép lại vô dụng),
+     kiểm `revoked:user` như access token (Mục 7.5), dựng principal có `sub` + vai trò. Vé sai / hết hạn / đã dùng → 401.
+  5. SignalR tự kết nối lại → `accessTokenFactory` chạy lại → xin vé mới qua BFF (BFF tự refresh phiên nếu cần).
+- **Ràng buộc phải có trong hợp đồng GĐ5:** endpoint vé nằm trong `<nhóm>.yaml` (có rate limit theo user); scheme vé
+  **chỉ** nhận ở đường `/hubs/*`, không thay bearer ở REST; không log query string của `/hubs/*` (Serilog + apache);
+  kết nối đang mở phải bị cắt khi người dùng đăng xuất hoặc bị `revoked:user` (GĐ6) — vé chỉ kiểm lúc bắt tay.
+- **CSP (Đ-E15):** `connect-src 'self'` đã cho WebSocket cùng origin; không phải nới.
 
 ---
 
@@ -2243,5 +2264,5 @@ playwright-report
 | **F3** | Playwright E2E-01 chạy lại được bằng `BASE_URL=https://mxh.banhgao.net` (bước mail đổi sang hộp thư thật) |
 | **F4** | `single-flight.spec.ts` (9 request đồng thời cùng phiên sau khi token hết hạn) + đếm `POST /auth/refresh` trong log api — bấm tay trên 3 tab không tạo được tranh chấp thật (Mục 8A) |
 | **GĐ2–GĐ8** | Kit shadcn/ui + luật Đ-E12 + composite `components/form`; `request()` tới BFF + proxy chung `/bff/api/*` (bearer, refresh single-flight ở server — module mới không phải thêm route BFF); nhóm route `(app)` có guard; bảng thông điệp lỗi theo status; codegen — module mới thêm một script `gen:api:<module>` ra `lib/api/<module>/schema.d.ts`, cổng CI so cả thư mục `lib/api`. **Thêm một màn (Đ-E13) = 4 chỗ:** route ở `app/(app)/<url>/` · nghiệp vụ ở `features/<màn>/` · `gen:api:<module>` → `lib/api/<module>/` · kiểm dữ liệu ở `lib/validation/<màn>.ts`. Không đụng `components/`, không sửa `eslint.config.mjs` |
-| **GĐ5** | Trình duyệt KHÔNG có token cho SignalR (Đ-E14): hub phải đi qua BFF (proxy WebSocket ở Next server) hoặc API cấp vé ngắn hạn qua `/bff/api/*` — chốt ở cổng mở GĐ5 |
+| **GĐ5** | Đ-E16: SignalR xác thực bằng vé 30 giây dùng một lần — xin qua `/bff/api/realtime/tickets`, `accessTokenFactory` trả vé, API `GETDEL` vé ở Redis khi bắt tay. Endpoint vé + scheme vé đưa vào hợp đồng ở cổng mở GĐ5 |
 | **GĐ6** | Hạ quyền ghi `revoked:user` → request kế tiếp 401 → BFF refresh → token mới mang vai trò mới; FE **không phải sửa gì** |

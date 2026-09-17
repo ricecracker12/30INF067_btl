@@ -257,7 +257,7 @@ cd src/frontend && pnpm dev      # pnpm, không npm — lockfile là pnpm-lock.y
   - `frontend-rules.md` — luật lane FE trong `src/frontend/`: bốn tầng `app/ → features/ → components/ + lib/`
     (Đ-E13), kit shadcn/ui (Đ-E12), BFF — trình duyệt không cầm JWT, token ở Next server + Redis (Đ-E14), `fetch`
     chỉ trong `lib/api/http.ts` và `lib/bff/upstream.ts`, codegen từ hợp đồng, cổng trước khi commit. Bản rút gọn của
-    `Đ-E1`–`Đ-E15` (Đ-E15: CSP có nonce); chi tiết ở hướng dẫn khối E.
+    `Đ-E1`–`Đ-E16` (Đ-E15: CSP có nonce; Đ-E16: SignalR xác thực bằng vé ngắn hạn); chi tiết ở hướng dẫn khối E.
 
   Kể cả commit do agent tạo; khi lệch với hướng dẫn mặc định của agent thì **`.claude/rules/` thắng**.
 - **PTTK / báo cáo A&D** — yêu cầu, UC, FR/NFR, ERD, ma trận RBAC, ADR, threat model.
