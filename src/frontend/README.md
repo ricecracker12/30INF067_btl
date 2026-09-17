@@ -25,6 +25,25 @@ pnpm format     # prettier --write
 
 Bốn cổng phải xanh trước khi commit: `lint`, `typecheck`, `test`, `build`.
 
+## Image (E8)
+
+```bash
+# Từ gốc repo. Staging là arm64 — build đúng kiến trúc (máy x86 chạy qua giả lập, lần đầu ~5 phút).
+docker buildx build --platform linux/arm64 -t socialapp-frontend:local --load src/frontend
+
+# Chạy thử nối API dev + Redis của máy. Thiếu biến nào thì container dừng, exit 1, log nêu tên biến.
+docker run --rm -p 3002:3000 \
+  -e API_INTERNAL_URL=http://host.docker.internal:5259/api/v1 -e REDIS_URL=redis://host.docker.internal:6379 \
+  -e APP_ORIGIN=http://localhost:3002 -e SESSION_ENCRYPTION_KEY="$(openssl rand -base64 32)" \
+  socialapp-frontend:local
+
+# Playwright trên chính image (chạy trong src/frontend/)
+PLAYWRIGHT_BASE_URL=http://localhost:3002 pnpm exec playwright test login-storage csp guard smoke register
+```
+
+Không biến nào lúc build; mọi cấu hình là biến lúc chạy (`.env.example`). Healthcheck chỉ kiểm "sống và render được" —
+image thiếu `.next/static` vẫn `healthy`, nên chạy Playwright trên image trước khi đẩy.
+
 Node 24 LTS (`.nvmrc`), pnpm 10.x (trường `packageManager` — CI đọc đúng trường này).
 
 ## Thêm component UI

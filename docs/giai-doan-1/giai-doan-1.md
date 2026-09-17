@@ -2039,7 +2039,7 @@ liệu seed thật. Nguồn quyền giả chỉ còn trong unit test.
 > **Hướng dẫn thi công từng bước:** [huong-dan-khoi-e-frontend.md](huong-dan-khoi-e-frontend.md) — danh sách việc (thêm
 > `E8` đóng gói cho staging; thứ tự `E1 → E2 → E4 → E3 → E5 → E6 → E7 → E8`), mục tiêu, kết quả mong đợi, 14 quyết định bổ
 > sung. **Đã ghi ngược** (2026-09-17): Đ-E4 và Đ-E14 (BFF — trình duyệt không cầm token) vào E7 dưới đây, Mục 10.1 E2E-02
-> và quyết định 6. **Chưa ghi ngược:** Đ-E11 (E8 + phần frontend của F1).
+> và quyết định 6; Đ-E11 vào E8 dưới đây và F1/F2 của khối F.
 
 ### E1 — Scaffold Next.js 16 + shadcn/ui preset
 
@@ -2134,6 +2134,18 @@ liệu seed thật. Nguồn quyền giả chỉ còn trong unit test.
 - **Chặn / Cần:** cần E6, D4. **Không làm đúng ở đây thì triệu chứng trông hệt lỗi backend và cả
   nhóm sẽ debug nhầm chỗ rất lâu.**
 
+### E8 — Đóng gói frontend cho staging *(bổ sung — Đ-E11, ghi ngược 2026-09-17)*
+
+- **Mục tiêu:** có image FE để F1 deploy — F2/F3 đòi FE chạy **cùng domain** `mxh.banhgao.net` với API: link xác minh
+  trong mail trỏ về đó, và cookie phiên của BFF là cookie cùng origin.
+- **Cách thực thi:** Next.js `output: "standalone"`; `src/frontend/Dockerfile` multi-stage `node:24-alpine`, chạy non-root,
+  build `linux/arm64`. **Không biến nào lúc build**; cấu hình BFF là biến lúc chạy (`API_INTERNAL_URL`, `REDIS_URL`,
+  `APP_ORIGIN`, `SESSION_ENCRYPTION_KEY`, `TRUSTED_PROXY_HOPS` — Đ-E14). Không route FE nào dưới `/api`, `/health`,
+  `/swagger` (apache đẩy về API).
+- **Xong là:** image arm64 build được; container nối API + Redis chạy đúng luồng đăng nhập, CSP và BFF (Playwright trên
+  chính image). Việc compose / apache / CD **chuyển cho F1**.
+- **Chặn / Cần:** chặn F1. Cần E1–E7.
+
 ---
 
 ## B.8 Khối F — Cổng đóng
@@ -2152,12 +2164,19 @@ liệu seed thật. Nguồn quyền giả chỉ còn trong unit test.
   `Smtp__User`, `Smtp__Password`, `Smtp__From`, `Frontend__BaseUrl` **trước khi merge** — app fail-fast khi thiếu,
   sẽ crash-loop chỗ image cũ vẫn boot được. Staging gửi mail qua Brevo; `Smtp__From` phải là người gửi đã xác thực
   trên Brevo — kiểm bằng một lần đăng ký thật sau deploy (`oci-setup.md` mục vi).
+- **Frontend (E8, Đ-E11 + Đ-E14 — bổ sung 2026-09-17):** CD build + push image `frontend:staging` (`context: src/frontend`,
+  `linux/arm64`); compose thêm service `frontend` trong mạng `internal` (gọi `api:8080`, `redis:6379`), cổng
+  `127.0.0.1:3000`; apache bỏ comment `ProxyPass /` và giữ nó **sau** `/api`, `/swagger`, `/health`. `.env` staging thêm
+  `API_INTERNAL_URL=http://api:8080/api/v1`, `REDIS_URL=redis://redis:6379`, `APP_ORIGIN=https://mxh.banhgao.net`,
+  `SESSION_ENCRYPTION_KEY` (sinh riêng cho staging), `TRUSTED_PROXY_HOPS=1`; api thêm `ReverseProxy__TrustedNetworks__0` =
+  CIDR mạng `internal`. Chi tiết và cách kiểm sau deploy: "Chuyển cho F1" ở Mục 9 hướng dẫn khối E.
 
 ### F2 — Frontend bỏ mock, trỏ staging thật
 
 - **Mục tiêu:** đóng rủi ro "mock trôi xa khỏi hiện thực" — xanh trên mock, đỏ trên staging.
 - **Cách thực thi:** tắt MSW, trỏ base URL sang domain HTTPS thật. *(2026-09-17: mock trình duyệt đã gỡ khỏi FE — đổi
-  Đ-E7 trong `huong-dan-khoi-e-frontend.md`; F2 chỉ còn phần trỏ base URL.)*
+  Đ-E7; từ Đ-E14 trình duyệt không có base URL nào — chỉ gọi `/bff` cùng origin. F2 còn lại: đặt biến server của BFF
+  trên staging và chạy lại ba màn auth trên dữ liệu thật.)*
 - **Xong là:** ba màn auth chạy trên dữ liệu thật. **Không giai đoạn nào được nghiệm thu trên mock.**
 - **Chặn / Cần:** cần F1, E.
 

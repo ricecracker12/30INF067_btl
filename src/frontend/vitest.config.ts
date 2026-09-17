@@ -22,8 +22,9 @@ export default defineConfig({
     // jsdom mặc định ở http://localhost:3000 — BFF_URL (lib/api/config.ts) lấy origin này để `fetch` của Node có URL
     // tuyệt đối. Test của lib/bff tự chọn môi trường node bằng chú thích `@vitest-environment node`.
     setupFiles: ["test/setup.ts"],
-    // e2e/ là Playwright (`pnpm test:e2e`), không phải Vitest.
-    exclude: ["e2e/**", "node_modules/**"],
+    // e2e/ là Playwright (`pnpm test:e2e`), không phải Vitest. `.next/`: từ E8 (`output: "standalone"`) bản build chép cả
+    // `*.test.js` nội bộ của Next vào `.next/standalone/node_modules` — không loại thì `pnpm test` sau `pnpm build` đỏ 6 file.
+    exclude: ["e2e/**", "node_modules/**", ".next/**"],
     typecheck: { enabled: true, include: ["**/*.test-d.ts"] },
   },
 })

@@ -8,7 +8,9 @@
 > Chỗ nào tài liệu này lệch ba nguồn đó thì sửa ở đây — trừ các quyết định ở Mục 1 đánh dấu **"cần ghi ngược"**: tài
 > liệu gốc đang thiếu hoặc mâu thuẫn ở những chỗ đó, phải sửa `giai-doan-1.md` trong cùng commit với việc tương ứng.
 
-> **Trạng thái: E1–E7 xong + BFF (Đ-E14) + CSP có nonce (Đ-E15), E8 là việc tiếp theo (cập nhật 2026-09-17)** — Đ-E15:
+> **Trạng thái: khối E xong — E1–E8 + BFF (Đ-E14) + CSP có nonce (Đ-E15); việc tiếp theo là F1 (cập nhật 2026-09-17)** —
+> E8: image `linux/arm64` 72 MB, non-root, container thiếu cấu hình BFF dừng với exit 1; Playwright 10/10 chạy trên chính
+> image arm64; danh sách việc cho F1 ở cuối Mục 9. Đ-E15:
 > Content-Security-Policy nonce theo request ở `proxy.ts`, mọi trang render động; `<img onerror>`, `<script>` inline chèn
 > động và `javascript:` bị chặn trên Chrome thật (dev và bản build); **Vitest 238/238**, Playwright `csp.spec.ts` 3/3; thử
 > cho đỏ 11 đột biến. Đ-E14: trình duyệt
@@ -2085,106 +2087,125 @@ Thử cho đỏ (từng đột biến, rồi khôi phục — checksum `lib/bff/
 
 ## 9. E8 — Đóng gói frontend cho staging *(bổ sung)*
 
-**Mục tiêu.** `F2` (bỏ mock, trỏ staging) và `F3` (E2E-01) đòi FE chạy **cùng domain** `mxh.banhgao.net` với API: link xác minh
-trong mail trỏ về đó (`Frontend__BaseUrl`), và cookie `SameSite=Lax` không đi nếu FE nằm ở site khác (Đ-E1, Đ-E11). Hiện CD chỉ
-build image `api` — không có image FE thì F1 không có gì để deploy.
+> **Viết lại 2026-09-17 sau Đ-E14 (BFF) và Đ-E15 (CSP).** Bản gốc nhúng `NEXT_PUBLIC_API_BASE_URL` lúc build và coi image
+> là file tĩnh chạy một mình; từ Đ-E14 image là **server BFF** cần API + Redis lúc chạy, và không có biến nào lúc build.
+
+**Mục tiêu.** `F2` và `F3` (E2E-01) đòi FE chạy **cùng domain** `mxh.banhgao.net` với API: link xác minh trong mail trỏ về
+đó (`Frontend__BaseUrl`), và cookie phiên `__Host-sid` của BFF là cookie cùng origin. Hiện CD chỉ build image `api` —
+không có image FE thì F1 không có gì để deploy.
 
 **Kết quả mong đợi.**
 - `next.config.ts`: `output: "standalone"`.
-- `src/frontend/Dockerfile` (multi-stage, `node:24-alpine`, pnpm qua corepack, chạy non-root) + `src/frontend/.dockerignore`.
-- `docker buildx build --platform linux/arm64 src/frontend` xanh; `docker run -p 3000:3000` → `/login` trả 200.
-- Bundle production **không** chứa MSW và **không** chứa `localhost:5259` (bảng Test).
-- Không route FE nào dưới `/api`, `/health`, `/swagger`; không `app/api/**`.
-- Danh sách việc chuyển cho F1 (cuối mục) đã gửi cho người làm F1.
+- `src/frontend/Dockerfile` (multi-stage, `node:24-alpine`, pnpm qua corepack, chạy non-root, `HEALTHCHECK`) +
+  `src/frontend/.dockerignore`.
+- `docker buildx build --platform linux/arm64 src/frontend` xanh.
+- Container chạy **đúng image arm64** nối API dev + Redis: Playwright (đăng nhập, không lộ JWT, CSP, guard) xanh trên nó.
+- Bundle trình duyệt không chứa MSW, URL API dev, hay code server BFF (cổng CI).
+- Không route FE nào dưới `/api`, `/health`, `/swagger`; Route Handler chỉ dưới `app/bff/**`.
+- Danh sách việc chuyển cho F1 (cuối mục).
 
 ### Các bước
 
-```ts
-// next.config.ts
-import type { NextConfig } from "next"
+1. `next.config.ts`: `output: "standalone"`. `.next/standalone` mang `server.js` + phần `node_modules` đã lọc; `ioredis`
+   được Turbopack gói thẳng vào chunk server nên **không** xuất hiện trong `node_modules` của standalone — đúng, không
+   phải thiếu.
+2. `src/frontend/Dockerfile` — ba stage `deps` (`pnpm install --frozen-lockfile`) → `build` (`pnpm build`, **không biến
+   nào**) → `runner` (`NODE_ENV=production`, `HOSTNAME=0.0.0.0`, `PORT=3000`, user `app`, chép `public/`,
+   `.next/standalone/`, `.next/static/`, `HEALTHCHECK` gọi `/login`).
+3. `src/frontend/.dockerignore` — loại `node_modules`, `.next`, `e2e`, báo cáo Playwright, **`.env*`** (`.env.local` có thể
+   mang `SESSION_ENCRYPTION_KEY`), `*.key`, `*.pem`.
+4. Biến LÚC CHẠY của container (không có mặc định ở production — thiếu thì `/bff/*` báo lỗi nêu tên biến):
 
-const nextConfig: NextConfig = {
-  output: "standalone",   // E8: image chỉ mang file runtime cần — chạy `node server.js`, không cần pnpm trong image
-}
-
-export default nextConfig
-```
-
-```dockerfile
-# src/frontend/Dockerfile — context = src/frontend/. Build cho OCI Ampere: --platform linux/arm64 (AGENTS.md luật 8)
-FROM node:24-alpine AS deps
-WORKDIR /app
-RUN corepack enable
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
-RUN pnpm install --frozen-lockfile
-
-FROM node:24-alpine AS build
-WORKDIR /app
-RUN corepack enable
-COPY --from=deps /app/node_modules ./node_modules
-COPY . .
-# NEXT_PUBLIC_* bị NHÚNG lúc build. Đường dẫn tương đối → cùng origin với apache, một image cho mọi domain (Đ-E1).
-ARG NEXT_PUBLIC_API_BASE_URL=/api/v1
-ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL NEXT_TELEMETRY_DISABLED=1
-RUN pnpm build
-
-FROM node:24-alpine AS runner
-WORKDIR /app
-ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 HOSTNAME=0.0.0.0
-RUN addgroup -S app && adduser -S app -G app
-COPY --from=build --chown=app:app /app/public ./public
-COPY --from=build --chown=app:app /app/.next/standalone ./
-COPY --from=build --chown=app:app /app/.next/static ./.next/static
-USER app
-EXPOSE 3000
-HEALTHCHECK --interval=15s --timeout=3s --retries=3 CMD wget -qO- http://127.0.0.1:3000/login > /dev/null || exit 1
-CMD ["node", "server.js"]
-```
-
-```gitignore
-# src/frontend/.dockerignore
-node_modules
-.next
-e2e
-test-results
-playwright-report
-.env*
-!.env.example
-```
-
-- MSW không vào bundle — app không còn mock trình duyệt (đổi Đ-E7 2026-09-17); cổng CI grep `.next/static` giữ làm lưới.
-- Health check gọi `/login`, không gọi `/health`: apache chuyển `/health` về API (Đ-E11).
+   | Biến | Staging (compose) |
+   |---|---|
+   | `API_INTERNAL_URL` | `http://api:8080/api/v1` |
+   | `REDIS_URL` | `redis://redis:6379` |
+   | `APP_ORIGIN` | `https://mxh.banhgao.net` |
+   | `SESSION_ENCRYPTION_KEY` | `openssl rand -base64 32` — sinh riêng cho staging, chỉ nằm trong `.env` trên server |
+   | `TRUSTED_PROXY_HOPS` | `1` (Cloudflare → apache → Next) |
 
 ### Test
 
 | Test | Kỳ vọng |
 |---|---|
-| `docker buildx build --platform linux/arm64 -t socialapp-frontend:local --load src/frontend` | exit 0 (dưới QEMU chậm vài phút — bình thường) |
-| `docker run --rm -p 3000:3000 socialapp-frontend:local` rồi `curl.exe -s -o NUL -w "%{http_code}" http://localhost:3000/login` | `200` |
-| Sau `pnpm build`: `Select-String -Path .next\static\**\*.js -Pattern 'mockServiceWorker','localhost:5259' -List` | **không** dòng nào |
-| Build **không** đặt `NEXT_PUBLIC_API_BASE_URL` (bỏ `ARG` mặc định tạm thời) | `pnpm build` **đỏ**, thông điệp nêu tên biến (Đ-E1) — rồi khôi phục |
-| `Get-ChildItem app -Recurse -Directory -Filter api` | rỗng |
+| `docker buildx build --platform linux/arm64 -t socialapp-frontend:e8-arm64 --load src/frontend` | exit 0 |
+| `docker run` image arm64 (cổng khác 3000), biến trỏ `host.docker.internal` (API 5259, Redis 6379) | `docker inspect` báo `healthy`; tiến trình chạy user `app` |
+| `PLAYWRIGHT_BASE_URL=http://localhost:<cổng>` chạy `login-storage`, `csp`, `guard`, `smoke`, `register` trên container | xanh |
+| Container thiếu `SESSION_ENCRYPTION_KEY` | Container **dừng, exit 1**, log `[bff] Thiếu biến môi trường BFF … SESSION_ENCRYPTION_KEY` |
+| Image không chứa `.env*`, `e2e`, khóa | `docker run --rm --entrypoint sh <image> -c "ls -a"` không thấy |
 
 ### Cạm bẫy đã biết
 
 | # | Bẫy | Hệ quả | Chặn bằng |
 |---|---|---|---|
-| 1 | Quên chép `.next/static` vào runner | Trang lên nhưng không có CSS/JS — trắng trơn | Dòng `COPY … .next/static` |
-| 2 | Không đặt `HOSTNAME=0.0.0.0` | `server.js` chỉ nghe trong container, apache trên host không vào được | `ENV` ở stage runner |
-| 3 | `NEXT_PUBLIC_API_BASE_URL` là URL tuyệt đối của staging | Đổi domain là phải build lại; và build nhầm URL dev là staging gọi `localhost` của người dùng | Đường dẫn tương đối `/api/v1` |
-| 4 | Apache đặt `ProxyPass /` **trước** `/api` | Mọi request API rơi vào Next → 404 HTML, FE báo "không kết nối được" | File mẫu apache đã xếp `/api`, `/swagger`, `/health` trước — F1 giữ đúng thứ tự |
-| 5 | Thiếu `.npmrc` hoặc `pnpm-workspace.yaml` trong context | `COPY` lỗi, hoặc `pnpm install` chạy postinstall mà template đã chặn | Cả hai file có từ E1 và không bị `.dockerignore` loại |
+| 1 | Quên chép `.next/static` vào runner | HTML lên (200) nhưng mọi chunk JS/CSS 404 — trang không hydrate. **Healthcheck vẫn `healthy`** (đã thử) — chỉ Playwright trên image bắt được | Dòng `COPY … .next/static`; chạy Playwright trên image trước khi đẩy |
+| 2 | Không đặt `HOSTNAME=0.0.0.0` | Docker tự đặt `HOSTNAME` = ID container → `server.js` nghe trên IP container: cổng publish từ host **vẫn vào được** (đã thử), nhưng healthcheck gọi `127.0.0.1` hỏng → `unhealthy` | `ENV` ở stage runner |
+| 3 | Đưa cấu hình BFF vào lúc build (`ARG`/`NEXT_PUBLIC_*`) | Khóa mã hóa phiên nằm trong lớp image / bundle trình duyệt | Không có `ARG` nào; cổng CI bundle chặn tên biến server |
+| 4 | Apache đặt `ProxyPass /` **trước** `/api` | Mọi request API rơi vào Next → 404 HTML | File mẫu apache xếp `/api`, `/swagger`, `/health` trước — F1 giữ đúng thứ tự |
+| 5 | `frontend` không vào mạng `internal` của compose | BFF không tới được `api:8080` / `redis:6379` → đăng nhập 502/503 | Compose F1 |
+| 6 | Quên `ReverseProxy__TrustedNetworks__0` ở api | Không crash — mọi người dùng ăn chung một hạn mức 10 req/phút của `/auth/*` | Checklist F1 (hướng dẫn khối D) |
+| 7 | `TRUSTED_PROXY_HOPS=1` mà VM nhận traffic không qua Cloudflare | Người dùng tự khai IP qua `X-Forwarded-For` để vượt rate limit | Chỉ mở 443 cho dải IP Cloudflare (F1) |
+| 8 | Cấu hình BFF sai chỉ lỗi ở request `/bff` đầu tiên | Container khởi động, `healthy` — deploy trông thành công mà không ai đăng nhập được. Ném lỗi trong `instrumentation.register` **không đủ**: Next in "Failed to prepare server" rồi tiến trình vẫn sống (đã thử) | `instrumentation.ts` → `lib/bff/startup.ts` in lỗi rồi `process.exit(1)` |
+| 9 | `output: "standalone"` chép `*.test.js` nội bộ của Next vào `.next/standalone/node_modules` | `pnpm test` sau `pnpm build` đỏ 6 file (CI không lộ vì test chạy trước build) | `vitest.config.ts` loại `.next/**` |
 
-### Chuyển cho F1 — không làm trong khối E *(cần ghi ngược: B.8/F1)*
+### Thực tế thi công — 2026-09-17
 
-- [ ] `deploy-staging.yml`: thêm bước build + push `ghcr.io/ricecracker12/30inf067_btl/frontend:staging` (`context: src/frontend`,
+Bốn bước đã chạy. Những chỗ **khác** bản gốc của mục này, và những thứ chỉ lộ ra khi chạy thật:
+
+- **Thêm `instrumentation.ts` → `lib/bff/startup.ts` (không có trong kế hoạch).** Lượt đầu, container thiếu
+  `SESSION_ENCRYPTION_KEY` vẫn `healthy` và `/login` 200 — chỉ `/bff/*` trả 500. Thêm kiểm cấu hình lúc server khởi động;
+  ném lỗi trong `register` thì Next in "Failed to prepare server" mà tiến trình **vẫn sống**, nên phải `process.exit(1)`.
+  Giờ container thiếu biến dừng với exit 1, cùng nếp fail-fast của API. `next build` không gọi `register` — build vẫn
+  không cần biến nào; dev có mặc định nên không bao giờ thoát.
+- **`ioredis` không có trong `.next/standalone/node_modules`** — Turbopack gói thẳng vào chunk server; container nối
+  Redis thật chạy đúng, không phải thiếu.
+- **Healthcheck chỉ là "sống và render được":** bỏ `COPY .next/static` mà container vẫn `healthy` (chunk 404) — Playwright
+  trên image là cổng thật (bẫy 1). Bỏ `HOSTNAME=0.0.0.0` thì cổng publish vẫn vào được, chỉ healthcheck `unhealthy` —
+  bản gốc ghi "apache không vào được" là sai (bẫy 2).
+- **Vitest quét trúng `*.test.js` của Next trong `.next/standalone`** sau khi build — loại `.next/**` (bẫy 9).
+- **Kiểm trên image arm64 chạy dưới giả lập QEMU** (máy dev x86_64): cùng image sẽ đẩy lên staging, không phải bản amd64
+  build riêng. Build lần đầu ~5 phút (`pnpm build` trong image ~145 giây); lần sau dùng cache stage `deps`.
+- Container nối API dev (`dotnet run` 5259) và Redis compose qua `host.docker.internal` — cả hai tới được dù API chỉ nghe
+  `localhost` trên Windows (Docker Desktop chuyển tiếp).
+
+**Bằng chứng.**
+
+| Cổng | Kết quả |
+|---|---|
+| `docker buildx build --platform linux/arm64` | exit 0; image `linux/arm64` **72 MB**, `User=app` (uid 100) |
+| `ls -a /app` trong image | chỉ `.next`, `node_modules`, `public`, `package.json`, `server.js` — không `.env*`, `e2e`, khóa |
+| `docker run` đủ biến | `healthy`; `/login` 200 kèm CSP production có nonce, HSTS, `X-Frame-Options: DENY`; `/bff/auth/session` 200 qua Redis |
+| `docker run` thiếu `SESSION_ENCRYPTION_KEY` | **exited, exit 1**, log nêu tên biến |
+| Playwright trên container arm64 (`PLAYWRIGHT_BASE_URL=http://localhost:3002`, Chrome 152.0.7977.84) | **10/10**: `login-storage` (không lộ JWT, CSRF 403), `csp` (3 ca), `guard` (2 ca), `register`, `smoke` (2 ca) — chạy lại sau khi thêm `instrumentation.ts`: vẫn 10/10 |
+| `pnpm test` / `lint` / `typecheck` / `build` | 241/241 (thêm `startup.test.ts` 3 ca); xanh; bundle trình duyệt sạch |
+
+Thử cho đỏ trên image thật (mỗi lần build lại stage cuối, chạy, khôi phục Dockerfile — `cmp` khớp bản gốc):
+
+| Đột biến | Quan sát |
+|---|---|
+| Bỏ `COPY .next/static` | `healthy`, `/login` 200, chunk JS **404** — healthcheck không bắt, Playwright bắt |
+| Bỏ `HOSTNAME=0.0.0.0` | **`unhealthy`**; `/login` qua cổng publish vẫn 200 |
+| Đối chứng: Dockerfile đúng | `healthy`, `/login` 200, chunk 200 |
+| `register` chỉ `throw`, không `process.exit` (bản đầu) | tiến trình sống tiếp (`timeout` phải giết, exit 124) |
+| `startup.ts` không thoát (Vitest) | `startup.test.ts` "THOÁT mã 1" đỏ |
+
+
+### Chuyển cho F1 — không làm trong khối E *(đã ghi ngược `giai-doan-1.md` B.8/F1)*
+
+- [ ] `deploy-staging.yml`: build + push `ghcr.io/ricecracker12/30inf067_btl/frontend:staging` (`context: src/frontend`,
       `platforms: linux/arm64`).
-- [ ] `docker-compose.staging.apache.yml`: service `frontend`, `image` như trên, `ports: ["127.0.0.1:3000:3000"]`,
-      `restart: unless-stopped`. Biến thể Caddy thì thêm `reverse_proxy /api/* /health/* /swagger* api:8080` trước
-      `reverse_proxy frontend:3000`.
+- [ ] `docker-compose.staging.apache.yml`: service `frontend` — `image` như trên, `restart: unless-stopped`,
+      `ports: ["127.0.0.1:3000:3000"]`, `networks: [internal]`, `env_file: [./.env]`, `depends_on: api, redis`.
+      Biến thể Caddy: `reverse_proxy /api/* /health/* /swagger* api:8080` trước `reverse_proxy frontend:3000`.
+- [ ] `.env` staging: `API_INTERNAL_URL=http://api:8080/api/v1`, `REDIS_URL=redis://redis:6379`,
+      `APP_ORIGIN=https://mxh.banhgao.net`, `SESSION_ENCRYPTION_KEY=<openssl rand -base64 32>`, `TRUSTED_PROXY_HOPS=1`;
+      api: `ReverseProxy__TrustedNetworks__0=<CIDR mạng internal>` (`docker network inspect <project>_internal`).
+      `Frontend__BaseUrl` và `Cors__AllowedOrigins__0` giữ `https://mxh.banhgao.net`.
 - [ ] Apache trên VM: bỏ comment `ProxyPass / http://127.0.0.1:3000/` + `ProxyPassReverse`, **giữ sau** ba khối API.
-- [ ] Sau deploy: `https://mxh.banhgao.net/login` 200; `https://mxh.banhgao.net/api/v1/ping` vẫn trả JSON của API; `.env` staging đã có
-      `Frontend__BaseUrl=https://mxh.banhgao.net` và `Cors__AllowedOrigins__0=https://mxh.banhgao.net` (không đổi).
+      VM chỉ nhận 443 từ dải IP Cloudflare (bẫy 7).
+- [ ] Sau deploy: `https://mxh.banhgao.net/login` 200 kèm header `Content-Security-Policy` có nonce;
+      `https://mxh.banhgao.net/api/v1/ping` vẫn JSON của API; đăng nhập từ trình duyệt → tab Network không có
+      `Authorization`; đăng nhập sai 11 lần từ máy A → 429, máy B vẫn đăng nhập được.
 
 ---
 
@@ -2233,7 +2254,7 @@ playwright-report
 
 - [x] Mật khẩu `'ệ'.repeat(25)` gửi thẳng API dev → 400 `errors.password` đúng câu client hiện (E3 — bảng đối chiếu ở
       "Thực tế thi công" Mục 5)
-- [ ] `docker run` image FE → `/login` 200 (E8)
+- [x] `docker run` image FE → `/login` 200 (E8 — image arm64, Playwright 10/10 trên container, 2026-09-17)
 
 **Code review — không test tự động nào bắt được**
 

@@ -40,8 +40,9 @@ Chi tiết GĐ1:
     E5 (màn xác minh email), E6 (guard phía client + trang `/me` + đăng xuất),
     E7 (tự refresh khi 401, single-flight), đổi sang **BFF**: trình duyệt không bao giờ cầm JWT — Next server giữ token
     trong Redis, trình duyệt chỉ có cookie phiên HttpOnly (Đ-E14)
-  - còn lại: E8 đóng gói FE cho staging
-- **Chưa làm:** ráp FE lên staging (F1–F3). Vì vậy **staging hiện chỉ có API**, chưa có giao diện (xem [Mục 7](#7-staging-xem-sản-phẩm-trên-internet)).
+  - E8: image frontend `linux/arm64` (Next standalone + BFF) — `src/frontend/Dockerfile`
+- **Chưa làm:** ráp FE lên staging (F1–F3: CD build image frontend, compose, apache, biến `.env`). Vì vậy **staging hiện chỉ
+  có API**, chưa có giao diện (xem [Mục 7](#7-staging-xem-sản-phẩm-trên-internet)).
 
 ---
 
@@ -370,7 +371,7 @@ cd src/frontend && pnpm gen:api     # sinh lại lib/api/schema.d.ts từ yaml, 
 | https://mxh.banhgao.net/swagger | Swagger UI của API staging. **Đây là cách chính để thử sản phẩm lúc này** |
 | https://mxh.banhgao.net/api/v1/ping | `pong`, kiểm tra API sống |
 | https://mxh.banhgao.net/health/ready | `Healthy` khi Postgres + Redis thông |
-| https://mxh.banhgao.net/ | **Chưa có giao diện**: vẫn là trang mặc định của apache. Frontend lên staging ở E8 + F1 của GĐ1 |
+| https://mxh.banhgao.net/ | **Chưa có giao diện**: vẫn là trang mặc định của apache. Image frontend đã có (E8); lên staging ở F1 của GĐ1 |
 
 ### 7.1. Thử luồng GĐ1 trên staging
 
@@ -594,7 +595,8 @@ Repo được index bởi GitNexus để phân tích tác động trước khi s
 | Integration test lỗi `Docker is either not running…` | Bật Docker Desktop |
 | `pnpm` sai phiên bản / lockfile lỗi | `corepack enable` rồi `pnpm install`. Không dùng `npm install` |
 | Không thấy mail xác minh (dev) | Mailpit chưa bật: `docker compose -f deploy/docker-compose.dev.yml up -d mailpit` |
-| Staging `/login` 404, `/` là trang apache | Bình thường ở thời điểm này: FE chưa deploy (E8/F1) |
+| Staging `/login` 404, `/` là trang apache | Bình thường ở thời điểm này: FE chưa deploy (F1) |
+| Container frontend dừng ngay, exit 1 | Thiếu / sai biến BFF — `docker logs` có dòng `[bff] …` nêu tên biến (`src/frontend/.env.example`) |
 
 ---
 

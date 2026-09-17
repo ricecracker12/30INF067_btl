@@ -22,6 +22,9 @@ const securityHeaders = [
 ]
 
 const nextConfig: NextConfig = {
+  // E8: `.next/standalone` chỉ mang file runtime cần (server.js + node_modules đã lọc) — image không cần pnpm, không cần
+  // devDependencies.
+  output: "standalone",
   // Không quảng cáo "X-Powered-By: Next.js" — bớt thông tin cho người dò phiên bản có lỗ hổng.
   poweredByHeader: false,
   headers() {
