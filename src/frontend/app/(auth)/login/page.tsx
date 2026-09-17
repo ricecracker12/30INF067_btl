@@ -1,4 +1,5 @@
-import { Button } from "@/components/ui/button"
+import { Suspense } from "react"
+
 import {
   Card,
   CardContent,
@@ -6,10 +7,12 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { TextField } from "@/components/form/text-field"
+import { Skeleton } from "@/components/ui/skeleton"
+import { LoginForm } from "@/features/auth/login-form"
 
-// E1: khung tĩnh — chưa gọi API, chưa validate. E4 thay bằng
-// features/auth/login-form.tsx (client component) và giữ nguyên khung này.
+// Chỉ ráp (Đ-E13). `LoginForm` đọc `useSearchParams` (lấy `?next=`) nên PHẢI nằm trong <Suspense>:
+// thiếu thì `next build` báo lỗi prerender và cả trang bị đẩy về render phía client. Khung Card vẫn
+// prerender được; chỉ form chờ tới lúc hydrate.
 export default function LoginPage() {
   return (
     <Card>
@@ -20,23 +23,20 @@ export default function LoginPage() {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <form className="flex flex-col gap-6">
-          <TextField
-            label="Email"
-            name="email"
-            type="email"
-            autoComplete="email"
-            placeholder="ban@vidu.com"
-          />
-          <TextField
-            label="Mật khẩu"
-            name="password"
-            type="password"
-            autoComplete="current-password"
-          />
-          <Button type="submit">Đăng nhập</Button>
-        </form>
+        <Suspense fallback={<LoginFormSkeleton />}>
+          <LoginForm />
+        </Suspense>
       </CardContent>
     </Card>
+  )
+}
+
+function LoginFormSkeleton() {
+  return (
+    <div className="flex flex-col gap-6" aria-hidden>
+      <Skeleton className="h-14" />
+      <Skeleton className="h-14" />
+      <Skeleton className="h-9" />
+    </div>
   )
 }

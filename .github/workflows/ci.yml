@@ -122,10 +122,8 @@ jobs:
           NEXT_PUBLIC_API_BASE_URL: /api/v1
 
       # CONG BUNDLE: bundle production KHONG duoc chua MSW, cung khong duoc chua URL API dev.
-      # Gac `import('@/mocks/browser')` bang mot minh co NEXT_PUBLIC_API_MOCKING la KHONG du --
-      # Turbopack van sinh chunk dong (~285 KB co ca setupWorker) va chunk do di theo image staging.
-      # Dieu kien NODE_ENV o app/providers.tsx moi la thu bundler gap duoc thanh hang false. Cong nay
-      # canh dung cho ai sau nay "don dep" dieu kien do. Chi tiet: "Thuc te thi cong" cua E2.
+      # Tu 2026-09-17 app khong con mock trinh duyet (doi D-E7) -- MSW chi o Vitest. Cong giu lai lam
+      # luoi an toan: service worker MSW hoac base URL dev lot vao ban build staging thi do.
       - name: Bundle production sach MSW (CI GATE)
         run: |
           hits=$(grep -rlE "mockServiceWorker|setupWorker|localhost:5259" .next/static || true)

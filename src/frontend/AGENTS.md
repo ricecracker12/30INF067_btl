@@ -56,12 +56,8 @@ không phải phong cách. Chi tiết và lý do ở
 - **pnpm, ghim chính xác** (Đ-E9): không `npm`/`yarn`, không `^`/`~` trong `package.json`.
 - **`@types/node` luôn cùng major với `.nvmrc`.** Đổi bản Node thì đổi cả hai trong một commit — để
   lệch là kiểu của một bản Node khác bản đang chạy. Hiện tại: Node **24** (đổi Đ-E9 ngày 2026-09-17).
-- **Nâng `msw` thì chạy lại `pnpm exec msw init public --save`** và commit `public/mockServiceWorker.js`
-  cùng lúc. File worker ghim bản riêng; lệch bản thì MSW chỉ cảnh báo trong console lúc chạy, không
-  cổng nào bắt (cố ý: test Vitest dùng `msw/node`, không đụng tới file này).
 - **`lib/api/schema.d.ts` là file sinh** (`pnpm gen:api` từ `identity-v1.yaml`) — sửa tay là cổng CI
   codegen đỏ. Kiểu cho payload API lấy từ `lib/api/types.ts`, không tự khai lại (Đ-E2, Mục 7 của
   `frontend-rules.md`).
-- **Mock MSW chỉ chạy ở `next dev`** và chỉ khi `NEXT_PUBLIC_API_MOCKING=enabled` — hai điều kiện, vì
-  một mình cờ mocking không đủ để Turbopack cắt MSW khỏi bundle production. Đổi chỗ gác `import()`
-  trong `app/providers.tsx` thì đọc "Thực tế thi công" của E2 trước.
+- **Không có mock trình duyệt** (đổi Đ-E7 ngày 2026-09-17): dev chạy đủ FE + BE. MSW chỉ dùng trong
+  Vitest (`msw/node`); code app không import `@/mocks/*`.

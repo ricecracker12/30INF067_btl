@@ -14,7 +14,7 @@
 > `D4` (`a8ce2a2`, CI xanh — run 34843657708), `D5` (`166165f`, CI xanh — run 34858791751), `D6` (`ef50aec`, CI xanh — run
 > 34864425653), `D8` (`f9416ca`, CI xanh — run 34873308602), `D9` (`2d46952`, CI xanh — run 34878658324), `D11` (`14e843f`, CI xanh — run 34881815337).
 > `D10` làm cùng mỗi controller (attribute có ngay trong commit tạo `AuthController`/`MeController`). Còn lại: kiểm tay
-> ở checklist Mục 15 (ảnh Mailpit dev, psql, DevTools từ `localhost:3000` cần lane FE) và việc chuyển cho F1 — staging
+> ở checklist Mục 15 (ảnh Mailpit dev, psql; mục cookie từ `localhost:3000` đã đóng ở E4) và việc chuyển cho F1 — staging
 > gửi mail qua Brevo (Đ-D9, chốt lại 2026-09-15).** Khối A, B, C đã xong
 > (commit `105077c` → `2d25ae6`, merge ở `455b597`).
 
@@ -1011,7 +1011,8 @@ của cổng mở. Thiếu một trong hai là `E7` không kiểm chứng đư�
   `StartupConfigurationTests.Missing_cors_origins_must_fail_fast_outside_development`.
 - Helper `StartupConfigurationTests.StagingWithEmailConfig` (thêm ở `D1`) đặt thêm `Cors:AllowedOrigins:0` — không thì
   `Staging_boots_when_email_config_is_complete` đỏ ngay khi fail-fast CORS vào.
-- Kiểm tay trong PR: ảnh DevTools tab Application → Cookies khi FE `localhost:3000` gọi API dev.
+- Kiểm trên trình duyệt khi FE `localhost:3000` gọi API dev: `e2e/login-storage.spec.ts` của E4 (thay ảnh DevTools — lệch ghi ở
+  "Thực tế thi công" của E4 trong `huong-dan-khoi-e-frontend.md`).
 
 ### Các bước
 
@@ -1142,7 +1143,7 @@ Thử cho đỏ ở local rồi khôi phục:
   - origin **sai dạng** (`/` cuối, có path, thiếu scheme) cũng từ chối khởi động ở mọi môi trường, vì lệch một ký tự là không
     bao giờ khớp mà không lỗi nào báo;
   - `CorsTests` chạy trên `ApiFactory`, không cần DB.
-- Kiểm tay DevTools từ `localhost:3000` cần lane FE có màn đăng nhập — vẫn để ở checklist Mục 15.
+- Kiểm trên trình duyệt từ `localhost:3000` cần lane FE có màn đăng nhập — để ở checklist Mục 15, E4 đóng bằng Playwright.
 
 ---
 
@@ -2068,8 +2069,8 @@ che nhau), khôi phục bằng `git checkout -- <file>` và kiểm `git status` 
 - [ ] Dev: đăng ký → mail hiện trong Mailpit `http://localhost:8025` (ảnh chụp)
 - [ ] psql: một dòng `users.password_hash` có cost 12; `refresh_tokens.token_hash` và
       `email_verification_tokens.token_hash` là 64 hex, không khớp giá trị cookie/link (Mục 12)
-- [ ] DevTools từ `localhost:3000`: cookie `refresh_token` có `HttpOnly`, `Secure`, `SameSite=Lax`,
-      `Path=/api/v1/auth`; preflight không lỗi (ảnh chụp) — cần lane FE có ít nhất màn đăng nhập
+- [x] Từ `localhost:3000`: cookie `refresh_token` có `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/api/v1/auth`; preflight
+      không lỗi — đóng ở E4 bằng `e2e/login-storage.spec.ts` (Playwright, API dev), **không** chụp ảnh DevTools
 
 **Code review — không test tự động nào bắt được**
 

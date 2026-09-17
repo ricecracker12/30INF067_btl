@@ -10,7 +10,7 @@ import { mockControls } from "@/mocks/session"
 // test trước còn lại, `getByLabelText` thấy hai phần tử và đỏ vô cớ.
 afterEach(cleanup)
 
-// Cùng bộ handler với trình duyệt (Đ-E7). `onUnhandledRequest: 'error'` để gõ sai path là đỏ ngay,
+// Handler ở mocks/ (Đ-E7). `onUnhandledRequest: 'error'` để gõ sai path là đỏ ngay,
 // thay vì test lặng lẽ đi ra mạng thật.
 beforeAll(() => {
   server.listen({ onUnhandledRequest: "error" })

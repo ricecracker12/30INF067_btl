@@ -37,7 +37,6 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // File sinh tự động — không lint (E2, Đ-E7).
     "lib/api/schema.d.ts",
-    "public/mockServiceWorker.js",
   ]),
   {
     files: ["**/*.{ts,tsx}"],

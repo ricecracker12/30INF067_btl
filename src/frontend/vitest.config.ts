@@ -20,7 +20,6 @@ export default defineConfig({
     // Ca riêng cần env khác thì dùng `vi.stubEnv` trong chính test đó (xem lib/api/config.test.ts).
     env: {
       NEXT_PUBLIC_API_BASE_URL: "http://localhost:5259/api/v1",
-      NEXT_PUBLIC_API_MOCKING: "",
     },
     setupFiles: ["test/setup.ts"],
     // e2e/ là Playwright (`pnpm test:e2e`), không phải Vitest.

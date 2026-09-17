@@ -33,10 +33,7 @@ const validationResponse = (errors: Record<string, string[]>) =>
 const EXPIRED_TOKEN = "a".repeat(64)
 const BAD_TOKEN = "b".repeat(64)
 
-/**
- * Kịch bản chọn bằng DỮ LIỆU NHẬP, không bằng cờ ẩn — ai mở màn cũng tái hiện được, và thứ tái
- * hiện được thì dán được vào PR.
- */
+/** Kịch bản chọn bằng DỮ LIỆU NHẬP, không bằng cờ ẩn — test đọc là thấy nhánh nào đang chạy. */
 const SCENARIO_EMAILS = {
   daTonTai: "trung@example.com",
   loi400: "loi400@example.com",

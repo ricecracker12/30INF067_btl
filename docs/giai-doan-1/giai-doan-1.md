@@ -2133,7 +2133,8 @@ liệu seed thật. Nguồn quyền giả chỉ còn trong unit test.
 ### F2 — Frontend bỏ mock, trỏ staging thật
 
 - **Mục tiêu:** đóng rủi ro "mock trôi xa khỏi hiện thực" — xanh trên mock, đỏ trên staging.
-- **Cách thực thi:** tắt MSW, trỏ base URL sang domain HTTPS thật.
+- **Cách thực thi:** tắt MSW, trỏ base URL sang domain HTTPS thật. *(2026-09-17: mock trình duyệt đã gỡ khỏi FE — đổi
+  Đ-E7 trong `huong-dan-khoi-e-frontend.md`; F2 chỉ còn phần trỏ base URL.)*
 - **Xong là:** ba màn auth chạy trên dữ liệu thật. **Không giai đoạn nào được nghiệm thu trên mock.**
 - **Chặn / Cần:** cần F1, E.
 

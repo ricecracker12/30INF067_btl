@@ -118,22 +118,21 @@ Bốn tầng, phụ thuộc **một chiều**: `app/` → `features/` → `compo
 - Module mới (GĐ2+): thêm script `gen:api:<module>` ra `lib/api/<module>/schema.d.ts`. Không đổi
   version `openapi-typescript` kèm theo việc khác — đổi version là đổi file sinh ra.
 
-## 8. Mock MSW (Đ-E7)
+## 8. MSW chỉ trong Vitest (Đ-E7, đổi 2026-09-17)
 
-- Mặc định dev dùng **API thật**. Mock bật khi `NEXT_PUBLIC_API_MOCKING=enabled` **và** đang chạy
-  `next dev` — hai điều kiện, gác ngay tại chỗ `import()` động. Chỉ cờ mocking là **không đủ**:
-  Turbopack vẫn để lại chunk MSW trong `.next/static` của bản production (đo được ở E2).
+- **Không có mock trình duyệt.** Dev luôn chạy đủ FE + BE; không cờ `NEXT_PUBLIC_API_MOCKING`, không
+  `public/mockServiceWorker.js`, code app (`app/`, `features/`, `components/`, `lib/`) **không** import `@/mocks/*`.
+- `mocks/` chỉ phục vụ Vitest qua `msw/node` (`test/setup.ts`) — để **tái hiện nhánh lỗi khó tạo thật**
+  (423, 410, 429, 500) và ghi lại request (`credentials`, bearer, single-flight).
 - Fixture chép **giá trị** từ `example` của hợp đồng và gắn kiểu bằng `satisfies` — hợp đồng đổi hình
   dạng thì mock đỏ compile. Không parse yaml lúc chạy.
-- Mock tồn tại chủ yếu để **tái hiện nhánh lỗi khó tạo thật** (423, 410, 429, 500) và để dựng màn khi
-  không muốn chạy backend. Cùng bộ handler dùng cho Vitest qua `msw/node`.
 - **Cấm nghiệm thu trên mock.** Cổng đóng phải trỏ API thật.
 
 ## 9. Test (Đ-E8)
 
 | Công cụ | Kiểm | Chạy ở |
 |---|---|---|
-| Vitest + Testing Library + `msw/node` | validation, `ApiError`, client (`credentials`, bearer), single-flight trong tab, form trên mock, type | local + **CI** |
+| Vitest + Testing Library + `msw/node` | validation, `ApiError`, client (`credentials`, bearer), single-flight trong tab, form (nhánh lỗi qua `msw/node`), type | local + **CI** |
 | Playwright (Chrome đã cài, `channel: "chrome"`) | guard, không token trong Web Storage, 3 tab một refresh, lượt E2E trên dev | local, **`workers: 1`** (rate limit theo IP) |
 
 - Playwright **không vào CI ở GĐ1** (cần API + Postgres + Redis + Mailpit chạy). Kết quả chạy local

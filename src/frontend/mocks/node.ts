@@ -2,5 +2,5 @@ import { setupServer } from "msw/node"
 
 import { handlers } from "./handlers"
 
-// Dùng cho Vitest — cùng bộ handler với trình duyệt, để mock không trôi khỏi test.
+// Chỉ dùng cho Vitest — dev không có mock trình duyệt (đổi Đ-E7 ngày 2026-09-17).
 export const server = setupServer(...handlers)

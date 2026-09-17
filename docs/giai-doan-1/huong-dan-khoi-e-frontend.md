@@ -8,7 +8,9 @@
 > Chỗ nào tài liệu này lệch ba nguồn đó thì sửa ở đây — trừ các quyết định ở Mục 1 đánh dấu **"cần ghi ngược"**: tài
 > liệu gốc đang thiếu hoặc mâu thuẫn ở những chỗ đó, phải sửa `giai-doan-1.md` trong cùng commit với việc tương ứng.
 
-> **Trạng thái: E1 + E2 xong và đã rà lại, E4 là việc tiếp theo (cập nhật 2026-09-17)** — `src/frontend/` dựng bằng preset
+> **Trạng thái: E1 + E2 + E4 xong, E3 là việc tiếp theo (cập nhật 2026-09-17)** — E4: màn `/login` chạy trên API dev
+> thật, **Vitest 67/67**, **Playwright 3/3** (có `login-storage.spec.ts`), thử cho đỏ 10 đột biến + 1 đột biến E2E; chỗ lệch ở
+> "Thực tế thi công" của Mục 4. Phần dưới là trạng thái lúc xong E1 + E2 — `src/frontend/` dựng bằng preset
 > **`b50KEhMiu`** (thay `b2C6hQKDg`, lý do ở Đ-E9). `pnpm lint`, `typecheck`, `test`, `build` xanh; **Vitest 28/28**;
 > **Playwright 2/2** trên Chrome đã cài, cả lượt bật mock lẫn lượt không mock; `lib/api/schema.d.ts` sinh từ hợp đồng;
 > job `frontend` trong `ci.yml` có **hai cổng** (codegen, bundle sạch MSW). Đã thử cho đỏ: sáu luật ESLint, hai cổng CI,
@@ -32,7 +34,7 @@
 |---|---|---|---|
 | **E1** | Scaffold Next.js 16 + shadcn/ui preset `b50KEhMiu` | Có nền để dựng màn, và bộ primitive dùng lại cho GĐ2–GĐ8 lấy từ **một** kit — dựng màn trước thì mỗi màn một kiểu | `src/frontend/` sinh bằng `shadcn init --preset b50KEhMiu --template next`, không repo lồng; `pnpm dev`/`lint`/`typecheck`/`build` xanh; kit `button input label field alert card skeleton spinner sonner`; composite `TextField`; font có subset `vietnamese`; ESLint chặn màu thô, import Base UI trực tiếp, icon ngoài lucide (đã thử cho đỏ); layout `(auth)` dùng kit |
 | **E2** | Sinh type từ hợp đồng + api client + mock MSW | Biến "đổi hợp đồng mà quên sửa FE" thành **lỗi compile** trên máy và **đỏ CI**, thay vì lỗi runtime ở staging | `pnpm gen:api` sinh `lib/api/schema.d.ts` (commit vào repo); type test `RoleCode` = `'USER' \| 'MODERATOR' \| 'ADMIN'`; `fetch` chỉ xuất hiện trong `http.ts` (ESLint chặn); mọi lời gọi `credentials: 'include'` (unit test); `ApiError` đọc được Problem Details kể cả khi body không phải JSON; job CI `frontend` có cổng **codegen lệch → đỏ** (đã thử cho đỏ một lần) |
-| **E3** | Màn đăng ký | FR-001 phía người dùng; validation client **không chặt hơn** server, riêng mật khẩu **khớp đúng** | `/register` trên mock: 201 → `/register/check-email`; 400 hiện lỗi **theo trường** từ `errors`; 409 có thông điệp + link đăng nhập; 429/500/mất mạng có giao diện. Unit test bảng ngưỡng mật khẩu: 7 ký tự đỏ, 8 xanh, 72 byte xanh, 73 byte đỏ, chuỗi tiếng Việt 40 ký tự > 72 byte đỏ |
+| **E3** | Màn đăng ký | FR-001 phía người dùng; validation client **không chặt hơn** server, riêng mật khẩu **khớp đúng** | `/register` trên API dev (nhánh lỗi dựng bằng Vitest + `msw/node`): 201 → `/register/check-email`; 400 hiện lỗi **theo trường** từ `errors`; 409 có thông điệp + link đăng nhập; 429/500/mất mạng có giao diện. Unit test bảng ngưỡng mật khẩu: 7 ký tự đỏ, 8 xanh, 72 byte xanh, 73 byte đỏ, chuỗi tiếng Việt 40 ký tự > 72 byte đỏ |
 | **E4** | Màn đăng nhập | Dịch mã lỗi thành thông điệp người đọc hiểu **mà không lộ email có tồn tại hay không**; token chỉ ở memory | `/login` trên mock: 401/403/423/429 mỗi mã một thông điệp (401 **một** thông điệp duy nhất); 200 → về `next` (đã lọc open redirect) hoặc `/me`; ESLint cấm `localStorage`/`sessionStorage`; Playwright trên API dev: sau đăng nhập `localStorage` + `sessionStorage` rỗng, `document.cookie` không có `refresh_token` |
 | **E5** | Màn xác minh email | Khép vòng đăng ký từ link trong mail | `/verify-email?token=…` có 3 trạng thái thành công / 400 / 410 (+ đang xử lý); token sai dạng → 400 **không gọi API**; dưới React StrictMode chỉ **một** `POST /auth/verify-email` (unit test đếm request); trên dev: bấm link trong Mailpit → 200 |
 | **E6** | App shell + route guard + trang `/me` | Có khu vực cần đăng nhập để E7 có chỗ chứng minh tác dụng | Guard **phía client** (không `proxy.ts`); vào `/me` khi chưa đăng nhập → về `/login?next=%2Fme`, **không nháy nội dung**; tải lại trang khi còn phiên → khôi phục bằng một lần refresh; `/me` hiện `roleDisplayName`, không hiện `role`; nút Đăng xuất → 204 → về `/login`. Playwright xanh cho cả ba |
@@ -85,8 +87,8 @@ dotnet run --project src/backend/SocialApp.Api          # API dev: http://localh
 3. **Docs sống cùng code** — lệch thì sửa cùng commit; cập nhật `README.md` mục trạng thái khi khối xong (`AGENTS.md` 14.7).
 4. **Trước mỗi commit:** `node .gitnexus/run.cjs detect-changes --scope all --repo .` (`CLAUDE.md`). Sửa file dùng chung
    ngoài `src/frontend/` (`ci.yml`, `giai-doan-1.md`) thì đọc kỹ phần báo cáo.
-5. **Không nghiệm thu trên mock** (Mục 12). Mock để dựng màn và dựng các nhánh lỗi khó tái hiện; "xong" của E3–E7 luôn
-   có một lượt trên API dev thật, và cổng đóng F2 là trên staging.
+5. **Không nghiệm thu trên mock** (Mục 12). Dev chạy đủ FE + BE (không còn mock trình duyệt — đổi Đ-E7); mock chỉ dựng nhánh
+   lỗi khó tái hiện trong Vitest. "Xong" của E3–E7 luôn có một lượt trên API dev thật, và cổng đóng F2 là trên staging.
 
 ### Mười ba quyết định đã chốt
 
@@ -100,8 +102,8 @@ Tài liệu gốc chưa nói đủ để gõ code ở những chỗ dưới đâ
 | Staging | `https://mxh.banhgao.net` (E8 + F1) | `/api/v1` (tương đối, nhúng lúc build) | Cùng origin — apache định tuyến `/api` về API, `/` về FE |
 
 - **Không dùng `rewrites` proxy ở dev.** Proxy làm mọi thứ cùng origin nên CORS + `credentials: 'include'` — quyết định 7 của
-  hợp đồng — không bao giờ được thử trên trình duyệt trước cổng đóng; và checklist khối D (Mục 15) chờ ảnh DevTools preflight
-  từ `localhost:3000`.
+  hợp đồng — không bao giờ được thử trên trình duyệt trước cổng đóng; và checklist khối D (Mục 15) chờ bằng chứng cookie +
+  preflight từ `localhost:3000` (E4 đóng bằng `login-storage.spec.ts`).
 - **Cấm FE local trỏ API staging.** `localhost` → `mxh.banhgao.net` là **khác site** → `SameSite=Lax` chặn cookie trên `fetch`
   → refresh luôn 401, không lỗi nào nói lý do (hướng dẫn D, D4 bẫy 4).
 - Build production **thiếu** biến → `next build` ném lỗi nêu tên biến (cùng tinh thần "thiếu cấu hình = từ chối chạy").
@@ -163,6 +165,17 @@ Tài liệu gốc chưa nói đủ để gõ code ở những chỗ dưới đâ
 
 **Đ-E7 — MSW là tùy chọn bật tay; mặc định dev dùng API thật.**
 
+> **Đổi Đ-E7 (2026-09-17, nhóm chốt): gỡ mock trình duyệt, MSW chỉ còn trong Vitest.** Nhóm chạy app đầy đủ FE + BE ở mọi
+> lượt dựng màn — khối D đã xong nên backend dev luôn sẵn, và chế độ mock chỉ để lại một đường chạy thứ hai phải giữ cho
+> khớp (điều kiện `NODE_ENV` + cờ ở hai chỗ trong `providers.tsx`, lượt Playwright bật mock, cảnh báo script tag phải bỏ
+> qua trong smoke test). Đã gỡ: cờ `NEXT_PUBLIC_API_MOCKING`, `mocks/browser.ts`, `public/mockServiceWorker.js`, khối
+> `msw.workerDirectory` trong `package.json`, nhánh bật mock của `providers.tsx` và hai spec e2e; `mocks/session.ts` nhớ
+> phiên giả **trong bộ nhớ** (bỏ `sessionStorage` — mất luôn ngoại lệ Đ-E2 duy nhất). **Giữ nguyên:** gói `msw`,
+> `mocks/fixtures.ts` + `handlers.ts` + `node.ts` cho Vitest — nhánh 423/410/429/500 vẫn dựng bằng `msw/node`; cổng CI
+> "bundle sạch MSW" giữ làm lưới an toàn. Nhánh lỗi khó tạo trên màn thật (423 cần 5 lần sai…) thì kiểm bằng Vitest, hoặc
+> tái hiện tay trên API dev. Các gạch dưới đây là quyết định **gốc**, giữ để truy nguồn; mục "Thực tế thi công" của E2/E4 là
+> lịch sử lúc còn mock.
+
 - `NEXT_PUBLIC_API_MOCKING=enabled` mới khởi động service worker, qua `import()` động nên bundle production không chứa MSW.
   Không bật → gọi API dev thật (khối D đã xong nên đây là chế độ mặc định).
 - Mock tồn tại vì hai lý do còn nguyên giá trị: dựng màn khi không muốn chạy backend, và **tái hiện nhánh lỗi khó tạo trên API
@@ -176,7 +189,7 @@ Tài liệu gốc chưa nói đủ để gõ code ở những chỗ dưới đâ
 
 | Công cụ | Kiểm | Chạy ở |
 |---|---|---|
-| Vitest + Testing Library + MSW node + `expectTypeOf` | validation, `ApiError`, client (`credentials`, bearer), single-flight trong tab + điều phối giữa tab (qua adapter giả), form E3–E5 trên mock, type `RoleCode` | local + **CI** |
+| Vitest + Testing Library + MSW node + `expectTypeOf` | validation, `ApiError`, client (`credentials`, bearer), single-flight trong tab + điều phối giữa tab (qua adapter giả), form E3–E5 (nhánh lỗi qua `msw/node`), type `RoleCode` | local + **CI** |
 | Playwright (Chromium) | guard E6, không token trong Web Storage (E4), E2E-02 ba tab (E7), lượt E2E-01 trên dev (đọc link qua API REST của Mailpit) | local, **`workers: 1`** (rate limit theo IP); F3/F4 chạy lại trên staging bằng `BASE_URL` |
 
 - Playwright **không vào CI ở GĐ1**: nó cần API + Postgres + Redis + Mailpit chạy. Kết quả chạy local dán vào PR — cùng nếp "kiểm
@@ -220,7 +233,7 @@ Tài liệu gốc chưa nói đủ để gõ code ở những chỗ dưới đâ
 | `shadcn` | bản do template sinh, ghim chính xác | Mọi `shadcn add` chạy bằng **bản ghim này** (`pnpm exec shadcn`), không `dlx @latest` (Đ-E12) |
 | `@base-ui/react`, `lucide-react`, `class-variance-authority`, `cn`, `tw-animate-css`, `next-themes` | bản do template sinh, ghim chính xác | Kit — chỉ đổi khi đổi kit |
 | `openapi-typescript` | `7.13.0` | Bản đã kiểm chứng ở cổng mở (`Presentation/README.md`). Đổi version là đổi file sinh ra → cổng codegen đỏ |
-| `msw` | 2.x | Chép `public/mockServiceWorker.js` bằng `pnpm exec msw init public --save` (template đặt `allowBuilds: msw: false`, không chạy postinstall — file worker commit vào repo) |
+| `msw` | 2.x | Chỉ `msw/node` cho Vitest — không có `public/mockServiceWorker.js` (đổi Đ-E7 2026-09-17); `allowBuilds: msw: false` giữ nguyên |
 | `vitest`, `@testing-library/react`, `@playwright/test` | bản ổn định hiện hành | `pnpm-lock.yaml` commit |
 
 > **Đổi Đ-E9 (2026-09-17, nhóm chốt): Node 22 → Node 24.** Ba lý do: (1) máy thi công lane FE đang chạy 24.15.0, và toàn
@@ -394,7 +407,7 @@ src/frontend/
 ├─ app/                    # ROUTE — ráp trang từ features/ + components/, không chứa logic nghiệp vụ
 │  ├─ (auth)/  layout.tsx · login/ · register/ · register/check-email/ · verify-email/
 │  ├─ (app)/   layout.tsx (shell + RequireAuth) · me/
-│  ├─ layout.tsx · page.tsx (redirect → /me) · providers.tsx ('use client': Theme + MSW + AuthProvider) · globals.css
+│  ├─ layout.tsx · page.tsx (redirect → /me) · providers.tsx ('use client': Theme + AuthProvider) · globals.css
 ├─ components/             # UI KHÔNG biết nghiệp vụ — ba thư mục này đứng yên qua GĐ2–GĐ8
 │  ├─ ui/                  # KIT — sinh bởi `shadcn add`. Chỉ sửa khi đổi cho TOÀN app (Đ-E12)
 │  ├─ form/                # ghép từ ui: text-field.tsx, form-alert.tsx
@@ -407,8 +420,8 @@ src/frontend/
 │  ├─ api/                 # schema.d.ts (sinh) · types.ts · config.ts · http.ts · problem.ts · auth-api.ts · messages.ts
 │  ├─ auth/                # token-store.ts · refresh-coordinator.ts · session.ts · auth-context.tsx · require-auth.tsx · safe-next.ts · verify-once.ts
 │  └─ validation/          # auth.ts
-├─ hooks/ · mocks/ · test/ · e2e/
-└─ public/mockServiceWorker.js
+├─ hooks/ · mocks/ (MSW cho Vitest) · test/ · e2e/
+└─ public/
 ```
 
 Hướng phụ thuộc một chiều: `app/` → `features/` → `components/` + `lib/`. Đặt file mới thì hỏi hai câu theo thứ tự:
@@ -489,8 +502,8 @@ const KIT = [
 - Luật Đ-E13 chỉ chặn **import chéo qua alias `@/features/…`**; `features/post/` tự import file của chính nó bằng
   `./…` nên không vướng. Đổi lại, một feature cố tình dùng `../post/post-card` (tương đối, vượt thư mục) thì luật không bắt —
   chỗ đó review bằng mắt, nhưng nó hiếm và nhìn là thấy ngay.
-- `globalIgnores` thêm `lib/api/schema.d.ts` (E2) và `public/mockServiceWorker.js`.
-- Chỗ **duy nhất** được gọi `fetch` (`lib/api/http.ts`) và chỗ nhớ phiên giả của mock (`mocks/**`) tắt luật bằng
+- `globalIgnores` thêm `lib/api/schema.d.ts` (E2). *(`public/mockServiceWorker.js` từng nằm đây — gỡ cùng mock trình duyệt, đổi Đ-E7.)*
+- Chỗ **duy nhất** được gọi `fetch` (`lib/api/http.ts`) tắt luật bằng
   `// eslint-disable-next-line no-restricted-globals -- <lý do, trỏ Đ-E2/Đ-E7>` ngay tại dòng — lý do nằm cạnh ngoại lệ.
 - Luật màu chỉ bắt chuỗi literal (kể cả trong `cn("…")`), không bắt template literal — review vẫn cần, nhưng phần lớn lỗi
   thật là chuỗi literal.
@@ -794,6 +807,9 @@ gọi `/auth/*` (tính vào hạn mức) và thêm một nguồn race — không
 
 **Bước 6 — mock MSW (Đ-E7).**
 
+> *Lịch sử — mock trình duyệt (`browser.ts`, worker, cờ trong `providers.tsx`) đã gỡ ngày 2026-09-17, xem ghi chú đổi Đ-E7.
+> Phần fixture + handler + `node.ts` dưới đây vẫn đúng.*
+
 ```bash
 pnpm add -D --save-exact msw
 pnpm exec msw init public --save
@@ -1014,10 +1030,10 @@ token **chỉ trong memory** (quyết định 6).
 **Kết quả mong đợi.**
 - `app/(auth)/login/page.tsx` — mỏng, bọc `<Suspense>` vì đọc `useSearchParams`; form thật ở `features/auth/login-form.tsx` (`'use client'`).
 - `lib/validation/auth.ts`: `validateLogin`; `lib/api/messages.ts`: bảng thông điệp dưới đây; `lib/auth/safe-next.ts`.
-- Vitest: `LoginForm.test.tsx` (mọi nhánh trên mock), `safe-next.test.ts`.
-- Playwright `e2e/login-storage.spec.ts` trên API dev: xanh.
-- Kiểm tay dán vào PR: ảnh DevTools → Application → Cookies thấy `refresh_token` có `HttpOnly`, `Secure`, `SameSite=Lax`,
-  `Path=/api/v1/auth` khi đăng nhập từ `localhost:3000` — **đây chính là mục còn treo ở checklist khối D (Mục 15)**.
+- Vitest: `features/auth/login-form.test.tsx` (mọi nhánh trên mock), `safe-next.test.ts`, `messages.test.ts`, `auth.test.ts`.
+- Playwright `e2e/login-storage.spec.ts` trên API dev: xanh — cookie `refresh_token` có `HttpOnly`, `Secure`, `SameSite=Lax`,
+  `Path=/api/v1/auth` khi đăng nhập từ `localhost:3000`. **Đây chính là mục còn treo ở checklist khối D (Mục 15)**; không chụp
+  ảnh DevTools (xem "Thực tế thi công").
 
 ### Bảng thông điệp (Đ-E6)
 
@@ -1068,9 +1084,82 @@ state của form.
   trang bị render phía client. Bọc ngay từ đầu.
 - **Hiện `problem.detail` thay vì bảng** → hôm nay khớp, nhưng chỉ cần server sửa một chữ ở nhánh "email không tồn tại" là AC-02
   thủng ở FE mà không test backend nào bắt. Bảng do FE giữ.
-- **Tài khoản thử bị khóa 15 phút** sau 5 lần sai trên API dev — muốn thử 423 thì dùng mock, hoặc một tài khoản riêng.
+- **Tài khoản thử bị khóa 15 phút** sau 5 lần sai trên API dev — thử 423 bằng một tài khoản riêng; nhánh 423 của màn đã có Vitest trên `msw/node`.
 - **Safari** không nhận cookie `Secure` trên `http://localhost` như Chrome/Firefox → refresh luôn 401 trên Safari dev. Kiểm ở
   Chrome/Firefox; Safari kiểm ở staging (HTTPS).
+
+### Thực tế thi công — 2026-09-17
+
+Bốn bước đã chạy. Những chỗ **khác** hướng dẫn ở trên, và những thứ chỉ lộ ra khi gõ thật:
+
+**Lệch mẫu `safeNext` ở bước 4 (nhóm chốt): kiểm bằng bộ phân tích URL, không bằng tiền tố.** Mẫu chỉ chặn `//` và `/\`.
+Trình duyệt **bỏ tab và xuống dòng** trong URL trước khi phân tích, nên `?next=/%09/evil.example` qua được cả ba phép kiểm
+tiền tố rồi thành `//evil.example` khi điều hướng. `lib/auth/safe-next.ts` giờ giải `next` trên một origin giả
+(`http://safe-next.invalid`) và chỉ nhận khi origin không đổi; trả lại `pathname + search + hash` đã chuẩn hóa. Test có
+ca `/\t/…` và `/\n/…` — bỏ phép so origin thì bốn ca đỏ.
+
+**Tên file test theo kebab-case: `features/auth/login-form.test.tsx`, không phải `LoginForm.test.tsx`.** Khớp tên file nguồn
+và nếp đã có (`components/form/text-field.test.tsx`). E3/E5 theo cùng nếp: `register-form.test.tsx`, `verify-email.test.tsx`.
+
+**`lib/api/messages.ts` có hai hàm, không phải một.** `errorMessage(context, error)` như Đ-E6 cho lỗi cấp form; thêm
+`validationErrors(error, fields)` tách 400 thành lỗi theo trường **và** một `formMessage` khi còn key không thuộc màn
+(`body`, key lạ) hoặc 400 không có `errors` — để không lỗi nào biến mất lặng lẽ. `ErrorContext` hiện chỉ có `"login"`; E3 thêm
+`"register"`, E5 thêm `"verify-email"`. Status không có trong bảng thì mới dùng `detail` của server làm dự phòng.
+
+**`components/form/form-alert.tsx` dựng ở E4** (đã hẹn ở "Thực tế thi công" của E1). Nó tự chuyển focus vào chính nó mỗi khi
+thông điệp đổi. Hệ quả phải biết: **cùng một lỗi hai lần liên tiếp** thì thông điệp không đổi và focus không quay lại — form
+xóa lỗi cũ (`setFormError(null)`) ngay khi bấm gửi để lần sau vẫn là `null → câu`. Có test riêng; bỏ dòng xóa là đỏ.
+
+**`lib/validation/auth.ts` và `auth.test.ts` mở ở E4** với `validateLogin` + `utf8ByteLength`; E3 thêm `validateRegister` và
+bảng ngưỡng đăng ký vào cùng hai file. Email gửi lên **nguyên văn người dùng gõ** — `LoginService` đã `Trim()`; client chỉ trim
+để đo độ dài (nới hơn hoặc bằng server).
+
+**Khung chờ của `<Suspense>` là ba `Skeleton` cùng dáng form.** `next build` vẫn prerender `/login` là trang tĩnh (`○`): Card
+có trong HTML đầu, chỉ form đợi hydrate. Không có cảnh báo `useSearchParams` nào.
+
+**Sửa lỗi theo trường thì lỗi đó biến mất ngay** khi gõ lại trường ấy — không chờ lần gửi sau. Không có trong hướng dẫn; thêm
+vì để câu "Email là bắt buộc." đứng cạnh một email đã gõ đủ là giao diện nói sai.
+
+**`/me` chưa tồn tại tới E6.** Đăng nhập thành công ở E4 điều hướng tới trang 404 của Next — đúng URL, chưa đúng màn.
+`login-storage.spec.ts` chỉ khẳng định URL.
+
+**`e2e/login-storage.spec.ts` tự dựng tài khoản đã xác minh**, không đòi tài khoản cố định: `POST /auth/register` → đọc link
+qua API REST của Mailpit (`/api/v1/search`, `/api/v1/message/{ID}`) → `POST /auth/verify-email` → đăng nhập trên UI. Tốn 3
+lượt trong hạn mức 10/phút. Gốc API và Mailpit đổi được bằng `PLAYWRIGHT_API_URL`, `PLAYWRIGHT_MAILPIT_URL`. Bật mock thì
+spec **tự bỏ qua** (mock không đặt cookie). Spec khẳng định thêm `secure: true` ngoài ba thuộc tính của bảng Test.
+
+**Lệch kế hoạch E4 và checklist khối D Mục 15 (2026-09-17, nhóm chốt): bỏ ảnh chụp DevTools, bằng chứng là
+`login-storage.spec.ts`.** Ảnh chụp chỉ cho thấy một lần nhìn bằng mắt; spec kiểm **cùng** các thuộc tính bằng máy và chạy lại
+được. Cụ thể: `context.cookies()` thấy `refresh_token` với `httpOnly`, `secure`, `sameSite: 'Lax'`, `path: '/api/v1/auth'`;
+`document.cookie` không đọc được nó. Preflight: `POST /auth/login` từ `localhost:3000` sang `localhost:5259` với
+`Content-Type: application/json` + `credentials: 'include'` bắt buộc qua preflight — trang chỉ sang được `/me` khi JS **đọc
+được** response, tức CORS có `Allow-Credentials` đã đúng. Đã sửa cùng lúc Mục 11 ở đây và D4 + Mục 15 của hướng dẫn khối D.
+
+**Bằng chứng.**
+
+| Cổng | Kết quả |
+|---|---|
+| `pnpm lint` / `typecheck` | xanh |
+| `pnpm test` | **67/67** xanh (10 file; trước E4 là 28/28), `Type Errors no errors` |
+| `pnpm build` (`NEXT_PUBLIC_API_BASE_URL=/api/v1`) | xanh, `/login` prerender tĩnh; grep `.next/static` cho `setupWorker`, `mockServiceWorker`, `localhost:5259` — **rỗng** |
+| `pnpm test:e2e` (Chrome 152.0.7977.84), API dev thật | **3/3** xanh |
+| `pnpm test:e2e` với `NEXT_PUBLIC_API_MOCKING=enabled` | 2 xanh, 1 bỏ qua (`login-storage`, có chủ đích) |
+
+Thử cho đỏ (từng đột biến một, rồi khôi phục — `git status` như trước):
+
+| Đột biến | Test bắt |
+|---|---|
+| 401 hiện `detail` của server trước bảng | `messages.test.ts` "401 luôn ra ĐÚNG một câu"; `login-form` ca 403 |
+| Bỏ `return` khi có lỗi client | `login-form` "75 byte: 0 request", "để trống cả hai: 0 request" |
+| `safeNext` bỏ phép so origin | `safe-next.test.ts` 4 ca `//`, `/\`, `/\t/`, `/\n/` |
+| Form bỏ qua `safeNext` | `login-form` `?next=//evil.example`, `?next=https://evil.example/` |
+| Đếm ký tự thay vì byte | `auth.test.ts` 2 ca; `login-form` "75 byte" |
+| Thêm tối thiểu 8 cho đăng nhập | `auth.test.ts` 3 ca; `login-form` "mật khẩu 1 ký tự KHÔNG bị chặn" |
+| Không xóa lỗi cũ khi gửi lại | `login-form` "cùng một lỗi hai lần liên tiếp" |
+| `FormAlert` không chuyển focus | `login-form` 401, "hai lần liên tiếp" |
+| Nút không `disabled` khi chờ | `login-form` "bấm thêm không gửi lần hai" |
+| 400 đẩy hết lên lỗi cấp form | `login-form` "400 từ server: lỗi dưới đúng trường" |
+| **E2E:** form ghi token vào `sessionStorage` | `login-storage.spec.ts` — `Expected: 0, Received: 1` |
 
 ---
 
@@ -1538,7 +1627,7 @@ playwright-report
 !.env.example
 ```
 
-- **Không** đặt `NEXT_PUBLIC_API_MOCKING` trong image — MSW không vào bundle (Đ-E7).
+- MSW không vào bundle — app không còn mock trình duyệt (đổi Đ-E7 2026-09-17); cổng CI grep `.next/static` giữ làm lưới.
 - Health check gọi `/login`, không gọi `/health`: apache chuyển `/health` về API (Đ-E11).
 
 ### Test
@@ -1600,22 +1689,21 @@ playwright-report
 
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build` xanh
 - [ ] Job CI `frontend` xanh, gồm cổng `API types khop hop dong (CI GATE)`; đã thử cho đỏ một lần (E2)
-- [ ] Vitest: `text-field`, `schema.test-d`, `http`, `problem`, `auth` (bảng ngưỡng), `LoginForm`, `RegisterForm`,
+- [ ] Vitest: `text-field`, `schema.test-d`, `http`, `problem`, `messages`, `safe-next`, `auth` (bảng ngưỡng), `login-form`, `RegisterForm`,
       `VerifyEmail` (StrictMode 1 request), `RequireAuth`, `refresh-coordinator` (gồm hai coordinator), `http.interceptor`
 - [ ] Luật ESLint Đ-E2/Đ-E12 đã thử cho đỏ (E1)
 - [ ] Bảng "thử cho đỏ" của E7 đã chạy
 
 **Playwright trên API dev — dán kết quả vào PR**
 
-- [ ] `login-storage.spec.ts` — Web Storage rỗng, cookie `refresh_token` `httpOnly`/`Lax`/`/api/v1/auth`
+- [ ] `login-storage.spec.ts` — Web Storage rỗng, cookie `refresh_token` `httpOnly`/`secure`/`Lax`/`/api/v1/auth`, đăng nhập
+      cross-origin qua preflight — **đóng luôn mục còn treo ở checklist khối D (Mục 15)**, không chụp ảnh DevTools (E4)
 - [ ] `guard.spec.ts` — chưa đăng nhập về `/login?next=%2Fme`; tải lại giữ phiên bằng 1 refresh; đăng xuất
 - [ ] `single-flight.spec.ts` (`Jwt__AccessTokenSeconds=10`) — 3 tab, **đúng 1** `POST /auth/refresh`
 - [ ] Lượt E2E-01 trên dev: đăng ký → link lấy từ API REST của Mailpit → xác minh → đăng nhập → `/me` → hết hạn → refresh → gọi lại
 
 **Kiểm tay — ghi bằng chứng vào PR**
 
-- [ ] DevTools từ `localhost:3000`: cookie `refresh_token` đủ `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/api/v1/auth`; preflight
-      không lỗi — **đóng luôn mục còn treo ở checklist khối D (Mục 15)**
 - [ ] Mật khẩu `'ệ'.repeat(25)` gửi thẳng API dev → 400 `errors.password` đúng câu client hiện (E3)
 - [ ] `docker run` image FE → `/login` 200 (E8)
 
@@ -1643,7 +1731,7 @@ playwright-report
 | Ai nhận | Nhận cái gì |
 |---|---|
 | **F1** | Image FE `standalone` arm64 + danh sách việc compose/apache/CD (Mục 9) |
-| **F2** | Base URL tương đối `/api/v1`; mock tắt mặc định — "bỏ mock" chỉ là không đặt biến |
+| **F2** | Base URL tương đối `/api/v1`; mock trình duyệt đã gỡ (đổi Đ-E7) — F2 chỉ còn trỏ base URL |
 | **F3** | Playwright E2E-01 chạy lại được bằng `BASE_URL=https://mxh.banhgao.net` (bước mail đổi sang hộp thư thật) |
 | **F4** | `single-flight.spec.ts` + nút "Tải lại" ở `/me` để bấm đồng thời bằng tay trên 3 tab |
 | **GĐ2–GĐ8** | Kit shadcn/ui + luật Đ-E12 + composite `components/form`; `request()` có sẵn bearer, `credentials`, interceptor; nhóm route `(app)` có guard; bảng thông điệp lỗi theo status; codegen — module mới thêm một script `gen:api:<module>` ra `lib/api/<module>/schema.d.ts`, cổng CI so cả thư mục `lib/api`. **Thêm một màn (Đ-E13) = 4 chỗ:** route ở `app/(app)/<url>/` · nghiệp vụ ở `features/<màn>/` · `gen:api:<module>` → `lib/api/<module>/` · kiểm dữ liệu ở `lib/validation/<màn>.ts`. Không đụng `components/`, không sửa `eslint.config.mjs` |
