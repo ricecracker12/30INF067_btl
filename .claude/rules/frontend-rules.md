@@ -6,7 +6,7 @@
 **Nguồn sự thật, theo thứ tự ưu tiên khi mâu thuẫn:**
 
 1. Hợp đồng API — `src/backend/Modules/<Module>/Presentation/<nhóm>.yaml`
-2. Mười ba quyết định `Đ-E1`–`Đ-E13` trong [`docs/giai-doan-1/huong-dan-khoi-e-frontend.md`](../../docs/giai-doan-1/huong-dan-khoi-e-frontend.md)
+2. Mười bốn quyết định `Đ-E1`–`Đ-E14` trong [`docs/giai-doan-1/huong-dan-khoi-e-frontend.md`](../../docs/giai-doan-1/huong-dan-khoi-e-frontend.md)
 3. `src/frontend/AGENTS.md` (luật Next.js của template + mục "UI kit")
 4. File này
 
@@ -24,20 +24,22 @@ quyết định mới, có ngày tháng, ghi vào tài liệu gốc trong cùng 
 - Đọc mục tương ứng trong hướng dẫn khối E trước khi làm một việc `E*` — mỗi mục có sẵn phần
   "cạm bẫy đã biết".
 
-## 1. Mười điều không bao giờ làm
+## 1. Mười hai điều không bao giờ làm
 
 | # | Cấm | Vì |
 |---|---|---|
-| 1 | Gọi `fetch` ngoài `lib/api/http.ts` | Đ-E2 — ESLint chặn |
-| 2 | `localStorage`, `sessionStorage`, `document.cookie` | Đ-E2 — token chỉ ở memory |
+| 1 | Gọi `fetch` ngoài `lib/api/http.ts` (trình duyệt) và `lib/bff/upstream.ts` (server) | Đ-E2, Đ-E14 — ESLint chặn |
+| 2 | `localStorage`, `sessionStorage`, `document.cookie` | Đ-E2 — không có gì của phiên nằm ở đó |
 | 3 | Sửa tay `lib/api/schema.d.ts` | File sinh; sửa tay là cổng CI codegen đỏ |
 | 4 | Thêm component UI bằng `pnpm dlx shadcn@latest add` | Đ-E12 — phải `pnpm exec shadcn add` (bản ghim) |
 | 5 | Màu thô (`bg-blue-600`), mã màu tùy ý, radius riêng theo màn | Đ-E12 — token ở `app/globals.css` |
 | 6 | Import `@base-ui/react` ngoài `components/ui/` | Đ-E12 |
-| 7 | Tạo `app/api/**`, hoặc route FE dưới `/api`, `/health`, `/swagger` | Đ-E11 — apache đẩy hết về backend |
-| 8 | Guard bằng `proxy.ts` (tên mới của `middleware.ts`) | Đ-E3 — server không thấy token lẫn cookie |
+| 7 | Tạo `app/api/**`, hoặc route FE dưới `/api`, `/health`, `/swagger` — Route Handler chỉ dưới `app/bff/**` | Đ-E11, Đ-E14 — apache đẩy hết `/api` về backend |
+| 8 | Guard bằng `proxy.ts` (tên mới của `middleware.ts`) | Đ-E3 |
 | 9 | `npm`/`yarn`, hoặc thêm `^`/`~` vào `package.json` | Đ-E9 — pnpm, ghim chính xác |
 | 10 | `features/` import chéo nhau; `lib/` hay `components/` import ngược lên `features/`, `app/` | Đ-E13 |
+| 11 | Trả access/refresh token (hay `Set-Cookie` của API) ra trình duyệt từ bất kỳ route BFF nào | Đ-E14 — trình duyệt không bao giờ cầm JWT |
+| 12 | Module server của BFF thiếu `import "server-only"`, hoặc biến cấu hình server mang tiền tố `NEXT_PUBLIC_` | Đ-E14 — `NEXT_PUBLIC_*` bị nhúng vào bundle |
 
 ## 2. Đặt file ở đâu (Đ-E13)
 
@@ -50,6 +52,7 @@ Bốn tầng, phụ thuộc **một chiều**: `app/` → `features/` → `compo
 | `components/ui/` | Kit shadcn | Sinh bởi CLI, không viết tay |
 | `components/form/`, `components/shell/` | UI dùng lại nhiều màn | **Không** biết nghiệp vụ |
 | `lib/api/`, `lib/auth/`, `lib/validation/` | Hạ tầng, logic không phải React | Test được bằng Vitest, không cần render |
+| `lib/bff/` | Server của BFF (Đ-E14): phiên, Redis, gọi API | `import "server-only"`; test môi trường `node` |
 
 Đặt file mới thì hỏi hai câu, theo thứ tự: *có biết nghiệp vụ không?* (không → `components/`) ·
 *có phải logic không phải React không?* (đúng → `lib/`). Còn lại vào `features/<màn>/`.
@@ -75,29 +78,32 @@ Bốn tầng, phụ thuộc **một chiều**: `app/` → `features/` → `compo
   `shadcn add --diff` không bị nhiễu bởi khác biệt trình bày.
 - Form dùng `components/form/text-field.tsx`, không tự ráp `Field` + `Input` ở từng màn.
 
-## 4. Gọi API (Đ-E1, Đ-E2, Đ-E6)
+## 4. Gọi API (Đ-E14, Đ-E2, Đ-E6)
 
-- Mọi lời gọi đi qua `request()` trong `lib/api/http.ts`. Mọi lời gọi có `credentials: 'include'`.
+- **Trình duyệt chỉ gọi BFF cùng origin** (`/bff/*`), qua `request()` trong `lib/api/http.ts`, `credentials: 'same-origin'`.
+  Không bearer, không CORS, không biến `NEXT_PUBLIC_API_BASE_URL`. Module GĐ2+ gọi `/bff/api/<đường của API>` — proxy
+  chung gắn bearer ở server, không thêm route BFF.
+- **Next server gọi API** chỉ ở `lib/bff/upstream.ts`, gốc `API_INTERNAL_URL` (dev mặc định
+  `http://localhost:5259/api/v1`). Không trỏ BFF local sang API staging — dữ liệu thật và rate limit của người khác.
 - Kiểu lấy từ `lib/api/types.ts` (alias của `schema.d.ts`). **Không tự khai lại** kiểu cho payload
   API — hợp đồng đổi thì phải là lỗi compile, không phải lỗi runtime.
-- Base URL: dev mặc định `http://localhost:5259/api/v1` (đặt trong code, không bắt buộc `.env`);
-  staging là `/api/v1` tương đối. **Cấm FE local trỏ API staging** — khác site, cookie không đi,
-  refresh luôn 401 mà không lỗi nào nói lý do.
-- Không dùng `rewrites` proxy ở dev — làm vậy là không bao giờ thử thật CORS + `credentials`.
+- Không dùng `rewrites` của `next.config` để "proxy" tới API — nó chuyển nguyên header, kể cả `Set-Cookie` có token.
+  Proxy là Route Handler `app/bff/api/[...path]` (danh sách trắng header).
 - Thông điệp lỗi lấy từ `errorMessage(context, error)` trong `lib/api/messages.ts`, ánh xạ theo
   `(endpoint, status)`. `detail` của server chỉ là dự phòng. 500 phải hiện `traceId`. Mất mạng
   không đoán nguyên nhân. 429 không hiện đồng hồ đếm ngược (server không gửi `Retry-After`).
 
-## 5. Token, phiên, guard (Đ-E2, Đ-E3, Đ-E4)
+## 5. Token, phiên, guard (Đ-E14, Đ-E3)
 
-- Access token nằm trong `lib/auth/token-store.ts` (biến module + `subscribe`), React đọc qua
-  `useSyncExternalStore`. Không để token chỉ trong React state — api client không phải component.
+- **Token chỉ ở Next server + Redis** (mã hóa AES-256-GCM, key là băm session ID). Trình duyệt giữ cookie `__Host-sid`
+  (`HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`). `lib/auth/token-store.ts` chỉ giữ **trạng thái phiên**
+  (`unknown | authenticated | anonymous | error`), React đọc qua `useSyncExternalStore`.
+- Mọi route BFF thay đổi dữ liệu kiểm `Origin` (CSRF); đăng nhập luôn cấp session ID mới (session fixation).
 - Guard là component `RequireAuth` trong layout `(app)`. Trạng thái `unknown` hiện khung chờ,
   **không nháy nội dung** rồi mới đá về `/login`.
-- **Chỉ `lib/auth/session.ts` được import `authApi.refresh`.** Chỗ khác gọi thẳng là phá single-flight
-  và có thể kích hoạt reuse detection của chính mình.
-- Refresh là single-flight **hai lớp**: promise chia sẻ trong tab, `navigator.locks` +
-  `BroadcastChannel` giữa các tab. Thiếu Web Locks thì rơi về lớp trong tab.
+- **Trình duyệt không bao giờ refresh.** Refresh single-flight ở BFF: khóa Redis theo phiên, so token hiện tại với token
+  vừa hỏng trước khi gọi `/auth/refresh`. 401 tới được trình duyệt nghĩa là phiên hết thật → `anonymous`.
+- Khởi động phiên: `GET /bff/auth/session`. Đăng xuất báo tab khác qua `BroadcastChannel('socialapp:auth')`.
 - Điều hướng theo `?next=` phải đi qua `safeNext` — chặn open redirect.
 
 ## 6. Validation client (Đ-E5)
@@ -123,7 +129,8 @@ Bốn tầng, phụ thuộc **một chiều**: `app/` → `features/` → `compo
 - **Không có mock trình duyệt.** Dev luôn chạy đủ FE + BE; không cờ `NEXT_PUBLIC_API_MOCKING`, không
   `public/mockServiceWorker.js`, code app (`app/`, `features/`, `components/`, `lib/`) **không** import `@/mocks/*`.
 - `mocks/` chỉ phục vụ Vitest qua `msw/node` (`test/setup.ts`) — để **tái hiện nhánh lỗi khó tạo thật**
-  (423, 410, 429, 500) và ghi lại request (`credentials`, bearer, single-flight).
+  (423, 410, 429, 500) và ghi lại request. `mocks/handlers.ts` giả bề mặt `/bff/*` trình duyệt thấy;
+  `mocks/upstream.ts` giả API .NET cho test của `lib/bff`; `mocks/redis.ts` giả Redis.
 - Fixture chép **giá trị** từ `example` của hợp đồng và gắn kiểu bằng `satisfies` — hợp đồng đổi hình
   dạng thì mock đỏ compile. Không parse yaml lúc chạy.
 - **Cấm nghiệm thu trên mock.** Cổng đóng phải trỏ API thật.
@@ -132,7 +139,7 @@ Bốn tầng, phụ thuộc **một chiều**: `app/` → `features/` → `compo
 
 | Công cụ | Kiểm | Chạy ở |
 |---|---|---|
-| Vitest + Testing Library + `msw/node` | validation, `ApiError`, client (`credentials`, bearer), single-flight trong tab, form (nhánh lỗi qua `msw/node`), type | local + **CI** |
+| Vitest + Testing Library + `msw/node` | validation, `ApiError`, client tới BFF, BFF ở server (phiên, CSRF, không rò token, refresh single-flight), form (nhánh lỗi qua `msw/node`), type | local + **CI** |
 | Playwright (Chrome đã cài, `channel: "chrome"`) | guard, không token trong Web Storage, 3 tab một refresh, lượt E2E trên dev | local, **`workers: 1`** (rate limit theo IP) |
 
 - Playwright **không vào CI ở GĐ1** (cần API + Postgres + Redis + Mailpit chạy). Kết quả chạy local
@@ -179,7 +186,9 @@ Scope commit cho lane này: `gd1-e` (xem `commit-rules.md` Mục 3).
 | `className="rounded-lg bg-blue-600 p-4"` | Đ-E12 màu thô | `<Card>` của kit, hoặc `bg-primary` |
 | `components/post-card.tsx` | Đ-E13 — nó biết nghiệp vụ | `features/post/post-card.tsx` |
 | `features/feed/` import `@/features/post/post-card` | Đ-E13 import chéo | Đẩy xuống `components/` nếu thật sự dùng chung |
-| `localStorage.setItem('token', t)` | Đ-E2 | `tokenStore.set(t)` |
+| `localStorage.setItem('token', t)` | Đ-E2, Đ-E14 | Trình duyệt không có token — BFF giữ ở server |
+| Route BFF trả `Response.json(await apiRes.json())` của `/auth/login` | Đ-E14 — token ra trình duyệt | 204 + cookie `__Host-sid`; token vào Redis |
+| `headers: apiRes.headers` khi chuyển response API | Đ-E14 — `Set-Cookie` refresh ra trình duyệt | `relay()` — danh sách trắng header |
 | `app/api/me/route.ts` | Đ-E11 — apache không bao giờ cho request tới | Gọi thẳng API từ client |
 | `pnpm dlx shadcn@latest add dialog` | Đ-E12 — lệch style các cái đã có | `pnpm exec shadcn add dialog` |
 | Đặt tối thiểu 8 ký tự cho mật khẩu ở màn đăng nhập | Đ-E5 — chặt hơn server | Chỉ kiểm bắt buộc + 72 byte |
@@ -196,3 +205,5 @@ Cộng thêm vào [`pull-request-rules.md`](pull-request-rules.md) Mục 9, khô
 - [ ] Hợp đồng đổi thì `schema.d.ts` đã sinh lại trong cùng commit
 - [ ] Lệch `Đ-E*` nào thì đã ghi ngược vào hướng dẫn khối E
 - [ ] Không log token / link xác minh
+- [ ] Không route BFF nào trả token hay `Set-Cookie` của API ra trình duyệt; module `lib/bff/**` có `import "server-only"` (Đ-E14)
+- [ ] Biến môi trường mới của BFF là biến server (không `NEXT_PUBLIC_`), có mặc định dev, production thiếu thì báo tên biến

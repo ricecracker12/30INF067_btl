@@ -1,7 +1,7 @@
 import { http, HttpResponse } from "msw"
 import { beforeEach, describe, expect, it } from "vitest"
 
-import { API_BASE_URL } from "@/lib/api/config"
+import { BFF_URL } from "@/lib/api/config"
 import { ApiError, NetworkError } from "@/lib/api/problem"
 import { server } from "@/mocks/node"
 
@@ -49,11 +49,9 @@ describe("verifyOnce", () => {
 
   it("mất mạng là lỗi tạm thời: lần gọi sau gửi request mới", async () => {
     server.use(
-      http.post(
-        `${API_BASE_URL}/auth/verify-email`,
-        () => HttpResponse.error(),
-        { once: true }
-      )
+      http.post(`${BFF_URL}/auth/verify-email`, () => HttpResponse.error(), {
+        once: true,
+      })
     )
     const counter = countRequests()
     await expect(verifyOnce(TOKEN)).rejects.toBeInstanceOf(NetworkError)

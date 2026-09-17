@@ -4,7 +4,7 @@ import { http, HttpResponse } from "msw"
 import { StrictMode } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import { API_BASE_URL } from "@/lib/api/config"
+import { BFF_URL } from "@/lib/api/config"
 import { resetVerifyOnce } from "@/lib/auth/verify-once"
 import { verifyEmailResponse } from "@/mocks/fixtures"
 import { server } from "@/mocks/node"
@@ -71,7 +71,7 @@ describe("VerifyEmail — Đ-E10", () => {
       "/login"
     )
     expect(screen.queryByText(/hết hạn/)).not.toBeInTheDocument()
-    expect(seen).toEqual(["/api/v1/auth/verify-email"])
+    expect(seen).toEqual(["/bff/auth/verify-email"])
   })
 
   it("có kết quả: router.replace('/verify-email') đúng một lần — token rời URL", async () => {
@@ -93,7 +93,7 @@ describe("VerifyEmail — Đ-E10", () => {
     )
     expect(screen.getByText(verifyEmailResponse.email)).toBeInTheDocument()
     expect(screen.queryByText(INVALID_TEXT)).not.toBeInTheDocument()
-    expect(seen).toEqual(["/api/v1/auth/verify-email"])
+    expect(seen).toEqual(["/bff/auth/verify-email"])
   })
 })
 
@@ -143,7 +143,7 @@ describe("VerifyEmail — lỗi tạm thời (bảng E4)", () => {
   it("500: câu chung + traceId, GIỮ token trên URL; Thử lại gửi request mới và thành công", async () => {
     let calls = 0
     server.use(
-      http.post(`${API_BASE_URL}/auth/verify-email`, () => {
+      http.post(`${BFF_URL}/auth/verify-email`, () => {
         calls += 1
         return calls === 1
           ? HttpResponse.json(
@@ -195,7 +195,7 @@ describe("VerifyEmail — lỗi tạm thời (bảng E4)", () => {
     ],
     ["mất mạng", () => HttpResponse.error(), "Không kết nối được máy chủ."],
   ])("%s: đúng câu, có nút Thử lại", async (_, resolver, message) => {
-    server.use(http.post(`${API_BASE_URL}/auth/verify-email`, resolver))
+    server.use(http.post(`${BFF_URL}/auth/verify-email`, resolver))
     renderAt(VALID)
 
     expect(await screen.findByRole("alert")).toHaveTextContent(message)

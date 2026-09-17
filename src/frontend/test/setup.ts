@@ -5,6 +5,7 @@ import { afterAll, afterEach, beforeAll } from "vitest"
 
 import { server } from "@/mocks/node"
 import { mockControls } from "@/mocks/session"
+import { fakeApi } from "@/mocks/upstream"
 
 // `globals: false` nên auto-cleanup của Testing Library không tự đăng ký — không dọn thì DOM của
 // test trước còn lại, `getByLabelText` thấy hai phần tử và đỏ vô cớ.
@@ -19,6 +20,7 @@ afterEach(() => {
   server.resetHandlers()
   server.events.removeAllListeners()
   mockControls.reset()
+  fakeApi.reset()
 })
 afterAll(() => {
   server.close()

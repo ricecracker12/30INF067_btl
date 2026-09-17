@@ -61,5 +61,6 @@ test("xác minh: link trong Mailpit → đúng 1 POST dưới StrictMode, token 
     (r) => r.url().endsWith("/auth/login") && r.request().method() === "POST"
   )
   await page.getByRole("button", { name: "Đăng nhập" }).click()
-  expect((await login).status()).toBe(200)
+  // BFF (Đ-E14): 204, không body — token ở server.
+  expect((await login).status()).toBe(204)
 })

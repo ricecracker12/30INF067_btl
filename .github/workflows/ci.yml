@@ -114,21 +114,19 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
 
-      # Duong dan tuong doi: staging cung origin voi apache (Đ-E1). Thieu bien nay thi build
-      # production nem loi neu bat ky module nao cham lib/api/config.ts.
+      # Khong can bien nao luc build (Đ-E14): trinh duyet chi goi /bff cung origin; cau hinh BFF (API_INTERNAL_URL,
+      # REDIS_URL, SESSION_ENCRYPTION_KEY, APP_ORIGIN) doc LUOI luc chay, khong nhung vao bundle.
       - name: Build
         run: pnpm build
-        env:
-          NEXT_PUBLIC_API_BASE_URL: /api/v1
 
-      # CONG BUNDLE: bundle production KHONG duoc chua MSW, cung khong duoc chua URL API dev.
-      # Tu 2026-09-17 app khong con mock trinh duyet (doi D-E7) -- MSW chi o Vitest. Cong giu lai lam
-      # luoi an toan: service worker MSW hoac base URL dev lot vao ban build staging thi do.
-      - name: Bundle production sach MSW (CI GATE)
+      # CONG BUNDLE: bundle gui cho TRINH DUYET (.next/static) khong duoc chua MSW, URL API dev, hay code server cua
+      # BFF (Đ-E14): ioredis, ten bien cau hinh server, tien to key phien Redis. Lot vao la token/khoa co duong ra
+      # trinh duyet. `server-only` da chan luc build; cong nay la luoi thu hai, doc thang ban build.
+      - name: Bundle production sach MSW va code server BFF (CI GATE)
         run: |
-          hits=$(grep -rlE "mockServiceWorker|setupWorker|localhost:5259" .next/static || true)
+          hits=$(grep -rlE "mockServiceWorker|setupWorker|localhost:5259|ioredis|SESSION_ENCRYPTION_KEY|API_INTERNAL_URL|bff:session" .next/static || true)
           if [ -n "$hits" ]; then
-            echo "::error::MSW hoac URL API dev lot vao bundle production"
+            echo "::error::MSW, URL API dev hoac code server BFF lot vao bundle trinh duyet"
             echo "$hits"
             exit 1
           fi

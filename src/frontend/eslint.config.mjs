@@ -51,7 +51,11 @@ const eslintConfig = defineConfig([
           name: "sessionStorage",
           message: "Đ-E2: token chỉ ở memory (Mục 12).",
         },
-        { name: "fetch", message: "Đ-E2: gọi API qua lib/api/http.ts." },
+        {
+          name: "fetch",
+          message:
+            "Đ-E2/Đ-E14: trình duyệt gọi BFF qua lib/api/http.ts; server gọi API qua lib/bff/upstream.ts.",
+        },
       ],
       "no-restricted-properties": [
         "error",

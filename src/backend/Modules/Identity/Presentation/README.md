@@ -54,7 +54,9 @@ pnpm gen:api
 hợp đồng mà quên sửa FE là **compile lỗi**, không phải lỗi runtime phát hiện muộn ở staging. Mock MSW
 dựng từ chính các `example` trong file.
 
-Hai ràng buộc bắt buộc phía client, đã ghi trong `info.description` của hợp đồng:
+Hai ràng buộc bắt buộc phía client, đã ghi trong `info.description` của hợp đồng. *(Từ 2026-09-17 client của lane FE là
+BFF — Next server, Đ-E14 của hướng dẫn khối E: trình duyệt không gọi API; cả hai ràng buộc dưới áp cho BFF — cookie
+refresh gửi server-to-server, refresh single-flight bằng khóa Redis theo phiên.)*
 
 - **`credentials: 'include'` ở mọi lời gọi.** Thiếu là trình duyệt im lặng không gửi cookie refresh
   và `/auth/refresh` luôn 401 mà không có manh mối nào chỉ ra nguyên nhân.

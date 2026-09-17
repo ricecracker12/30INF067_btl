@@ -695,7 +695,8 @@ components:
         accessToken:
           type: string
           description: >-
-            JWT HS256. Client giữ trong memory, gắn vào header `Authorization: Bearer <token>`.
+            JWT HS256. Client giữ trong memory, gắn vào header `Authorization: Bearer <token>`. Lane FE: client là
+            Next server (BFF) — trình duyệt không nhận token này.
         expiresIn:
           type: integer
           format: int32

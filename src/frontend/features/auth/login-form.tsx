@@ -25,7 +25,7 @@ export function LoginForm() {
   const searchParams = useSearchParams()
 
   // Mật khẩu nằm trong state của form và ở lại sau lỗi 401 — sửa một ký tự tiện hơn gõ lại. Rời màn
-  // là component bị gỡ, state đi theo. Token thì KHÔNG bao giờ vào state: chỉ `tokenStore.startSession`.
+  // là component bị gỡ, state đi theo. Trình duyệt không nhận token nào (Đ-E14): BFF trả 204 + cookie phiên HttpOnly.
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [fieldErrors, setFieldErrors] = useState<FieldErrors<LoginField>>({})
@@ -47,8 +47,8 @@ export function LoginForm() {
 
     setPending(true)
     try {
-      const { accessToken } = await authApi.login({ email, password })
-      tokenStore.startSession(accessToken)
+      await authApi.login({ email, password })
+      tokenStore.startSession()
       router.replace(safeNext(searchParams.get("next")))
       // Không hạ `pending`: đang rời màn, để nút mở lại là mở đường gửi lần hai.
     } catch (error) {

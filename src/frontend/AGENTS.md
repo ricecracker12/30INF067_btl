@@ -48,11 +48,14 @@ không phải phong cách. Chi tiết và lý do ở
 
 ## Ngoài kit — ba luật hay bị quên
 
-- **Không `fetch` ngoài `lib/api/http.ts`; không `localStorage` / `sessionStorage` /
-  `document.cookie`** (Đ-E2). ESLint chặn; ngoại lệ mở bằng `// eslint-disable-next-line` kèm lý do
+- **Trình duyệt không bao giờ cầm JWT (Đ-E14 — BFF).** Trình duyệt chỉ gọi `/bff/*` cùng origin; Next server giữ
+  token trong Redis (mã hóa) và gọi API ở `lib/bff/upstream.ts`. Không route BFF nào trả token hay `Set-Cookie` của API
+  ra trình duyệt; module server có `import "server-only"`; biến cấu hình server không mang tiền tố `NEXT_PUBLIC_`.
+- **Không `fetch` ngoài `lib/api/http.ts` (trình duyệt) và `lib/bff/upstream.ts` (server); không `localStorage` /
+  `sessionStorage` / `document.cookie`** (Đ-E2). ESLint chặn; ngoại lệ mở bằng `// eslint-disable-next-line` kèm lý do
   ngay tại dòng.
-- **Không tạo `app/api/**`, và không route FE nào bắt đầu bằng `/api`, `/health`, `/swagger`**
-  (Đ-E11) — apache staging đẩy hết những đường đó về backend, Next không bao giờ nhận được.
+- **Route Handler chỉ dưới `app/bff/**`. Không tạo `app/api/**`, và không route FE nào bắt đầu bằng `/api`, `/health`,
+  `/swagger`** (Đ-E11) — apache staging đẩy hết những đường đó về backend, Next không bao giờ nhận được.
 - **pnpm, ghim chính xác** (Đ-E9): không `npm`/`yarn`, không `^`/`~` trong `package.json`.
 - **`@types/node` luôn cùng major với `.nvmrc`.** Đổi bản Node thì đổi cả hai trong một commit — để
   lệch là kiểu của một bản Node khác bản đang chạy. Hiện tại: Node **24** (đổi Đ-E9 ngày 2026-09-17).

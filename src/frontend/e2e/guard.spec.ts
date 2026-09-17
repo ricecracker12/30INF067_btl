@@ -28,7 +28,7 @@ const daThayHoSo = (page: Page) =>
 test("chưa đăng nhập vào /me → /login?next=%2Fme, hồ sơ KHÔNG lúc nào hiện", async ({
   page,
 }) => {
-  await giuHanMucAuth(1) // refresh khởi động → 401
+  // Guard hỏi BFF (GET /bff/auth/session) — không tốn lượt /auth/* của API.
   await theoDoiHoSo(page)
 
   await page.goto("/me")
@@ -37,12 +37,12 @@ test("chưa đăng nhập vào /me → /login?next=%2Fme, hồ sơ KHÔNG lúc n
   expect(await daThayHoSo(page)).toBe(false)
 })
 
-test("đăng nhập → /me hiện roleDisplayName; tải lại giữ phiên bằng ĐÚNG 1 refresh; đăng xuất 204 → /login, vào lại /me bị chặn", async ({
+test("đăng nhập → /me hiện roleDisplayName; tải lại giữ phiên bằng ĐÚNG 1 lần hỏi BFF; đăng xuất 204 → /login, vào lại /me bị chặn", async ({
   page,
   request,
 }) => {
-  // register + verify + login + refresh khi tải lại + logout + refresh 401 khi vào lại /me
-  await giuHanMucAuth(6)
+  // register + verify + login + logout (tải lại và vào lại /me chỉ hỏi BFF, không tốn lượt /auth/* của API)
+  await giuHanMucAuth(4)
   const { email, password } = await taoTaiKhoanDaXacMinh(request, "e6")
 
   await page.goto("/login?next=%2Fme")
@@ -57,18 +57,18 @@ test("đăng nhập → /me hiện roleDisplayName; tải lại giữ phiên b�
   // `role` dành cho so logic — không bao giờ hiện cho người đọc.
   await expect(page.getByRole("main")).not.toContainText(/\bUSER\b/)
 
-  // Tải lại: token trong memory mất, cookie refresh còn → guard khôi phục bằng một refresh. Dev bật StrictMode
-  // (effect chạy hai lần) — coordinator phải gộp thành một.
-  const refreshes: number[] = []
-  page.on("response", (r) => {
-    if (r.url().endsWith("/auth/refresh") && r.request().method() === "POST")
-      refreshes.push(r.status())
+  // Tải lại: cookie phiên còn → guard hỏi BFF một lần. Dev bật StrictMode (effect chạy hai lần) — phải gộp thành một.
+  // Trình duyệt không bao giờ gọi refresh (Đ-E14).
+  const sessionChecks: string[] = []
+  page.on("request", (r) => {
+    if (r.url().includes("/auth/"))
+      sessionChecks.push(`${r.method()} ${new URL(r.url()).pathname}`)
   })
   await page.reload()
   await expect(hoSo).toContainText(email)
   await expect(page).toHaveURL(/\/me$/)
   await page.waitForLoadState("networkidle")
-  expect(refreshes).toEqual([200])
+  expect(sessionChecks).toEqual(["GET /bff/auth/session"])
 
   // Đăng xuất.
   const logout = page.waitForResponse(
@@ -79,7 +79,7 @@ test("đăng nhập → /me hiện roleDisplayName; tải lại giữ phiên b�
   // Tự đăng xuất → /login trơn, không kèm next.
   await expect(page).toHaveURL(/\/login$/)
 
-  // Cookie refresh đã bị server xóa → vào lại /me là bị chặn.
+  // Phiên đã bị BFF xóa (Redis + cookie) → vào lại /me là bị chặn.
   await page.goto("/me")
   await expect(page).toHaveURL(/\/login\?next=%2Fme$/)
   await expect(page.getByTestId("me-profile")).toHaveCount(0)

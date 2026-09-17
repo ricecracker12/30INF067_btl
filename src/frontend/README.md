@@ -13,7 +13,7 @@ không `^`/`~`.
 Chạy từ chính thư mục này (`src/frontend/`):
 
 ```bash
-pnpm dev        # http://localhost:3000 — cần API dev ở http://localhost:5259 (Đ-E1)
+pnpm dev        # http://localhost:3000 — cần API dev ở http://localhost:5259 VÀ Redis localhost:6379 (BFF, Đ-E14)
 pnpm lint       # ESLint flat config: luật Đ-E2 / Đ-E12 / Đ-E13
 pnpm typecheck  # tsc --noEmit
 pnpm gen:api    # sinh lib/api/schema.d.ts từ hợp đồng identity-v1.yaml — file sinh, COMMIT vào repo
@@ -44,22 +44,24 @@ Màu và radius chỉ khai ở `app/globals.css`.
 ## Cấu trúc (Đ-E13 — phụ thuộc một chiều `app/` → `features/` → `components/` + `lib/`)
 
 ```
-app/           route, layout, page.tsx mỏng — chỉ ráp, không có logic nghiệp vụ
+app/           route, layout, page.tsx mỏng — chỉ ráp; app/bff/** là route handler của BFF (Đ-E14)
 features/      nghiệp vụ theo MÀN (GĐ1: auth/); không import chéo nhau
 components/    ui/ (kit shadcn) · form/ · shell/ — KHÔNG biết nghiệp vụ
-lib/           api/ · auth/ · validation/ — hạ tầng, không import ngược lên features/ hay app/
+lib/           api/ · auth/ · validation/ — hạ tầng trình duyệt; bff/ — server của BFF (import "server-only")
 test/          setup.ts của Vitest (file test nằm CẠNH mã nguồn)
 e2e/           spec Playwright
 ```
 
 ## Ba luật hay bị quên
 
-- Không `fetch` ngoài `lib/api/http.ts`; không `localStorage` / `sessionStorage` / `document.cookie`
-  — access token chỉ ở memory (Đ-E2). ESLint chặn cả ba.
-- Không tạo `app/api/**`, và không route FE nào bắt đầu bằng `/api`, `/health`, `/swagger` (Đ-E11) —
-  apache staging đẩy hết những đường đó về backend.
-- `.env.example` liệt kê **tên** biến, không bao giờ giá trị. Mọi `NEXT_PUBLIC_*` bị nhúng vào bundle
-  gửi cho trình duyệt.
+- **Trình duyệt không bao giờ cầm JWT** (Đ-E14): trình duyệt chỉ gọi `/bff/*`; Next server giữ token trong Redis (mã
+  hóa) và gọi API ở `lib/bff/upstream.ts`. Không route BFF nào trả token hay `Set-Cookie` của API ra trình duyệt.
+- Không `fetch` ngoài `lib/api/http.ts` (trình duyệt) và `lib/bff/upstream.ts` (server); không `localStorage` /
+  `sessionStorage` / `document.cookie` (Đ-E2). ESLint chặn.
+- Route Handler chỉ dưới `app/bff/**`; không tạo `app/api/**`, không route FE nào bắt đầu bằng `/api`, `/health`,
+  `/swagger` (Đ-E11) — apache staging đẩy hết những đường đó về backend.
+- `.env.example` liệt kê **tên** biến server của BFF, không bao giờ giá trị. Không đặt biến cấu hình nào với tiền tố
+  `NEXT_PUBLIC_*` — tiền tố đó nhúng giá trị vào bundle gửi cho trình duyệt.
 - `lib/api/schema.d.ts` là **file sinh** — không sửa tay. Hợp đồng `.yaml` đổi thì chạy lại
   `pnpm gen:api` và sửa chỗ đỏ **trong cùng commit**; cổng CI so lại bằng `git diff --exit-code`.
 - Kiểu cho payload API lấy từ `lib/api/types.ts`, **không tự khai lại** — hợp đồng đổi thì phải là lỗi

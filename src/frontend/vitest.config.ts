@@ -10,17 +10,17 @@ const rootDir = fileURLToPath(new URL(".", import.meta.url))
 export default defineConfig({
   plugins: [react()],
   resolve: {
-    alias: [{ find: /^@\//, replacement: rootDir }],
+    alias: [
+      { find: /^@\//, replacement: rootDir },
+      // `server-only` ném lỗi khi nạp ngoài điều kiện "react-server" của Next — Vitest không có điều kiện đó. Test của
+      // lib/bff cần nạp module server; thay bằng module rỗng CHỈ trong Vitest (Đ-E14).
+      { find: /^server-only$/, replacement: `${rootDir}test/server-only.ts` },
+    ],
   },
   test: {
     environment: "jsdom",
-    // Ghim env của test cho khỏi phụ thuộc shell của từng máy. Xuất
-    // NEXT_PUBLIC_API_BASE_URL=/api/v1 rồi chạy `pnpm test` thì 8 test của http.test.ts đỏ:
-    // trong Node, `fetch` một đường dẫn TƯƠNG ĐỐI là ném ngay, không có origin để nối vào.
-    // Ca riêng cần env khác thì dùng `vi.stubEnv` trong chính test đó (xem lib/api/config.test.ts).
-    env: {
-      NEXT_PUBLIC_API_BASE_URL: "http://localhost:5259/api/v1",
-    },
+    // jsdom mặc định ở http://localhost:3000 — BFF_URL (lib/api/config.ts) lấy origin này để `fetch` của Node có URL
+    // tuyệt đối. Test của lib/bff tự chọn môi trường node bằng chú thích `@vitest-environment node`.
     setupFiles: ["test/setup.ts"],
     // e2e/ là Playwright (`pnpm test:e2e`), không phải Vitest.
     exclude: ["e2e/**", "node_modules/**"],

@@ -277,7 +277,8 @@ còn biên độ thêm index/cache nếu trượt; và thứ cắt được thì
      `users.role_id` FK `ON DELETE RESTRICT` + **kiểm tra vai trò hệ thống lúc khởi động** (app
      từ chối chạy nếu `roles.code` bị đổi tay) + bất biến "luôn còn ≥ 1 Admin hoạt động" (GĐ6/GĐ8).
   6. **Refresh token đặt trong `httpOnly` + `Secure` + `SameSite=Lax` cookie**, access token do
-     client giữ trong memory. Đây là **quyết định hợp đồng API, không phải quyết định frontend**:
+     client giữ trong memory *(từ 2026-09-17 "client" là BFF — Next server; trình duyệt không cầm token, xem Đ-E14 ở
+     hướng dẫn khối E GĐ1)*. Đây là **quyết định hợp đồng API, không phải quyết định frontend**:
      nó đổi chữ ký endpoint — `POST /auth/login` trả `{accessToken, expiresIn}` + `Set-Cookie`,
      và `POST /auth/refresh` **đọc từ cookie, không nhận body**. Chốt muộn là phải mở lại hợp đồng
      vừa đóng băng. Lý do chọn: refresh token sống lâu nhất và nguy hiểm nhất nếu bị XSS lấy mất;

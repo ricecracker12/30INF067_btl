@@ -4,7 +4,7 @@ import { http, HttpResponse } from "msw"
 import { StrictMode, type ReactNode } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import { API_BASE_URL } from "@/lib/api/config"
+import { BFF_URL } from "@/lib/api/config"
 import { tokenStore } from "@/lib/auth/token-store"
 import { server } from "@/mocks/node"
 import { fakeSession } from "@/mocks/session"
@@ -20,10 +20,10 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/me",
 }))
 
-function recordRefresh() {
+function recordSessionChecks() {
   const seen: string[] = []
   server.events.on("request:start", ({ request }) => {
-    if (new URL(request.url).pathname.endsWith("/auth/refresh"))
+    if (new URL(request.url).pathname.endsWith("/auth/session"))
       seen.push(request.method)
   })
   return seen
@@ -51,7 +51,7 @@ beforeEach(() => {
 })
 
 describe("RequireAuth (Đ-E3)", () => {
-  it("refresh 401: children KHÔNG BAO GIỜ render; về /login?next=%2Fme", async () => {
+  it("BFF báo không có phiên: children KHÔNG BAO GIỜ render; về /login?next=%2Fme", async () => {
     renderGuard()
 
     expect(screen.getByTestId("page-skeleton")).toBeInTheDocument()
@@ -62,20 +62,20 @@ describe("RequireAuth (Đ-E3)", () => {
     expect(screen.queryByText("Nội dung bảo vệ")).not.toBeInTheDocument()
   })
 
-  it("StrictMode, refresh 200: ĐÚNG 1 POST /auth/refresh; children render; không điều hướng", async () => {
+  it("StrictMode, còn phiên: ĐÚNG 1 GET /bff/auth/session; children render; không điều hướng", async () => {
     fakeSession.start()
-    const seen = recordRefresh()
+    const seen = recordSessionChecks()
     renderGuard()
 
     expect(await screen.findByText("Nội dung bảo vệ")).toBeInTheDocument()
-    expect(seen).toEqual(["POST"])
+    expect(seen).toEqual(["GET"])
     expect(replace).not.toHaveBeenCalled()
   })
 
-  it("refresh 500: 'Không kiểm tra được phiên đăng nhập.', KHÔNG điều hướng; Thử lại gọi refresh lần 2 và vào được", async () => {
+  it("BFF 500: 'Không kiểm tra được phiên đăng nhập.', KHÔNG điều hướng; Thử lại hỏi lần 2 và vào được", async () => {
     server.use(
-      http.post(
-        `${API_BASE_URL}/auth/refresh`,
+      http.get(
+        `${BFF_URL}/auth/session`,
         () =>
           HttpResponse.json(
             { type: "t", title: "t", status: 500 },
@@ -88,7 +88,7 @@ describe("RequireAuth (Đ-E3)", () => {
       )
     )
     fakeSession.start()
-    const seen = recordRefresh()
+    const seen = recordSessionChecks()
     const user = userEvent.setup()
     renderGuard()
 
@@ -97,16 +97,16 @@ describe("RequireAuth (Đ-E3)", () => {
     )
     expect(replace).not.toHaveBeenCalled()
     expect(renders).not.toHaveBeenCalled()
-    expect(seen).toEqual(["POST"])
+    expect(seen).toEqual(["GET"])
 
     await user.click(screen.getByRole("button", { name: "Thử lại" }))
     expect(await screen.findByText("Nội dung bảo vệ")).toBeInTheDocument()
-    expect(seen).toEqual(["POST", "POST"])
+    expect(seen).toEqual(["GET", "GET"])
     expect(replace).not.toHaveBeenCalled()
   })
 
-  it("đang đăng nhập rồi phiên hết hạn (refresh 401 của E7): kèm next để quay lại", async () => {
-    tokenStore.startSession("t")
+  it("đang đăng nhập rồi phiên hết hạn (proxy BFF trả 401): kèm next để quay lại", async () => {
+    tokenStore.startSession()
     renderGuard()
     expect(screen.getByText("Nội dung bảo vệ")).toBeInTheDocument()
 
@@ -119,7 +119,8 @@ describe("RequireAuth (Đ-E3)", () => {
   })
 
   it("bấm Đăng xuất: nội dung biến mất, về /login KHÔNG kèm next, đúng một lần điều hướng", async () => {
-    tokenStore.startSession(fakeSession.start())
+    fakeSession.start()
+    tokenStore.startSession()
     const user = userEvent.setup()
     renderGuard(
       <>

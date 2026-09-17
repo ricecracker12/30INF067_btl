@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event"
 import { http, HttpResponse } from "msw"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { API_BASE_URL } from "@/lib/api/config"
+import { BFF_URL } from "@/lib/api/config"
 import { tokenStore } from "@/lib/auth/token-store"
 import { server } from "@/mocks/node"
 
@@ -52,8 +52,8 @@ describe("LoginForm — lỗi cấp form (Đ-E6)", () => {
     const alert = await screen.findByRole("alert")
     expect(alert).toHaveTextContent(/^Email hoặc mật khẩu không đúng\.$/)
     expect(alert).toHaveFocus()
-    expect(tokenStore.get()).toBeNull()
-    expect(seen).toEqual(["/api/v1/auth/login"])
+    expect(tokenStore.getSession().status).not.toBe("authenticated")
+    expect(seen).toEqual(["/bff/auth/login"])
     expect(screen.getByLabelText("Mật khẩu")).toHaveValue("MatKhau123")
     expect(screen.getByRole("button", { name: "Đăng nhập" })).toBeEnabled()
     expect(replace).not.toHaveBeenCalled()
@@ -75,7 +75,7 @@ describe("LoginForm — lỗi cấp form (Đ-E6)", () => {
   ])("%s → %s", async (email, message) => {
     await submit(email)
     expect(await screen.findByRole("alert")).toHaveTextContent(message)
-    expect(tokenStore.get()).toBeNull()
+    expect(tokenStore.getSession().status).not.toBe("authenticated")
   })
 
   it("500: câu chung kèm traceId của response", async () => {
@@ -94,9 +94,7 @@ describe("LoginForm — lỗi cấp form (Đ-E6)", () => {
   })
 
   it("mất mạng: không đoán nguyên nhân", async () => {
-    server.use(
-      http.post(`${API_BASE_URL}/auth/login`, () => HttpResponse.error())
-    )
+    server.use(http.post(`${BFF_URL}/auth/login`, () => HttpResponse.error()))
     await submit("an@example.com")
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Không kết nối được máy chủ."
@@ -157,7 +155,7 @@ describe("LoginForm — lỗi theo trường (Đ-E5)", () => {
     await user.type(screen.getByLabelText("Mật khẩu"), "x")
     await user.click(screen.getByRole("button", { name: "Đăng nhập" }))
     await screen.findByRole("alert")
-    expect(seen).toEqual(["/api/v1/auth/login"])
+    expect(seen).toEqual(["/bff/auth/login"])
   })
 })
 
@@ -167,14 +165,17 @@ describe("LoginForm — thành công", () => {
     ["//evil.example", "/me"],
     ["https://evil.example/", "/me"],
     ["/posts/1?tab=comments", "/posts/1?tab=comments"],
-  ])("?next=%s → router.replace(%s), token vào store", async (next, target) => {
-    search = new URLSearchParams({ next })
-    await submit("an@example.com")
+  ])(
+    "?next=%s → router.replace(%s), phiên authenticated",
+    async (next, target) => {
+      search = new URLSearchParams({ next })
+      await submit("an@example.com")
 
-    await waitFor(() => expect(replace).toHaveBeenCalledWith(target))
-    expect(replace).toHaveBeenCalledTimes(1)
-    expect(tokenStore.get()).toMatch(/^mock-access-token-/)
-  })
+      await waitFor(() => expect(replace).toHaveBeenCalledWith(target))
+      expect(replace).toHaveBeenCalledTimes(1)
+      expect(tokenStore.getSession().status).toBe("authenticated")
+    }
+  )
 
   it("không có ?next → /me", async () => {
     await submit("an@example.com")
@@ -185,9 +186,9 @@ describe("LoginForm — thành công", () => {
     let release!: () => void
     const gate = new Promise<void>((r) => (release = r))
     server.use(
-      http.post(`${API_BASE_URL}/auth/login`, async () => {
+      http.post(`${BFF_URL}/auth/login`, async () => {
         await gate
-        return HttpResponse.json({ accessToken: "t", expiresIn: 900 })
+        return new HttpResponse(null, { status: 204 })
       })
     )
     const seen = recordRequests()
@@ -199,6 +200,6 @@ describe("LoginForm — thành công", () => {
     release()
 
     await waitFor(() => expect(replace).toHaveBeenCalledTimes(1))
-    expect(seen).toEqual(["/api/v1/auth/login"])
+    expect(seen).toEqual(["/bff/auth/login"])
   })
 })

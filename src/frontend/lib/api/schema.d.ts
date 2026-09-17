@@ -268,7 +268,7 @@ export interface components {
          *     `Set-Cookie` (quyết định 6).
          */
         TokenResponse: {
-            /** @description JWT HS256. Client giữ trong memory, gắn vào header `Authorization: Bearer <token>`. */
+            /** @description JWT HS256. Client giữ trong memory, gắn vào header `Authorization: Bearer <token>`. Lane FE: client là Next server (BFF) — trình duyệt không nhận token này. */
             accessToken: string;
             /**
              * Format: int32

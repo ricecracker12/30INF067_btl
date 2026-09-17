@@ -1,6 +1,7 @@
 import { http, HttpResponse } from "msw"
 
-import { API_BASE_URL } from "@/lib/api/config"
+import { BFF_ROUTES, type BffSessionState } from "@/lib/api/bff-contract"
+import { BFF_URL } from "@/lib/api/config"
 import type * as T from "@/lib/api/types"
 
 import {
@@ -11,8 +12,12 @@ import {
   verifyEmailResponse,
 } from "./fixtures"
 import { fakeSession } from "./session"
+import { upstreamHandlers } from "./upstream"
 
-const url = (path: string) => `${API_BASE_URL}${path}`
+// Mock cho test component (Vitest, jsdom): bề mặt BFF mà TRÌNH DUYỆT nhìn thấy (Đ-E14) — /bff/auth/*, /bff/api/*.
+// BFF ở server có API giả riêng (upstream.ts) cho test của lib/bff.
+
+const url = (path: string) => `${BFF_URL}${path}`
 
 // Lỗi của server luôn là application/problem+json — mock phải giống, nếu không `toApiError`
 // (kiểm content-type) sẽ đi nhánh "không đọc được body" và test nhánh lỗi thành vô nghĩa.
@@ -61,7 +66,7 @@ function chungChoMoiAuth(email: string) {
 }
 
 export const handlers = [
-  http.post(url("/auth/register"), async ({ request }) => {
+  http.post(url(BFF_ROUTES.register), async ({ request }) => {
     const body = (await request.json()) as T.RegisterRequest
     const chung = chungChoMoiAuth(body.email)
     if (chung) return chung
@@ -86,7 +91,7 @@ export const handlers = [
     )
   }),
 
-  http.post(url("/auth/verify-email"), async ({ request }) => {
+  http.post(url(BFF_ROUTES.verifyEmail), async ({ request }) => {
     const body = (await request.json()) as T.VerifyEmailRequest
 
     if (body.token === EXPIRED_TOKEN) {
@@ -104,7 +109,7 @@ export const handlers = [
     return HttpResponse.json(verifyEmailResponse, { status: 200 })
   }),
 
-  http.post(url("/auth/login"), async ({ request }) => {
+  http.post(url(BFF_ROUTES.login), async ({ request }) => {
     const body = (await request.json()) as T.LoginRequest
     const chung = chungChoMoiAuth(body.email)
     if (chung) return chung
@@ -138,44 +143,32 @@ export const handlers = [
       )
     }
 
-    return HttpResponse.json({
-      accessToken: fakeSession.start(),
-      expiresIn: 900,
-    } satisfies T.TokenResponse)
+    // BFF thật: 204, không body, cookie `__Host-sid` (HttpOnly — test không đọc được, đúng như trình duyệt).
+    fakeSession.start()
+    return new HttpResponse(null, { status: 204 })
   }),
 
-  // Không nhận body — refresh token "đi trong cookie" (quyết định 6).
-  http.post(url("/auth/refresh"), () => {
-    if (fakeSession.current() === null) {
-      return problemResponse(
-        401,
-        "Phiên không hợp lệ",
-        "Phiên đăng nhập không còn hiệu lực. Vui lòng đăng nhập lại."
-      )
-    }
-    return HttpResponse.json({
-      accessToken: fakeSession.start(),
-      expiresIn: 900,
-    } satisfies T.TokenResponse)
-  }),
-
-  http.post(url("/auth/logout"), () => {
+  http.post(url(BFF_ROUTES.logout), () => {
     fakeSession.clear()
     return new HttpResponse(null, { status: 204 })
   }),
 
-  http.get(url("/me"), ({ request }) => {
-    const current = fakeSession.current()
-    if (
-      current === null ||
-      request.headers.get("Authorization") !== `Bearer ${current}`
-    ) {
+  http.get(url(BFF_ROUTES.session), () =>
+    HttpResponse.json({
+      authenticated: fakeSession.current() !== null,
+    } satisfies BffSessionState)
+  ),
+
+  http.get(url(`${BFF_ROUTES.api}/me`), () => {
+    if (fakeSession.current() === null) {
       return problemResponse(
         401,
         "Chưa xác thực",
-        "Yêu cầu access token hợp lệ."
+        "Phiên đăng nhập không còn hiệu lực."
       )
     }
     return HttpResponse.json(me)
   }),
+
+  ...upstreamHandlers,
 ]

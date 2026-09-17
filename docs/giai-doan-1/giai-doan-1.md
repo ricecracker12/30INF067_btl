@@ -1111,6 +1111,12 @@ Set-Cookie: refresh_token=<32 byte ngẫu nhiên>;
 - **Access token client giữ trong memory**, không `localStorage` — mất khi refresh trang là chấp
   nhận được, vì interceptor sẽ tự gọi `/auth/refresh` lấy cái mới.
 
+> **"Client" là Next server, không phải trình duyệt (bổ sung 2026-09-17, Đ-E14 của hướng dẫn khối E).** Hợp đồng API
+> giữ nguyên; lane FE đổi sang Backend-for-Frontend: Next server gọi `/auth/login` và `/auth/refresh`, giữ access
+> token và refresh token trong Redis (mã hóa), gửi cookie `refresh_token` server-to-server. Trình duyệt chỉ nhận cookie
+> phiên `__Host-sid` (HttpOnly) của chính origin FE và **không bao giờ thấy JWT** — kể cả trong tab Network của DevTools.
+> CORS `AllowCredentials` (quyết định 7) vẫn giữ ở API nhưng trình duyệt không còn dùng tới.
+
 > Đây là **quyết định hợp đồng API, không phải quyết định frontend** — nó đổi chữ ký của cả ba
 > endpoint auth. Chốt ở GĐ1 chính vì thế: để muộn là phải mở lại hợp đồng vừa đóng băng.
 
@@ -1346,7 +1352,8 @@ Khối **D (endpoint)** ghép sau khi A và C xong.
 - **BE:** hoàn thiện RFC 7807 cho toàn bộ nhóm auth + cập nhật Swagger cho khớp stub · CORS +
   cookie refresh.
 - **FE:** app shell + route guard · **access token giữ trong memory, không `localStorage`** ·
-  **interceptor 401→refresh** · trang `/me`.
+  **interceptor 401→refresh** · trang `/me`. *(Đổi 2026-09-17, Đ-E14: token và refresh chuyển về BFF ở Next server —
+  trình duyệt không cầm token.)*
 
 > ⚠️ **Interceptor phải single-flight.** Nhiều request nhận 401 cùng lúc chỉ được gọi
 > `/auth/refresh` **một lần**, số còn lại xếp hàng chờ kết quả. Không làm vậy thì chính frontend tự
@@ -1397,7 +1404,7 @@ Xem bảng đầy đủ (kèm version ghim và project đích) ở **Mục 9.0 �
 | SEED-03 | `UPDATE roles SET code='ROOT' WHERE code='ADMIN'` rồi khởi động lại app | **App từ chối khởi động**, thông báo nêu tên vai trò thiếu (Mục 5.5) |
 | FK-01 | Xóa vai trò đang có user | Lỗi RESTRICT |
 | E2E-01 | Đăng ký → mail qua Brevo tới hộp thư thật → verify → login → `/me` → ép 401 → refresh → gọi lại, **trên trình duyệt thật qua HTTPS** | Xuyên suốt không lỗi. Kiểm chứng cookie `httpOnly`, `SameSite`, `Path` scoping, CORS preflight — integration test không chạm tới |
-| E2E-02 | Hai kịch bản (Đ-E4): **(a)** 3 request trong **một** tab nhận 401 cùng lúc · **(b)** **3 tab** cùng nhận 401 | Chỉ gọi `/auth/refresh` **một lần** ở cả hai; không kích hoạt reuse detection; không ai bị đăng xuất. (a) chặn bằng promise chia sẻ trong tab — Vitest. (b) promise không gộp được giữa ba vùng nhớ → refresh chạy trong Web Lock, tab thắng khóa phát token mới qua BroadcastChannel — Playwright `single-flight.spec.ts` (dev: API `Jwt__AccessTokenSeconds=10`), F4 lặp lại trên staging. **Đếm số request refresh**, không chỉ nhìn "có bị đăng xuất không": ân hạn 10 giây của server che mất lỗi (b) |
+| E2E-02 | Nhiều request **cùng một phiên** nhận 401 cùng lúc — trong một tab hay nhiều tab | Chỉ gọi `/auth/refresh` **một lần**; không kích hoạt reuse detection; không ai bị đăng xuất. *(Đ-E14, 2026-09-17)* Refresh ở BFF, gộp bằng khóa Redis theo phiên — Vitest `lib/bff/handlers.test.ts`; Playwright `single-flight.spec.ts` (dev: API `Jwt__AccessTokenSeconds=10`, 9 request đồng thời) + đếm trong log api; F4 lặp lại trên staging. **Đếm số request refresh**, không chỉ nhìn "có bị đăng xuất không": ân hạn 10 giây che mất lỗi. Bấm tay trên 3 tab không tạo được tranh chấp thật |
 
 ### 10.2 AuthZ matrix — CI gate từ GĐ1
 
@@ -2030,9 +2037,9 @@ liệu seed thật. Nguồn quyền giả chỉ còn trong unit test.
 > **Không chờ backend:** chỉ cần hợp đồng API, đã có từ cổng mở.
 
 > **Hướng dẫn thi công từng bước:** [huong-dan-khoi-e-frontend.md](huong-dan-khoi-e-frontend.md) — danh sách việc (thêm
-> `E8` đóng gói cho staging; thứ tự `E1 → E2 → E4 → E3 → E5 → E6 → E7 → E8`), mục tiêu, kết quả mong đợi, 13 quyết định bổ
-> sung. Đ-E4 (single-flight giữa các tab) **đã ghi ngược** vào E7 dưới đây và Mục 10.1 E2E-02 (2026-09-17). **Chưa ghi
-> ngược:** Đ-E11 (E8 + phần frontend của F1).
+> `E8` đóng gói cho staging; thứ tự `E1 → E2 → E4 → E3 → E5 → E6 → E7 → E8`), mục tiêu, kết quả mong đợi, 14 quyết định bổ
+> sung. **Đã ghi ngược** (2026-09-17): Đ-E4 và Đ-E14 (BFF — trình duyệt không cầm token) vào E7 dưới đây, Mục 10.1 E2E-02
+> và quyết định 6. **Chưa ghi ngược:** Đ-E11 (E8 + phần frontend của F1).
 
 ### E1 — Scaffold Next.js 16 + shadcn/ui preset
 
@@ -2085,8 +2092,10 @@ liệu seed thật. Nguồn quyền giả chỉ còn trong unit test.
   hay không**.
 - **Cách thực thi:** 401 → "Email hoặc mật khẩu không đúng" (đúng một thông điệp cho cả hai trường
   hợp); 403 → "Chưa xác minh email"; 423 → "Tạm khóa, thử lại sau 15 phút"; 429 → "Quá nhiều yêu cầu".
-  **Access token giữ trong memory**, không `localStorage`.
-- **Xong là:** bốn nhánh có giao diện; DevTools xác nhận không có token trong `localStorage`.
+  **Access token giữ trong memory**, không `localStorage`. *(Đổi bởi Đ-E14: trình duyệt không nhận token — BFF trả 204
+  + cookie phiên HttpOnly.)*
+- **Xong là:** bốn nhánh có giao diện; Playwright xác nhận không request/response/cookie/Web Storage nào của trình duyệt
+  chứa JWT.
 - **Chặn / Cần:** cần E2.
 
 ### E5 — Màn xác minh email
@@ -2110,18 +2119,18 @@ liệu seed thật. Nguồn quyền giả chỉ còn trong unit test.
 
 - **Mục tiêu:** giữ phiên đăng nhập mượt, và **không để chính frontend kích hoạt reuse detection của
   server**.
-- **Cách thực thi:** nhiều request nhận 401 cùng lúc chỉ được gọi `/auth/refresh` **một lần** — hai lớp
-  (Đ-E4, ghi ngược 2026-09-17):
-  - **trong tab:** số còn lại xếp hàng chờ kết quả của lần gọi đó (một promise chia sẻ);
-  - **giữa các tab:** promise không gộp được giữa ba vùng nhớ, nên refresh chạy trong
-    `navigator.locks.request('socialapp:auth-refresh')`; tab thắng khóa phát token mới qua
-    `BroadcastChannel('socialapp:auth')`; tab đang chờ khóa, tới lượt, thấy token hiện tại **khác** token đã làm request
-    của nó nhận 401 thì dùng luôn, không gọi refresh. Thiếu Web Locks (Safari < 15.4) thì rơi về lớp trong tab.
+- **Cách thực thi:** nhiều request nhận 401 cùng lúc chỉ được gọi `/auth/refresh` **một lần**. *(Chốt lại 2026-09-17 —
+  Đ-E14 thay Đ-E4.)* Refresh chạy ở **BFF (Next server)**, không ở trình duyệt: mọi request của một phiên — dù từ một
+  tab, nhiều tab hay nhiều instance Next — đi qua **một khóa Redis theo phiên**; trong khóa, so access token hiện tại
+  của phiên với token vừa nhận 401 — đã khác thì dùng luôn, không gọi refresh. Trình duyệt không cầm token nên không có
+  gì để refresh; đăng xuất báo tab khác qua `BroadcastChannel`.
 
-  Nhận 401 **từ chính `/auth/refresh`** thì xóa access token trong memory, báo các tab khác (`logout`) và chuyển về màn
-  đăng nhập — **không thử refresh lại**. Request gọi lại mà vẫn 401 thì trả lỗi, không refresh lần hai.
-- **Xong là:** E2E-02 xanh cả hai kịch bản — 3 request trong một tab (Vitest) và 3 tab (Playwright, API dev chạy
-  `Jwt__AccessTokenSeconds=10`) — đúng **một** `POST /auth/refresh`, không ai bị đăng xuất.
+  Nhận 401 **từ chính `/auth/refresh`** thì BFF xóa phiên trong Redis, trả 401 + xóa cookie phiên → trình duyệt về màn
+  đăng nhập — **không thử refresh lại**. 429/500 từ refresh thì giữ phiên. Request gọi lại mà vẫn 401 thì trả lỗi, không
+  refresh lần hai.
+- **Xong là:** E2E-02 xanh — Vitest (BFF + API giả: 3 request đồng thời → 1 refresh) và Playwright trên API dev chạy
+  `Jwt__AccessTokenSeconds=10`: 9 request đồng thời cùng phiên → log api đúng **một** `POST /auth/refresh`, không ai bị
+  đăng xuất.
 - **Chặn / Cần:** cần E6, D4. **Không làm đúng ở đây thì triệu chứng trông hệt lỗi backend và cả
   nhóm sẽ debug nhầm chỗ rất lâu.**
 

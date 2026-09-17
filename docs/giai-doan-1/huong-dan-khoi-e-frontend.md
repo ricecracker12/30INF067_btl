@@ -8,7 +8,11 @@
 > Chỗ nào tài liệu này lệch ba nguồn đó thì sửa ở đây — trừ các quyết định ở Mục 1 đánh dấu **"cần ghi ngược"**: tài
 > liệu gốc đang thiếu hoặc mâu thuẫn ở những chỗ đó, phải sửa `giai-doan-1.md` trong cùng commit với việc tương ứng.
 
-> **Trạng thái: E1–E7 xong, E8 là việc tiếp theo (cập nhật 2026-09-17)** — E7: interceptor 401→refresh single-flight hai
+> **Trạng thái: E1–E7 xong + đổi sang BFF (Đ-E14), E8 là việc tiếp theo (cập nhật 2026-09-17)** — Đ-E14: trình duyệt
+> không còn cầm JWT; Next server giữ token trong Redis (mã hóa), trình duyệt chỉ có cookie `__Host-sid` HttpOnly.
+> **Vitest 214/214**, **Playwright** 8 xanh + 1 bỏ qua trên API dev, `single-flight.spec.ts` xanh trên API token 10 giây
+> (API thật nhận đúng 1 refresh cho 9 request đồng thời); thử cho đỏ 25 đột biến Vitest + 2 đột biến E2E; chi tiết ở Mục
+> 8A. E7: interceptor 401→refresh single-flight hai
 > lớp, **Vitest 177/177**, **Playwright** `single-flight.spec.ts` xanh trên API `Jwt__AccessTokenSeconds=10` (bộ thường 7/7
 > + 1 bỏ qua), thử cho đỏ 16 đột biến + 1 đột biến E2E; Đ-E4 đã ghi ngược vào `giai-doan-1.md`; chỗ lệch ở "Thực tế thi
 > công" của Mục 8. E6: guard phía client
@@ -100,11 +104,14 @@ dotnet run --project src/backend/SocialApp.Api          # API dev: http://localh
 5. **Không nghiệm thu trên mock** (Mục 12). Dev chạy đủ FE + BE (không còn mock trình duyệt — đổi Đ-E7); mock chỉ dựng nhánh
    lỗi khó tái hiện trong Vitest. "Xong" của E3–E7 luôn có một lượt trên API dev thật, và cổng đóng F2 là trên staging.
 
-### Mười ba quyết định đã chốt
+### Mười bốn quyết định đã chốt
 
 Tài liệu gốc chưa nói đủ để gõ code ở những chỗ dưới đây.
 
 **Đ-E1 — Dev gọi thẳng API local qua CORS; staging gọi cùng origin.**
+
+> **Thay bởi Đ-E14 (2026-09-17, nhóm chốt).** Trình duyệt không còn gọi API: chỉ gọi `/bff/*` cùng origin với trang.
+> `NEXT_PUBLIC_API_BASE_URL` bị bỏ; gốc API là cấu hình server `API_INTERNAL_URL`. Phần dưới giữ để truy nguồn.
 
 | Môi trường | FE | `NEXT_PUBLIC_API_BASE_URL` | Cookie `refresh_token` đi được vì |
 |---|---|---|---|
@@ -120,6 +127,10 @@ Tài liệu gốc chưa nói đủ để gõ code ở những chỗ dưới đâ
 
 **Đ-E2 — Access token nằm trong một module store, không trong Web Storage; chỉ `http.ts` được gọi `fetch`.**
 
+> **Đổi bởi Đ-E14 (2026-09-17, nhóm chốt).** Không còn token nào ở trình duyệt, kể cả trong memory: `token-store.ts` chỉ
+> giữ trạng thái phiên. Giữ nguyên: cấm Web Storage / `document.cookie`, `fetch` phía trình duyệt chỉ ở
+> `lib/api/http.ts`; phía server chỉ ở `lib/bff/upstream.ts`.
+
 - `lib/auth/token-store.ts`: biến module + `subscribe` (React đọc qua `useSyncExternalStore`). Không để token **chỉ** trong
   React state: api client không phải component, và interceptor phải đọc token hiện tại tại thời điểm gọi lại.
 - ESLint `no-restricted-globals` / `no-restricted-properties` cấm `localStorage`, `sessionStorage`, `document.cookie`, và cấm
@@ -127,6 +138,11 @@ Tài liệu gốc chưa nói đủ để gõ code ở những chỗ dưới đâ
 - `react/no-danger` bật: token trong memory vẫn đọc được bằng XSS; không `dangerouslySetInnerHTML` là lớp chặn rẻ nhất.
 
 **Đ-E3 — Route guard ở phía client, không dùng `proxy.ts` (tên mới của `middleware.ts` từ Next 16).**
+
+> **Đổi bởi Đ-E14 (2026-09-17).** Guard vẫn ở client, nhưng khởi động phiên bằng `GET /bff/auth/session` thay cho
+> `POST /auth/refresh` — tải lại trang không còn tốn lượt `/auth/*` của API. Server giờ THẤY cookie phiên, nhưng guard
+> vẫn không đặt ở `proxy.ts`: kiểm phiên ở đó là thêm một lượt Redis cho mọi request trang tĩnh, và API vẫn tự chặn
+> dữ liệu (tầng 1–3).
 
 - `proxy.ts` chạy trên server, **không thấy** access token (nằm trong memory của tab) và **không thấy** cookie refresh (`Path=
   /api/v1/auth`; ở dev còn nằm trên origin khác). Guard ở `proxy.ts` chỉ có thể đoán — hoặc chặn nhầm, hoặc cho qua hết.
@@ -136,6 +152,10 @@ Tài liệu gốc chưa nói đủ để gõ code ở những chỗ dưới đâ
   không tải lại trang nên không tốn.
 
 **Đ-E4 — Single-flight hai lớp: trong tab (promise chia sẻ) và giữa các tab (Web Locks + BroadcastChannel).** *(cần ghi ngược: B.7/E7, Mục 10.1 E2E-02)*
+
+> **Thay bởi Đ-E14 (2026-09-17, nhóm chốt).** Refresh chuyển về BFF ở server: một khóa Redis theo phiên gộp mọi 401
+> đồng thời — trong tab, giữa các tab, giữa các instance Next — thành MỘT lần refresh. Web Locks và coordinator phía
+> trình duyệt đã gỡ; BroadcastChannel chỉ còn báo đăng xuất sang tab khác. Phần dưới giữ để truy nguồn.
 
 - Tài liệu gốc mô tả hai kiểm chứng khác nhau: Mục 10.1 "**3 request** nhận 401 cùng lúc → refresh một lần", còn F4 và Mục 12
   "**mở 3 tab** … quan sát chỉ một lời gọi". Promise chia sẻ chỉ gộp được trong **một** tab — ba tab là ba vùng nhớ, mỗi tab một
@@ -270,6 +290,10 @@ Template ghi `^` cho gần hết gói: sau init, **xóa mọi `^`/`~`** trong `p
 
 **Đ-E11 — FE staging là container Next.js `standalone` sau apache, cùng domain với API.** *(cần ghi ngược: B.7 thêm E8; B.8/F1)*
 
+> **Đổi bởi Đ-E14 (2026-09-17).** Route Handler giờ CÓ: dưới `app/bff/**` (không dưới `/api` — vẫn là đường của
+> backend). Container FE cần Redis và biến server `API_INTERNAL_URL`, `REDIS_URL`, `APP_ORIGIN`,
+> `SESSION_ENCRYPTION_KEY`, `TRUSTED_PROXY_HOPS`; image không còn nhúng biến nào lúc build.
+
 - `deploy/apache-socialapp.conf.example` **đã chừa sẵn** `ProxyPass / http://127.0.0.1:3000/` (đang comment) sau `/api`,
   `/swagger`, `/health`. Staging dùng biến thể apache (`deploy-staging.yml`).
 - Hệ quả cho code FE, **có hiệu lực ngay từ E1**:
@@ -348,6 +372,51 @@ mặc định theo hệ thống). Token thật sau init: `--primary: oklch(0.514
 - **Không dùng feature-sliced "đầy đủ"** (mỗi feature có `ui/` và `api/` riêng): kit phải nằm ở `components/ui/` để
   `shadcn add` ghi đúng chỗ theo alias `components.json`, và luật ESLint theo đường dẫn (`components/ui/**`,
   `lib/api/http.ts`) sẽ phải nhân lên theo số feature — thêm một feature là phải sửa `eslint.config.mjs`.
+
+**Đ-E14 — Backend-for-Frontend: trình duyệt không bao giờ cầm JWT; Next server giữ token trong Redis.** *(chốt 2026-09-17 —
+thay Đ-E1, Đ-E4; đổi Đ-E2, Đ-E3, Đ-E11; ghi ngược `giai-doan-1.md` quyết định 6, B.7/E7, Mục 10.1 E2E-02)*
+
+- **Vì sao đổi.** Sau E4, header `Authorization: Bearer <JWT>` hiện nguyên trong tab Network của DevTools cho mọi request
+  `/me`. Nhóm chốt: token không được xuất hiện ở trình duyệt dưới bất kỳ dạng nào. Token trong memory không lộ ra ngoài
+  máy, nhưng một đoạn script lạ chạy trên trang (XSS) đọc được và **mang đi dùng ở nơi khác** tới khi hết hạn; sau BFF,
+  XSS chỉ còn hành động được trong chính tab đó.
+- **Luồng.** Trình duyệt → `/bff/*` (cùng origin, cookie `__Host-sid`) → Next server (Route Handler) → API .NET
+  (`Authorization: Bearer`, cookie `refresh_token` gửi server-to-server). Hợp đồng API **không đổi** — BFF chỉ là một
+  client khác của nó.
+
+  | Trình duyệt gọi | BFF làm | Trình duyệt nhận |
+  |---|---|---|
+  | `POST /bff/auth/login` | gọi `/auth/login`, cất access + refresh token vào Redis | **204**, `Set-Cookie: __Host-sid` |
+  | `POST /bff/auth/register`, `/verify-email` | chuyển tiếp | status + body của API |
+  | `GET /bff/auth/session` | tra Redis | `{ authenticated }` |
+  | `/bff/api/<path>` | gắn bearer; 401 → refresh (khóa Redis) → gọi lại **một** lần | status + body + `X-Correlation-ID` |
+  | `POST /bff/auth/logout` | gọi `/auth/logout` (thu hồi family), xóa Redis | **204**, xóa cookie |
+
+- **Các lớp chặn — mỗi lớp có test riêng (Mục 8A):**
+  1. Cookie `__Host-sid`: `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`, không `Domain`; giá trị 32 byte ngẫu nhiên, không
+     phải JWT. Cookie sai dạng không bao giờ chạm tới Redis.
+  2. Redis: key là **SHA-256** của session ID; giá trị **AES-256-GCM** với `SESSION_ENCRYPTION_KEY`, AAD gắn với key — dump
+     Redis không ra token, không chép được phiên sang key khác.
+  3. **CSRF:** mọi method thay đổi dữ liệu phải có `Origin` đúng `APP_ORIGIN`; `Sec-Fetch-Site` khác `same-origin` bị chặn.
+  4. **Session fixation:** đăng nhập luôn cấp ID mới và xóa phiên cũ.
+  5. **Không rò token:** header từ API ra trình duyệt theo danh sách trắng (`content-type`, `x-correlation-id`) —
+     `Set-Cookie` của API không bao giờ đi qua. Proxy chung chặn nhóm `auth/*` (body của `/auth/refresh` chứa token),
+     segment `.`/`..`/`/`/`\`, và mã hóa lại từng segment (không chèn được query string).
+  6. **Single-flight ở server:** khóa Redis `SET NX PX` theo phiên, nhả bằng so-chủ (Lua); trong khóa so token hiện tại
+     với token vừa hỏng (`stale`) trước khi refresh. Refresh 401 → xóa phiên; 429/500 → giữ phiên.
+  7. `Cache-Control: no-store` cho mọi response BFF; header bảo mật cho mọi trang (`X-Frame-Options: DENY`,
+     `nosniff`, `Referrer-Policy: same-origin`, `Permissions-Policy`, HSTS khi production); `poweredByHeader: false`.
+  8. Code server trong `lib/bff/**` có `import "server-only"` — import từ client component là **build đỏ** (đã thử); cổng CI
+     "bundle sạch" chặn `ioredis`, tên biến server, tiền tố key Redis trong `.next/static`.
+  9. IP người dùng gửi cho API bằng `X-Forwarded-For` (phần tử thứ `TRUSTED_PROXY_HOPS` tính từ cuối); API chỉ tin header
+     này từ proxy đã khai (`ForwardedClientIpTests`) — rate limit vẫn theo từng người.
+- **Cấu hình (server, đọc lười ở request đầu):** `API_INTERNAL_URL`, `REDIS_URL`, `APP_ORIGIN`, `SESSION_ENCRYPTION_KEY`,
+  `TRUSTED_PROXY_HOPS`. Development có mặc định local và khóa ngẫu nhiên theo tiến trình; production thiếu thì request
+  đầu ném lỗi nêu tên biến. `next build` không cần biến nào.
+- **Giá phải trả:** container FE phụ thuộc Redis (F1); mỗi lời gọi API thêm một chặng Next server; access token 15 phút
+  không còn "chết theo tab" — nó sống trong Redis tới khi hết hạn hoặc đăng xuất (bù lại: đăng xuất xóa ngay ở server).
+- **Chưa làm:** Content-Security-Policy (cần nonce theo request qua `proxy.ts` — việc riêng). SignalR GĐ5: trình duyệt
+  không có token để gắn vào hub — phải đi qua BFF hoặc vé ngắn hạn; quyết định ở GĐ5.
 
 ---
 
@@ -1872,6 +1941,76 @@ Thử cho đỏ (từng đột biến một, rồi khôi phục — checksum b�
 | Refresh không chạy trong khóa | `refresh-coordinator` 3 ca lớp 2 |
 | **E2E:** bỏ `locks` ở `session.ts` (FE build lại) | `single-flight.spec.ts` — `Expected: 1, Received: 3` |
 
+## 8A. Đổi sang BFF (Đ-E14) — thực tế thi công 2026-09-17
+
+**Gỡ khỏi trình duyệt:** `lib/auth/refresh-coordinator.ts` (+ test), `lib/api/http.interceptor.test.ts`,
+`lib/api/config.test.ts`, bearer và nhánh 401→refresh trong `http.ts`, token trong `token-store.ts`,
+`NEXT_PUBLIC_API_BASE_URL`. `http.ts` giờ chỉ gọi `/bff` (`credentials: 'same-origin'`); 401 từ `/bff/api/*` = phiên hết
+thật (BFF đã thử refresh) → `tokenStore.endSession('expired')`.
+
+**Thêm:** `lib/bff/` (`config`, `crypto`, `http`, `session-store`, `upstream`, `handlers`, `deps`), route mỏng dưới
+`app/bff/**`, `lib/api/bff-contract.ts` (hình dạng endpoint BFF dùng chung client/server), `mocks/upstream.ts` (API .NET
+giả cho test server), `mocks/redis.ts` (Redis giả đúng ngữ nghĩa TTL / `SET NX`), gói `ioredis` 6.0.0 và `server-only`
+0.0.1 (ghim chính xác). Mock MSW phía trình duyệt đổi sang bề mặt `/bff/*`.
+
+**Những thứ chỉ lộ ra khi gõ thật:**
+- **msw trong Node tự giữ cookie** của response trước và gắn vào request sau (`leak=1` của API giả xuất hiện trong header
+  `Cookie` gửi `/auth/refresh`). `fetch` của Next server không có cookie jar — test chỉ đọc đúng `refresh_token`.
+- **`enableOfflineQueue: false` của ioredis** làm request đầu tiên sau khi tiến trình khởi động lỗi 503 (kết nối chưa mở
+  xong). Giữ hàng đợi mặc định, `maxRetriesPerRequest: 1` để Redis chết thì vẫn lỗi nhanh.
+- **Bấm "Tải lại" ở 3 tab — hay fetch từ trong trang — không tạo được tranh chấp thật:** đã build bản bỏ khóa Redis mà spec
+  cũ vẫn xanh, log API chỉ 1 refresh. Gửi 9 request đồng thời từ Node (`context.request` dùng chung cookie của tab) thì
+  bản bỏ khóa làm API nhận **9** refresh, 6 lần rơi vào ân hạn 10 giây và 3 request **429** → spec đỏ. Bản đúng: **1**
+  refresh, 9/9 là 200.
+- **Mutation "key Redis dạng rõ" viết lần đầu là tương đương** (không đổi gì); viết lại bằng cách bỏ băm ở mọi chỗ → bị bắt.
+- `app/page.tsx` redirect và các trang vẫn prerender tĩnh; chỉ `/bff/*` là dynamic (`force-dynamic` — thiếu thì
+  `GET /bff/auth/session` bị build thành file tĩnh, mọi người nhận cùng câu trả lời).
+- Cổng Playwright rẻ hơn: tải lại trang và vào `/me` khi chưa đăng nhập không còn tốn lượt `/auth/*` của API.
+
+**Bằng chứng.**
+
+| Cổng | Kết quả |
+|---|---|
+| `pnpm lint` / `typecheck` | xanh |
+| `pnpm test` | **214/214** (21 file; trước là 177 — bỏ 26 test của coordinator/interceptor/config phía trình duyệt, thêm 61 test `lib/bff`) |
+| `pnpm build` (không biến nào) | xanh; `/bff/*` dynamic; grep `.next/static` cho `ioredis`, `SESSION_ENCRYPTION_KEY`, `API_INTERNAL_URL`, `bff:session`, `refresh_token`, `localhost:5259` — **rỗng** |
+| Import `lib/bff/crypto` vào client component | build **đỏ** "'server-only' cannot be imported from a Client Component module" (rồi khôi phục) |
+| `pnpm test:e2e` (Chrome 152.0.7977.84), API dev 5259 | **8** xanh, 1 bỏ qua (`single-flight`) — `login-storage.spec.ts`: không request nào mang `Authorization`, không request nào tới API trực tiếp, không body nào chứa JWT, không cookie `refresh_token`, `__Host-sid` HttpOnly/Secure/Lax, `document.cookie` rỗng; CSRF logout từ Origin lạ 403 |
+| `single-flight.spec.ts`, API 5260 (`Jwt__AccessTokenSeconds=10`) + FE build 3001 (Redis thật) | xanh; log API: **1** `POST /auth/refresh` cho 9 request đồng thời, không lần nào trong ân hạn |
+| Cổng CI bundle mở rộng | thử cho đỏ bằng file chứa `ioredis` trong `.next/static` rồi gỡ |
+
+Thử cho đỏ (từng đột biến, rồi khôi phục — checksum `lib/bff/*.ts` + `lib/api/http.ts` khớp trước/sau):
+
+| Đột biến | Test bắt |
+|---|---|
+| Login trả token ra body | `handlers` 24 ca (204 không body, Redis, fixation…) |
+| `relay` chuyển cả `Set-Cookie` của API | `handlers` "KHÔNG chuyển Set-Cookie của API" |
+| Bỏ kiểm `Origin` | `handlers` 5 ca CSRF (login, register/verify, proxy POST) |
+| Bỏ kiểm `Sec-Fetch-Site` | `handlers` "Sec-Fetch-Site: cross-site" |
+| Giữ session ID cũ khi đăng nhập | `handlers` "chống session fixation" |
+| Proxy cho đi nhóm `auth` | `handlers` `["auth","refresh"]`, `["AUTH","login"]` |
+| Proxy không chặn `..` | `handlers` 2 ca path traversal |
+| Proxy không mã hóa lại segment | `handlers` "segment chứa '?'…" — **lần đầu sống sót**, thêm ca này |
+| Refresh không so `stale` | `handlers` "3 request đồng thời", "401 về MUỘN" |
+| Refresh 401 không xóa phiên | `handlers` "refresh 401 (bị thu hồi)" |
+| Refresh 500 xóa phiên | `handlers` "refresh 500 → GIỮ phiên" |
+| Gọi lại 401 thì refresh tiếp | `handlers` "gọi lại vẫn 401 → tổng 1 refresh" |
+| Logout không gọi API thu hồi | `handlers` 2 ca logout |
+| Logout không xóa phiên Redis | `handlers` "phiên bị xóa" |
+| Không mã hóa token trong Redis | `handlers` 15 ca |
+| Key Redis là session ID dạng rõ (bỏ băm) | `handlers` "key là băm của session ID" |
+| AAD không gắn key | `crypto` + `handlers` 16 ca |
+| Cookie thiếu `HttpOnly` | `handlers` "204, KHÔNG body, cookie __Host-sid HttpOnly…" |
+| Khóa không nhả khi tác vụ ném | `session-store` + `handlers` 4 ca |
+| Nhả khóa không kiểm chủ | `session-store` "KHÔNG xóa khóa của người mới" |
+| `X-Forwarded-For` lấy phần tử đầu | `handlers` "203.0.113.9, 198.51.100.10 (hops=0)" |
+| Cookie phiên không kiểm dạng | `handlers` "cookie sai dạng → không chạm Redis" — **lần đầu sống sót**, thêm đếm lần đọc Redis |
+| Production không đòi `SESSION_ENCRYPTION_KEY` | `config` "production thiếu biến" |
+| Client không báo phiên hết hạn khi 401 | `http` + `session` 2 ca |
+| Client gửi `credentials: 'include'` | `http` "credentials: 'same-origin'" |
+| **E2E:** login trả token ra body (dev server) | `login-storage.spec.ts` — `Expected: 204, Received: 200` |
+| **E2E:** bỏ khóa Redis (FE build 3001) | `single-flight.spec.ts` — 3 × 429; log API 9 refresh |
+
 ---
 
 ## 9. E8 — Đóng gói frontend cho staging *(bổ sung)*
@@ -2007,7 +2146,8 @@ playwright-report
 - [ ] Job CI `frontend` xanh, gồm cổng `API types khop hop dong (CI GATE)`; đã thử cho đỏ một lần (E2)
 - [ ] Vitest: `text-field`, `schema.test-d`, `http`, `problem`, `messages`, `safe-next`, `auth` (bảng ngưỡng), `login-form`, `register-form`,
       `check-email`, `password-field`,
-      `verify-email` (StrictMode 1 request), `verify-once`, `require-auth`, `session`, `me-profile`, `refresh-coordinator` (gồm hai coordinator), `http.interceptor`
+      `verify-email` (StrictMode 1 request), `verify-once`, `require-auth`, `session`, `me-profile`; BFF (Đ-E14):
+      `lib/bff/handlers`, `crypto`, `config`, `session-store`
 - [ ] Luật ESLint Đ-E2/Đ-E12 đã thử cho đỏ (E1)
 - [ ] Bảng "thử cho đỏ" của E7 đã chạy
 
@@ -2027,8 +2167,9 @@ playwright-report
 
 **Code review — không test tự động nào bắt được**
 
-- [ ] Chỉ `lib/auth/session.ts` import `authApi.refresh` (E7 bẫy 1)
-- [ ] Không route `app/api/**`, không route FE dưới `/api`, `/health`, `/swagger` (Đ-E11)
+- [ ] Không route BFF nào trả access/refresh token ra trình duyệt; mọi lời gọi API phía server đi qua `lib/bff/upstream.ts` (Đ-E14)
+- [ ] Route Handler chỉ dưới `app/bff/**`; không route `app/api/**`, không route FE dưới `/api`, `/health`, `/swagger` (Đ-E11)
+- [ ] Module server của BFF có `import "server-only"` (Đ-E14)
 - [ ] `components/ui/**` chỉ đổi khi đổi cho toàn app; component mới thêm bằng `pnpm exec shadcn add` (Đ-E12)
 - [ ] Bốn tầng đúng chiều (Đ-E13): `components/` và `lib/` không biết nghiệp vụ; `features/auth/` không bị `app/` hay `lib/`
       import ngược; không có thư mục `features/` rỗng cho giai đoạn chưa tới
@@ -2048,10 +2189,10 @@ playwright-report
 
 | Ai nhận | Nhận cái gì |
 |---|---|
-| **F1** | Image FE `standalone` arm64 + danh sách việc compose/apache/CD (Mục 9) |
-| **F2** | Base URL tương đối `/api/v1`; mock trình duyệt đã gỡ (đổi Đ-E7) — F2 chỉ còn trỏ base URL |
+| **F1** | Image FE `standalone` arm64 + danh sách việc compose/apache/CD (Mục 9). Từ Đ-E14 container FE cần Redis và `API_INTERNAL_URL`, `REDIS_URL`, `APP_ORIGIN`, `SESSION_ENCRYPTION_KEY`, `TRUSTED_PROXY_HOPS`; api cần `ReverseProxy__TrustedNetworks__0` = mạng compose (checklist F1 hướng dẫn khối D) |
+| **F2** | Trình duyệt không cần base URL nào (Đ-E14 — chỉ gọi `/bff` cùng origin); mock trình duyệt đã gỡ (đổi Đ-E7) — F2 đặt biến server của BFF trên staging |
 | **F3** | Playwright E2E-01 chạy lại được bằng `BASE_URL=https://mxh.banhgao.net` (bước mail đổi sang hộp thư thật) |
-| **F4** | `single-flight.spec.ts` + nút "Tải lại" ở `/me` để bấm đồng thời bằng tay trên 3 tab |
-| **GĐ2–GĐ8** | Kit shadcn/ui + luật Đ-E12 + composite `components/form`; `request()` có sẵn bearer, `credentials`, interceptor; nhóm route `(app)` có guard; bảng thông điệp lỗi theo status; codegen — module mới thêm một script `gen:api:<module>` ra `lib/api/<module>/schema.d.ts`, cổng CI so cả thư mục `lib/api`. **Thêm một màn (Đ-E13) = 4 chỗ:** route ở `app/(app)/<url>/` · nghiệp vụ ở `features/<màn>/` · `gen:api:<module>` → `lib/api/<module>/` · kiểm dữ liệu ở `lib/validation/<màn>.ts`. Không đụng `components/`, không sửa `eslint.config.mjs` |
-| **GĐ5** | Token cho SignalR lấy qua `coordinator.getFreshToken` (`accessTokenFactory`) — không đọc thẳng store, để kết nối lại sau hết hạn cũng đi qua single-flight |
-| **GĐ6** | Hạ quyền ghi `revoked:user` → request kế tiếp 401 → interceptor refresh → token mới mang vai trò mới; FE **không phải sửa gì** |
+| **F4** | `single-flight.spec.ts` (9 request đồng thời cùng phiên sau khi token hết hạn) + đếm `POST /auth/refresh` trong log api — bấm tay trên 3 tab không tạo được tranh chấp thật (Mục 8A) |
+| **GĐ2–GĐ8** | Kit shadcn/ui + luật Đ-E12 + composite `components/form`; `request()` tới BFF + proxy chung `/bff/api/*` (bearer, refresh single-flight ở server — module mới không phải thêm route BFF); nhóm route `(app)` có guard; bảng thông điệp lỗi theo status; codegen — module mới thêm một script `gen:api:<module>` ra `lib/api/<module>/schema.d.ts`, cổng CI so cả thư mục `lib/api`. **Thêm một màn (Đ-E13) = 4 chỗ:** route ở `app/(app)/<url>/` · nghiệp vụ ở `features/<màn>/` · `gen:api:<module>` → `lib/api/<module>/` · kiểm dữ liệu ở `lib/validation/<màn>.ts`. Không đụng `components/`, không sửa `eslint.config.mjs` |
+| **GĐ5** | Trình duyệt KHÔNG có token cho SignalR (Đ-E14): hub phải đi qua BFF (proxy WebSocket ở Next server) hoặc API cấp vé ngắn hạn qua `/bff/api/*` — chốt ở cổng mở GĐ5 |
+| **GĐ6** | Hạ quyền ghi `revoked:user` → request kế tiếp 401 → BFF refresh → token mới mang vai trò mới; FE **không phải sửa gì** |

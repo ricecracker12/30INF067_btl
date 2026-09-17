@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event"
 import { http, HttpResponse } from "msw"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import { API_BASE_URL } from "@/lib/api/config"
+import { BFF_URL } from "@/lib/api/config"
 import type * as T from "@/lib/api/types"
 import { server } from "@/mocks/node"
 
@@ -33,7 +33,7 @@ function holdRegister() {
   let release!: () => void
   const gate = new Promise<void>((r) => (release = r))
   server.use(
-    http.post(`${API_BASE_URL}/auth/register`, async () => {
+    http.post(`${BFF_URL}/auth/register`, async () => {
       await gate
       return HttpResponse.json(
         {
@@ -75,7 +75,7 @@ describe("RegisterForm — thành công", () => {
     expect(pendingEmailStore.get()).toBe("an@example.com")
     expect(seen).toEqual([
       {
-        path: "/api/v1/auth/register",
+        path: "/bff/auth/register",
         body: { email: "an@example.com", password: "MatKhau123" },
       },
     ])
@@ -92,7 +92,7 @@ describe("RegisterForm — thành công", () => {
     release()
 
     await waitFor(() => expect(push).toHaveBeenCalledTimes(1))
-    expect(seen.map((r) => r.path)).toEqual(["/api/v1/auth/register"])
+    expect(seen.map((r) => r.path)).toEqual(["/bff/auth/register"])
   })
 
   it("form bị gửi lần hai KHÔNG qua nút (vd. requestSubmit) trong lúc chờ: vẫn 1 request", async () => {
@@ -106,7 +106,7 @@ describe("RegisterForm — thành công", () => {
     release()
 
     await waitFor(() => expect(push).toHaveBeenCalledTimes(1))
-    expect(seen.map((r) => r.path)).toEqual(["/api/v1/auth/register"])
+    expect(seen.map((r) => r.path)).toEqual(["/bff/auth/register"])
   })
 })
 
@@ -168,7 +168,7 @@ describe("RegisterForm — lỗi theo trường (Đ-E5)", () => {
     await user.type(screen.getByLabelText("Email"), "o'brien@ví-dụ.vn")
     await user.click(screen.getByRole("button", { name: "Đăng ký" }))
     await waitFor(() => expect(push).toHaveBeenCalledTimes(1))
-    expect(seen.map((r) => r.path)).toEqual(["/api/v1/auth/register"])
+    expect(seen.map((r) => r.path)).toEqual(["/bff/auth/register"])
   })
 })
 
@@ -199,7 +199,7 @@ describe("RegisterForm — lỗi cấp form (bảng E4)", () => {
 
   it("mất mạng: không đoán nguyên nhân, không nhớ email", async () => {
     server.use(
-      http.post(`${API_BASE_URL}/auth/register`, () => HttpResponse.error())
+      http.post(`${BFF_URL}/auth/register`, () => HttpResponse.error())
     )
     await submit("an@example.com")
     expect(await screen.findByRole("alert")).toHaveTextContent(

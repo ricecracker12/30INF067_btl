@@ -1,18 +1,14 @@
-// Đ-E1 — gốc API theo môi trường.
-//
-// PHẢI viết nguyên văn `process.env.NEXT_PUBLIC_API_BASE_URL`: Next thay chuỗi này bằng giá trị
-// lúc build. Đọc động (`process.env[name]`) thì trên trình duyệt là `undefined`.
-const fromEnv = process.env.NEXT_PUBLIC_API_BASE_URL
+// Đ-E14 (thay Đ-E1) — trình duyệt CHỈ gọi BFF cùng origin (`/bff/*` của chính Next server). Không còn gốc API cho trình
+// duyệt: không biến NEXT_PUBLIC_API_BASE_URL, không CORS, không cookie khác site — và không build nào nhúng sai địa chỉ
+// API được. Gốc API .NET là cấu hình SERVER (`API_INTERNAL_URL`, lib/bff/config.ts).
 
-export const API_BASE_URL: string = (() => {
-  if (fromEnv) return fromEnv.replace(/\/$/, "")
-  // Dev gọi thẳng API local qua CORS. CẤM trỏ sang API staging: khác site → SameSite=Lax chặn
-  // cookie refresh, và mọi lần refresh trả 401 mà không lỗi nào nói lý do.
-  if (process.env.NODE_ENV !== "production")
-    return "http://localhost:5259/api/v1"
-  // Cùng tinh thần "thiếu cấu hình = từ chối chạy" của backend: build production mà quên biến
-  // thì đỏ ngay, không đẩy một bundle gọi nhầm localhost lên staging.
-  throw new Error(
-    "Thiếu NEXT_PUBLIC_API_BASE_URL khi build production. Staging: /api/v1 (Đ-E1)."
-  )
-})()
+export const BFF_BASE_PATH = "/bff"
+
+/**
+ * URL tuyệt đối tới BFF. Trình duyệt: origin của trang. Vitest (Node): origin của jsdom — `fetch` của Node không nhận
+ * đường dẫn tương đối.
+ */
+export const BFF_URL: string =
+  typeof window === "undefined"
+    ? BFF_BASE_PATH
+    : `${window.location.origin}${BFF_BASE_PATH}`

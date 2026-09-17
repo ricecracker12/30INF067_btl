@@ -1,38 +1,31 @@
+import { BFF_ROUTES, type BffSessionState } from "./bff-contract"
 import { request } from "./http"
 import type * as T from "./types"
 
-// Kiểu lấy từ hợp đồng: yaml đổi field là các dòng dưới đỏ compile, không phải đỏ lúc chạy.
+// Kiểu payload lấy từ hợp đồng: yaml đổi field là các dòng dưới đỏ compile, không phải đỏ lúc chạy.
+// Mọi lời gọi đi tới BFF (Đ-E14); BFF gọi API .NET ở server. Không hàm nào trả token cho trình duyệt.
 export const authApi = {
   register: (b: T.RegisterRequest) =>
-    request<T.RegisterResponse>("/auth/register", {
+    request<T.RegisterResponse>(BFF_ROUTES.register, {
       method: "POST",
       body: b,
-      auth: false,
     }),
 
   verifyEmail: (b: T.VerifyEmailRequest) =>
-    request<T.VerifyEmailResponse>("/auth/verify-email", {
+    request<T.VerifyEmailResponse>(BFF_ROUTES.verifyEmail, {
       method: "POST",
       body: b,
-      auth: false,
     }),
 
+  /** 204: BFF giữ token ở server, trình duyệt nhận cookie phiên `__Host-sid` (HttpOnly). */
   login: (b: T.LoginRequest) =>
-    request<T.TokenResponse>("/auth/login", {
-      method: "POST",
-      body: b,
-      auth: false,
-    }),
+    request<void>(BFF_ROUTES.login, { method: "POST", body: b }),
 
-  /**
-   * KHÔNG body, KHÔNG Content-Type (quyết định 6: "endpoint này không nhận body") — refresh token
-   * đi trong cookie. CHỈ `lib/auth/session.ts` của E7 được gọi hàm này: gọi thẳng từ chỗ khác là
-   * phá single-flight và có thể tự kích hoạt reuse detection của server.
-   */
-  refresh: () =>
-    request<T.TokenResponse>("/auth/refresh", { method: "POST", auth: false }),
+  logout: () => request<void>(BFF_ROUTES.logout, { method: "POST" }),
 
-  logout: () => request<void>("/auth/logout", { method: "POST" }),
+  /** Có phiên hay không — guard khởi động (E6). Refresh token do BFF tự lo, trình duyệt không gọi refresh. */
+  session: () => request<BffSessionState>(BFF_ROUTES.session),
 
-  me: (signal?: AbortSignal) => request<T.MeResponse>("/me", { signal }),
+  me: (signal?: AbortSignal) =>
+    request<T.MeResponse>(`${BFF_ROUTES.api}/me`, { signal }),
 }

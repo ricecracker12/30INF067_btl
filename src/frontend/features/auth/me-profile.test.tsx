@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event"
 import { http, HttpResponse } from "msw"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import { API_BASE_URL } from "@/lib/api/config"
+import { BFF_URL } from "@/lib/api/config"
 import { tokenStore } from "@/lib/auth/token-store"
 import { me } from "@/mocks/fixtures"
 import { server } from "@/mocks/node"
@@ -27,7 +27,8 @@ function countMe() {
 
 beforeEach(() => {
   tokenStore.reset()
-  tokenStore.startSession(fakeSession.start())
+  fakeSession.start()
+  tokenStore.startSession()
 })
 
 describe("MeProfile (E6 bước 4)", () => {
@@ -64,7 +65,7 @@ describe("MeProfile (E6 bước 4)", () => {
   it("lỗi 500: câu chung kèm traceId; Tải lại thành công thì lỗi biến mất", async () => {
     server.use(
       http.get(
-        `${API_BASE_URL}/me`,
+        `${BFF_URL}/api/me`,
         () =>
           HttpResponse.json(
             {
@@ -95,7 +96,7 @@ describe("MeProfile (E6 bước 4)", () => {
   it("rời trang khi request chưa xong: hủy request (AbortController), không lỗi", async () => {
     let aborted = false
     server.use(
-      http.get(`${API_BASE_URL}/me`, async ({ request }) => {
+      http.get(`${BFF_URL}/api/me`, async ({ request }) => {
         await new Promise<void>((resolve) => {
           request.signal.addEventListener("abort", () => {
             aborted = true

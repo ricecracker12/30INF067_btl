@@ -1,7 +1,5 @@
 import { expect, test } from "@playwright/test"
 
-import { giuHanMucAuth } from "./dev-api"
-
 // Chạy trên Chrome ĐÃ CÀI của máy (lệch Đ-E8) — bản Chrome khác nhau giữa các máy, nên test tự in
 // bản ra để dán vào PR cùng kết quả.
 test("Chrome dùng để chạy", async ({ browser }) => {
@@ -15,18 +13,10 @@ test("Chrome dùng để chạy", async ({ browser }) => {
 test("vào trang gốc chưa đăng nhập: / → /me → /login?next=%2Fme, không lỗi console, Web Storage rỗng", async ({
   page,
 }) => {
-  // Guard của /me gọi một POST /auth/refresh (401 — chưa có cookie).
-  await giuHanMucAuth(1)
-
   const loi: string[] = []
   page.on("console", (m) => {
-    // Trình duyệt tự in mọi response 4xx ra console. 401 của refresh khởi động là ĐÚNG thiết kế (Đ-E3: tab mới
-    // chưa biết còn phiên hay không, phải hỏi server) — bỏ riêng dòng đó, còn lại vẫn phải rỗng.
-    if (
-      m.type() === "error" &&
-      !(m.text().includes("401") && m.location().url.endsWith("/auth/refresh"))
-    )
-      loi.push(m.text())
+    // Đ-E14: hỏi phiên là GET /bff/auth/session → 200 { authenticated: false }, không còn 401 nào in ra console.
+    if (m.type() === "error") loi.push(m.text())
   })
   page.on("pageerror", (e) => loi.push(e.message))
 

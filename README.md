@@ -38,7 +38,8 @@ Chi tiết GĐ1:
 - **Frontend (khối E) — đang làm:**
   - xong: E1 (scaffold + kit UI), E2 (api client sinh từ hợp đồng, MSW cho Vitest), E4 (màn đăng nhập), E3 (màn đăng ký),
     E5 (màn xác minh email), E6 (guard phía client + trang `/me` + đăng xuất),
-    E7 (tự refresh khi 401, single-flight trong tab và giữa các tab)
+    E7 (tự refresh khi 401, single-flight), đổi sang **BFF**: trình duyệt không bao giờ cầm JWT — Next server giữ token
+    trong Redis, trình duyệt chỉ có cookie phiên HttpOnly (Đ-E14)
   - còn lại: E8 đóng gói FE cho staging
 - **Chưa làm:** ráp FE lên staging (F1–F3). Vì vậy **staging hiện chỉ có API**, chưa có giao diện (xem [Mục 7](#7-staging-xem-sản-phẩm-trên-internet)).
 
@@ -155,11 +156,13 @@ pnpm install          # lần đầu, hoặc khi pnpm-lock.yaml đổi
 pnpm dev
 ```
 
-Mở **http://localhost:3000**. FE gọi thẳng `http://localhost:5259/api/v1` (mặc định trong `lib/api/config.ts`, **không cần**
-file `.env.local`). CORS với `credentials` được bật cho origin `http://localhost:3000`.
+Mở **http://localhost:3000**. Trình duyệt chỉ gọi **BFF** cùng origin (`/bff/*`); Next server gọi API
+`http://localhost:5259/api/v1` và giữ token trong **Redis** — nên FE dev cần Redis của Mục 4.2 đang chạy. **Không cần**
+file `.env.local`: thiếu biến thì `lib/bff/config.ts` dùng mặc định local (khóa mã hóa phiên sinh ngẫu nhiên mỗi lần
+`pnpm dev` — khởi động lại là phải đăng nhập lại). Danh sách biến: `src/frontend/.env.example`.
 
-> **Cấm trỏ FE local sang API staging.** Khác site thì cookie refresh (`SameSite=Lax`) không được gửi, `/auth/refresh`
-> luôn 401 mà không lỗi nào nói lý do.
+> Vì sao DevTools không còn thấy `Authorization: Bearer …`: token không bao giờ tới trình duyệt (Đ-E14). Muốn xem token
+> để gỡ lỗi API thì gọi API bằng `curl` như [Mục 6.3](#63-gọi-endpoint-cần-đăng-nhập).
 
 ### 4.6. Tóm tắt cổng trên máy dev
 
@@ -208,8 +211,8 @@ docker compose -f deploy/docker-compose.dev.yml up -d --build
 docker compose -f deploy/docker-compose.dev.yml run --rm --entrypoint "dotnet SocialApp.Api.dll --migrate" api
 ```
 
-API khi đó ở **http://localhost:8080**. Muốn FE gọi vào đây thì tạo `src/frontend/.env.local` với
-`NEXT_PUBLIC_API_BASE_URL=http://localhost:8080/api/v1`. Đừng chạy song song với `dotnet run` nếu không cần: hai API cùng
+API khi đó ở **http://localhost:8080**. Muốn BFF gọi vào đây thì tạo `src/frontend/.env.local` với
+`API_INTERNAL_URL=http://localhost:8080/api/v1`. Đừng chạy song song với `dotnet run` nếu không cần: hai API cùng
 trỏ một DB.
 
 **Rút ngắn access token để thử refresh** (E7) — mặc định 900 giây:
@@ -438,6 +441,9 @@ pnpm build
 pnpm test:e2e     # Playwright trên Chrome đã cài, workers: 1 — cần API dev + hạ tầng đang chạy; KHÔNG chạy trong CI
 ```
 
+`single-flight.spec.ts` tự bỏ qua ở lượt thường — nó cần API riêng với `Jwt__AccessTokenSeconds=10` và FE bản build trỏ
+vào đó; lệnh đầy đủ ở đầu file.
+
 Cả bộ Playwright tốn hơn 10 lượt `/auth/*` — vượt rate limit 10/phút. Mỗi spec khai số lượt qua `giuHanMucAuth(n)`
 (`e2e/dev-api.ts`); vượt thì tự chờ ~75 giây, nên một lượt chạy đủ mất khoảng 1,5 phút. Vừa thử tay trên API dev thì chờ
 một phút rồi mới chạy — bộ đếm không biết các request ngoài Playwright.
@@ -579,8 +585,10 @@ Repo được index bởi GitNexus để phân tích tác động trước khi s
 | `relation "identity.users" does not exist` / 500 khi đăng ký | Chưa chạy `-- --migrate` ([Mục 4.3](#43-tạo-schema--dữ-liệu-nền-migrate)) |
 | `/health/ready` trả `Unhealthy` | Postgres/Redis chưa chạy: `docker compose -f deploy/docker-compose.dev.yml ps` |
 | Cổng 5432/6379 đã bị chiếm | Máy đã có Postgres/Redis cài sẵn. Tắt service đó, hoặc đặt `ConnectionStrings__Postgres` / `ConnectionStrings__Redis` trỏ nơi khác |
-| FE báo lỗi mạng / CORS | API chưa chạy ở `5259`, hoặc FE không chạy ở đúng `http://localhost:3000` (origin khác thì CORS chặn) |
-| `/auth/refresh` luôn 401 | FE đang trỏ sang API khác site (vd staging), hoặc gọi thiếu `credentials: 'include'` |
+| Đăng nhập báo "Đã xảy ra lỗi không mong muốn" (502) | BFF không gọi được API: API chưa chạy ở `5259`, hoặc `API_INTERNAL_URL` sai |
+| Mọi thao tác báo lỗi 503 / không giữ được phiên | Redis chưa chạy: `docker compose -f deploy/docker-compose.dev.yml up -d redis` |
+| `POST /bff/…` trả 403 | Request không có `Origin` đúng `APP_ORIGIN` (chống CSRF) — FE chạy ở cổng khác 3000 thì đặt `APP_ORIGIN` |
+| Vừa `pnpm dev` lại thì bị đăng xuất | Bình thường ở dev: khóa mã hóa phiên sinh lại mỗi lần khởi động. Đặt `SESSION_ENCRYPTION_KEY` trong `.env.local` nếu cần giữ |
 | 429 Too Many Requests | Rate limit `/auth/*` 10 request/phút/IP. Chờ một phút |
 | Integration test lỗi `Docker is either not running…` | Bật Docker Desktop |
 | `pnpm` sai phiên bản / lockfile lỗi | `corepack enable` rồi `pnpm install`. Không dùng `npm install` |

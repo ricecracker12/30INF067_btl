@@ -1,71 +1,62 @@
 import { authApi } from "@/lib/api/auth-api"
-import { configureRefresh } from "@/lib/api/http"
+import { configureSessionExpired } from "@/lib/api/http"
 
-import {
-  createRefreshCoordinator,
-  SessionExpiredError,
-} from "./refresh-coordinator"
 import { tokenStore } from "./token-store"
 
-// Chỉ trong trình duyệt. Next prerender chạy cả module của client component trên server — ở đó Node vẫn có
-// `BroadcastChannel` (mở kênh là giữ tiến trình build sống) và có thể có `navigator`; guard bằng `window`.
-const inBrowser = typeof window !== "undefined"
+// Đ-E14 — phiên phía trình duyệt. Refresh token, single-flight refresh (Đ-E4) đều đã chuyển về BFF ở server: trình duyệt
+// không cầm token nên không có gì để refresh. Ở đây chỉ còn: hỏi BFF có phiên không, đăng xuất, và báo tab khác.
 
+// Chỉ trong trình duyệt: Next prerender chạy module của client component trên server, nơi Node cũng có
+// `BroadcastChannel` (mở kênh là giữ tiến trình build sống).
+type AuthMessage = { type: "logout" }
 const channel =
-  inBrowser && typeof BroadcastChannel !== "undefined"
+  typeof window !== "undefined" && typeof BroadcastChannel !== "undefined"
     ? new BroadcastChannel("socialapp:auth")
     : undefined
 
-const locks =
-  inBrowser && typeof navigator !== "undefined" && navigator.locks
-    ? {
-        request: <T>(name: string, cb: () => Promise<T>) =>
-          navigator.locks.request(name, () => cb()) as Promise<T>,
-      }
-    : undefined
-
-// File DUY NHẤT được import `authApi.refresh` (frontend-rules Mục 5): gọi thẳng từ chỗ khác là phá
-// single-flight và có thể tự kích hoạt reuse detection của server.
-export const coordinator = createRefreshCoordinator({
-  refresh: authApi.refresh,
-  getToken: tokenStore.get,
-  setToken: tokenStore.startSession,
-  endSession: () => tokenStore.endSession("expired"),
-  locks,
-  channel,
+channel?.addEventListener("message", (event: MessageEvent<AuthMessage>) => {
+  // Tab khác vừa đăng xuất: cookie phiên đã bị xóa cho cả origin — kết thúc luôn ở đây, không chờ request sau nhận 401.
+  if (event.data?.type === "logout") tokenStore.endSession("expired")
 })
 
-// Nhánh 401 của `request()` đi qua CÙNG coordinator với khởi động phiên — một đường refresh duy nhất (Đ-E4).
-configureRefresh(coordinator.getFreshToken)
+// 401 từ proxy /bff/api/* = BFF đã refresh thử ở server và thất bại → phiên hết thật.
+configureSessionExpired(() => tokenStore.endSession("expired"))
+
+let inflight: Promise<void> | null = null
 
 /**
- * Khôi phục phiên khi tab vừa mở / tải lại (Đ-E3): một `POST /auth/refresh` bằng cookie. Gọi nhiều lần đồng thời
- * (StrictMode, nút "Thử lại", tab khác) vẫn chỉ một request — gộp bởi coordinator.
+ * Khôi phục phiên khi tab vừa mở / tải lại (Đ-E3): hỏi BFF `GET /bff/auth/session`. Gọi nhiều lần đồng thời (StrictMode,
+ * nút "Thử lại") vẫn chỉ một request.
  *
- * 200 → `authenticated` · 401 → `anonymous` · còn lại → `error` (không đẩy về `/login`).
+ * có phiên → `authenticated` · không → `anonymous` · không hỏi được → `error` (không đẩy về `/login`).
  */
-export async function bootstrapSession(): Promise<void> {
+export function bootstrapSession(): Promise<void> {
   if (tokenStore.getSession().status === "error") tokenStore.markUnknown()
-  try {
-    await coordinator.getFreshToken(null)
-  } catch (e) {
-    if (!(e instanceof SessionExpiredError)) tokenStore.markError()
-  }
+  inflight ??= (async () => {
+    try {
+      const { authenticated } = await authApi.session()
+      if (authenticated) tokenStore.startSession()
+      else tokenStore.endSession("expired")
+    } catch {
+      tokenStore.markError()
+    }
+  })().finally(() => {
+    inflight = null
+  })
+  return inflight
 }
 
 /**
- * Đăng xuất: server thu hồi refresh token + xóa cookie, rồi xóa token khỏi memory và báo mọi tab. Access token đã
- * phát vẫn sống tới hết hạn phía server (hợp đồng ghi rõ) — xóa khỏi memory là phần của FE. Guard thấy `anonymous`
- * do `logout` sẽ đưa về `/login` (không kèm `next`); các tab khác nhận `logout` → hết hạn → kèm `next`.
+ * Đăng xuất: BFF gọi API thu hồi refresh family + access token (Đ-D6), xóa phiên trong Redis, xóa cookie. Lỗi không giữ
+ * người dùng lại trong phiên. Guard thấy `anonymous` do `logout` sẽ đưa về `/login` (không kèm `next`).
  */
 export async function logout(): Promise<void> {
   try {
-    // 401 (access token hết hạn) → interceptor refresh rồi gọi lại. Refresh cũng hỏng thì thôi.
     await authApi.logout()
   } catch {
-    // Server luôn 204 khi bearer hợp lệ (Đ-D6). Lỗi còn lại (phiên đã hết, mất mạng) không được giữ người dùng lại.
+    // Mất mạng / 5xx: vẫn kết thúc phía trình duyệt.
   } finally {
     tokenStore.endSession("logout")
-    coordinator.announceLogout()
+    channel?.postMessage({ type: "logout" } satisfies AuthMessage)
   }
 }
