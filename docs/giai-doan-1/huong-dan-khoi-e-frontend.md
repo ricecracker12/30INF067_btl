@@ -8,7 +8,9 @@
 > Chỗ nào tài liệu này lệch ba nguồn đó thì sửa ở đây — trừ các quyết định ở Mục 1 đánh dấu **"cần ghi ngược"**: tài
 > liệu gốc đang thiếu hoặc mâu thuẫn ở những chỗ đó, phải sửa `giai-doan-1.md` trong cùng commit với việc tương ứng.
 
-> **Trạng thái: E1 + E2 + E4 xong, E3 là việc tiếp theo (cập nhật 2026-09-17)** — E4: màn `/login` chạy trên API dev
+> **Trạng thái: E1 + E2 + E4 + E3 xong, E5 là việc tiếp theo (cập nhật 2026-09-17)** — E3: màn `/register` và
+> `/register/check-email` chạy trên API dev thật, **Vitest 109/109**, **Playwright 4/4** (thêm `register.spec.ts`), thử cho
+> đỏ 14 đột biến (1 tương đương); chỗ lệch ở "Thực tế thi công" của Mục 5. E4: màn `/login` chạy trên API dev
 > thật, **Vitest 67/67**, **Playwright 3/3** (có `login-storage.spec.ts`), thử cho đỏ 10 đột biến + 1 đột biến E2E; chỗ lệch ở
 > "Thực tế thi công" của Mục 4. Phần dưới là trạng thái lúc xong E1 + E2 — `src/frontend/` dựng bằng preset
 > **`b50KEhMiu`** (thay `b2C6hQKDg`, lý do ở Đ-E9). `pnpm lint`, `typecheck`, `test`, `build` xanh; **Vitest 28/28**;
@@ -1240,6 +1242,83 @@ Kèm một test **đối chiếu với server** chạy tay một lần (không t
 - **Bấm "Đăng ký" hai lần** → request thứ hai nhận 409 sau khi request thứ nhất đã 201, màn hiện lỗi cho một tài khoản vừa tạo
   thành công. `disabled` khi đang gửi chặn gửi đôi.
 
+### Thực tế thi công — 2026-09-17
+
+Năm bước đã chạy. Những chỗ **khác** hướng dẫn ở trên, và những thứ chỉ lộ ra khi gõ thật:
+
+**Lệch mẫu `passwordError` ở bước 2: "bắt buộc" kiểm bằng `trim() === ""`, không bằng `length === 0`.** `NotEmpty()` của
+FluentValidation coi chuỗi toàn khoảng trắng là rỗng — đã gửi 8 dấu cách tới API dev, server trả "Mật khẩu là bắt buộc.",
+không phải lỗi độ dài. Giá trị gửi đi vẫn **không** trim. `validateLogin` giờ gọi lại `passwordError(…, { requireMin: false })`
+thay vì tự kiểm — một chỗ cho ngưỡng 72 byte. Hằng số tên `MIN_PASSWORD_LENGTH` (cạnh `MAX_EMAIL_LENGTH` đã có từ E4), không
+phải `MIN_PASSWORD`.
+
+**Gợi ý dưới ô mật khẩu là "Ít nhất 8 ký tự, tối đa 72 byte — chữ có dấu tính 2–3 byte.", không phải "8–72 ký tự".** Câu
+"8–72 ký tự" nói sai với đúng người mà trần byte nhắm tới: mật khẩu tiếng Việt 40 ký tự bị chặn trong khi gợi ý bảo 72.
+
+**Nút "Hiện mật khẩu" (bước 1) cần một component kit mới: `input-group`**, thêm bằng `pnpm exec shadcn add input-group` — CLI
+kéo theo `textarea` (phụ thuộc của `InputGroupTextarea`), để nguyên vì GĐ2 cần cho bài viết. `TextField` nhận thêm prop
+`inputEnd`: có thì ô nhập nằm trong `InputGroup`, không thì như cũ — `/login` không đổi DOM. Composite mới
+`components/form/password-field.tsx` gói `TextField` + nút (`type="button"`, `aria-pressed`, nhãn cố định "Hiện mật khẩu").
+Màn đăng nhập **chưa** dùng nó. Playwright phải `getByLabel("Mật khẩu", { exact: true })` trên `/register` — không `exact` thì
+khớp cả nhãn của nút.
+
+**409 dưới trường email kèm link: `TextField.error` nhận `ReactNode`, không chỉ chuỗi.** `FieldError` của kit render
+`children` nếu có, nên chuỗi cũ vẫn đi đúng đường. Câu lấy từ `errorMessage("register", …)` — bảng `messages.ts` có context
+`"register"` với duy nhất 409; 429/500/mất mạng rơi về nhánh chung như E4. Link nằm trong `aria-describedby` nên trình đọc màn
+hình đọc "Email này đã được đăng ký. Đăng nhập".
+
+**`pendingEmail` ở `features/auth/pending-email.ts`, đọc qua `useSyncExternalStore` với snapshot server `null`.** Đọc thẳng
+biến module trong component là lệch HTML khi hydrate (server không có biến; client có sau `router.push`). Có test
+`renderToString` — thay snapshot server bằng `get` là đỏ. Màn kiểm tra hộp thư ráp ở `features/auth/check-email.tsx`.
+
+**Thêm link qua lại** "Chưa có tài khoản? Đăng ký" ở chân Card `/login` và "Đã có tài khoản? Đăng nhập" ở `/register` — hướng
+dẫn không nói, nhưng thiếu thì không có đường vào `/register` ngoài gõ URL.
+
+**Tên file test theo kebab-case** như đã chốt ở E4: `register-form.test.tsx`, `check-email.test.tsx`,
+`password-field.test.tsx`.
+
+**Đối chiếu server chạy tay (API dev, 2026-09-17)** — mỗi ca trả 400 với đúng câu client hiện:
+
+| Gửi `POST /auth/register` | `errors` của server |
+|---|---|
+| mật khẩu `'ệ'.repeat(25)` (75 byte) | `password: ["Mật khẩu tối đa 72 byte."]` |
+| mật khẩu `'a'.repeat(7)` | `password: ["Mật khẩu phải có ít nhất 8 ký tự."]` |
+| mật khẩu 8 dấu cách | `password: ["Mật khẩu là bắt buộc."]` |
+| email `Tên <a@b.com>` | `email: ["Email không đúng định dạng."]` |
+
+**`e2e/register.spec.ts` trên API dev** thay cho kiểm tay mail: `/login` → link "Đăng ký" → điền, bấm "Hiện mật khẩu" → 201 →
+`/register/check-email` hiện email, URL **không** chứa email → link trong Mailpit khớp
+`http://localhost:3000/verify-email?token=<64 hex>` → đăng ký lại cùng email → 409 dưới trường, bấm link → `/login`. Tốn 2
+lượt trong hạn mức 10/phút.
+
+**Bằng chứng.**
+
+| Cổng | Kết quả |
+|---|---|
+| `pnpm lint` / `typecheck` | xanh |
+| `pnpm test` | **109/109** xanh (13 file; trước E3 là 67/67), `Type Errors no errors` |
+| `pnpm build` (`NEXT_PUBLIC_API_BASE_URL=/api/v1`) | xanh; `/register`, `/register/check-email` prerender tĩnh (`○`); grep `.next/static` cho `setupWorker`, `mockServiceWorker`, `localhost:5259` — **rỗng** |
+| `pnpm test:e2e` (Chrome 152.0.7977.84), API dev thật | **4/4** xanh |
+
+Thử cho đỏ (từng đột biến một, rồi khôi phục — `git status` như trước):
+
+| Đột biến | Test bắt |
+|---|---|
+| Đăng ký gọi `requireMin: false` | `auth.test.ts` `validateRegister`; `register-form` "mật khẩu aaaaaaa: 0 request" |
+| Đếm ký tự thay vì byte | `auth.test.ts` 3 ca (có 40 ký tự = 100 byte); `login-form` + `register-form` ca 75 byte |
+| Regex email chặt `^[a-z0-9._%+-]+@…$` | `auth.test.ts` `o'brien@…`, `an@ví-dụ.vn`; `register-form` "email lạ thì để server nói" |
+| Bỏ `return` khi có lỗi client | `register-form` 3 ca "0 request" |
+| Email vào query string của `/register/check-email` | `register-form` "201 … KHÔNG kèm email" |
+| Không ghi `pendingEmail` sau 201 | `register-form` "201" |
+| 409 đẩy lên lỗi cấp form | `register-form` "409: dưới trường email" |
+| Nút không `disabled` khi chờ | `register-form` "bấm thêm không gửi lần hai" |
+| Bỏ `if (pending) return` | `register-form` "form bị gửi lần hai KHÔNG qua nút" — **lần chạy đầu sống sót** (nút `disabled` đã chặn click), thêm test gửi thẳng `submit` |
+| Snapshot server đọc biến module | `check-email` "HTML phía server không chứa email" |
+| Bảng `messages.ts` thiếu 409 đăng ký | `messages.test.ts` "409 theo bảng" |
+| Nút "Hiện mật khẩu" là `type="submit"` | `password-field` "không gửi form" |
+| `TextField` chỉ nhận lỗi dạng chuỗi | `text-field` "lỗi có link"; `register-form` 409 |
+| Không `trim` email trước khi gửi | **không test nào bắt — đột biến tương đương:** `input type="email"` tự bỏ khoảng trắng hai đầu theo chuẩn HTML (jsdom cũng thế). Giữ `trim()` làm lớp dự phòng |
+
 ---
 
 ## 6. E5 — Màn xác minh email
@@ -1689,7 +1768,8 @@ playwright-report
 
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build` xanh
 - [ ] Job CI `frontend` xanh, gồm cổng `API types khop hop dong (CI GATE)`; đã thử cho đỏ một lần (E2)
-- [ ] Vitest: `text-field`, `schema.test-d`, `http`, `problem`, `messages`, `safe-next`, `auth` (bảng ngưỡng), `login-form`, `RegisterForm`,
+- [ ] Vitest: `text-field`, `schema.test-d`, `http`, `problem`, `messages`, `safe-next`, `auth` (bảng ngưỡng), `login-form`, `register-form`,
+      `check-email`, `password-field`,
       `VerifyEmail` (StrictMode 1 request), `RequireAuth`, `refresh-coordinator` (gồm hai coordinator), `http.interceptor`
 - [ ] Luật ESLint Đ-E2/Đ-E12 đã thử cho đỏ (E1)
 - [ ] Bảng "thử cho đỏ" của E7 đã chạy
@@ -1704,7 +1784,8 @@ playwright-report
 
 **Kiểm tay — ghi bằng chứng vào PR**
 
-- [ ] Mật khẩu `'ệ'.repeat(25)` gửi thẳng API dev → 400 `errors.password` đúng câu client hiện (E3)
+- [x] Mật khẩu `'ệ'.repeat(25)` gửi thẳng API dev → 400 `errors.password` đúng câu client hiện (E3 — bảng đối chiếu ở
+      "Thực tế thi công" Mục 5)
 - [ ] `docker run` image FE → `/login` 200 (E8)
 
 **Code review — không test tự động nào bắt được**

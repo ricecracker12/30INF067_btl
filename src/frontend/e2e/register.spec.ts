@@ -1,0 +1,92 @@
+import { expect, test, type APIRequestContext } from "@playwright/test"
+
+// E3 trên API DEV THẬT.
+// Cần: `dotnet run --project src/backend/SocialApp.Api` (5259) + postgres, redis, mailpit của compose dev.
+// Tốn 2 lượt trong hạn mức 10 req/phút của /auth/* (theo IP): một 201, một 409.
+const MAILPIT = process.env.PLAYWRIGHT_MAILPIT_URL ?? "http://localhost:8025"
+
+/** Đọc link xác minh trong mail gửi tới `email`, qua API REST của Mailpit. */
+async function linkXacMinh(request: APIRequestContext, email: string) {
+  let link: string | undefined
+  await expect
+    .poll(
+      async () => {
+        const search = await request.get(`${MAILPIT}/api/v1/search`, {
+          params: { query: `to:"${email}"` },
+        })
+        const { messages } = (await search.json()) as {
+          messages: { ID: string }[]
+        }
+        if (messages.length === 0) return false
+        const msg = await request.get(
+          `${MAILPIT}/api/v1/message/${messages[0].ID}`
+        )
+        const { Text, HTML } = (await msg.json()) as {
+          Text: string
+          HTML: string
+        }
+        link = /https?:\/\/[^\s"'<>]+\/verify-email\?token=[^\s"'<>]+/.exec(
+          `${Text}\n${HTML}`
+        )?.[0]
+        return link !== undefined
+      },
+      { timeout: 15_000, message: "Không thấy mail xác minh trong Mailpit" }
+    )
+    .toBe(true)
+  return link!
+}
+
+test("đăng ký: 201 → màn kiểm tra hộp thư (email không vào URL), mail có link xác minh; đăng ký lại → 409 dưới trường email", async ({
+  page,
+  request,
+}) => {
+  const email = `e3-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@example.com`
+  const password = "MatKhau-E3-an-toan"
+
+  await page.goto("/login")
+  await page.getByRole("link", { name: "Đăng ký" }).click()
+  await expect(page).toHaveURL(/\/register$/)
+
+  await page.getByLabel("Email").fill(email)
+  // `exact`: nút "Hiện mật khẩu" cũng chứa chữ "mật khẩu".
+  const matKhau = page.getByLabel("Mật khẩu", { exact: true })
+  await matKhau.fill(password)
+  await page.getByRole("button", { name: "Hiện mật khẩu" }).click()
+  await expect(matKhau).toHaveAttribute("type", "text")
+
+  const register = page.waitForResponse(
+    (r) => r.url().endsWith("/auth/register") && r.request().method() === "POST"
+  )
+  await page.getByRole("button", { name: "Đăng ký" }).click()
+  expect((await register).status()).toBe(201)
+
+  await expect(page).toHaveURL(/\/register\/check-email$/)
+  expect(page.url()).not.toContain(encodeURIComponent(email))
+  expect(page.url()).not.toContain(email)
+  await expect(page.getByText(email)).toBeVisible()
+  await expect(page.getByText(/24 giờ/)).toBeVisible()
+
+  // Link trong mail trỏ về FE dev, token 64 hex.
+  expect(await linkXacMinh(request, email)).toMatch(
+    /^http:\/\/localhost:3000\/verify-email\?token=[0-9a-f]{64}$/
+  )
+
+  // Đăng ký lại cùng email: ngoại lệ có ý thức của hợp đồng — 409 hiện dưới trường, có đường đi tiếp.
+  await page.goto("/register")
+  await page.getByLabel("Email").fill(email)
+  await page.getByLabel("Mật khẩu", { exact: true }).fill(password)
+  const conflict = page.waitForResponse(
+    (r) => r.url().endsWith("/auth/register") && r.request().method() === "POST"
+  )
+  await page.getByRole("button", { name: "Đăng ký" }).click()
+  expect((await conflict).status()).toBe(409)
+
+  await expect(page.getByLabel("Email")).toHaveAttribute("aria-invalid", "true")
+  await expect(page.getByText("Email này đã được đăng ký.")).toBeVisible()
+  // Hai link "Đăng nhập": trong lỗi của trường và ở chân Card — bấm cái trong lỗi.
+  await page
+    .locator('[data-slot="field-error"]')
+    .getByRole("link", { name: "Đăng nhập" })
+    .click()
+  await expect(page).toHaveURL(/\/login$/)
+})

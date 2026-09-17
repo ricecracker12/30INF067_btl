@@ -1,9 +1,11 @@
+import Link from "next/link"
 import { Suspense } from "react"
 
 import {
   Card,
   CardContent,
   CardDescription,
+  CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
@@ -27,6 +29,17 @@ export default function LoginPage() {
           <LoginForm />
         </Suspense>
       </CardContent>
+      <CardFooter className="justify-center text-sm text-muted-foreground">
+        <p>
+          Chưa có tài khoản?{" "}
+          <Link
+            href="/register"
+            className="font-medium text-foreground underline underline-offset-4"
+          >
+            Đăng ký
+          </Link>
+        </p>
+      </CardFooter>
     </Card>
   )
 }

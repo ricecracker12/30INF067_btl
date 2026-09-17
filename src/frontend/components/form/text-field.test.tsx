@@ -45,4 +45,27 @@ describe("TextField", () => {
       "Ít nhất 8 ký tự. Mật khẩu quá ngắn."
     )
   })
+
+  it("lỗi có link: link bấm được, chữ của link vẫn vào mô tả trợ năng", () => {
+    render(
+      <TextField
+        label="Email"
+        error={
+          <>
+            Email này đã được đăng ký. <a href="/login">Đăng nhập</a>
+          </>
+        }
+      />
+    )
+
+    const input = screen.getByLabelText("Email")
+    expect(input).toHaveAttribute("aria-invalid", "true")
+    expect(input).toHaveAccessibleDescription(
+      "Email này đã được đăng ký. Đăng nhập"
+    )
+    expect(screen.getByRole("link", { name: "Đăng nhập" })).toHaveAttribute(
+      "href",
+      "/login"
+    )
+  })
 })

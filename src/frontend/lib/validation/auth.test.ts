@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest"
 
-import { utf8ByteLength, validateLogin } from "./auth"
+import {
+  passwordError,
+  registerEmailError,
+  utf8ByteLength,
+  validateLogin,
+  validateRegister,
+} from "./auth"
 
 // Số liệu viết tay, KHÔNG tính từ hằng số trong auth.ts — tính từ hằng số thì sửa sai hằng số là
 // test sai theo, vẫn xanh.
@@ -61,6 +67,73 @@ describe("validateLogin", () => {
   it("mật khẩu KHÔNG trim: khoảng trắng hai đầu vẫn tính byte", () => {
     expect(validateLogin({ ...ok, password: ` ${"a".repeat(71)} ` })).toEqual({
       password: "Mật khẩu tối đa 72 byte.",
+    })
+  })
+})
+
+describe("passwordError — bảng ngưỡng E3", () => {
+  it.each([
+    ["a".repeat(7), true, "Mật khẩu phải có ít nhất 8 ký tự."],
+    ["a".repeat(8), true, undefined],
+    ["a".repeat(72), true, undefined],
+    ["a".repeat(73), true, "Mật khẩu tối đa 72 byte."],
+    ["ệ".repeat(24), true, undefined], // 72 byte
+    ["ệ".repeat(25), true, "Mật khẩu tối đa 72 byte."], // 75 byte
+    ["mậtkhẩu", false, undefined], // 7 ký tự — đăng nhập không có tối thiểu
+    ["mậtkhẩu", true, "Mật khẩu phải có ít nhất 8 ký tự."],
+    ["", true, "Mật khẩu là bắt buộc."],
+    ["        ", true, "Mật khẩu là bắt buộc."], // 8 khoảng trắng: NotEmpty của server coi là rỗng
+  ])("%j (requireMin=%s) → %s", (pw, requireMin, expected) => {
+    expect(passwordError(pw, { requireMin })).toBe(expected)
+  })
+
+  it("chuỗi tiếng Việt 40 ký tự vượt 72 byte → đỏ dù đủ ký tự", () => {
+    const pw = "ượ".repeat(20) // ư 2 byte + ợ 3 byte
+    expect(pw).toHaveLength(40)
+    expect(utf8ByteLength(pw)).toBe(100)
+    expect(passwordError(pw, { requireMin: true })).toBe(
+      "Mật khẩu tối đa 72 byte."
+    )
+  })
+})
+
+describe("registerEmailError — NỚI hơn MailAddress của server (Đ-E5)", () => {
+  it.each([
+    "an@example.com",
+    " An@Example.com ",
+    "o'brien@example.com",
+    "an@ví-dụ.vn",
+  ])("%j hợp lệ", (email) => {
+    expect(registerEmailError(email)).toBeUndefined()
+  })
+
+  it.each([
+    "an.example.com",
+    "@x.com",
+    "a@",
+    "a@@b.com",
+    "Tên <a@b.com>",
+    "a b@c.com",
+  ])("%j → Email không đúng định dạng.", (email) => {
+    expect(registerEmailError(email)).toBe("Email không đúng định dạng.")
+  })
+
+  it("bắt buộc, và 254 ký tự sau trim xanh / 255 đỏ", () => {
+    expect(registerEmailError("   ")).toBe("Email là bắt buộc.")
+    const e254 = "a".repeat(242) + "@example.com"
+    expect(registerEmailError(` ${e254} `)).toBeUndefined()
+    expect(registerEmailError("a" + e254)).toBe("Email tối đa 254 ký tự.")
+  })
+})
+
+describe("validateRegister", () => {
+  it("gom lỗi của cả hai trường; hợp lệ → rỗng", () => {
+    expect(
+      validateRegister({ email: "an@example.com", password: "MatKhau123" })
+    ).toEqual({})
+    expect(validateRegister({ email: "a@", password: "1234567" })).toEqual({
+      email: "Email không đúng định dạng.",
+      password: "Mật khẩu phải có ít nhất 8 ký tự.",
     })
   })
 })

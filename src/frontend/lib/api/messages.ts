@@ -4,8 +4,8 @@ import { ApiError, NetworkError } from "./problem"
 // dự phòng cho status chưa có trong bảng — hiện `detail` cho 401 đăng nhập là để AC-02 phụ thuộc vào
 // việc server không bao giờ sửa một chữ ở nhánh "email không tồn tại", mà không test backend nào canh.
 
-/** Màn gọi API. E3 thêm `"register"`, E5 thêm `"verify-email"`. */
-export type ErrorContext = "login"
+/** Màn gọi API. E5 thêm `"verify-email"`. */
+export type ErrorContext = "login" | "register"
 
 const COMMON = {
   400: "Dữ liệu không hợp lệ.",
@@ -23,6 +23,11 @@ const BY_CONTEXT: Record<ErrorContext, Partial<Record<number, string>>> = {
     403: "Tài khoản chưa xác minh email. Vui lòng mở liên kết trong thư chúng tôi đã gửi.",
     // Không đếm ngược: FE không biết `locked_until`.
     423: "Tài khoản tạm khóa do đăng nhập sai nhiều lần. Vui lòng thử lại sau 15 phút.",
+  },
+  register: {
+    // Ngoại lệ CÓ Ý THỨC của hợp đồng so với AC-02: không báo trùng thì người dùng không biết vì sao
+    // đăng ký hỏng. Form hiện câu này dưới trường email, kèm link "Đăng nhập".
+    409: "Email này đã được đăng ký.",
   },
 }
 
