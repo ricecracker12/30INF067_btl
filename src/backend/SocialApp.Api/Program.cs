@@ -6,6 +6,7 @@ using FluentValidation;
 using FluentValidation.AspNetCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Serilog;
@@ -216,6 +217,51 @@ string[] RequireCorsOrigins()
     return origins;
 }
 
+// --- IP thật của client khi đứng sau proxy tin cậy (BFF Next.js, reverse proxy) ---
+// Rate limit phân vùng theo RemoteIpAddress (policy "auth" 10 req/phút/IP, và fallback của hạn mức chung). Sau BFF, mọi
+// request đều mang IP của BFF → cả hệ thống ăn CHUNG một hạn mức, hỏng câm. Chỉ đọc X-Forwarded-For khi kết nối đến từ proxy
+// ĐÃ KHAI: tin header từ mọi nguồn là cho kẻ tấn công tự đổi IP mỗi request để vượt rate limit. ForwardLimit = 1: chỉ lấy
+// phần tử cuối — thứ proxy tin cậy vừa gắn, không phải thứ client tự viết phía trước.
+// ASP.NET đã tin sẵn loopback (127.0.0.0/8, ::1) — BFF chạy cùng máy ở dev. Container thì khai mạng nội bộ của compose.
+var (trustedProxies, trustedNetworks) = RequireTrustedProxies();
+builder.Services.Configure<ForwardedHeadersOptions>(o =>
+{
+    o.ForwardedHeaders = ForwardedHeaders.XForwardedFor;
+    o.ForwardLimit = 1;
+    foreach (var ip in trustedProxies) o.KnownProxies.Add(ip);
+    foreach (var network in trustedNetworks) o.KnownNetworks.Add(network);
+});
+
+// Sai dạng thì từ chối khởi động ở mọi môi trường: một CIDR gõ sai mà bị bỏ qua lặng lẽ là BFF không được tin, và toàn bộ
+// người dùng quay về chung một hạn mức mà không lỗi nào báo.
+(System.Net.IPAddress[] Proxies, Microsoft.AspNetCore.HttpOverrides.IPNetwork[] Networks) RequireTrustedProxies()
+{
+    static string[] Read(IConfiguration configuration, string key) =>
+        (configuration.GetSection(key).Get<string[]>() ?? [])
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .Select(v => v.Trim())
+            .ToArray();
+
+    var proxyValues = Read(builder.Configuration, "ReverseProxy:TrustedProxies");
+    var networkValues = Read(builder.Configuration, "ReverseProxy:TrustedNetworks");
+
+    var badProxies = proxyValues.Where(v => !System.Net.IPAddress.TryParse(v, out _)).ToList();
+    var badNetworks = networkValues.Where(v => !v.Contains('/') || !System.Net.IPNetwork.TryParse(v, out _)).ToList();
+    if (badProxies.Count > 0 || badNetworks.Count > 0)
+        throw new InvalidOperationException(
+            "Cấu hình proxy tin cậy sai dạng: "
+          + string.Join("; ", badProxies.Select(v => $"ReverseProxy:TrustedProxies '{v}' (cần một địa chỉ IP)")
+                .Concat(badNetworks.Select(v => $"ReverseProxy:TrustedNetworks '{v}' (cần CIDR, vd 172.20.0.0/16)")))
+          + ". Sửa biến ReverseProxy__TrustedProxies__<n> / ReverseProxy__TrustedNetworks__<n> trong deploy/.env.");
+
+    return (
+        proxyValues.Select(System.Net.IPAddress.Parse).ToArray(),
+        networkValues
+            .Select(v => System.Net.IPNetwork.Parse(v))
+            .Select(n => new Microsoft.AspNetCore.HttpOverrides.IPNetwork(n.BaseAddress, n.PrefixLength))
+            .ToArray());
+}
+
 // --- Tầng 1 (AuthN, Mục 6.1): JWT Bearer ---
 // JwtOptions đã validate và đã giải fallback deploy/.env: phát token (D3) và TTL revoked:user (D8) lấy
 // IOptions<JwtOptions> từ đây, KHÔNG đọc lại section "Jwt" — đọc lại thì mất khóa lấy từ deploy/.env.
@@ -291,6 +337,8 @@ if (isMigrate)
     return;
 }
 
+// ĐẦU pipeline: log request, rate limiter và mọi thứ đọc RemoteIpAddress phía sau đều thấy IP thật của client.
+app.UseForwardedHeaders();
 app.UseSerilogRequestLogging();
 app.UseSharedKernel();
 

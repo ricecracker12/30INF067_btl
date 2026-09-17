@@ -2091,6 +2091,10 @@ che nhau), khôi phục bằng `git checkout -- <file>` và kiểm `git status` 
 - [ ] Sau deploy: đăng ký một tài khoản thật trên staging → mail xác minh tới hộp thư (kiểm cả spam) → bấm link
       → 200. Không đạt thì kiểm log api (`SmtpEmailSender`) trước khi sửa `.env`
 - [x] Service `mailpit` đã bỏ khỏi compose staging (cổng 8025 của domain đã thử từ Internet: không mở — 2026-09-15)
+- [ ] Khi một proxy khác loopback gọi api (vd BFF Next.js qua mạng compose): `.env` staging có `ReverseProxy__TrustedNetworks__0=<CIDR mạng
+      internal của compose>` (bổ sung 2026-09-17). Thiếu **không** crash-loop — app vẫn chạy, nhưng mọi người dùng ăn chung
+      **một** hạn mức 10 req/phút của `/auth/*` (IP của BFF). Kiểm: đăng nhập sai 11 lần từ máy A → 429; máy B vẫn đăng
+      nhập được. Sai dạng CIDR thì api từ chối khởi động (`ForwardedClientIpTests`)
 
 ---
 

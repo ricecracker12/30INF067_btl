@@ -1078,6 +1078,11 @@ Nó chỉ có vai trò khi Admin sửa quyền của cả một vai trò (GĐ6).
 Base: `/api/v1`. Mọi lỗi trả **RFC 7807 Problem Details** kèm `traceId`.
 Rate limit **10 req/phút** cho toàn nhóm `auth` (ISS-04).
 
+> **IP nào? (bổ sung 2026-09-17)** Hạn mức theo IP **của người dùng**, không phải của proxy đứng trước api. Api đọc
+> `X-Forwarded-For` (chỉ phần tử cuối) **chỉ** khi kết nối đến từ proxy đã khai: loopback (mặc định của ASP.NET) và
+> `ReverseProxy:TrustedProxies` / `ReverseProxy:TrustedNetworks`. Tin header từ mọi nguồn là cho client tự đổi IP để vượt
+> hạn mức; không đọc header là mọi người sau một BFF / reverse proxy ăn chung một hạn mức. Canh bằng `ForwardedClientIpTests`.
+
 | Method | Path | Auth | Thành công | Lỗi |
 |---|---|---|---|---|
 | POST | `/auth/register` | — | 201 | 400 validation · 409 email đã tồn tại |
