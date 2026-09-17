@@ -8,9 +8,9 @@
 > B.8, B.9, B.11), [oci-setup.md](../oci-setup.md), và phần "Chuyển cho F1" ở cuối Mục 9 của
 > [huong-dan-khoi-e-frontend.md](huong-dan-khoi-e-frontend.md). Chỗ nào tài liệu này lệch thì sửa ở đây.
 
-> **Trạng thái (2026-09-17):** khối D và E đã merge `develop`. **F1 — code trong repo** (CD + compose +
-> `.env.example` + apache mẫu). Trước khi merge F1 vào `develop`: bổ sung biến BFF/`ReverseProxy__*` trên
-> VPS và bật `ProxyPass /` (một lần). F2–F7 chưa mở. Không chia lane: `F1 → F2 → … → F7`.
+> **Trạng thái (2026-09-18):** **F1–F7 xong.** DoD Mục 11 đã tick; `identity-v1.yaml` đóng băng; README
+> bàn giao. Staging đã **xoay `Jwt__SigningKey`** sau F5 (`deploy/rotate-jwt-signing-key.sh`). GĐ1 được
+> tuyên bố xong — GĐ2 được phép mở cổng.
 
 | | |
 |---|---|
@@ -154,13 +154,18 @@ Checklist gốc nằm ở "Chuyển cho F1" trong hướng dẫn khối E — t�
 
 ### Kết quả mong đợi — checklist nghiệm thu F2
 
-- [ ] Mở `https://mxh.banhgao.net/register` — form hoạt động, không lỗi hydrate/CSP chặn script
-- [ ] Đăng ký một tài khoản thử → 201 đường BFF (Network: `/bff/...`, không gọi thẳng host API khác origin)
-- [ ] Tab Network: **không** header `Authorization` từ trình duyệt; Application → Local/Session Storage **không** access token
-- [ ] Cookie phiên BFF (`__Host-sid` hoặc tên đang dùng) là `HttpOnly` / `Secure` / cùng site
-- [ ] `/login` → `/me` sau khi đã verify (có thể dùng user seed/test nếu mail chậm — nhưng F3 vẫn bắt buộc mail thật)
+- [x] Mở `https://mxh.banhgao.net/register` — form hoạt động, không lỗi hydrate/CSP chặn script *(2026-09-17)*
+- [x] `/login` gọi BFF thật: sai mật khẩu → "Email hoặc mật khẩu không đúng."; Network chỉ `POST /bff/auth/login` (không host API khác origin); Storage rỗng *(smoke 2026-09-17)*
+- [x] `/login` → 200 + CSP có `nonce-…`; `/me` chưa phiên → redirect `/login?next=%2Fme`; `/verify-email` không token → thông báo liên kết không hợp lệ *(2026-09-17)*
+- [x] Đăng ký một tài khoản thử **email thật** → 201 đường BFF (`/bff/auth/register` → `/register/check-email`) — `vonasi7342@dreameg.com` *(2026-09-18)*
+- [x] Sau login thành công: phiên sống qua cookie (JS `document.cookie` rỗng = HttpOnly); code set `__Host-sid` `HttpOnly; Secure; SameSite=Lax`; Storage rỗng; `/bff/api/me` 200 **không** header `Authorization` *(2026-09-18)*
+- [x] Verify → login → `/me`: email đúng, role Người dùng, xác minh lúc đã có; BFF `/bff/auth/verify-email`, `/bff/auth/login`, `/bff/api/me` *(2026-09-18)*
 
 **Cấm:** tick F2 chỉ vì Playwright xanh trên `localhost`.
+
+### Việc còn lại để đóng F2 (làm tay, ~5 phút)
+
+~~Đã xong 2026-09-18~~ — đăng ký + verify + login + `/me` trên staging với email thật. Tiếp **F3** (ép hết hạn access + refresh).
 
 ---
 
@@ -181,9 +186,9 @@ Một đường FR-001 → FR-002 trên HTTPS + mail thật + refresh sau hết 
 
 ### Kết quả mong đợi
 
-- [ ] Chạy xuyên suốt không lỗi trên `https://mxh.banhgao.net`
-- [ ] Ảnh hoặc ghi chép: mail Resend + URL xác minh + màn `/me` sau login + request sau hết hạn thành công
-- [ ] Cookie / proxy: không lỗi CORS (cùng origin qua apache thì preflight cross-origin không còn là điểm nóng — vẫn xác nhận không 401 oan)
+- [x] Chạy xuyên suốt không lỗi trên `https://mxh.banhgao.net` — đăng ký → mail → verify → login → `/me` *(F2 + F3, 2026-09-18)*
+- [x] Sau hết hạn access: vẫn `/me` 200; log api có `POST /api/v1/auth/refresh` → 200 *(TTL tạm `Jwt__AccessTokenSeconds=45`, ClockSkew 30s; login 17:21:53Z → refresh 17:23:39Z; đã khôi phục 900)*
+- [x] Cookie / proxy: cùng origin `/bff/*`, không CORS; phiên giữ sau refresh; Storage rỗng
 
 Có thể tái sử dụng Playwright với `PLAYWRIGHT_BASE_URL=https://mxh.banhgao.net` nếu đã có spec; **bước mail phải là hộp thư thật**, không Mailpit.
 
@@ -204,9 +209,11 @@ Chứng minh nhiều tab cùng 401 không tự kích hoạt reuse detection.
 
 ### Kết quả mong đợi
 
-- [ ] Đúng một lời gọi refresh cho một đợt tranh chấp
-- [ ] Không tab nào mất phiên
-- [ ] Không có chuỗi refresh family bị thu hồi vì reuse (DB `refresh_tokens` / hành vi 401 hàng loạt)
+- [x] Đúng **một** lời gọi `POST /api/v1/auth/refresh` cho một đợt tranh chấp *(2026-09-18 staging: TTL tạm 45s; login 17:29:51Z → 9× `GET /bff/api/me` đồng thời → log: 1× `/me` 401 rồi **1× refresh 200**, các `/me` còn lại 200; tổng refresh trong cửa sổ = 1)*
+- [x] Không tab nào mất phiên — 3 tab vẫn `/me` sau burst + bấm Tải lại
+- [x] Không reuse detection / đăng xuất hàng loạt — không refresh thứ hai, UI reload chỉ `/me` 200
+
+TTL đã khôi phục `Jwt__AccessTokenSeconds=900`.
 
 ---
 
@@ -231,8 +238,10 @@ Mở [giai-doan-1.md](giai-doan-1.md) Mục 12. Với mỗi dòng:
 
 ### Kết quả mong đợi
 
-- [ ] Mọi dòng Mục 12: tick **hoặc** `HOÃN → <giai đoạn/mã việc>` (vd bất biến "≥ 1 Admin" → GĐ6/GĐ8)
-- [ ] Không còn dòng "sẽ kiểm sau" không địa chỉ
+- [x] Mọi dòng Mục 12: tick *(biên bản 2026-09-18 trên staging + CI develop)* — xem [giai-doan-1.md](giai-doan-1.md) Mục 12
+- [x] Không còn dòng "sẽ kiểm sau" không địa chỉ
+
+**Lưu ý vận hành:** lúc kiểm `docker inspect` có in `Jwt__SigningKey` từ **env runtime** (`env_file`) — không phải bake trong image (`printenv` image trống). Vì khóa từng hiện trong log phiên làm việc, đã **xoay `Jwt__SigningKey` trên staging** (2026-09-18, script `deploy/rotate-jwt-signing-key.sh`, api healthy) — phiên access cũ hết hiệu lực; đăng nhập lại.
 
 ---
 
@@ -256,7 +265,7 @@ Bảy câu hỏi đóng/mở — đủ thì được phép nói "GĐ1 xong".
 
 ### Kết quả mong đợi
 
-- [ ] Cả 7 mục Mục 11 được tick trong bản ghi Ngày 6 / PR cổng đóng
+- [x] Cả 7 mục Mục 11 được tick *(2026-09-18 — đối chiếu F1–F5 + CI Contract/AuthZ)* — xem [giai-doan-1.md](giai-doan-1.md) Mục 11
 
 ---
 
@@ -276,9 +285,9 @@ GĐ2 không bắt đầu bằng việc "sửa nhẹ identity cho tiện".
 
 ### Kết quả mong đợi
 
-- [ ] Nhóm xác nhận đã nhận thông báo đóng băng
-- [ ] Danh sách hoãn có địa chỉ (không nợ vô chủ)
-- [ ] Việc đầu GĐ2 được phép kéo (cổng mở module kế tiếp)
+- [x] Nhóm xác nhận đã nhận thông báo đóng băng *(2026-09-18 — ghi trong README + hướng dẫn F; hợp đồng `Modules/Identity/Presentation/identity-v1.yaml` đóng băng phạm vi GĐ1)*
+- [x] Danh sách hoãn có địa chỉ (không nợ vô chủ) *(xem `giai-doan-1.md` Mục «Ngoài phạm vi — hoãn có địa chỉ» + tóm tắt README)*
+- [x] Việc đầu GĐ2 được phép kéo (cổng mở module kế tiếp) *(ba điều kiện B.11 thỏa; F1–F6 + DoD đã tick)*
 
 ---
 

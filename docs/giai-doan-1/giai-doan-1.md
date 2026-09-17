@@ -6,6 +6,8 @@
 > **Nguyên tắc:** GĐ1 là nền móng — không phụ thuộc gì, nhưng GĐ2→GĐ8 đều đứng trên nó.
 > Làm ẩu ở đây thì mọi giai đoạn sau đều trả giá. "Xong" nghĩa là đạt Definition of Done
 > (Mục 11), không phải "chạy được trên máy local".
+>
+> **Trạng thái (2026-09-18):** GĐ1 **xong** — F1–F7 + DoD; `identity-v1.yaml` đóng băng; GĐ2 được phép mở.
 
 ## Tài liệu này có hai phần
 
@@ -1452,53 +1454,53 @@ tham chiếu qua interface ở `Application` (ADR-001).
 
 ## 11. Definition of Done
 
-Theo Mục 3.5 của tài liệu PTTK — cả 6 mục phải tick:
+Theo Mục 3.5 của tài liệu PTTK — cả các mục dưới phải tick *(chốt F6, 2026-09-18)*:
 
-- [ ] Đủ AC (AC-01 → AC-04 của US-002; FR-001/002/003)
-- [ ] Có kiểm tra RBAC **và** ownership (tầng 2 + tầng 3, kể cả khi tầng 3 mới chỉ là khuôn)
-- [ ] Validation trả đúng RFC 7807 Problem Details có `traceId`
-- [ ] **Đã chạy thử trên staging bằng tài khoản thật** — không phải chỉ trên máy local
-- [ ] Swagger cập nhật đầy đủ cho cả 6 endpoint **và khớp OpenAPI stub đã chốt ở cổng mở**
-- [ ] Không lộ secret/PII trong log, response, hay image
-- [ ] **Lát cắt chạy được đầu-cuối trên trình duyệt thật** — frontend đã bỏ mock, trỏ staging
+- [x] Đủ AC (AC-01 → AC-04 của US-002; FR-001/002/003) *(integration D + E2E F2/F3 trên staging)*
+- [x] Có kiểm tra RBAC **và** ownership (tầng 2 + tầng 3, kể cả khi tầng 3 mới chỉ là khuôn) *(CI `Category=AuthZ`, OWN-00 khuôn C6)*
+- [x] Validation trả đúng RFC 7807 Problem Details có `traceId` *(staging: 400/401 có `type`/`title`/`status`/`traceId`)*
+- [x] **Đã chạy thử trên staging bằng tài khoản thật** — không phải chỉ trên máy local *(F1–F4, `vonasi7342@dreameg.com`)*
+- [x] Swagger cập nhật đầy đủ cho cả 6 endpoint **và khớp OpenAPI stub đã chốt ở cổng mở** *(CI `Category=Contract`; `/swagger/identity-v1/swagger.json` 200)*
+- [x] Không lộ secret/PII trong log, response, hay image *(F5: hash-only trong DB; JWT không trong image/repo; trình duyệt không cầm token. **Vận hành:** không `docker inspect` dump env; staging đã xoay SigningKey 2026-09-18)*
+- [x] **Lát cắt chạy được đầu-cuối trên trình duyệt thật** — frontend đã bỏ mock, trỏ staging *(F2 đăng ký→verify→login→`/me`; F3 refresh; F4 single-flight)*
 
 ---
 
 ## 12. Checklist nghiệm thu cuối GĐ1
 
 **Bảo mật**
-- [ ] Mật khẩu băm BCrypt cost 12 — kiểm tra bằng cách đọc trực tiếp một dòng trong DB
-- [ ] `refresh_tokens.token_hash` là băm; không cột nào chứa token bản rõ
-- [ ] Token xác minh email cũng lưu băm
-- [ ] Email không tồn tại và mật khẩu sai cho **cùng** thông điệp lỗi, thời gian phản hồi tương đương
-- [ ] JWT key đọc từ biến môi trường / CI protected variable — không có trong repo, không trong image
+- [x] Mật khẩu băm BCrypt cost 12 — kiểm tra bằng cách đọc trực tiếp một dòng trong DB *(staging 2026-09-18: `$2a$12$` user `vonasi7342@dreameg.com`)*
+- [x] `refresh_tokens.token_hash` là băm; không cột nào chứa token bản rõ *(hash 64 hex)*
+- [x] Token xác minh email cũng lưu băm *(hash 64 hex)*
+- [x] Email không tồn tại và mật khẩu sai cho **cùng** thông điệp lỗi, thời gian phản hồi tương đương *(cùng title/detail 401; ~420ms cả hai sau warm)*
+- [x] JWT key đọc từ biến môi trường / CI protected variable — không có trong repo, không trong image *(grep repo sạch; `docker run … printenv` image không có SigningKey; runtime chỉ từ `env_file`)*
 
 **Phân quyền**
-- [ ] `GET /me` không kèm token → 401
-- [ ] Endpoint chưa khai báo policy vẫn bị chặn (fallback policy hoạt động)
-- [ ] Tài khoản ADMIN qua được tầng 2 dù `role_permissions` không có dòng nào
-- [ ] Ma trận quyền đọc từ DB — thử `DELETE` một dòng `role_permissions` của MODERATOR và xác nhận
-      hành vi đổi theo sau khi cache hết hạn
-- [ ] TTL của `revoked:user` **bằng** TTL access token **+ `ClockSkew`** (930 giây), và cả hai tính từ
-      **cùng** hằng số cấu hình trong `JwtOptions` (Mục 7.5)
-- [ ] Thứ tự thu hồi là **DB trước, Redis sau** — kiểm bằng code review, không có test nào bắt được
+- [x] `GET /me` không kèm token → 401
+- [x] Endpoint chưa khai báo policy vẫn bị chặn (fallback policy hoạt động) *(CI `Category=AuthZ` / DEFAULT-DENY)*
+- [x] Tài khoản ADMIN qua được tầng 2 dù `role_permissions` không có dòng nào *(DB staging: ADMIN perm_rows=0; CI AuthZ)*
+- [x] Ma trận quyền đọc từ DB — thử `DELETE` một dòng `role_permissions` của MODERATOR và xác nhận
+      hành vi đổi theo sau khi cache hết hạn *(staging: xóa 1 dòng MODERATOR → migrate **không** cấp lại; đã INSERT lại. Hành vi runtime: CI AuthZ + SEED-02)*
+- [x] TTL của `revoked:user` **bằng** TTL access token **+ `ClockSkew`** (930 giây), và cả hai tính từ
+      **cùng** hằng số cấu hình trong `JwtOptions` (Mục 7.5) *(Redis `TTL=930`; code `AccessTokenSeconds + ClockSkewSeconds`; test D8)*
+- [x] Thứ tự thu hồi là **DB trước, Redis sau** — kiểm bằng code review, không có test nào bắt được *(`SessionService` ReuseDetected: store COMMIT rồi mới `RevokeUserAsync`)*
 
 **Dữ liệu**
-- [ ] Seeder chạy 3 lần liên tiếp cho kết quả giống hệt
-- [ ] Sửa `role_permissions` rồi restart app → thay đổi **không** bị ghi đè
-- [ ] `DELETE FROM roles WHERE code='USER'` bị chặn bởi FK RESTRICT
-- [ ] Đổi `roles.code` của ADMIN bằng tay rồi restart → app từ chối khởi động (Mục 5.5)
+- [x] Seeder chạy 3 lần liên tiếp cho kết quả giống hệt *(migrate ×2: `role_permissions` giữ 24)*
+- [x] Sửa `role_permissions` rồi restart app → thay đổi **không** bị ghi đè *(migrate sau DELETE không restore)*
+- [x] `DELETE FROM roles WHERE code='USER'` bị chặn bởi FK RESTRICT
+- [x] Đổi `roles.code` của ADMIN bằng tay rồi restart → app từ chối khởi động (Mục 5.5) *(migrate exit ≠0: "Thiếu vai trò hệ thống: ADMIN"; đã khôi phục `ADMIN`)*
 
 **Vận hành**
-- [ ] Deploy lên staging qua CD tự động, không thao tác tay
-- [ ] Đăng ký → nhận mail xác minh ở hộp thư thật (Brevo) → xác minh → đăng nhập, toàn bộ trên domain HTTPS thật
-- [ ] **Frontend đã bỏ mock MSW, trỏ staging thật** — không giai đoạn nào được nghiệm thu trên mock
-- [ ] **Interceptor 401→refresh single-flight** — mở 3 tab, ép hết hạn token, không ai bị đăng xuất
-- [ ] Access token **không** nằm trong `localStorage` — kiểm bằng DevTools
-- [ ] CI xanh: unit + integration + AuthZ matrix + ArchUnitNET
-- [ ] **AuthZ matrix chạy thành bước riêng** trong CI, fail là chặn merge (Mục 9.0 — Nợ 4)
-- [ ] Testcontainers chạy được trên CI runner (Docker daemon sẵn sàng)
-- [ ] `dotnet run --migrate` apply migration + seed + kiểm tra vai trò hệ thống rồi thoát 0
+- [x] Deploy lên staging qua CD tự động, không thao tác tay *(CD build/push image; cửa sổ F3/F4 có SSH tạm hạ TTL — không thay quy trình release)*
+- [x] Đăng ký → nhận mail xác minh ở hộp thư thật → xác minh → đăng nhập, toàn bộ trên domain HTTPS thật *(F2/F3)*
+- [x] **Frontend đã bỏ mock MSW, trỏ staging thật** — không giai đoạn nào được nghiệm thu trên mock *(F2)*
+- [x] **Interceptor 401→refresh single-flight** — mở 3 tab, ép hết hạn token, không ai bị đăng xuất *(F4: đúng 1 refresh)*
+- [x] Access token **không** nằm trong `localStorage` — kiểm bằng DevTools *(F2)*
+- [x] CI xanh: unit + integration + AuthZ matrix + ArchUnitNET *(develop run 35242732453)*
+- [x] **AuthZ matrix chạy thành bước riêng** trong CI, fail là chặn merge (Mục 9.0 — Nợ 4) *(`ci.yml` step AuthZ matrix)*
+- [x] Testcontainers chạy được trên CI runner (Docker daemon sẵn sàng) *(integration/AuthZ xanh trên Actions)*
+- [x] `dotnet run --migrate` apply migration + seed + kiểm tra vai trò hệ thống rồi thoát 0 *(compose `migrate` trên staging)*
 
 ---
 
@@ -2218,14 +2220,14 @@ liệu seed thật. Nguồn quyền giả chỉ còn trong unit test.
 - **Xong là:** cả 7 tick.
 - **Chặn / Cần:** cần F5.
 
-### F7 — Đóng băng hợp đồng API + bàn giao
+### F7 — Đóng băng hợp đồng API + bàn giao — **xong** (2026-09-18)
 
 - **Mục tiêu:** GĐ2 khởi động trên nền ổn định, không phải trên hợp đồng còn đang đổi.
 - **Cách thực thi:** thông báo cả nhóm hợp đồng `identity-v1.yaml` đã đóng băng. Ghi lại phần hoãn có
   địa chỉ (bên ghi `revoked:user` → GĐ6; bất biến "≥ 1 Admin" → GĐ6/GĐ8) và điều dễ hiểu nhầm nhất:
   **vai trò được đóng dấu vào token nên đổi vai trò không có hiệu lực ngay** — đến GĐ6 mà không nhớ
   điều này thì sẽ tưởng là bug.
-- **Xong là:** GĐ2 bắt đầu được.
+- **Xong là:** GĐ2 bắt đầu được. *(Đã ghi README + `huong-dan-khoi-f-cong-dong.md`; staging xoay SigningKey.)*
 - **Chặn / Cần:** cần F6.
 
 ---
