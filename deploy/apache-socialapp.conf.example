@@ -1,10 +1,12 @@
 # VirtualHost gộp Frontend + Backend cùng domain mxh.banhgao.net (định tuyến theo path).
-#   /api, /swagger, /health  -> Backend ASP.NET (container 127.0.0.1:18080)  [đang chạy]
-#   /  (mọi path còn lại)     -> Frontend Next.js (container 127.0.0.1:3000)  [bật khi FE deploy]
+#   /api, /swagger, /health  -> Backend ASP.NET (container 127.0.0.1:18080)
+#   /  (mọi path còn lại)     -> Frontend Next.js (container 127.0.0.1:3000)  [F1 — BẮT BUỘC bật]
 # Cài đặt:
 #   sudo a2enmod proxy proxy_http ssl headers
 #   sudo cp apache-socialapp.conf.example /etc/apache2/sites-available/socialapp.conf
 #   sudo a2ensite socialapp && sudo apache2ctl configtest && sudo systemctl reload apache2
+#
+# ⚠️ Thứ tự ProxyPass: /api, /swagger, /health TRƯỚC catch-all /. Đảo ngược → mọi API thành HTML Next.
 
 <VirtualHost *:80>
     ServerName mxh.banhgao.net
@@ -29,10 +31,10 @@
     ProxyPass        /health  http://127.0.0.1:18080/health
     ProxyPassReverse /health  http://127.0.0.1:18080/health
 
-    # --- Frontend (Next.js) — BỎ COMMENT khi FE đã deploy (container cổng 3000) ---
-    # ProxyPass        /  http://127.0.0.1:3000/
-    # ProxyPassReverse /  http://127.0.0.1:3000/
-    #
+    # --- Frontend (Next.js standalone + BFF) — F1 ---
+    ProxyPass        /  http://127.0.0.1:3000/
+    ProxyPassReverse /  http://127.0.0.1:3000/
+
     # Realtime SignalR (GĐ5): cần "sudo a2enmod proxy_wstunnel" và thêm, đặt TRƯỚC dòng /api:
     #   ProxyPass /hubs ws://127.0.0.1:18080/hubs
 

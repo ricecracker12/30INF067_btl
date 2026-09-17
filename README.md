@@ -35,14 +35,13 @@ Chi tiết GĐ1:
   - khối B + C: harness Testcontainers, AuthZ matrix làm cổng CI, JWT + default deny, `[RequirePermission]`
   - khối D: 6 endpoint `register`, `verify-email`, `login`, `refresh`, `logout`, `GET /me`; refresh rotation + reuse
     detection; thu hồi token qua Redis; lỗi RFC 7807
-- **Frontend (khối E) — đang làm:**
-  - xong: E1 (scaffold + kit UI), E2 (api client sinh từ hợp đồng, MSW cho Vitest), E4 (màn đăng nhập), E3 (màn đăng ký),
-    E5 (màn xác minh email), E6 (guard phía client + trang `/me` + đăng xuất),
-    E7 (tự refresh khi 401, single-flight), đổi sang **BFF**: trình duyệt không bao giờ cầm JWT — Next server giữ token
-    trong Redis, trình duyệt chỉ có cookie phiên HttpOnly (Đ-E14)
-  - E8: image frontend `linux/arm64` (Next standalone + BFF) — `src/frontend/Dockerfile`
-- **Chưa làm:** ráp FE lên staging (F1–F3: CD build image frontend, compose, apache, biến `.env`). Vì vậy **staging hiện chỉ
-  có API**, chưa có giao diện (xem [Mục 7](#7-staging-xem-sản-phẩm-trên-internet)).
+- **Frontend (khối E) — xong** (merge `develop`, PR #11):
+  - E1–E8: kit UI, BFF (trình duyệt không cầm JWT), màn auth, single-flight, image `frontend` arm64
+- **Cổng đóng (khối F):**
+  - **F1 — đang làm:** CD build `frontend:staging`, compose có service `frontend`, apache `ProxyPass /`, biến BFF
+    trong `.env` staging. Sau khi merge F1 + chỉnh `.env`/apache trên VPS **một lần**, UI ở
+    https://mxh.banhgao.net/login. Hướng dẫn: [`huong-dan-khoi-f-cong-dong.md`](docs/giai-doan-1/huong-dan-khoi-f-cong-dong.md).
+  - Chưa làm: F2–F7 (E2E staging, checklist Mục 12, đóng băng hợp đồng).
 
 ---
 
@@ -368,37 +367,44 @@ cd src/frontend && pnpm gen:api     # sinh lại lib/api/schema.d.ts từ yaml, 
 
 | Đường dẫn | Hiện có gì |
 |---|---|
-| https://mxh.banhgao.net/swagger | Swagger UI của API staging. **Đây là cách chính để thử sản phẩm lúc này** |
+| https://mxh.banhgao.net/swagger | Swagger UI của API staging |
 | https://mxh.banhgao.net/api/v1/ping | `pong`, kiểm tra API sống |
 | https://mxh.banhgao.net/health/ready | `Healthy` khi Postgres + Redis thông |
-| https://mxh.banhgao.net/ | **Chưa có giao diện**: vẫn là trang mặc định của apache. Image frontend đã có (E8); lên staging ở F1 của GĐ1 |
+| https://mxh.banhgao.net/login | Giao diện đăng nhập (sau F1 + apache `ProxyPass /` trên VPS) |
+| https://mxh.banhgao.net/ | Redirect/landing → auth (Next) |
 
 ### 7.1. Thử luồng GĐ1 trên staging
 
-1. Mở `/swagger`, chọn definition **Identity**.
-2. `POST /api/v1/auth/register` bằng **email thật của bạn**. Staging gửi mail qua Brevo, có hạn mức theo ngày, nên đừng
-   đăng ký hàng loạt.
-3. Mail xác minh chứa link `https://mxh.banhgao.net/verify-email?token=…`. Trang đó **chưa tồn tại** khi FE chưa deploy:
-   chép giá trị `token` rồi gọi `POST /api/v1/auth/verify-email` trong Swagger.
-4. `POST /api/v1/auth/login` → nhận `accessToken`. Gọi `GET /me` bằng `curl` như [Mục 6.3](#63-gọi-endpoint-cần-đăng-nhập).
+**Sau F1** (UI sống): mở https://mxh.banhgao.net/register → mail Brevo → verify → login → `/me`.
 
-Khi FE đã deploy (sau F1), sản phẩm xem ở chính https://mxh.banhgao.net: apache chuyển `/api`, `/swagger`, `/health` về
-backend và mọi đường dẫn còn lại về Next.js, cùng một domain.
+**Swagger vẫn dùng được** (và là cách dự phòng nếu FE chưa proxy):
+
+1. Mở `/swagger`, chọn definition **Identity**.
+2. `POST /api/v1/auth/register` bằng **email thật**. Staging gửi mail qua Brevo — đừng đăng ký hàng loạt.
+3. Mail chứa link `https://mxh.banhgao.net/verify-email?token=…` (mở trên trình duyệt nếu FE đã proxy).
+4. `POST /api/v1/auth/login` → lấy token qua Swagger, hoặc dùng UI.
+
+Apache: `/api`, `/swagger`, `/health` → API; mọi path còn lại → Next.js (cùng domain).
 
 ### 7.2. Staging được cập nhật thế nào
 
 ```
 merge vào develop ──▶ GitHub Actions "deploy-staging"
-                      ├─ build image linux/arm64 → ghcr.io/ricecracker12/30inf067_btl/api:staging
-                      └─ SSH vào VM, trong ~/app/deploy:
-                           compose pull → run --rm migrate → up -d --remove-orphans
+                      ├─ build api:staging + frontend:staging (linux/arm64)
+                      ├─ SCP docker-compose.staging.apache.yml → ~/app/deploy/
+                      └─ SSH: compose pull → run --rm migrate → up -d --remove-orphans
 ```
 
-- **Không deploy tay.** Muốn staging có code mới thì merge PR vào `develop`.
+- **Không deploy tay image.** Muốn staging có code mới thì merge PR vào `develop`.
+- **Trước khi merge F1 (một lần trên VPS):** bổ sung vào `~/app/deploy/.env` các biến
+  `API_INTERNAL_URL`, `REDIS_URL`, `APP_ORIGIN`, `SESSION_ENCRYPTION_KEY`, `TRUSTED_PROXY_HOPS`,
+  `ReverseProxy__TrustedNetworks__0=172.28.0.0/16` (xem `deploy/.env.example`); bật `ProxyPass /` trong
+  apache theo `deploy/apache-socialapp.conf.example` rồi `sudo systemctl reload apache2`.
 - Script deploy có `set -e`: migrate hỏng hoặc thiếu cấu hình thì workflow **đỏ**, api cũ vẫn chạy.
 - Xem tiến trình ở tab **Actions** của repo GitHub.
-- API **từ chối khởi động** khi `.env` trên server thiếu key bắt buộc (`ConnectionStrings__*`, `Jwt__SigningKey`,
-  `Smtp__Host/Port/From`, `Frontend__BaseUrl`, `Cors__AllowedOrigins__0`). PR thêm key mới phải ghi tên key ở mục
+- API **từ chối khởi động** khi `.env` thiếu key bắt buộc (`ConnectionStrings__*`, `Jwt__SigningKey`,
+  `Smtp__Host/Port/From`, `Frontend__BaseUrl`, `Cors__AllowedOrigins__0`). Frontend **từ chối phục vụ BFF**
+  khi thiếu `SESSION_ENCRYPTION_KEY` / `API_INTERNAL_URL` / … PR thêm key mới phải ghi tên key ở mục
   "Trước khi merge" để người có quyền đặt lên server **trước** khi merge.
 
 Người có SSH xem log:
@@ -407,6 +413,7 @@ Người có SSH xem log:
 cd ~/app/deploy
 docker compose -f docker-compose.staging.apache.yml ps
 docker compose -f docker-compose.staging.apache.yml logs -f --tail 200 api
+docker compose -f docker-compose.staging.apache.yml logs -f --tail 200 frontend
 ```
 
 Dựng hạ tầng staging từ đầu (Docker, apache, TLS Cloudflare, secrets, CD): [`docs/oci-setup.md`](docs/oci-setup.md) và

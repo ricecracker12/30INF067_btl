@@ -1,10 +1,17 @@
 # Staging trên OCI Ampere A1 (arm64). Đặt file này + Caddyfile + .env tại ~/app/deploy/ trên server.
 # Postgres/Redis KHÔNG mở port ra host — chỉ Caddy mở 80/443. Xem docs/oci-setup.md.
+#
+# VM đã có apache giữ 80/443? Dùng docker-compose.staging.apache.yml thay file này.
+#
+# F1: mạng internal cố định 172.28.0.0/16 → ReverseProxy__TrustedNetworks__0=172.28.0.0/16 trong .env.
 name: socialapp-staging
 
 networks:
   edge:
   internal:
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
 
 volumes:
   pgdata:
@@ -22,7 +29,7 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     networks: [edge, internal]
-    depends_on: [api]
+    depends_on: [api, frontend]
 
   api:
     # Repo name của GHCR phải viết THƯỜNG toàn bộ (30INF067_btl -> 30inf067_btl).
@@ -41,6 +48,15 @@ services:
       start_period: 20s
     depends_on:
       postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  frontend:
+    image: ghcr.io/ricecracker12/30inf067_btl/frontend:staging
+    restart: unless-stopped
+    env_file: [./.env]
+    networks: [internal]                 # chỉ Caddy gọi — không mở port host
+    depends_on:
+      api: { condition: service_healthy }
       redis: { condition: service_healthy }
 
   migrate:                               # one-shot; CD gọi `run --rm migrate` trước khi up api
