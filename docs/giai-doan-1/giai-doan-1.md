@@ -2153,6 +2153,11 @@ liệu seed thật. Nguồn quyền giả chỉ còn trong unit test.
 > **Mục tiêu khối:** chứng minh GĐ1 xong **trên hệ thống thật**, không phải trên máy local và không
 > phải trên mock. Đây là ranh giới giữa "code chạy" và "giai đoạn hoàn thành".
 
+> **Hướng dẫn thi công từng bước:** [huong-dan-khoi-f-cong-dong.md](huong-dan-khoi-f-cong-dong.md) —
+> danh sách việc F1–F7 kèm mục tiêu / kết quả mong đợi, checklist `.env` staging, E2E-01/E2E-02,
+> và đối chiếu Mục 11–12. Không chia lane — cả nhóm làm tuần tự. Mục B.8 dưới đây giữ vai trò
+> "cái gì và vì sao".
+
 ### F1 — Deploy staging qua CD tự động
 
 - **Mục tiêu:** loại bỏ "chạy được trên máy tôi" khỏi định nghĩa xong.
