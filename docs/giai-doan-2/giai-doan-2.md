@@ -970,8 +970,15 @@ hoạch gốc đặt cho GĐ2.
 
 ### A1 — Entity của Profile trong `Domain/`
 
-`Profile` (user_id, display_name, bio, avatar_key, created_at, updated_at). Không dùng navigation property trỏ sang
-`User` — không có kiểu nào để trỏ (Đ-2.2). `user_id` là `Guid` trần.
+`UserProfile` (user_id, display_name, bio, avatar_key, created_at, updated_at). Không dùng navigation property trỏ
+sang `User` — không có kiểu nào để trỏ (Đ-2.2). `user_id` là `Guid` trần.
+
+> **Lệch B.3 bản gốc (chốt 2026-09-18, lúc thi công A1):** tên kiểu là `UserProfile`, không phải `Profile`. Tên
+> `Profile` không biên dịch được ngoài `Domain/`: từ trong `SocialApp.Modules.Profile.Infrastructure`, C# tra tên
+> theo thứ tự namespace lồng từ trong ra ngoài nên gặp namespace `SocialApp.Modules.Profile` trước khi xét `using`
+> của file, và `DbSet<Profile>` thành `CS0118: 'Profile' is a namespace but is used like a type`. Đường thoát còn
+> lại — alias `using ProfileEntity = SocialApp.Modules.Profile.Domain.Profile;` ở **mọi** file ngoài `Domain/` của
+> GĐ2 lẫn GĐ4–GĐ8 — đắt hơn hẳn. Bảng DB vẫn là `profile.profiles` (Mục 4 không đổi), chỉ tên kiểu C# đổi.
 
 ### A2 — `ProfileDbContext` + `IEntityTypeConfiguration` + `ProfileDbContextOptions` + design-time factory
 
