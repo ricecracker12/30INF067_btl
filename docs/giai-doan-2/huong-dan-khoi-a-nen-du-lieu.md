@@ -101,7 +101,7 @@ migration nữa. Cắt thì **ghi rõ vào PR và vào `giai-doan-2.md`**, khôn
 docker compose -f deploy/docker-compose.dev.yml up -d
 docker compose -f deploy/docker-compose.dev.yml ps        # postgres phải healthy
 
-# 2. EF tools đúng dòng 8.x (khớp Microsoft.EntityFrameworkCore 8.0.10)
+# 2. EF tools 8.x TRỞ LÊN — xem ghi chú ngay dưới, không cần đúng 8.x
 dotnet ef --version
 
 # 3. Solution build sạch từ điểm xuất phát
@@ -110,6 +110,22 @@ dotnet build SocialApp.sln
 # 4. Docker daemon chạy được — IntegrationTests dùng Testcontainers
 docker ps
 ```
+
+**Version của `dotnet ef` không quyết định hình dạng migration** (sửa ngày 2026-09-18, lúc thi công `A2`; câu cũ
+đòi "đúng dòng 8.x" là chặt hơn mức cần và quy nhầm nguyên nhân). CLI chỉ build project rồi gọi vào gói
+`Microsoft.EntityFrameworkCore.Design` **của chính project** — tức 8.0.10. Đã dựng thử để chắc: tool 10.0.10 sinh ra
+migration nháp cho `ProfileDbContext` mang `.HasAnnotation("ProductVersion", "8.0.10")` ở cả `.Designer.cs` lẫn
+snapshot, thân migration cùng hình dạng với `20260913040158_InitialIdentity.cs` của GĐ1. Ba hệ quả:
+
+- Luật tương thích của EF đi **một chiều**: tool **mới hơn hoặc bằng** runtime thì được, tool cũ hơn runtime thì
+  hỏng. Nên 8.x trở lên đều dùng được cho GĐ2.
+- Tool dòng 10 là app `net10.0` nên máy phải có **.NET 10 runtime**; máy chỉ cài SDK 8 thì `dotnet ef` báo thiếu
+  framework. `global.json` vẫn ghim SDK `8.0.424` nên bản build không đổi.
+- CI/CD **không gọi `dotnet ef`** một lần nào — migration lên staging chạy bằng hook `--migrate` của app, tức
+  runtime EF Core 8.0.10. Version tool vì thế chỉ ảnh hưởng trong phạm vi máy dev.
+
+Thứ phải canh không phải `dotnet ef --version` mà là dòng `ProductVersion` trong `<Module>DbContextModelSnapshot.cs`:
+nó ra `10.x` nghĩa là **gói EF của project** đã bị nâng, không phải do tool.
 
 **`deploy/.env` phải tồn tại**, kể cả khi chỉ chạy `dotnet ef migrations add` (lệnh này không mở kết
 nối): `DesignTimeIdentityDbContextFactory` đọc mật khẩu Postgres dev qua `DevEnvFile` và **từ chối chạy**
