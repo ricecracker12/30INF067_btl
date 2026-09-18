@@ -14,6 +14,19 @@ namespace SocialApp.Modules.Content.Domain;
 /// </summary>
 public sealed class MediaAttachment
 {
+    /// <summary>
+    /// Dung lượng tối đa một ảnh: 10 MB (Đ-2.8). DB canh bằng <c>ck_media_size</c>; C3 ký kèm
+    /// <c>Content-Length</c> và HEAD lại bằng chính con số này — hai bên lấy chung một hằng số nên không
+    /// thể lệch.
+    /// </summary>
+    public const int MaxSizeBytes = 10 * 1024 * 1024;
+
+    /// <summary>
+    /// Ba loại ảnh được nhận (Đ-2.8), đúng thứ tự liệt kê trong <c>ck_media_content_type</c> của Mục 4.
+    /// Nguồn duy nhất cho cả CHECK ở DB lẫn allowlist lúc ký presign ở C3.
+    /// </summary>
+    public static readonly string[] AllowedContentTypes = ["image/jpeg", "image/png", "image/webp"];
+
     /// <summary>Khóa chính UUID v7.</summary>
     public Guid MediaId { get; init; } = Uuid7.New();
 

@@ -12,6 +12,7 @@ using Microsoft.OpenApi.Models;
 using Serilog;
 using Serilog.Formatting.Compact;
 using SocialApp.Api.Controllers;
+using SocialApp.Modules.Content.DependencyInjection;
 using SocialApp.Modules.Identity.DependencyInjection;
 using SocialApp.Modules.Identity.Presentation;
 using SocialApp.Modules.Profile.DependencyInjection;
@@ -173,6 +174,9 @@ builder.Services.AddIdentityModule(postgres);
 
 // --- Module Profile: DbContext riêng, schema "profile" (ADR-001, Đ-2.1) ---
 builder.Services.AddProfileModule(postgres);
+
+// --- Module Content: DbContext riêng, schema "content" (ADR-001, Đ-2.1) ---
+builder.Services.AddContentModule(postgres);
 
 // Mail xác minh (Đ-D9). Development không đặt gì → Mailpit localhost:1025 + link http://localhost:3000; ngoài
 // Development thiếu Smtp:Host/Port/From hoặc Frontend:BaseUrl thì chết ngay tại đây. KHÔNG đọc từ deploy/.env: file đó
@@ -340,8 +344,10 @@ if (isMigrate)
     // không đòi thứ tự, nhưng log deploy phải đọc được theo một thứ tự không đổi.
     await app.Services.MigrateIdentityModuleAsync();
     await app.Services.MigrateProfileModuleAsync();
+    await app.Services.MigrateContentModuleAsync();
     Console.WriteLine(
-        $"[migrate] Đã áp dụng migration cho schema \"{IdentityModuleExtensions.Schema}\", \"{ProfileModuleExtensions.Schema}\"; "
+        $"[migrate] Đã áp dụng migration cho schema \"{IdentityModuleExtensions.Schema}\", \"{ProfileModuleExtensions.Schema}\", "
+      + $"\"{ContentModuleExtensions.Schema}\"; "
       + $"nạp dữ liệu nền và kiểm tra vai trò hệ thống cho schema \"{IdentityModuleExtensions.Schema}\". Thoát 0.");
     return;
 }

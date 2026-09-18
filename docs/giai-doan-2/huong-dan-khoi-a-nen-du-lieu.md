@@ -670,6 +670,19 @@ builder.Property(x => x.ReactionCounts)
 `IsDescending(false, true, true)` là thứ làm cursor keyset của `Đ-2.11` đọc thẳng từ index thay vì sort
 lại. Bỏ nó thì `PAGE-01` vẫn xanh và `GET /users/{id}/posts` vẫn đúng — chỉ chậm, và chỉ lộ ra ở k6 của GĐ4.
 
+**Thi công `A5` (ngày 2026-09-18) gom chuyện enum vào một chỗ.** Ba thứ phải khớp nhau tuyệt đối — giá trị
+lưu xuống cột, danh sách trong CHECK, và literal trong `HasFilter` — nên thay vì mỗi configuration giữ
+converter riêng như bản phác ở Bước 1, cả bốn bảng dùng `Infrastructure/Configurations/LowercaseEnum.cs`:
+`Converter<T>()`, `CheckSql<T>(cột)`, `EqualsSql<T>(cột, giá trị)` và `NotSet<T>()`. Thêm một giá trị enum
+thì CHECK tự rộng ra ở migration kế tiếp.
+
+`NotSet<T>()` là chỗ lệch **có chủ đích** so với bản phác: nó trả `(T)(-1)` cho `HasSentinel`. Cần vì mọi cột
+enum đều có `DEFAULT` ở DB (Mục 4) trong khi giá trị hay dùng nhất lại trùng CLR default của enum — `Public`,
+`Published`, `Visible` đều là 0. Không khai sentinel thì EF coi 0 là "chưa đặt", bỏ cột khỏi INSERT và **cảnh
+báo mỗi lần dựng model**, tức một dòng log Warning ở mọi lần app khởi động (đã thấy thật, ba dòng, lúc chạy
+`migrations add` lần đầu). Kết quả ghi xuống DB thì như nhau — nhưng "như nhau" đó chỉ đúng chừng nào DEFAULT
+của DB và default của C# không lệch nhau.
+
 **Bước 3 — `MediaAttachmentConfiguration`.**
 
 ```csharp
@@ -732,6 +745,9 @@ Khẳng định #6 dùng SQL thô để tạo dòng `deleted` (đi vòng qua Cha
 5. **Migration thứ hai sinh ra khác rỗng dù không đổi gì** là dấu hiệu cấu hình không tất định (ví dụ
    `HasDefaultValue(DateTimeOffset.UtcNow)` — giá trị đóng băng lúc build model). Kiểm bằng
    `dotnet ef migrations add Tmp` → phải rỗng → `dotnet ef migrations remove`.
+6. **Đối số có tên trong hai vế của `ValueConverter`.** Gặp thật lúc thi công `A5`: hai vế là expression
+   tree, mà expression tree không chứa được đối số có tên — `Enum.Parse<T>(s, ignoreCase: true)` là
+   `CS0853`. Viết trần `Enum.Parse<T>(s, true)`.
 
 ---
 
