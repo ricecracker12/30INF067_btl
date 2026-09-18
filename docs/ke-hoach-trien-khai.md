@@ -325,6 +325,18 @@ còn biên độ thêm index/cache nếu trượt; và thứ cắt được thì
     integration test không chạm tới. *(Bản A dùng một trang HTML tạm cho việc này; bản B không cần.)*
 
 ### GĐ 2 — Profile + Content (đăng/sửa/xóa bài + ảnh): UC-03, UC-04, UC-05 (Ngày 6–9)
+
+> 📄 **Tài liệu thi công chi tiết: [`giai-doan-2.md`](./giai-doan-2/giai-doan-2.md)** — 15 quyết định thiết kế
+> (Đ-2.1–Đ-2.15), DDL hai schema `profile`/`content`, luồng SEQ-01 đầy đủ, hợp đồng hai module, kế hoạch 3 người
+> theo ngày, checklist nghiệm thu.
+>
+> **Bốn quyết định phải chốt ở cổng mở trước khi ai gõ dòng nào** — chúng áp cho cả năm module còn lại, không riêng
+> GĐ2: mỗi module một schema + một DbContext (Đ-2.1) · **không FK qua ranh giới schema** (Đ-2.2) · đọc chéo module
+> bằng contract chỉ-đọc ở SharedKernel (Đ-2.3) · hồ sơ tạo bằng onboarding, không tạo lúc đăng ký (Đ-2.4).
+>
+> **Lệch kế hoạch này, có chủ đích:** hình dạng **cursor** chốt ngay ở GĐ2 (Đ-2.11) thay vì ở cổng mở GĐ4 — GĐ2 đã
+> cần `GET /users/{id}/posts` có phân trang, chốt muộn là viết lại toàn bộ phần cuộn vô hạn của frontend.
+
 - **Làm gì:** Hồ sơ + avatar (FR-013), đăng bài văn bản + ≤10 ảnh với privacy (FR-004, BR-01/02),
   sửa/xóa mềm bài (FR-005), upload ảnh qua pre-signed URL thẳng lên R2 (không qua API).
 - **Làm như nào:**

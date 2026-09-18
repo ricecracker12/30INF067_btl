@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using SocialApp.IntegrationTests.Harness;
 using SocialApp.Modules.Identity.Application.Email;
+using SocialApp.SharedKernel.Contracts;
 using Xunit;
 
 namespace SocialApp.IntegrationTests;
@@ -270,5 +271,30 @@ public sealed class StartupConfigurationTests
         {
             Directory.Delete(outsideRepo, recursive: true);
         }
+    }
+
+    /// <summary>
+    /// A6: hai contract chéo module phải resolve được từ container CỦA HOST.
+    ///
+    /// Vì sao cần một khẳng định riêng: từ A6, module Content chỉ chạy được khi host đã gọi
+    /// <c>AddProfileModule</c> (IUserDirectory đăng ký ở đó, còn người dùng nó nằm ở Content). Không có gì
+    /// bắt lỗi lúc build — quên một dòng DI thì app khởi động BÌNH THƯỜNG rồi nổ lúc resolve service của
+    /// request đầu tiên, tức lỗi hiện ra ở khối D dưới dạng 500 chứ không ở đây.
+    ///
+    /// IUserDirectory là scoped (dùng ProfileDbContext) nên phải mở scope; resolve thẳng từ
+    /// <c>factory.Services</c> sẽ ném vì lý do KHÁC hẳn và test sẽ nói dối.
+    /// </summary>
+    [Fact]
+    public void Host_resolve_duoc_hai_contract_cheo_module_cua_A6()
+    {
+        using var factory = new ApiFactory();
+
+        using var scope = factory.Services.CreateScope();
+
+        Assert.NotNull(scope.ServiceProvider.GetRequiredService<IUserDirectory>());
+
+        // GĐ2 cố ý là null-object (Đ-2.9): khẳng định luôn cả KIỂU, để GĐ4 đổi dòng DI thì test này đỏ và
+        // người đổi biết có một khẳng định ở đây cần cập nhật theo.
+        Assert.IsType<AlwaysStrangers>(scope.ServiceProvider.GetRequiredService<IFriendshipReader>());
     }
 }

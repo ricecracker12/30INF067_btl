@@ -69,4 +69,37 @@ public sealed class PersistenceBoundaryTests
             "Không có type nào trong SocialApp.Modules.Identity.Domain — rule persistence boundary "
           + "đang chạy trong chân không. Kiểm tra lại namespace trong PersistenceBoundaryTests.");
     }
+
+    /// <summary>
+    /// Bản Profile của cùng cái canh gác trên (A7, GĐ2 khối A). Trước A1, namespace
+    /// SocialApp.Modules.Profile.Domain rỗng nên rule persistence ở trên xanh vĩnh viễn trên module
+    /// này — lưới không có dây. Test đi cùng commit của A1 để không thành nợ.
+    /// </summary>
+    [Fact]
+    public void Profile_Domain_namespace_must_not_be_empty()
+    {
+        var types = Architecture.Types
+            .Where(t => t.FullName.StartsWith("SocialApp.Modules.Profile.Domain", StringComparison.Ordinal))
+            .ToList();
+
+        Assert.True(types.Count > 0,
+            "Không có type nào trong SocialApp.Modules.Profile.Domain — rule persistence boundary "
+          + "đang chạy trong chân không. Kiểm tra lại namespace trong PersistenceBoundaryTests.");
+    }
+
+    /// <summary>
+    /// Bản Content của cùng cái canh gác trên (A7, GĐ2 khối A). Đi cùng commit của A4 — entity Content đầu
+    /// tiên — để rule persistence không còn chạy trong chân không trên module này.
+    /// </summary>
+    [Fact]
+    public void Content_Domain_namespace_must_not_be_empty()
+    {
+        var types = Architecture.Types
+            .Where(t => t.FullName.StartsWith("SocialApp.Modules.Content.Domain", StringComparison.Ordinal))
+            .ToList();
+
+        Assert.True(types.Count > 0,
+            "Không có type nào trong SocialApp.Modules.Content.Domain — rule persistence boundary "
+          + "đang chạy trong chân không. Kiểm tra lại namespace trong PersistenceBoundaryTests.");
+    }
 }

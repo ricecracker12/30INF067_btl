@@ -1,0 +1,210 @@
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Npgsql;
+using SocialApp.IntegrationTests.Harness;
+using SocialApp.Modules.Content.DependencyInjection;
+using SocialApp.Modules.Content.Domain;
+using SocialApp.Modules.Content.Infrastructure;
+using Xunit;
+
+namespace SocialApp.IntegrationTests;
+
+/// <summary>
+/// Bản Content của <see cref="IdentityDbContextSchemaTests"/> (A5, GĐ2 khối A) — và là test đắt nhất của
+/// khối A: sáu khẳng định, mỗi cái ứng với một thứ mà NẾU cấu hình sai thì không có lỗi nào khác báo.
+/// Migration vẫn chạy, app vẫn lên, chỉ có bất biến biến mất.
+///
+/// Mỗi test một database mới chưa migrate, trên cùng <see cref="PostgresFixture"/>.
+/// </summary>
+[Collection(PostgresCollection.Name)]
+public sealed class ContentDbContextSchemaTests(PostgresFixture postgres)
+{
+    private static async Task<(ServiceProvider Services, string ConnectionString)> MigratedAsync(PostgresFixture postgres)
+    {
+        var connectionString = await postgres.CreateDatabaseAsync();
+        var services = new ServiceCollection()
+            .AddContentModule(connectionString)
+            .BuildServiceProvider();
+
+        await services.MigrateContentModuleAsync();
+        return (services, connectionString);
+    }
+
+    private static async Task<NpgsqlConnection> OpenAsync(string connectionString)
+    {
+        var conn = new NpgsqlConnection(connectionString);
+        await conn.OpenAsync();
+        return conn;
+    }
+
+    /// <summary>Khẳng định 1 — bảng lịch sử của Content nằm trong schema <c>content</c>, không ở <c>public</c>.</summary>
+    [Fact]
+    public async Task Migrate_dat_bang_lich_su_vao_schema_content()
+    {
+        var (services, _) = await MigratedAsync(postgres);
+
+        await using var scope = services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<ContentDbContext>();
+
+        var schemas = await db.Database
+            .SqlQuery<string>($"""
+                select table_schema as "Value"
+                from information_schema.tables
+                where table_name = '__EFMigrationsHistory'
+                """)
+            .ToListAsync();
+
+        Assert.Equal([ContentDbContext.Schema], schemas);
+    }
+
+    /// <summary>Đủ bốn bảng của Mục 4, tất cả trong schema <c>content</c>.</summary>
+    [Fact]
+    public async Task Migrate_tao_du_bon_bang_cua_Muc_4()
+    {
+        var (services, _) = await MigratedAsync(postgres);
+
+        await using var scope = services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<ContentDbContext>();
+
+        var tables = await db.Database
+            .SqlQuery<string>($"""
+                select table_name as "Value"
+                from information_schema.tables
+                where table_schema = 'content' and table_name <> '__EFMigrationsHistory'
+                """)
+            .ToListAsync();
+
+        Assert.Equal(["comments", "media_attachments", "posts", "reactions"], tables.Order());
+    }
+
+    /// <summary>
+    /// Khẳng định 2 — BR-01 ở tầng DB: bài không chữ, không ảnh bị <c>ck_posts_not_empty</c> chặn. Đi bằng
+    /// SQL thô vì đây là lưới cho chính những đường KHÔNG qua validator của D5.
+    /// </summary>
+    [Fact]
+    public async Task Bai_khong_chu_khong_anh_bi_chan()
+    {
+        var (_, connectionString) = await MigratedAsync(postgres);
+
+        await using var conn = await OpenAsync(connectionString);
+        await using var cmd = new NpgsqlCommand(
+            """
+            insert into content.posts (post_id, author_id, body, media_count, created_at, updated_at)
+            values (gen_random_uuid(), gen_random_uuid(), null, 0, now(), now())
+            """, conn);
+
+        var ex = await Assert.ThrowsAsync<PostgresException>(() => cmd.ExecuteNonQueryAsync());
+        Assert.Equal(PostgresErrorCodes.CheckViolation, ex.SqlState);
+        Assert.Equal("ck_posts_not_empty", ex.ConstraintName);
+    }
+
+    /// <summary>
+    /// Khẳng định 3 — mặt CÒN LẠI của khẳng định 2: bài chỉ có ảnh (BR01-06) phải VÀO ĐƯỢC. Thiếu test này
+    /// thì một CHECK viết quá chặt (ví dụ đòi body luôn khác rỗng) vẫn xanh, và cả luồng UC-04 chết ở khối D.
+    /// </summary>
+    [Fact]
+    public async Task Bai_chi_co_anh_thi_tao_duoc()
+    {
+        var (_, connectionString) = await MigratedAsync(postgres);
+
+        await using var conn = await OpenAsync(connectionString);
+        await using var cmd = new NpgsqlCommand(
+            """
+            insert into content.posts (post_id, author_id, body, media_count, created_at, updated_at)
+            values (gen_random_uuid(), gen_random_uuid(), null, 1, now(), now())
+            """, conn);
+
+        Assert.Equal(1, await cmd.ExecuteNonQueryAsync());
+    }
+
+    /// <summary>
+    /// Khẳng định 4 — <c>storage_key</c> UNIQUE chặn gắn CÙNG một object vào hai bài. Đây là nguồn của 409
+    /// ở D5 (POST-08): D5 bắt đúng vi phạm này và dịch thành 409, không để rơi thành 500.
+    /// </summary>
+    [Fact]
+    public async Task Hai_anh_cung_storage_key_bi_chan()
+    {
+        var (_, connectionString) = await MigratedAsync(postgres);
+
+        await using var conn = await OpenAsync(connectionString);
+
+        async Task<int> InsertAsync(short position)
+        {
+            await using var cmd = new NpgsqlCommand(
+                """
+                insert into content.media_attachments
+                    (media_id, owner_type, owner_id, storage_key, content_type, size_bytes, position, created_at)
+                values
+                    (gen_random_uuid(), 'post', gen_random_uuid(), 'posts/ai-do/mot-object.jpg', 'image/jpeg', 1024, @p, now())
+                """, conn);
+            cmd.Parameters.AddWithValue("p", position);
+            return await cmd.ExecuteNonQueryAsync();
+        }
+
+        Assert.Equal(1, await InsertAsync(0));
+
+        // Bài khác (owner_id khác) và vị trí khác — chỉ storage_key là trùng, để chắc chắn thứ chặn là
+        // UNIQUE của storage_key chứ không phải uq_media_owner_position.
+        var ex = await Assert.ThrowsAsync<PostgresException>(() => InsertAsync(1));
+        Assert.Equal(PostgresErrorCodes.UniqueViolation, ex.SqlState);
+        Assert.Equal("IX_media_attachments_storage_key", ex.ConstraintName);
+    }
+
+    /// <summary>
+    /// Khẳng định 5 — <c>reaction_counts</c> của bài mới đọc ra <c>{}</c>, KHÔNG <c>null</c> (Mục 8.2).
+    /// Chốt Bước 4 của A4 bằng hành vi thật: FE viết một lần, GĐ3 không phải sửa.
+    /// </summary>
+    [Fact]
+    public async Task Reaction_counts_cua_bai_moi_doc_ra_rong_chu_khong_null()
+    {
+        var (services, _) = await MigratedAsync(postgres);
+
+        await using var scope = services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<ContentDbContext>();
+
+        db.Posts.Add(new Post { AuthorId = Guid.NewGuid(), Body = "bài đầu tiên" });
+        await db.SaveChangesAsync();
+
+        // Đọc lại từ DB chứ không đọc entity đang được theo dõi.
+        db.ChangeTracker.Clear();
+        var post = await db.Posts.SingleAsync();
+
+        Assert.NotNull(post.ReactionCounts);
+        Assert.Empty(post.ReactionCounts);
+    }
+
+    /// <summary>
+    /// Khẳng định 6 — global query filter của Đ-2.10 chạy thật: bài <c>status='deleted'</c> không xuất hiện
+    /// qua <c>db.Posts</c>.
+    ///
+    /// Dòng "deleted" tạo bằng SQL thô để đi VÒNG qua ChangeTracker. Tạo bằng DbSet rồi đọc bằng DbSet thì
+    /// filter tự loại ở cả hai chiều và test không chứng minh được gì.
+    /// </summary>
+    [Fact]
+    public async Task Bai_xoa_mem_khong_xuat_hien_qua_DbSet()
+    {
+        var (services, connectionString) = await MigratedAsync(postgres);
+
+        await using (var conn = await OpenAsync(connectionString))
+        {
+            await using var cmd = new NpgsqlCommand(
+                """
+                insert into content.posts (post_id, author_id, body, status, media_count, created_at, updated_at, deleted_at)
+                values (gen_random_uuid(), gen_random_uuid(), 'đã xóa', 'deleted', 0, now(), now(), now()),
+                       (gen_random_uuid(), gen_random_uuid(), 'còn sống', 'published', 0, now(), now(), null)
+                """, conn);
+            Assert.Equal(2, await cmd.ExecuteNonQueryAsync());
+        }
+
+        await using var scope = services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<ContentDbContext>();
+
+        var bodies = await db.Posts.Select(p => p.Body).ToListAsync();
+        Assert.Equal(["còn sống"], bodies);
+
+        // Và đường của worker dọn rác (C4) vẫn thấy cả hai — nếu không thì filter đang chặn cả chỗ được
+        // phép đi vòng, và C4 sẽ không bao giờ xóa được object nào trên R2.
+        var all = await db.Posts.IgnoreQueryFilters().CountAsync();
+        Assert.Equal(2, all);
+    }
+}
