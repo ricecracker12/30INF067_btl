@@ -578,12 +578,24 @@ không phải lúc build — tức là lộ ra ở khối D chứ không ở đ�
 (Đ-2.12) — viết thêm ở GĐ2 là viết mã cho một hợp đồng chưa tồn tại.
 
 **Bước 6 — `PostContentPolicy.cs`, hàm thuần.** Đúng nếp `LockoutPolicy`/`RefreshTokenPolicy` của GĐ1: đầu
-vào là giá trị, đầu ra là kết quả, không I/O. BR-01 gồm bốn mệnh đề — body ≤ 5000 · số ảnh ≤ 10 · (có ảnh
+vào là giá trị, đầu ra là kết quả, không I/O. BR-01 gồm ba mệnh đề — body ≤ 5000 · số ảnh ≤ 10 · (có ảnh
 **hoặc** body không rỗng sau `trim`) — và kết quả phải nói được **key lỗi nào** (`body` hay `mediaKeys`,
 Mục 10.1 `AC-02`/`AC-03`), vì `D5` ánh xạ thẳng sang `errors` của RFC 7807.
 
 Hai thứ **không** thuộc `PostContentPolicy`: kiểm tiền tố `posts/{actorId}/` của key (Đ-2.7 — cần `actorId`,
 là việc của `D5`) và kiểm dung lượng/loại ảnh thật (Đ-2.8 — cần `HEAD`, là việc của `C3`).
+
+Hình dạng kết quả đã chốt lúc thi công `A4` (ngày 2026-09-18) — `D5` ánh xạ theo đúng cái này:
+
+```csharp
+PostContentValidation Validate(string? body, int mediaCount);   // readonly record struct (ErrorKey, Message)
+```
+
+Trả **đúng một** key lỗi chứ không gom nhiều: `errors` hiện dưới trường nào thì người dùng sửa trường đó, và
+bài vừa quá dài vừa quá nhiều ảnh hiếm hơn nhiều so với cái giá của hai thông điệp cùng lúc. Thứ tự kiểm là
+**ảnh → độ dài body → rỗng**; đảo hai cái đầu vẫn đúng với `AC-03`, nhưng 11 ảnh không kèm chữ sẽ báo nhầm
+`body`. Cố ý **không** dùng lại `Error` của SharedKernel: `Error` mang `Status` HTTP, mà chọn mã HTTP là việc
+của tầng D, không của Domain.
 
 ### Cạm bẫy đã biết
 
@@ -596,6 +608,13 @@ là việc của `D5`) và kiểm dung lượng/loại ảnh thật (Đ-2.8 — 
    ảnh không tạo được, và `BR01-06` đỏ.
 4. **Enum trong `Domain/` là đúng; converter trong `Infrastructure/` là đúng.** Đặt `ValueConverter` vào
    `Domain/` là kéo EF vào Domain → `PersistenceBoundaryTests` đỏ.
+5. **Thông điệp lỗi khai `const string` rồi nội suy hằng số.** Gặp thật lúc thi công `A4`: C# chỉ cho nội suy
+   hằng khi **mọi** phần đều là hằng **chuỗi**, nên `$"... {MaxBodyLength} ..."` là `CS0133`. Đừng chữa bằng
+   cách viết tay `5000` vào câu — con số trong thông điệp và con số trong luật thành hai nguồn. Dùng
+   `static readonly string`.
+6. **Nhắc tên trình điều khiển Postgres trong comment của `Domain/`.** Checklist nghiệm thu khối A (Mục 10)
+   `grep` đúng chữ đó trong hai thư mục `Domain` và đòi **0 kết quả** — comment cũng bị tính. Viết vòng, giữ
+   nguyên tên API `EnableDynamicJson()` để vẫn tra được.
 
 ---
 

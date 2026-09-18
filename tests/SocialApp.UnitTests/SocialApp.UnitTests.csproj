@@ -23,6 +23,8 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\backend\SocialApp.SharedKernel\SocialApp.SharedKernel.csproj" />
     <ProjectReference Include="..\..\src\backend\Modules\Identity\SocialApp.Modules.Identity.csproj" />
+    <!-- A4: PostContentPolicy (BR-01) là hàm thuần trong Domain của Content — unit test gọi thẳng. -->
+    <ProjectReference Include="..\..\src\backend\Modules\Content\SocialApp.Modules.Content.csproj" />
   </ItemGroup>
 
 </Project>
