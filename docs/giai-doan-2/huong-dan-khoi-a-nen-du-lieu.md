@@ -430,6 +430,18 @@ await app.Services.MigrateProfileModuleAsync();
 Và sửa dòng `Console.WriteLine` để nó nêu đủ các schema đã áp dụng. Thứ tự Identity → Profile → Content là
 **cố định** (Mục 5): không có FK chéo nên DB không đòi thứ tự, nhưng log deploy phải đọc được.
 
+Hình dạng câu log đã chốt lúc thi công `A3` (ngày 2026-09-18) — `A5` **nối tên schema vào vế đầu**, không viết
+câu thứ hai:
+
+```
+[migrate] Đã áp dụng migration cho schema "identity", "profile"; nạp dữ liệu nền và kiểm tra vai trò hệ
+thống cho schema "identity". Thoát 0.
+```
+
+Hai vế tách nhau vì hai việc không cùng phạm vi: migration áp cho **mọi** module, còn seed + kiểm vai trò hệ
+thống chỉ có ở Identity (Mục 5 — GĐ2 không seed gì). Gộp một vế là nói dối trong log rằng Profile cũng có dữ
+liệu nền.
+
 **Không** đụng `AddApplicationPart` và `apiGroups` ở khối A — Profile chưa có controller nào. Hai chỗ đó là
 việc của `D1`.
 

@@ -14,6 +14,7 @@ using Serilog.Formatting.Compact;
 using SocialApp.Api.Controllers;
 using SocialApp.Modules.Identity.DependencyInjection;
 using SocialApp.Modules.Identity.Presentation;
+using SocialApp.Modules.Profile.DependencyInjection;
 using SocialApp.SharedKernel.Authentication;
 using SocialApp.SharedKernel.Authorization;
 using SocialApp.SharedKernel.Configuration;
@@ -169,6 +170,9 @@ JwtOptions RequireJwtOptions()
 
 // --- Module Identity: DbContext riêng, schema "identity" (ADR-001) ---
 builder.Services.AddIdentityModule(postgres);
+
+// --- Module Profile: DbContext riêng, schema "profile" (ADR-001, Đ-2.1) ---
+builder.Services.AddProfileModule(postgres);
 
 // Mail xác minh (Đ-D9). Development không đặt gì → Mailpit localhost:1025 + link http://localhost:3000; ngoài
 // Development thiếu Smtp:Host/Port/From hoặc Frontend:BaseUrl thì chết ngay tại đây. KHÔNG đọc từ deploy/.env: file đó
@@ -332,8 +336,13 @@ var app = builder.Build();
 // `set -e` ở CD dừng lại TRƯỚC `up -d` thay vì bật api trên dữ liệu nền hỏng.
 if (isMigrate)
 {
+    // Thứ tự Identity → Profile → Content là CỐ ĐỊNH (Mục 5, GĐ2): không có FK chéo schema nên DB
+    // không đòi thứ tự, nhưng log deploy phải đọc được theo một thứ tự không đổi.
     await app.Services.MigrateIdentityModuleAsync();
-    Console.WriteLine($"[migrate] Đã áp dụng migration, nạp dữ liệu nền và kiểm tra vai trò hệ thống cho schema \"{IdentityModuleExtensions.Schema}\". Thoát 0.");
+    await app.Services.MigrateProfileModuleAsync();
+    Console.WriteLine(
+        $"[migrate] Đã áp dụng migration cho schema \"{IdentityModuleExtensions.Schema}\", \"{ProfileModuleExtensions.Schema}\"; "
+      + $"nạp dữ liệu nền và kiểm tra vai trò hệ thống cho schema \"{IdentityModuleExtensions.Schema}\". Thoát 0.");
     return;
 }
 
