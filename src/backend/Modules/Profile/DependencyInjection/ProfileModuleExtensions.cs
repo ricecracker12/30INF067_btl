@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using SocialApp.Modules.Profile.Infrastructure;
+using SocialApp.SharedKernel.Contracts;
 
 namespace SocialApp.Modules.Profile.DependencyInjection;
 
@@ -26,7 +27,14 @@ public static class ProfileModuleExtensions
         // design-time factory để hai đường không lệch nhau.
         services.AddDbContext<ProfileDbContext>(options => options.UseProfileNpgsql(connectionString));
 
-        // A6 đăng ký IUserDirectory VÀO ĐÂY — chừa chỗ, đừng tạo hàm AddProfileModuleXxx thứ hai.
+        // Cửa duy nhất để module khác đọc hồ sơ mà không import module này (Đ-2.3, A6). Module CHỦ đăng ký
+        // hiện thực của mình — đúng tiền lệ IRolePermissionSource trong AddIdentityModule. Scoped vì
+        // UserDirectory dùng ProfileDbContext.
+        //
+        // HỆ QUẢ: từ đây module Content chỉ chạy được khi host ĐÃ gọi AddProfileModule. Không có gì bắt lỗi
+        // lúc build — thiếu thì nổ lúc resolve service của request đầu tiên. StartupConfigurationTests có
+        // một khẳng định canh đúng chuyện đó.
+        services.AddScoped<IUserDirectory, UserDirectory>();
         return services;
     }
 

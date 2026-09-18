@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using SocialApp.Modules.Content.Infrastructure;
+using SocialApp.SharedKernel.Contracts;
 
 namespace SocialApp.Modules.Content.DependencyInjection;
 
@@ -24,6 +25,14 @@ public static class ContentModuleExtensions
         // Cấu hình Npgsql + bảng lịch sử migration nằm ở ContentDbContextOptions — dùng chung với
         // design-time factory để hai đường không lệch nhau.
         services.AddDbContext<ContentDbContext>(options => options.UseContentNpgsql(connectionString));
+
+        // GĐ4 ĐỔI ĐÚNG DÒNG NÀY sang hiện thực thật của module SocialGraph và không chạm gì khác trong
+        // module Content (Đ-2.9, Mục 7.4). Tới lúc đó, nếu thấy mình đang sửa file khác trong Content để
+        // bật kết bạn thì contract này đã bị đi vòng.
+        //
+        // Cho tới lúc đó: bài để chế độ "friends" chỉ chính tác giả xem được — đó là hành vi ĐÃ CHỐT của
+        // GĐ2, không phải thiếu sót. Singleton vì AlwaysStrangers không giữ trạng thái gì.
+        services.AddSingleton<IFriendshipReader, AlwaysStrangers>();
         return services;
     }
 

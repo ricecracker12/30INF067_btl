@@ -36,7 +36,7 @@ endpoint của khối D đều đứng trên `A3` và `A5`.
 | **A3** | Migration đầu của Profile + `AddProfileModule` + `MigrateProfileModuleAsync` + nối `Program.cs` | Biến schema `profile` thành artifact có version, chạy được bằng **một lệnh** ở bước deploy — không ai "sửa tay trên staging" | `Profile/Infrastructure/Migrations/` có `<timestamp>_InitialProfile.cs` + `.Designer.cs` + snapshot đã commit; `--migrate` trên DB sạch exit 0, **chạy lần hai vẫn exit 0 và không đổi gì**; `ProfileDbContextSchemaTests` xanh trên Postgres thật |
 | **A4** | Entity Content trong `Modules/Content/Domain/` + `PostContentPolicy` | Có `Post`/`MediaAttachment` để khối D bám vào, có khung `Comment`/`Reaction` để GĐ3 không phải đổi hình dạng DTO lần thứ hai (`Đ-2.12`), và có BR-01 dạng **hàm thuần** để unit test không cần DB | Entity + enum + `PostContentPolicy` trong `SocialApp.Modules.Content.Domain`, sạch EF; unit test BR-01 xanh (bài chỉ ảnh: hợp lệ · body rỗng + 0 ảnh: không hợp lệ · 11 ảnh: không hợp lệ); test canh gác `A7` (bản Content) xanh |
 | **A5** | `ContentDbContext` + configuration + migration | Giao bốn bất biến khó nhất của Mục 4 cho **DB** giữ (`ck_posts_not_empty`, `storage_key` UNIQUE, `uq_media_owner_position`, PK ba cột của `reactions`), và loại bài xóa mềm khỏi mọi truy vấn đọc bằng global query filter (`Đ-2.10`) | 4 bảng trong schema `content` + đủ CHECK/index của Mục 4; `ContentDbContextSchemaTests` xanh và **có test chứng minh CHECK thật sự chặn**, không chỉ "bảng tồn tại"; `--migrate` idempotent cho cả ba module |
-| **A6** | Hai contract chéo module ở SharedKernel | Cho Content đọc được tên + avatar tác giả mà **không** import module Profile (`Đ-2.3`), và để GĐ4 bật kết bạn thật bằng **một dòng DI** thay vì sửa module Content (`Đ-2.9`) | `IUserDirectory` + `UserCard` + `IFriendshipReader` + `AlwaysStrangers` trong `SharedKernel/Directory/`; `UserDirectory` trong `Profile/Infrastructure/Directory/`; `ModuleBoundaryTests` xanh với **type thật ở cả hai module**; test pin `AlwaysStrangers` luôn trả `false` |
+| **A6** | Hai contract chéo module ở SharedKernel | Cho Content đọc được tên + avatar tác giả mà **không** import module Profile (`Đ-2.3`), và để GĐ4 bật kết bạn thật bằng **một dòng DI** thay vì sửa module Content (`Đ-2.9`) | `IUserDirectory` + `UserCard` + `IFriendshipReader` + `AlwaysStrangers` trong `SharedKernel/Contracts/`; `UserDirectory` trong `Profile/Infrastructure/`; `ModuleBoundaryTests` xanh với **type thật ở cả hai module**; test pin `AlwaysStrangers` luôn trả `false` |
 | **A7** | Test canh gác namespace `Profile.Domain` và `Content.Domain` | Đóng "lưới giả": `ModuleBoundaryTests` và `PersistenceBoundaryTests` dùng `WithoutRequiringPositiveResults()` nên gõ sai namespace là **xanh vĩnh viễn** | Hai `[Fact]` mới trong `PersistenceBoundaryTests.cs` theo đúng khuôn `Identity_Domain_namespace_must_not_be_empty`; thử đổi một namespace cho sai → đỏ |
 
 ### Thứ tự thực thi
@@ -757,10 +757,10 @@ Khẳng định #6 dùng SQL thô để tạo dòng `deleted` (đi vòng qua Cha
 GĐ4 bật kết bạn thật bằng **một dòng DI** thay vì sửa module Content (Đ-2.9, Mục 7.4).
 
 **Kết quả mong đợi.**
-- `src/backend/SocialApp.SharedKernel/Directory/IUserDirectory.cs` — interface + `record UserCard`.
-- `src/backend/SocialApp.SharedKernel/Directory/IFriendshipReader.cs` — interface + `AlwaysStrangers`.
-- `src/backend/Modules/Profile/Infrastructure/Directory/UserDirectory.cs` — hiện thực, đọc
-  `profile.profiles` qua `ProfileDbContext`.
+- `src/backend/SocialApp.SharedKernel/Contracts/IUserDirectory.cs` — interface + `record UserCard`.
+- `src/backend/SocialApp.SharedKernel/Contracts/IFriendshipReader.cs` — interface + `AlwaysStrangers`.
+- `src/backend/Modules/Profile/Infrastructure/UserDirectory.cs` — hiện thực, đọc `profile.profiles` qua
+  `ProfileDbContext`.
 - `AddProfileModule` đăng ký `IUserDirectory` → `UserDirectory`; `AddContentModule` đăng ký
   `IFriendshipReader` → `AlwaysStrangers` **kèm comment trỏ thẳng tới GĐ4**.
 - `ModuleBoundaryTests` xanh với type thật ở cả hai module (nhờ `A7`).
@@ -768,10 +768,30 @@ GĐ4 bật kết bạn thật bằng **một dòng DI** thay vì sửa module Co
 
 ### Các bước
 
+**Thư mục `Contracts/`, KHÔNG phải `Directory/`** (sửa ngày 2026-09-19, lúc thi công `A6`; ba đường dẫn ở trên
+đã sửa theo). Bản phác cũ đặt hai contract vào `SharedKernel/Directory/` và hiện thực vào
+`Profile/Infrastructure/Directory/`. Đã dựng thử để chắc: nó **không biên dịch được**, cùng một loại lỗi với
+chuyện `Profile` → `UserProfile` ở `A1`.
+
+```
+error CS0234: The type or namespace name 'GetCurrentDirectory' does not exist in the namespace
+'SocialApp.Modules.Profile.Infrastructure.Directory'
+```
+
+`DesignTimeProfileDbContextFactory` nằm trong `SocialApp.Modules.Profile.Infrastructure` và gọi
+`Directory.GetCurrentDirectory()`. C# tra tên `Directory` theo thứ tự namespace lồng từ trong ra ngoài, nên
+namespace mới `...Infrastructure.Directory` che mất `System.IO.Directory` của **file cùng namespace**. Đường
+thoát còn lại là qualify `System.IO.Directory` ở mọi chỗ — và cái bẫy đó nằm lại cho mọi file SharedKernel viết
+sau này, vì `SocialApp.SharedKernel.Directory` che `System.IO.Directory` cho cả
+`SocialApp.SharedKernel.Configuration` lẫn mọi namespace con khác. Đổi tên thư mục rẻ hơn, và `Contracts` gọi
+đúng tên thứ nằm trong đó — chính tiêu đề mục này gọi chúng là "hai contract chéo module".
+
+Hiện thực `UserDirectory` để **phẳng** trong `Profile/Infrastructure/` chứ không mở thư mục con cho một file.
+
 **Bước 1 — `IUserDirectory` + `UserCard`.** Ba luật của Đ-2.3, áp từ đây để SharedKernel không thành cái sọt:
 
 ```csharp
-namespace SocialApp.SharedKernel.Directory;
+namespace SocialApp.SharedKernel.Contracts;
 
 /// <summary>Chiếu (projection) của hồ sơ — KHÔNG phải entity. Xem Đ-2.3 luật 2.</summary>
 public sealed record UserCard(Guid UserId, string DisplayName, string? AvatarKey);
@@ -810,7 +830,7 @@ public sealed class AlwaysStrangers : IFriendshipReader
 }
 ```
 
-**Bước 3 — `UserDirectory` trong `Profile/Infrastructure/Directory/`.** Một truy vấn, không vòng lặp:
+**Bước 3 — `UserDirectory` trong `Profile/Infrastructure/`.** Một truy vấn, không vòng lặp:
 
 ```csharp
 public async Task<IReadOnlyDictionary<Guid, UserCard>> GetManyAsync(
@@ -845,6 +865,8 @@ test pin, GĐ4 thay hiện thực thì sửa DI chứ không sửa test này".
 
 ### Cạm bẫy đã biết
 
+0. **Đặt hai contract vào thư mục tên `Directory/`.** Xem khối ngay trên Bước 1 — `CS0234`/`CS0118` ở
+   `DesignTimeProfileDbContextFactory`, và cái bẫy nằm lại cho mọi file SharedKernel viết sau.
 1. **Đặt `IUserDirectory` vào `Profile/Application/`.** `ModuleBoundaryTests` chặn **mọi** phụ thuộc giữa
    hai namespace `SocialApp.Modules.*`, kể cả phụ thuộc vào một interface. Đó chính là lý do contract nằm ở
    SharedKernel chứ không ở module chủ.

@@ -146,8 +146,8 @@ Khuôn (đã có tiền lệ chạy thật trong repo — `IRolePermissionSource
 thực và tầng 2 tiêu thụ, xem `C5` của GĐ1):
 
 ```
-SocialApp.SharedKernel/Directory/IUserDirectory.cs        // interface + record chiếu, KHÔNG entity
-Modules/Profile/Infrastructure/Directory/UserDirectory.cs // hiện thực, đọc profile.profiles
+SocialApp.SharedKernel/Contracts/IUserDirectory.cs       // interface + record chiếu, KHÔNG entity
+Modules/Profile/Infrastructure/UserDirectory.cs           // hiện thực, đọc profile.profiles
 Modules/Content/Application/PostReadService.cs            // tiêu thụ qua DI
 ```
 
@@ -1008,9 +1008,9 @@ Bốn bảng theo DDL Mục 4, kèm ba chỗ dễ sai đã liệt kê ở đó (
 ### A6 — Hai contract chéo module ở SharedKernel
 
 ```
-SharedKernel/Directory/IUserDirectory.cs      → record UserCard; GetManyAsync(IReadOnlyCollection<Guid>)
-SharedKernel/Directory/IFriendshipReader.cs   → AreFriendsAsync(Guid, Guid) + AlwaysStrangers (Đ-2.9)
-Modules/Profile/Infrastructure/Directory/UserDirectory.cs
+SharedKernel/Contracts/IUserDirectory.cs      → record UserCard; GetManyAsync(IReadOnlyCollection<Guid>)
+SharedKernel/Contracts/IFriendshipReader.cs   → AreFriendsAsync(Guid, Guid) + AlwaysStrangers (Đ-2.9)
+Modules/Profile/Infrastructure/UserDirectory.cs
 ```
 
 `AlwaysStrangers` đăng ký ở `AddContentModule` với một comment trỏ thẳng tới GĐ4. Có test pin: đổi hành vi nó mà
