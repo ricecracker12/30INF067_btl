@@ -17,8 +17,9 @@ public sealed class AuthZMatrixTests(PostgresFixture postgres, AuthZApiFactory f
 
     public async Task InitializeAsync()
     {
-        // Matrix chỉ ĐỌC dữ liệu nền nên dùng chung một database đã seed cho mọi dòng.
-        _db = await postgres.SeededIdentityDatabaseAsync("authz");
+        // Matrix chỉ ĐỌC dữ liệu nền nên dùng chung một database đã seed cho mọi dòng. Từ GĐ2 (B1) là database
+        // đủ ba module: TC-A03 gọi /api/v1/posts, thiếu bảng content.posts thì dòng đỏ 500 thay vì 403.
+        _db = await postgres.SeededContentDatabaseAsync("authz");
         factory.UseDatabase(_db);   // phải trước CreateClient đầu tiên — host dựng lúc đó
     }
 

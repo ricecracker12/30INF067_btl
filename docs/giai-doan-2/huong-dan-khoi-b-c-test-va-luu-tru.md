@@ -212,8 +212,11 @@ mới chạm `content.posts` và `profile.profiles`, nên database đó phải m
 1.2 nói "không sửa `AuthZMatrixTests`".
 
 **Đề xuất (khuyến nghị).** `B1` thêm `SeededContentDatabaseAsync(key)` **bên cạnh** `SeededIdentityDatabaseAsync`
-(giữ nguyên hàm cũ, đúng tên B.4 đã đặt), rồi đổi **đúng một dòng** ở mỗi file `AuthZMatrixTests.cs` và
-`OwnershipTemplateTests.cs`. Lý do: luật "không sửa khung" nhắm vào **hình dạng** khung — `AuthZCase` có
+(giữ nguyên hàm cũ, đúng tên B.4 đã đặt), rồi đổi **đúng một dòng** ở **mỗi chỗ gọi**. Impact analysis
+(`impact SeededIdentityDatabaseAsync --upstream`) cho **bốn** chỗ, không phải hai như bản phác: `AuthZMatrixTests`,
+`OwnershipTemplateTests`, `JwtAuthenticationTests`, `RolePermissionSourceTests` — tất cả cùng `key = "authz"`. Và vì
+cache `_shared` khóa theo `key`, đổi lẻ là đỏ ngẫu nhiên theo thứ tự xUnit; nên `B1` còn khóa cache theo `<hàm>:<key>`
+để trộn hai hàm cùng key **không thể** thành một database. Lý do: luật "không sửa khung" nhắm vào **hình dạng** khung — `AuthZCase` có
 những trường gì, `Ma_tran_phan_quyen` khẳng định những gì — chứ không nhắm vào việc khai app chạy trên
 database nào. Đổi một dòng chỉ định nguồn dữ liệu không làm khung mất khả năng "thêm dòng là đủ" cho GĐ3–GĐ8.
 
@@ -770,16 +773,19 @@ public Task<string> SeededContentDatabaseAsync(string key) =>
     })).Value;
 ```
 
-**Bước 2 — đổi đúng một dòng ở hai chỗ gọi** (theo `Q-B1`):
+**Bước 2 — đổi đúng một dòng ở cả BỐN chỗ gọi** (theo `Q-B1`; danh sách từ impact analysis, không từ trí nhớ):
 
-| File | Dòng cũ | Dòng mới |
-|---|---|---|
-| `AuthZ/AuthZMatrixTests.cs` | `SeededIdentityDatabaseAsync("authz")` | `SeededContentDatabaseAsync("authz")` |
-| `OwnershipTemplateTests.cs` | `SeededIdentityDatabaseAsync("authz")` | `SeededContentDatabaseAsync("authz")` |
+| File | `SeededIdentityDatabaseAsync("authz")` → |
+|---|---|
+| `AuthZ/AuthZMatrixTests.cs` | `SeededContentDatabaseAsync("authz")` |
+| `OwnershipTemplateTests.cs` | `SeededContentDatabaseAsync("authz")` |
+| `JwtAuthenticationTests.cs` | `SeededContentDatabaseAsync("authz")` |
+| `RolePermissionSourceTests.cs` | `SeededContentDatabaseAsync("authz")` |
 
-Hai file **phải đổi cùng lúc**: chúng dùng chung `key = "authz"`, mà `_shared` là cache theo `key` chứ không
-theo hàm. Đổi một bên thôi thì database dùng chung sẽ là cái của hàm nào chạy trước — tức là **khác nhau giữa
-các lần chạy**, tùy thứ tự xUnit. Đây là loại đỏ ngẫu nhiên tốn cả buổi để tìm.
+Bốn file **phải đổi cùng lúc**, và `PostgresFixture` khóa cache theo `"identity:" + key` / `"content:" + key` thay vì
+`key` trần. Không khóa như vậy thì hai hàm cùng `"authz"` dùng chung một ô cache, database thật là của hàm nào chạy
+**trước** — khác nhau giữa các lần chạy tùy thứ tự xUnit. Đây là loại đỏ ngẫu nhiên tốn cả buổi để tìm; khóa theo hàm
+làm nó không thể xảy ra, và cái giá (thêm một lượt migrate) chỉ trả khi ai đó **thật sự** trộn hai hàm.
 
 **Bước 3 — đo lại thời gian và ghi số.**
 

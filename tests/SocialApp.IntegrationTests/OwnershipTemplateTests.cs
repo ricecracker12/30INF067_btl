@@ -16,7 +16,7 @@ public sealed class OwnershipTemplateTests(PostgresFixture postgres, AuthZApiFac
     : IClassFixture<AuthZApiFactory>, IAsyncLifetime
 {
     // Chỉ ĐỌC dữ liệu nền → dùng chung database đã seed với AuthZ matrix.
-    public async Task InitializeAsync() => factory.UseDatabase(await postgres.SeededIdentityDatabaseAsync("authz"));
+    public async Task InitializeAsync() => factory.UseDatabase(await postgres.SeededContentDatabaseAsync("authz"));
 
     public Task DisposeAsync() => Task.CompletedTask;
 
