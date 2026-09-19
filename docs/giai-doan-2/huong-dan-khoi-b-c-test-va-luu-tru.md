@@ -441,11 +441,16 @@ trên server (staging), hoặc `dotnet user-secrets set "R2:Endpoint" … -p src
   Cùng một khóa, hai cách viết — gõ nhầm thì giá trị là chuỗi rỗng và triệu chứng là `SignatureDoesNotMatch`.
 - **Mở rộng `DevEnvFile` cho `R2__*`** cho "tiện". Đ-2.14 cấm: `deploy/.env` mang giá trị **staging**, và lẫn
   hai bộ khóa là dev ghi ảnh rác thẳng vào bucket staging mà không ai thấy.
-- **Đặt `Endpoint` kèm tên bucket** (`…r2.cloudflarestorage.com/socialapp-dev`). SDK sẽ ghép thêm bucket lần
+- **Đặt `Endpoint` kèm tên bucket** (`…r2.cloudflarestorage.com/socialmedia-dev`). SDK sẽ ghép thêm bucket lần
   nữa và mọi lời gọi 404. Endpoint là gốc tài khoản, bucket là tham số riêng.
 - **Thêm phương thức thứ sáu** ("tiện tay thêm `CopyAsync`"). Bề mặt năm thao tác là con số đã chốt ở Đ-2.14;
   thêm là quyết định mới.
 - **Commit khóa thật vào `.env.example`.** File đó chỉ có bốn dòng **trống** `R2__…=`; giữ nguyên như vậy.
+- **Để lại một hiện thực "ném lúc resolve" cho trường hợp cấu hình đủ** (kiểu "C2 sẽ nối sau"). Đã dính thật ngày
+  2026-09-19: worker `C4` là hosted service và **resolve `IObjectStorage` ngay lúc host khởi động**, nên
+  `Staging_boots_when_email_config_is_complete` đỏ ngay khi `C4` vào. Bất kỳ hiện thực nào đứng sau `AddSharedKernelR2`
+  đều phải dựng được **không gọi mạng** — `AmazonS3Client` thỏa (chỉ giữ cấu hình tới lời gọi đầu). Hệ quả: phần code của
+  `C2` phải đi **cùng hoặc trước** `C4`, không để trống.
 
 ---
 
@@ -458,9 +463,19 @@ có thể buộc cả nhóm đổi phương án (B.9).
 xanh, **không chạm mạng**; (c) **một ảnh thật đã `PUT` lên bucket `-dev` từ tab Network của trình duyệt**, có
 ảnh chụp Network **và** ảnh object trong bucket dán vào PR.
 
+> **Trạng thái 2026-09-19 — `C2` XONG, ISS-02 đóng trên dev.** (a), (b): `SharedKernel/Storage/R2ObjectStorage.cs`,
+> `StorageKeys.cs`, 5 + 5 unit test. (c) nghiệm thu trình duyệt lúc 12:14, Edge 153, trang probe tĩnh phục vụ tại
+> `http://localhost:3000` (server tĩnh trần, **không** qua Next dev vì CSP của `proxy.ts` chưa mở `connect-src` cho R2 —
+> `E7`): preflight OPTIONS **204** (`Allow-Headers: content-type`, `Allow-Methods: PUT, GET`, `Max-Age: 3600`); PUT **200**,
+> `Access-Control-Allow-Origin: http://localhost:3000`, `Access-Control-Expose-Headers: etag`, ETag đọc được từ JS; URL mang
+> `X-Amz-SignedHeaders=content-length;content-type;host`, `X-Amz-Expires=600`. Lớp 1 trước đó: HEAD key không tồn tại →
+> `null`, LIST `posts/` OK (chữ ký/endpoint/bucket/quyền đúng). Sau đó HEAD từ server xác nhận 136 byte `image/png`, rồi
+> xóa object probe. Bằng chứng giữ dạng **chữ** ngay tại đây (header, status, thời điểm, ETag `91f5250bd015aeec6b2861c52acc4c9c`),
+> không giữ ảnh chụp — người làm chốt vậy 2026-09-19; PR khối C trỏ vào đoạn này. `F3` chỉ còn là lần kiểm lại trên **staging**.
+
 ### Các bước
 
-**Bước 1 — cấu hình client.** Ba thiết lập, thiếu cái nào cũng hỏng theo cách khó đoán:
+**Bước 1 — cấu hình client.** Bốn thiết lập, thiếu cái nào cũng hỏng theo cách khó đoán:
 
 ```csharp
 var config = new AmazonS3Config
@@ -469,6 +484,10 @@ var config = new AmazonS3Config
     ForcePathStyle = true,          // R2 YÊU CẦU path-style; thiếu → SDK dựng URL virtual-host và R2 từ chối
     // R2 không có khái niệm region; SDK vẫn cần một giá trị để ký SigV4.
     AuthenticationRegion = "auto",
+    // SDK v4 (4.0.103.3 đã ghim) mặc định WHEN_SUPPORTED: gửi thêm header checksum CRC mà R2 không hiểu, và lỗi trả về
+    // KHÔNG nói gì về checksum. Phát hiện lúc thi công 2026-09-19; hướng dẫn gốc chỉ có ba thiết lập.
+    RequestChecksumCalculation = RequestChecksumCalculation.WHEN_REQUIRED,
+    ResponseChecksumValidation = ResponseChecksumValidation.WHEN_REQUIRED,
 };
 ```
 
@@ -1194,7 +1213,7 @@ R2ObjectStorage dựng trên AWSSDK.S3 (Đ-2.14), ForcePathStyle vì R2 yêu c�
 phút, Content-Type VÀ Content-Length nằm trong signed headers — không có vế thứ hai thì ký cho 2MB rồi client
 PUT 400MB vẫn vào bucket (Đ-2.8 đoạn mở đầu). Presigned GET hạn 15 phút (Đ-2.9), hai số cố ý khác nhau.
 
-ISS-02 đã đóng: một JPEG thật PUT thành công lên socialapp-dev TỪ TRÌNH DUYỆT (ảnh Network + ảnh object trong
+ISS-02 đã đóng: một JPEG thật PUT thành công lên socialmedia-dev TỪ TRÌNH DUYỆT (ảnh Network + ảnh object trong
 bucket ở mô tả PR). curl không nghiệm thu được việc này — nó không bao giờ thấy CORS (Mục 10.2 mức 3).
 
 Không log uploadUrl ở bất kỳ mức nào (B.9 điểm 4).

@@ -17,6 +17,10 @@
          là SharedKernel. Api nhận lại qua project reference. -->
     <PackageReference Include="StackExchange.Redis" Version="2.8.16" />
     <PackageReference Include="UUIDNext" Version="4.2.4" />
+    <!-- Đ-2.14 (chốt 2026-09-18): dependency bên thứ ba thứ ba của SharedKernel. R2 tương thích S3 một cách cố ý; không có
+         gói Cloudflare.R2 cho .NET. KHÔNG có traffic nào đi qua AWS (endpoint là https://<account-id>.r2.cloudflarestorage.com),
+         không cần tài khoản AWS. Chỉ presign + HEAD + Delete + List — KHÔNG TransferUtility. Ghim chính xác version. -->
+    <PackageReference Include="AWSSDK.S3" Version="4.0.103.3" />
   </ItemGroup>
 
 </Project>

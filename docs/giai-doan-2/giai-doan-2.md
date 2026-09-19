@@ -707,7 +707,7 @@ phải là một lần qua**.
 Hệ quả trực tiếp của Đ-2.14 (chốt 2026-09-18). Đây là việc thao tác trên dashboard Cloudflare, không phải việc code —
 làm trước, để buổi cổng mở không biến thành buổi ngồi chờ tạo bucket. Người làm: chủ dự án (chủ tài khoản Cloudflare).
 
-1. **Hai bucket:** `socialapp-dev` và `socialapp-staging`. Tách bucket, không tách bằng thư mục trong một bucket —
+1. **Hai bucket:** `socialmedia-dev` và `socialmedia-staging`. Tách bucket, không tách bằng thư mục trong một bucket —
    token phạm vi theo bucket mới chặn được dev ghi nhầm sang staging.
 2. **CORS cho từng bucket.** Đây là thứ duy nhất chỉ trình duyệt mới kiểm chứng được (ISS-02):
 
@@ -728,7 +728,7 @@ làm trước, để buổi cổng mở không biến thành buổi ngồi chờ
    # DEV, trên máy mỗi người — user-secrets của project host, KHÔNG phải deploy/.env:
    dotnet user-secrets init -p src/backend/SocialApp.Api
    dotnet user-secrets set "R2:Endpoint"  "https://<account-id>.r2.cloudflarestorage.com" -p src/backend/SocialApp.Api
-   dotnet user-secrets set "R2:Bucket"    "socialapp-dev"  -p src/backend/SocialApp.Api
+   dotnet user-secrets set "R2:Bucket"    "socialmedia-dev"  -p src/backend/SocialApp.Api
    dotnet user-secrets set "R2:AccessKey" "<khóa của bucket -dev>" -p src/backend/SocialApp.Api
    dotnet user-secrets set "R2:SecretKey" "<khóa của bucket -dev>" -p src/backend/SocialApp.Api
    ```
@@ -736,7 +736,7 @@ làm trước, để buổi cổng mở không biến thành buổi ngồi chờ
    `user-secrets` nằm ngoài thư mục repo nên không có đường lọt vào commit. Ai lỡ đặt khóa `-dev` vào `deploy/.env`
    thì lần chạy `docker compose -f deploy/docker-compose.staging.yml` kế tiếp sẽ đẩy ảnh dev vào bucket staging.
 
-**Điều kiện coi là xong bước 9.0:** một ảnh `PUT` được lên `socialapp-dev` **từ tab Network của trình duyệt** bằng URL
+**Điều kiện coi là xong bước 9.0:** một ảnh `PUT` được lên `socialmedia-dev` **từ tab Network của trình duyệt** bằng URL
 ký tay (hoặc bằng `C2` nếu đã có code). Chưa làm được việc này thì ISS-02 vẫn đang mở, dù code có xanh.
 
 ### Cổng mở — Ngày 6 sáng, cả nhóm, ~2 giờ
@@ -1118,6 +1118,16 @@ Hiện thực bằng `AWSSDK.S3` trỏ vào endpoint R2 (`ForcePathStyle` theo y
 
 **Nghiệm thu C2 không phải bằng test**: dựng một trang tạm hay dùng luôn DevTools của FE để `PUT` một ảnh thật lên
 bucket `-dev` từ **trình duyệt**. Đây là lần chạm đầu tiên với CORS — làm ở Ngày 6, không để tới F3.
+
+> **Thi công 2026-09-19 — xong cả code lẫn nghiệm thu trình duyệt; ISS-02 đóng trên dev** (PUT 200 từ `http://localhost:3000`
+> lên `socialmedia-dev`, preflight 204, `Access-Control-Allow-Origin` đúng, `X-Amz-SignedHeaders=content-length;content-type;host`).
+> Trang probe phục vụ bằng server tĩnh trần vì CSP của `proxy.ts` chưa mở `connect-src` cho R2 — đó là việc `E7`/`Đ-E17`, và
+> là thứ `F3` phải kiểm lại trên staging qua chính app. Hai điều lộ ra khi làm: (1) `AWSSDK.S3`
+> **v4** mặc định `RequestChecksumCalculation`/`ResponseChecksumValidation = WHEN_SUPPORTED`, gửi thêm header checksum CRC mà
+> R2 không hiểu và lỗi trả về không nói gì về checksum — phải đặt cả hai về `WHEN_REQUIRED`; (2) sinh key (`posts/{userId}/…`,
+> allowlist, kiểm tiền tố cho `TC-A03-media`) đặt ở `SharedKernel/Storage/StorageKeys.cs` vì cả Profile lẫn Content dùng;
+> allowlist ở đó trùng `MediaAttachment.AllowedContentTypes` và có unit test canh hai danh sách không lệch. Unit test đã
+> khẳng định URL PUT có `content-length` + `content-type` trong `X-Amz-SignedHeaders`, hạn 600 s; GET 900 s, chỉ ký `host`.
 
 ### C3 — Kiểm lúc commit: `HeadAsync` + đối chiếu khai báo
 
