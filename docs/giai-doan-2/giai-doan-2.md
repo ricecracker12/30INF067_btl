@@ -666,7 +666,7 @@ khác — đó cũng là lý do `PUT /users/me/avatar` nhận `mediaKey` chứ k
 **Request body (chốt 2026-09-19 lúc viết hợp đồng — Mục 8 bản gốc chỉ đặc tả response):**
 
 ```
-UpsertProfileRequest { displayName (bắt buộc, 2–50 ký tự sau trim), bio? (≤ 500; null = XÓA bio, bỏ trường = giữ nguyên) }
+UpsertProfileRequest { displayName (bắt buộc, 2–50 ký tự sau trim), bio? (≤ 500; vắng mặt HOẶC null = xóa — PUT là thay thế toàn phần, chốt Q-D3) }
 SetAvatarRequest     { mediaKey (bắt buộc, dạng avatars/{userId}/{uuid7}.{ext}) }
 ```
 
@@ -1187,6 +1187,13 @@ In-memory, cài cùng interface, cho phép test dựng sẵn kết quả HEAD. �
 
 > **Mục tiêu khối:** hợp đồng ở Mục 8 thành hệ thống chạy thật, khớp từng mã lỗi, và mỗi endpoint chạm tài nguyên có
 > chủ đều có dòng matrix.
+
+> **Hướng dẫn thi công từng bước:** [huong-dan-khoi-d-endpoint.md](huong-dan-khoi-d-endpoint.md)
+> — mục tiêu và kết quả mong đợi của từng đầu việc `D0`–`D9`, file nào, lệnh nào, cạm bẫy nào, checklist nghiệm thu.
+> Mục 1.4 của file đó liệt kê tám điểm (`Q-D2`–`Q-D9`) mà Phần A chưa nói đủ hoặc nói lệch nhau (casing enum, ngữ nghĩa
+> `bio`, 400 kèm `errors` từ service, kiểm `post.create` theo `purpose`, keyset, mã 400 của `DELETE /posts`, tác giả vắng
+> mặt, avatar khi chưa có hồ sơ) — chốt ở đầu khối, ghi ngược vào đây khi chốt. Mục B.6 dưới đây giữ nguyên vai trò
+> "cái gì và vì sao".
 
 ### D0 — Nền chung của hai module
 
