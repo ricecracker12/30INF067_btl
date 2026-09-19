@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using SocialApp.Modules.Content.Infrastructure;
+using SocialApp.Modules.Content.Infrastructure.Cleanup;
 using SocialApp.SharedKernel.Contracts;
 
 namespace SocialApp.Modules.Content.DependencyInjection;
@@ -33,6 +34,13 @@ public static class ContentModuleExtensions
         // Cho tới lúc đó: bài để chế độ "friends" chỉ chính tác giả xem được — đó là hành vi ĐÃ CHỐT của
         // GĐ2, không phải thiếu sót. Singleton vì AlwaysStrangers không giữ trạng thái gì.
         services.AddSingleton<IFriendshipReader, AlwaysStrangers>();
+
+        // C4 (Đ-2.13): worker dọn rác media. Đăng ký LUÔN, kiểm công tắc BÊN TRONG worker — đăng ký có điều kiện thì cấu hình
+        // sai im lặng, còn kiểm bên trong thì log được một dòng "đang tắt" lúc khởi động. Mặc định tắt (Q-C2); staging bật bằng
+        // Media__Cleanup__Enabled=true. BindConfiguration đọc IConfiguration của host lúc resolve — ServiceCollection trần của
+        // test (PostgresFixture) không resolve options này nên không cần IConfiguration.
+        services.AddOptions<MediaCleanupOptions>().BindConfiguration(MediaCleanupOptions.Section);
+        services.AddHostedService<MediaCleanupWorker>();
         return services;
     }
 

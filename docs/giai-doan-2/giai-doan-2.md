@@ -626,6 +626,14 @@ log: số object đã xóa, số byte thu hồi. Redis chết → BỎ lượt n
 Nhánh (1) phải liệt kê bucket theo `continuation token` và giới hạn mỗi lượt (ví dụ 1000 object) để một bucket lớn
 không giữ khóa suốt cả tiếng.
 
+> **Chốt 2026-09-19 (lúc thi công C4):** nhánh (1) chỉ quét tiền tố **`posts/`**, không quét cả bucket. Lý do: avatar
+> **không** có dòng `media_attachments` — nó sống ở `profile.profiles.avatar_key`, schema mà module Content không được đọc
+> (Đ-2.2, Đ-2.3). Áp luật "cũ hơn 24 giờ mà không có dòng `media_attachments`" lên `avatars/` là **xóa nhầm avatar đang
+> dùng**. Avatar mồ côi (đổi avatar để lại object cũ; `DELETE /users/me/avatar` chỉ gỡ liên kết — D3) là việc của module
+> Profile, **hoãn có địa chỉ**: dung lượng không đáng kể ở quy mô đồ án, làm khi Profile có worker riêng hoặc khi GĐ8
+> (xóa tài khoản) chạm tới. Hai điểm thi công khác: lượt đầu chạy **sau** một chu kỳ, không chạy lúc khởi động (deploy
+> hai instance cùng lúc không tranh khóa khi còn warm-up); không nhả khóa sau lượt — `EX 3000` tự nhả trước chu kỳ kế.
+
 ---
 
 ## 8. Hợp đồng API

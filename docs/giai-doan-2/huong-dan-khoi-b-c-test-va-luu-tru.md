@@ -59,39 +59,77 @@ bên dưới vì vậy xếp theo **thứ tự thi công**: `C1`→`C5` ở Mụ
 
 ### 0.3 Thứ tự thực thi
 
+> **Sửa 2026-09-19, trước khi bắt đầu thi công:** bản đầu ghi `C2 → C3 → C5` là phụ thuộc — **sai**. `C3` (hàm thuần
+> đối chiếu) và `C5` (fake) chỉ cần *kiểu* `ObjectHead`/`ObjectPage` của `C1`, không cần hiện thực R2 của `C2`. Ghi
+> như cũ là bắt người làm ngồi chờ bucket Cloudflare mới được viết `C3`/`C5`. Đồ thị dưới đây là bản đã sửa.
+
 ```
- Mục 9.0 (bucket + CORS + token, XONG trước sáng Ngày 6)
-   │
-   └─→ C1 ─→ C2 ──────────────────────────────→ D3, D4   (Ngày 6)
-              │                                    │
-              └─→ C3 ─┬─→ C5 ────────────────────→ D5     (Ngày 7)
-                      └─→ C4                              (Ngày 7)
+ Mục 9.0 (bucket + CORS + token + user-secrets) ─────────────┐   ← việc NGOÀI code, làm song song
+                                                            ▼
+                     ┌─→ C2 (R2 thật, trình duyệt) ───────→ D3, D4
+                     │
+ C1 (interface) ─────┼─→ C3 (hàm thuần) ─┐
+                     ├─→ C5 (fake)       ├──────────────→ D5
+                     └─→ C4 (worker) ────┘
 
- A3 + A5 ────→ B1 ─→ B2 ─→ B3 ────────────────→ (khối F)  (Ngày 8)
-                      ▲      ▲                             
-              D5,D7,D8│      │ D5/D7/D8 xong thì B3 chuyển ĐỎ → XANH
- D0 + 2 yaml ─────────────→ B4                             (Ngày 9)
- (cổng codegen: xong 2026-09-19) ─→ B5 chỉ còn cổng bundle  (Ngày 9)
+ A3 + A5 (đã xong) ──→ B1 ─→ B2 (cố ý đỏ) ──→ [khối D: D5, D7, D8] ──→ B3 (đỏ → xanh + đột biến)
+ cổng mở: 2 yaml ─┬──→ [khối D: D0] ─────────────────────────────────→ B4
+                  └──→ gen:api tự sinh lib/api/profile|content (Q-B4, đã xong — không ai phải làm gì)
+ (không phụ thuộc) ──→ B5 (chỉ còn cổng bundle)
 ```
 
-Bốn phụ thuộc **thật**, không phải sở thích sắp xếp:
+Ba phụ thuộc **thật**, không phải sở thích sắp xếp:
 
-- **`C1` → `C2`.** Không có interface thì `R2ObjectStorage` không có gì để hiện thực. Nhưng quan trọng hơn:
-  `C1` là chỗ chốt *bề mặt hẹp năm thao tác*; viết `C2` trước rồi rút interface ra sau thì interface sẽ mang
-  hình dạng của AWS SDK, đúng thứ Đ-2.14 sinh ra để tránh.
-- **`C2` → `C3`.** `C3` đối chiếu kết quả `HeadAsync` với khai báo — mà `HeadAsync` là của `C2`.
-- **`C3` → `C5`.** `FakeObjectStorage` phải trả về **đúng kiểu** mà `C3` nhận. Làm ngược thì Fake mang hình
-  dạng đoán, và sửa lại là sửa cả test đã viết.
+- **`C1` → mọi thứ còn lại của khối C.** Không có interface thì `R2ObjectStorage`, `MediaHeadPolicy`, `FakeObjectStorage`,
+  worker đều không có gì để bám. Và `C1` là chỗ chốt *bề mặt hẹp năm thao tác*; viết `C2` trước rồi rút interface ra sau
+  thì interface sẽ mang hình dạng của AWS SDK, đúng thứ Đ-2.14 sinh ra để tránh.
+- **Mục 9.0 → `C2`, và chỉ `C2`.** `C2` là đầu việc **duy nhất** của hai khối chạm hạ tầng bên ngoài. Chưa có bucket +
+  khóa thì làm `C3`, `C5`, `C4` trước — không có lý do gì để chúng chờ. Riêng bước "`HeadAsync` trả `null` khi object
+  không tồn tại" (Mục 4, Bước 2) là hiện thực của `R2ObjectStorage`, nó đi cùng `C2`; hàm thuần và bốn unit test của
+  `C3` **không** chờ nó.
 - **`B1` → `B2`.** Dòng `TC-A03` gọi `/api/v1/posts/{id}`; app trong `AuthZApiFactory` trỏ vào database do
-  `SeededIdentityDatabaseAsync("authz")` dựng, mà database đó **chỉ migrate module Identity**. Không có `B1`
-  thì mọi dòng mới trả **500** (thiếu bảng `content.posts`) chứ không phải 403 — đỏ vì lý do sai.
+  `SeededIdentityDatabaseAsync("authz")` dựng, mà database đó **chỉ migrate module Identity**. Không có `B1` thì mọi
+  dòng mới trả **500** (thiếu bảng `content.posts`) chứ không phải 403 — đỏ vì lý do sai.
 
 Ba chỗ **không** phải phụ thuộc, đừng xếp hàng cho "gọn":
 
-- `C4` không chặn ai. Nó là đầu việc duy nhất của khối C có thể trượt sang Ngày 9 mà không ai chết —
-  nhưng xem Mục 0.5 trước khi quyết định trượt.
-- `B4` và `B5` độc lập hoàn toàn với `B1`–`B3`.
+- `C4` không chặn ai — nhưng xem Mục 0.6 trước khi quyết định trượt nó.
+- `B4` và `B5` độc lập hoàn toàn với `B1`–`B3`. `B5` giờ **không phụ thuộc gì** — làm đầu tiên, để lưới `R2__`/
+  `X-Amz-Signature` có sẵn **trước** khi `C2` bắt đầu sinh URL có chữ ký.
 - `B2` viết **trước** `D5`/`D7`/`D8` là **điều kiện lý tưởng**, không phải vật cản — đó chính là `B3`.
+
+#### Đường đi khi **một người** làm cả hai khối (và cả khối D)
+
+Bảng Ngày 6–9 ở Mục 0.5 và lịch trong `giai-doan-2.md` Mục 9 giả định **ba lane song song**. Một người thì lane
+không tồn tại; thứ tự tuần tự dưới đây tôn trọng đúng ba phụ thuộc thật ở trên và **đẩy mọi việc bị chặn bởi bên
+ngoài ra sau cùng**, để không ngồi chờ:
+
+| # | Việc | Cần trước | Ghi chú |
+|---|---|---|---|
+| 0 | **Chốt** `Q-C1`, `Q-C2`, `Q-B1`, `Q-B2`, `Q-B3` (Mục 1.3) và **ghi ngược** vào `giai-doan-2.md` | — | Một người thì "nhóm chốt" = bạn chốt; vẫn phải ghi, vì đó là thứ người đọc sau lật lại |
+| 1 | `B5` — cổng bundle + thử cho đỏ | `pnpm build` chạy được | 15 phút, không phụ thuộc gì |
+| 2 | `B1` — harness ba module, **đo thời gian trước/sau** | `A3`+`A5` (đã xong) | Độc lập với khối C |
+| 3 | `C1` — interface + `R2Options` + fail-fast (theo `Q-C1`) | — | `AWSSDK.S3` ghim chính xác version |
+| 4 | `C3` — `MediaHeadPolicy` thuần + 4 unit test | `C1` | Không mạng, không fake |
+| 5 | `C5` — `FakeObjectStorage` | `C1` | Trong project test |
+| 6 | `C4` — worker + khóa Redis, mặc định tắt (`Q-C2`) | `C1`, `A5` | Không chặn ai, nhưng làm lúc còn "đang ở trong khối C" rẻ hơn quay lại sau |
+| 7 | **Mục 9.0** trên Cloudflare + `dotnet user-secrets init/set` | — | Việc ngoài code; làm bất kỳ lúc nào **trước** #8. Chưa làm thì #3–#6 vẫn tiến được |
+| 8 | `C2` — `R2ObjectStorage` + **PUT thật từ trình duyệt** | `C1`, #7 | Đây là ISS-02: làm **ngay khi #7 xong**, không để trôi |
+| 9 | Cổng mở phần còn lại: viết `profile-v1.yaml` + `content-v1.yaml` theo Mục 8 | — | `pnpm gen:api` tự sinh `lib/api/profile/` và `lib/api/content/` — **kiểm rằng không ai phải sửa `package.json`/`ci.yml`** |
+| 10 | `B2` — sáu dòng matrix, **cố ý đỏ**, chụp run đỏ | `B1`, và (nếu chốt `Q-B2`) sửa khung tối thiểu | Push và **chờ CI xong** trước khi push tiếp |
+| 11 | **Khối D** (`D0` → `D9`) | `C2`, `C3`, `C5`, #9 | Chưa có hướng dẫn riêng — viết trước khi vào |
+| 12 | `B4` — `ContractTestsBase` + hai lớp con + hai dòng csproj | `D0` + #9 | Csproj **không** đẩy sớm được (Mục 10) |
+| 13 | `B3` — 19 dòng xanh, bảng đột biến, bốn test BR-01 | `D5`, `D7`, `D8` | Kết thúc hai khối |
+
+**Trạng thái lúc sửa mục này (2026-09-19):** khối A xong (`26afb47`…`7a09549`); `Q-B4` xong (`485ffd2`); **chưa có**
+hai file `.yaml` của cổng mở; **chưa** `dotnet user-secrets init` cho `SocialApp.Api` (tức Mục 9.0 bước 4 chưa làm trên
+máy này); `AWSSDK.S3`, `SharedKernel/Storage/`, `SeededContentDatabaseAsync` chưa tồn tại. Nghĩa là bắt đầu được ngay
+từ #0–#6 mà không chờ gì.
+
+**Cập nhật cuối ngày 2026-09-19:** #0 (năm `Q-*` chốt theo đề xuất, đã ghi ngược) · #1 `B5` · #2 `B1` (1 m 35 s → 1 m 23 s,
+dưới ngưỡng) · #3 `C1` · #4 `C3` · #5 `C5` · #6 `C4` · **#7** (bucket `socialmedia-dev`/`-staging`, CORS, token, `user-secrets`)
+· **#8 `C2`** (code + PUT thật từ trình duyệt — **ISS-02 đóng trên dev**) — **xong**. Unit 92 → 113, Integration 176 → 191,
+Arch 11. **Khối C xong.** Còn lại: #9 (hai `.yaml`) → #10 `B2` → #11 khối D → #12 `B4` → #13 `B3`.
 
 ### 0.4 Hai khối phụ thuộc lane khác ở đâu — và cách không bị chặn
 
@@ -716,10 +754,14 @@ if (!ok) return;   // instance khác đang chạy — BỎ lượt, không chờ
 
 **Redis chết thì bỏ lượt, không chạy** (Mục 7.5). Chạy khi không có khóa là đúng thứ khóa sinh ra để ngăn.
 
-**Bước 3 — nhánh (1): object mồ côi > 24 giờ.**
+**Bước 3 — nhánh (1): object mồ côi > 24 giờ — CHỈ dưới tiền tố `posts/`.**
+
+> **Chốt lúc thi công (2026-09-19):** không quét cả bucket. Avatar **không** có dòng `media_attachments` (nó ở
+> `profile.profiles.avatar_key`, schema Content không được đọc — Đ-2.2) nên luật "24 giờ + không có dòng" áp lên `avatars/`
+> là xóa nhầm avatar đang dùng. Avatar mồ côi là việc của module Profile, hoãn có địa chỉ — đã ghi vào Mục 7.5.
 
 ```
-ListAsync(prefix, continuationToken, maxKeys: 1000)
+ListAsync("posts/", continuationToken: null, maxKeys: 1000)
   → với mỗi key: LastModified cũ hơn 24 giờ?  và  KHÔNG có dòng media_attachments?  → DeleteAsync
   → giới hạn 1000 object/lượt để một bucket lớn không giữ khóa suốt cả tiếng (Mục 7.5)
 ```
@@ -748,6 +790,14 @@ vẫn phải được (Đ-2.13). Xóa theo hạn presign là xóa ảnh của b�
   nên **không có FK tới `posts`** (Đ-2.12) — toàn vẹn do service giữ, và đó chính là lý do thứ hai worker này
   tồn tại. Kiểm bằng dữ liệu cũ trong bộ nhớ là xóa nhầm ảnh của bài vừa đăng xong.
 - **Quét cả bucket trong một lượt.** Giới hạn 1000 và dùng continuation token; lượt sau tiếp tục.
+- **Quét cả `avatars/`.** Đây là lỗi mất dữ liệu thật, không phải lỗi hiệu năng: avatar đang dùng không có dòng
+  `media_attachments`. Tiền tố quét là hằng `MediaCleanupWorker.OrphanPrefix = "posts/"`; test C4 có một object
+  `avatars/…` cũ 30 ngày và khẳng định nó **còn nguyên**.
+- **Chạy lượt đầu ngay lúc khởi động.** Hai instance deploy cùng lúc tranh khóa khi còn warm-up, và test dựng host với
+  `Enabled=true` bị lượt quét bất ngờ chen vào. Lượt đầu **sau** một chu kỳ.
+- **Dùng `ConnectedOrNull()` để lấy khóa.** Nó không chờ — đúng lúc app vừa khởi động trả `null` giả và lượt bị bỏ oan.
+  Worker nền chờ được: `GetAsync()` rồi kiểm `IsConnected`; Redis chết thì task vẫn xong với multiplexer chưa kết nối
+  (`AbortOnConnectFail=false`) → bỏ lượt, không ném.
 
 ---
 
