@@ -1,5 +1,7 @@
+using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using SocialApp.Modules.Profile.Infrastructure;
 using SocialApp.SharedKernel.Contracts;
 
@@ -35,6 +37,20 @@ public static class ProfileModuleExtensions
         // lúc build — thiếu thì nổ lúc resolve service của request đầu tiên. StartupConfigurationTests có
         // một khẳng định canh đúng chuyện đó.
         services.AddScoped<IUserDirectory, UserDirectory>();
+
+        // D0. Ba dòng dưới đây phải dựng được bằng `new ServiceCollection()` KHÔNG host: PostgresFixture
+        // (SeededContentDatabaseAsync), ProfileDbContextSchemaTests và UserDirectoryTests đều làm vậy. Thứ gì cần
+        // IConfiguration/IHostEnvironment thì nhận qua tham số như AddIdentityEmail, đừng đọc ở đây.
+
+        // Đồng hồ của service khối D (created_at/updated_at). TryAdd: host và test có thể đã đăng ký rồi, và ba module
+        // cùng gọi dòng này thì chỉ cái đầu tiên có tác dụng — đúng ý, một đồng hồ cho cả process.
+        services.TryAddSingleton(TimeProvider.System);
+
+        // CHỈ đăng ký validator của module. KHÔNG gọi AddFluentValidationAutoValidation ở đây: đó là cấu hình MVC toàn
+        // cục, host đã gọi một lần — gọi lại là mỗi lỗi validate hiện hai lần trong `errors`.
+        // Singleton như Identity: validator của khối D là hàm thuần trên DTO, không giữ trạng thái, không chạm DbContext.
+        services.AddValidatorsFromAssembly(typeof(ProfileModuleExtensions).Assembly, ServiceLifetime.Singleton);
+
         return services;
     }
 

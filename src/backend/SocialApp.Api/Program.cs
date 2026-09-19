@@ -13,9 +13,11 @@ using Serilog;
 using Serilog.Formatting.Compact;
 using SocialApp.Api.Controllers;
 using SocialApp.Modules.Content.DependencyInjection;
+using SocialApp.Modules.Content.Presentation;
 using SocialApp.Modules.Identity.DependencyInjection;
 using SocialApp.Modules.Identity.Presentation;
 using SocialApp.Modules.Profile.DependencyInjection;
+using SocialApp.Modules.Profile.Presentation;
 using SocialApp.SharedKernel.Authentication;
 using SocialApp.SharedKernel.Authorization;
 using SocialApp.SharedKernel.Configuration;
@@ -49,9 +51,17 @@ builder.Services.AddSharedKernel();
 builder.Services
     .AddControllers()
     .AddApplicationPart(typeof(IdentityApiGroup).Assembly)
+    .AddApplicationPart(typeof(ProfileApiGroup).Assembly)
+    .AddApplicationPart(typeof(ContentApiGroup).Assembly)
     .AddJsonOptions(o =>
     {
-        o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+        // CamelCase là BẮT BUỘC, không phải trang trí (Q-D4 → Q-D2, chốt 2026-09-19): hợp đồng ghi
+        // `privacy: public | friends | private` và `purpose: post | avatar`, còn converter trần ghi ra
+        // "Public"/"Post". Cổng hợp đồng KHÔNG so schema của response nên CI vẫn xanh trong khi FE — type sinh
+        // từ yaml — nhận một giá trị không có trong union lúc chạy. An toàn với Identity: không enum nào của
+        // Identity đi qua HTTP (MeResponse.Status/Role là string; `grep -rn "enum " Modules/Identity` → 0 lúc đổi).
+        // Chiều ĐỌC vào vẫn không phân biệt hoa thường ("PUBLIC" được nhận) — nới hơn hợp đồng, chấp nhận.
+        o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
         o.JsonSerializerOptions.UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow;
     });
 
@@ -73,6 +83,8 @@ var apiGroups = new[]
 {
     (Name: PingController.ApiGroup, Title: "Platform"),
     (Name: IdentityApiGroup.Name, Title: IdentityApiGroup.Title),
+    (Name: ProfileApiGroup.Name, Title: ProfileApiGroup.Title),
+    (Name: ContentApiGroup.Name, Title: ContentApiGroup.Title),
 };
 
 builder.Services.AddEndpointsApiExplorer();

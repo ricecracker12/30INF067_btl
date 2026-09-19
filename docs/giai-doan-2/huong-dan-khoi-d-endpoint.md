@@ -1155,7 +1155,7 @@ Mọi commit của khối D **xanh** — bằng chứng "đỏ được" nằm �
 | 2 | `feat(gd2-d): D1 — GET /users/{userId}/profile, 404 là tín hiệu onboarding` | + test khung xóa/thay |
 | 3 | `feat(gd2-d): D2 — PUT /users/me/profile upsert một câu ON CONFLICT, bio thay thế toàn phần` | + ghi ngược Q-D3 vào Mục 8.1 |
 | 4 | `feat(gd2-d): D3 — avatar: tiền tố người gọi, HEAD object thật, gỡ chỉ bỏ liên kết` | + Q-D9 vào `profile-v1.yaml` + `schema.d.ts` |
-| 5 | `feat(gd2-d): D4 — POST /media/uploads presign theo lô, quyền theo purpose qua policy tầng 2` | + ghi ngược Q-D5 vào Đ-2.6 + `ContentPermissionsTests` |
+| 5 | `feat(gd2-d): D4 — POST /media/uploads presign theo lô, quyền theo purpose qua policy tầng 2` | + ghi ngược Q-D5 vào Đ-2.6 (`ContentPermissionsTests` đã vào cùng `ContentPermissions` ở `D0`, Mục 2) |
 | — | **Kiểm `B2` đã push, run đỏ đã chụp** | không phải commit của D |
 | 6 | `feat(gd2-d): D5 — POST /posts: hồ sơ → tiền tố → BR-01 → HEAD trước transaction → 409 theo UNIQUE` | `TC-A03-media` đỏ → xanh; nói rõ trong thân bài |
 | 7 | `feat(gd2-d): D6 — đọc bài với BR-02 tại thời điểm đọc, danh sách keyset, tác giả một lô` | `READ-01` đỏ → xanh; ghi cách chọn Q-D6 |

@@ -1,5 +1,7 @@
+using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using SocialApp.Modules.Content.Infrastructure;
 using SocialApp.Modules.Content.Infrastructure.Cleanup;
 using SocialApp.SharedKernel.Contracts;
@@ -41,6 +43,19 @@ public static class ContentModuleExtensions
         // test (PostgresFixture) không resolve options này nên không cần IConfiguration.
         services.AddOptions<MediaCleanupOptions>().BindConfiguration(MediaCleanupOptions.Section);
         services.AddHostedService<MediaCleanupWorker>();
+
+        // D0. Hai dòng dưới đây phải dựng được bằng `new ServiceCollection()` KHÔNG host: PostgresFixture
+        // (SeededContentDatabaseAsync) và ContentDbContextSchemaTests đều làm vậy. Thứ gì cần IConfiguration/
+        // IHostEnvironment thì nhận qua tham số, hoặc bind lười như MediaCleanupOptions ở ngay trên.
+
+        // Đồng hồ của service khối D (created_at/updated_at/edited_at). TryAdd vì AddProfileModule cũng gọi dòng này —
+        // một đồng hồ cho cả process, module nào chạy trước không quan trọng.
+        services.TryAddSingleton(TimeProvider.System);
+
+        // CHỈ đăng ký validator của module. KHÔNG gọi AddFluentValidationAutoValidation ở đây: đó là cấu hình MVC toàn
+        // cục, host đã gọi một lần — gọi lại là mỗi lỗi validate hiện hai lần trong `errors`.
+        services.AddValidatorsFromAssembly(typeof(ContentModuleExtensions).Assembly, ServiceLifetime.Singleton);
+
         return services;
     }
 
