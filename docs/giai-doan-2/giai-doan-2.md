@@ -535,6 +535,12 @@ Khung đã có từ `B2`/`B3` của GĐ1: thêm dòng, **không** sửa `AuthZMa
 để tạo bài của B rồi trả về path thật. Nếu phải sửa khung mới thêm được dòng nào ở bảng trên thì **dừng lại** — đó là
 dấu hiệu khung thiết kế sai, và sửa khung một lần ở GĐ2 rẻ hơn nhiều so với sửa ở GĐ5.
 
+> **Chốt 2026-09-19 (`Q-B2`, hướng dẫn khối B/C Mục 1.3):** đúng trường hợp đoạn trên đã chừa — `TC-A03-media` **không**
+> thêm được mà không chạm khung. `Ma_tran_phan_quyen` sinh token **sau** `ArrangePath` nên `ArrangePath` không biết id
+> người gọi; người gọi chưa có hồ sơ nên 403 đến từ Đ-2.4, không từ Đ-2.7 — dòng xanh vì lý do sai. Sửa khung **một lần,
+> tối thiểu**: `AuthZArrange` mang thêm `CallerUserId`, token sinh trước `ArrangePath`, `TestJwt.ForCaller` nhận `userId`
+> tùy chọn. Năm dòng còn lại không cần gì thêm.
+
 ---
 
 ## 7. Luồng nghiệp vụ
@@ -1049,6 +1055,14 @@ GĐ1: test **sửa** dữ liệu dùng `CreateDatabaseAsync`, test chỉ **đọ
 Cảnh báo về thời gian: nhóm test Postgres của GĐ1 đã chạy tuần tự trong một collection. Thêm hai module là thêm
 migration mỗi lần dựng DB — đo lại thời gian **trước** khi thêm; vượt ~3 phút thì tách collection (GĐ1 đã ghi ngưỡng này).
 
+> **Chốt 2026-09-19 (`Q-B1`):** thêm `SeededContentDatabaseAsync` **bên cạnh**, giữ nguyên hàm cũ. Hàm cũ có **bốn** chỗ
+> gọi cùng `key = "authz"` (`AuthZMatrixTests`, `OwnershipTemplateTests`, `JwtAuthenticationTests`,
+> `RolePermissionSourceTests`) — phát hiện bằng impact analysis, không phải hai như bản phác của hướng dẫn. Vì cache
+> `_shared` khóa theo `key`, đổi lẻ vài chỗ là database dùng chung phụ thuộc thứ tự xUnit → đỏ ngẫu nhiên. Xử lý: **đổi
+> cả bốn** sang hàm mới, và cache khóa theo `<hàm>:<key>` để trộn hai hàm cùng key không bao giờ thành một database.
+> Đổi một dòng gọi ở các file test đó **không** tính là "sửa khung" — khung là hình dạng `AuthZCase` và khẳng định của
+> `Ma_tran_phan_quyen`, không phải nguồn dữ liệu.
+
 ### B2 — Sáu dòng AuthZ matrix (Mục 6.3)
 
 Chỉ sửa `AuthZMatrix.cs`. `TC-A03`/`TC-A03-delete` dùng `ArrangePath` tạo bài của B qua API thật (không INSERT thẳng
@@ -1059,6 +1073,10 @@ DB — INSERT thẳng thì test không đi qua đúng đường mà người dù
 Đúng nếp `B3` của GĐ1: thêm dòng matrix **trước** khi viết kiểm ownership, thấy đỏ, rồi mới viết `PATCH`/`DELETE`.
 Ghi lại bảng đột biến: bỏ `post.AuthorId != actorId` → `TC-A03` đỏ; đổi 403 thành 404 → đỏ; bỏ kiểm tiền tố key →
 `TC-A03-media` đỏ.
+
+> **Chốt 2026-09-19 (`Q-B3`):** `B3` nhận thêm bốn test BR-01 **mức integration** đi qua `POST /posts` — `AC-02`, `AC-03`,
+> `BR01-05`, `BR01-06` của Mục 10.1. Unit test BR-01 dạng hàm thuần vẫn thuộc `A4` (đã xong); phần còn lại của Mục 10.1
+> đi cùng endpoint sinh ra chúng (khối D). `BR01-05` còn canh thứ mà `D5` không tự canh được: HEAD đứng **trước** transaction.
 
 ### B4 — Hai `ContractTests` mới + hai dòng trong csproj
 
@@ -1087,6 +1105,12 @@ Bề mặt tối thiểu, không hơn: `CreatePresignedPut`, `CreatePresignedGet
 `R2Options` fail-fast như `JwtOptions` của GĐ1: ngoài Development thiếu `R2__Endpoint|Bucket|AccessKey|SecretKey`
 thì **app từ chối khởi động**, thông báo nêu đúng tên biến và đúng chỗ sửa.
 
+> **Chốt 2026-09-19 (`Q-C1`):** fail-fast **chỉ ngoài Development**, chép nguyên khuôn cấu hình email của GĐ1. Lý do:
+> `ApiFactory` (smoke + **cổng hợp đồng API**) chạy Development và cố ý không có khóa R2; fail-fast ở mọi môi trường là cổng
+> hợp đồng đỏ vì lý do không liên quan hợp đồng. Ở Development thiếu khóa thì app khởi động, lời gọi `IObjectStorage`
+> đầu tiên mới ném với thông điệp nêu bốn tên biến và lệnh `user-secrets`. `StartupConfigurationTests` có thêm hai
+> khẳng định: Staging thiếu từng key → ném nêu tên; `ApiFactory` khởi động được **không** có `R2__*`.
+
 ### C2 — `R2ObjectStorage` + kiểm chứng presign PUT bằng tay
 
 Hiện thực bằng `AWSSDK.S3` trỏ vào endpoint R2 (`ForcePathStyle` theo yêu cầu của R2). Ký kèm `Content-Type` và
@@ -1104,6 +1128,12 @@ object không tồn tại: ba nhánh, ba thông điệp, cùng một mã 400.
 
 `IHostedService` trong `Content.Infrastructure`, đăng ký trong `AddContentModule`. Có công tắc cấu hình để tắt
 (`Media:Cleanup:Enabled`) — test và môi trường dev không cần nó chạy nền.
+
+> **Chốt 2026-09-19 (`Q-C2`):** công tắc mặc định **tắt**; staging bật tường minh bằng `Media__Cleanup__Enabled=true`
+> trong `deploy/.env` (key này phải có mặt trong mục "Trước khi merge" của PR khối C). Vì worker đăng ký trong
+> `AddContentModule` nên nó chạy trong **mọi** host kể cả `WebApplicationFactory` của test — mặc định bật là gọi R2 thật
+> từ CI không có khóa, hoặc xóa object trong lúc test khác đang dùng. "Quên bật trên staging" nhìn thấy được (bucket tích
+> rác); "quên tắt trên CI" thì không.
 
 ### C5 — `FakeObjectStorage` cho test
 

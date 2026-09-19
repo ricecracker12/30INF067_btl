@@ -171,7 +171,7 @@ thay đổi làm vượt ngưỡng. Không có số trước thì không biết 
 Sáu chỗ dưới đây là chỗ B.4/B.5 nói ngắn hơn thực tế cần. Mỗi chỗ có đề xuất kèm lý do; chốt ở cổng mở hoặc
 đầu buổi mất năm phút, phát hiện giữa chừng mất nửa ngày.
 
-#### Q-C1 — App phải khởi động được **không có** khóa R2 ở Development
+#### Q-C1 — App phải khởi động được **không có** khóa R2 ở Development ✅ **chốt 2026-09-19 theo đề xuất, đã ghi vào `giai-doan-2.md`**
 
 **Vấn đề.** `ApiFactory` (dùng cho smoke test và **cổng hợp đồng API**) chạy ở `Development` và cố ý khai
 chuỗi kết nối trỏ vào `127.0.0.1:1`, không khai gì về R2. Nếu `C1` làm fail-fast R2 ở **mọi** môi trường thì
@@ -191,7 +191,7 @@ R2 trên máy — tức là CI cũng phải có khóa, tức là đúng thứ Đ
 **không** có biến `R2__*` nào. Đây là lưới duy nhất canh chuyện này; thiếu nó thì ai đó sẽ "siết cho chặt"
 ở GĐ5 và làm đỏ cổng hợp đồng mà không hiểu vì sao.
 
-#### Q-C2 — `Media:Cleanup:Enabled` mặc định bật hay tắt?
+#### Q-C2 — `Media:Cleanup:Enabled` mặc định bật hay tắt? ✅ **chốt 2026-09-19 theo đề xuất, đã ghi vào `giai-doan-2.md`**
 
 **Vấn đề.** `C4` là `IHostedService` đăng ký trong `AddContentModule` — tức là nó chạy trong **mọi** host,
 kể cả `WebApplicationFactory` của test. Một worker nền gọi `ListAsync`/`DeleteAsync` trong lúc integration
@@ -205,7 +205,7 @@ tích rác), còn "quên tắt trên CI" là lỗi không thấy được (đỏ
 
 B.5 chỉ nói *"có công tắc cấu hình để tắt"* mà không nói mặc định. Chốt mặc định là **tắt** và ghi vào B.5.
 
-#### Q-B1 — `AuthZMatrixTests` có được sửa một dòng không?
+#### Q-B1 — `AuthZMatrixTests` có được sửa một dòng không? ✅ **chốt 2026-09-19 theo đề xuất, đã ghi vào `giai-doan-2.md`**
 
 **Vấn đề.** `AuthZMatrixTests.InitializeAsync` gọi `postgres.SeededIdentityDatabaseAsync("authz")`. Sáu dòng
 mới chạm `content.posts` và `profile.profiles`, nên database đó phải migrate cả ba module. Mà luật 5 ở Mục
@@ -220,7 +220,7 @@ database nào. Đổi một dòng chỉ định nguồn dữ liệu không làm 
 **Phương án thay thế bị loại:** sửa thẳng `SeededIdentityDatabaseAsync` để nó migrate ba module. Không sửa
 file test nào, nhưng tên hàm nói dối, và GĐ5 thêm module thứ tư sẽ lại phải sửa nó thêm lần nữa.
 
-#### Q-B2 — `ArrangePath` không biết id người gọi, và `TC-A03-media` xanh vì lý do sai
+#### Q-B2 — `ArrangePath` không biết id người gọi, và `TC-A03-media` xanh vì lý do sai ✅ **chốt 2026-09-19 theo đề xuất, đã ghi vào `giai-doan-2.md`**
 
 **Vấn đề — đọc kỹ, đây là chỗ dễ có lưới giả nhất của cả hai khối.** Trong `AuthZMatrixTests.Ma_tran_phan_quyen`,
 thứ tự hiện tại là:
@@ -264,7 +264,7 @@ còn một lý do**.
 403. Rẻ hơn về rủi ro khung, đắt hơn về chỗ để quên. Chọn phương án nào cũng được, **không chọn phương án
 thứ ba là bỏ qua**.
 
-#### Q-B3 — Bốn test BR-01 ở Mục 10.1 thuộc khối B hay khối D?
+#### Q-B3 — Bốn test BR-01 ở Mục 10.1 thuộc khối B hay khối D? ✅ **chốt 2026-09-19 theo đề xuất, đã ghi vào `giai-doan-2.md`**
 
 **Vấn đề.** B.2 ghi nội dung khối B là *"Matrix, BR-01, contract test, mở rộng cổng CI"*, nhưng hướng dẫn
 khối A đã nhận unit test BR-01 dạng hàm thuần về cho `A4`. Vậy "BR-01" của khối B là gì?
