@@ -91,7 +91,7 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
-      # CONG CODEGEN: schema.d.ts commit trong repo phai khop identity-v1.yaml hien tai.
+      # CONG CODEGEN: file sinh commit trong repo phai khop hop dong hien tai.
       # Doi hop dong ma quen `pnpm gen:api` -> file sinh lech -> DO. Doi version openapi-typescript
       # cung do: dung y, vi doi version la doi file sinh ra.
       #
@@ -99,14 +99,25 @@ jobs:
       # worktree nen no IM LANG voi file chua commit. Da dinh dung cai bay do mot lan luc thu cho do
       # o E2 -- hop dong hong ma cong van xanh, vi schema.d.ts luc ay con untracked. `status` bat ca
       # hai: file bi sua (` M`) lan file chua vao repo (`??`).
+      #
+      # VA KHONG LIET KE DUONG DAN NAO (doi 2026-09-19). `git status --porcelain -- <path khong ton
+      # tai>` cung tra RONG va exit 0 -- go sai mot ky tu, hay them module thu ba ma quen them dong,
+      # la cong xanh VINH VIEN. Nen cau hoi o day la "sau khi sinh lai, worktree co sach khong", chu
+      # khong phai "ba file nay co doi khong". `gen:api` tu suy module tu glob hop dong
+      # (src/frontend/scripts/gen-api.mjs) nen them module = tha file .yaml vao, khong sua buoc nay.
+      # Pham vi `-- .` = src/frontend (working-directory): `.` khong go sai duoc, va gen:api chi ghi
+      # vao lib/api/ nen khong mat gi; soi ca repo thi buoc khac lam ban file ngoai FE cung do o day.
       - name: API types khop hop dong (CI GATE)
         run: |
           pnpm gen:api
-          changed=$(git status --porcelain -- lib/api/schema.d.ts)
+          changed=$(git status --porcelain -- .)
           if [ -n "$changed" ]; then
-            echo "::error::lib/api/schema.d.ts lech hop dong hoac chua duoc commit -- chay 'pnpm gen:api' roi commit file sinh ra"
+            # Thong diep noi dung thu thay: worktree ban SAU khi sinh lai. Nguyen nhan gan nhu luon la
+            # file sinh lech hop dong hoac chua commit -- nhung buoc nay so ca repo, nen dung khang dinh
+            # nguyen nhan khi chua doc danh sach ben duoi.
+            echo "::error::Worktree ban sau 'pnpm gen:api' -- gan nhu luon la file sinh lech hop dong hoac chua duoc commit; chay 'pnpm gen:api' roi commit file sinh ra"
             echo "$changed"
-            git diff -- lib/api/schema.d.ts
+            git diff
             exit 1
           fi
 

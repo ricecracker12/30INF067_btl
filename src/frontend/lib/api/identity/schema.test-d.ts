@@ -1,6 +1,6 @@
 import { expectTypeOf, test } from "vitest"
 
-import type { MeResponse, RoleCode } from "./types"
+import type { MeResponse, RoleCode } from "../types"
 
 test("RoleCode là union chuỗi đúng hợp đồng (quyết định 1)", () => {
   expectTypeOf<RoleCode>().toEqualTypeOf<"USER" | "MODERATOR" | "ADMIN">()

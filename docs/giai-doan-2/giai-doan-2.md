@@ -676,16 +676,21 @@ PostPage      { items: [PostResponse], nextCursor: string | null }
 
 ### 8.3 Codegen frontend
 
-`package.json` thêm hai script, mỗi module một file sinh (luật frontend Mục 7):
+**Không thêm script nào** (đổi 2026-09-19, luật frontend Mục 7). `pnpm gen:api` gọi `scripts/gen-api.mjs`, script
+này **suy ra** danh sách module từ glob `../backend/Modules/*/Presentation/*-v1.yaml` và ghi ra
+`lib/api/<module>/schema.d.ts`. Hai hợp đồng của GĐ2 vì vậy được sinh **ngay khi file `.yaml` được commit ở cổng mở**,
+không phải chờ ai thêm dòng.
 
-```
-"gen:api:profile": "openapi-typescript ../backend/Modules/Profile/Presentation/profile-v1.yaml -o lib/api/profile/schema.d.ts",
-"gen:api:content": "openapi-typescript ../backend/Modules/Content/Presentation/content-v1.yaml -o lib/api/content/schema.d.ts",
-"gen:api": "<chạy cả ba, gồm cả identity>"
-```
+Đích suy từ **tên nhóm Swagger** (tên file bỏ hậu tố `-v1`), không từ tên thư mục module — tên nhóm đã buộc phải duy nhất
+toàn app (mỗi nhóm một `SwaggerDoc` trong `Program.cs`), nên không có lớp va chạm "một module hai nhóm". **Không có ngoại
+lệ đường dẫn nào**: Identity đã dời từ `lib/api/schema.d.ts` vào `lib/api/identity/` cùng ngày, đúng như GĐ1 khối E Mục 13
+đã hẹn ("module thứ hai mới tách"). Phần lập kế hoạch của script là hàm thuần có unit test (`scripts/gen-api.test.ts`).
 
-Cổng CI `API types khop hop dong` hiện chỉ kiểm `lib/api/schema.d.ts` — **phải mở rộng sang hai file mới trong cùng
-commit**, nếu không hợp đồng đổi mà file sinh lệch thì không ai biết.
+Cổng CI `API types khop hop dong` **cũng không liệt kê file nào**: nó chạy `pnpm gen:api` rồi đòi worktree sạch. Lý do
+bỏ danh sách — `git status --porcelain -- <đường dẫn không tồn tại>` trả **rỗng và exit 0**, nên mọi danh sách gõ tay
+(trong `package.json` lẫn trong `ci.yml`) đều có thể **xanh giả**: gõ sai một ký tự, hay thêm module thứ ba mà quên
+thêm dòng, đều không ai biết. Cùng luật với `TreatNoTestsAsError=true` của cổng Contract/AuthZ: **một số không không
+phải là một lần qua**.
 
 ---
 
@@ -1172,7 +1177,8 @@ backend: `features/profile/`, `features/post/`. Không `features/` nào import c
 
 ### E1 — Codegen + api client + mở rộng `request()`
 
-Hai script `gen:api:*`; `lib/api/profile/`, `lib/api/content/` (kiểu lấy từ file sinh, **không khai lại tay**);
+**Không thêm script `gen:api:*` nào** — `pnpm gen:api` tự sinh `lib/api/profile/` và `lib/api/content/` ngay khi hai file
+`.yaml` được commit ở cổng mở (Mục 8.3, đổi 2026-09-19). `E1` chỉ còn: kiểu lấy từ file sinh (**không khai lại tay**);
 `RequestOptions.method` thêm `PUT | PATCH | DELETE`; `errorMessage` thêm ngữ cảnh `profile`, `post`, `upload`.
 
 Mọi lời gọi đi qua proxy chung `/bff/api/...` — **không thêm route BFF nào** (Đ-E14, luật frontend Mục 4).

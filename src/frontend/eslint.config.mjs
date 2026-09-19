@@ -35,8 +35,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
-    // File sinh tự động — không lint (E2, Đ-E7).
-    "lib/api/schema.d.ts",
+    // File sinh tự động — không lint (E2, Đ-E7). Glob chứ không liệt kê từng module: thêm
+    // module mà quên thêm dòng thì file sinh bị lint, và không ai sửa được nó (đổi 2026-09-19).
+    "lib/api/**/schema.d.ts",
   ]),
   {
     files: ["**/*.{ts,tsx}"],

@@ -16,7 +16,7 @@ Chạy từ chính thư mục này (`src/frontend/`):
 pnpm dev        # http://localhost:3000 — cần API dev ở http://localhost:5259 VÀ Redis localhost:6379 (BFF, Đ-E14)
 pnpm lint       # ESLint flat config: luật Đ-E2 / Đ-E12 / Đ-E13
 pnpm typecheck  # tsc --noEmit
-pnpm gen:api    # sinh lib/api/schema.d.ts từ hợp đồng identity-v1.yaml — file sinh, COMMIT vào repo
+pnpm gen:api    # sinh lib/api/<nhóm>/schema.d.ts từ MỌI hợp đồng *-v1.yaml của backend — file sinh, COMMIT vào repo
 pnpm test       # Vitest (jsdom + Testing Library + msw/node), chạy một lượt rồi thoát
 pnpm test:e2e   # Playwright trên Chrome đã cài (channel "chrome"), workers: 1 — rate limit /auth/* 10 req/phút/IP
 pnpm build      # next build
@@ -81,7 +81,8 @@ e2e/           spec Playwright
   `/swagger` (Đ-E11) — apache staging đẩy hết những đường đó về backend.
 - `.env.example` liệt kê **tên** biến server của BFF, không bao giờ giá trị. Không đặt biến cấu hình nào với tiền tố
   `NEXT_PUBLIC_*` — tiền tố đó nhúng giá trị vào bundle gửi cho trình duyệt.
-- `lib/api/schema.d.ts` là **file sinh** — không sửa tay. Hợp đồng `.yaml` đổi thì chạy lại
-  `pnpm gen:api` và sửa chỗ đỏ **trong cùng commit**; cổng CI so lại bằng `git diff --exit-code`.
+- `lib/api/<nhóm>/schema.d.ts` là **file sinh** — không sửa tay. Hợp đồng `.yaml` đổi thì chạy lại
+  `pnpm gen:api` và sửa chỗ đỏ **trong cùng commit**; cổng CI chạy lại `gen:api` rồi đòi worktree sạch
+  (`git status --porcelain -- .` rỗng). Thêm module backend = thêm file `.yaml`, không sửa script nào.
 - Kiểu cho payload API lấy từ `lib/api/types.ts`, **không tự khai lại** — hợp đồng đổi thì phải là lỗi
   compile, không phải lỗi runtime.

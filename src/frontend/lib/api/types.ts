@@ -1,6 +1,7 @@
 // Màn KHÔNG import thẳng schema.d.ts — đi qua file này cho gọn, và để chỗ đổi tên/đổi hình
 // dạng chỉ nằm một nơi. schema.d.ts là file SINH (`pnpm gen:api`), không sửa tay.
-import type { components } from "./schema"
+// Mỗi module một thư mục `lib/api/<nhóm>/` (Identity dời vào đây 2026-09-19, đúng kế hoạch GĐ1 khối E Mục 13).
+import type { components } from "./identity/schema"
 
 type S = components["schemas"]
 

@@ -30,7 +30,7 @@ quyết định mới, có ngày tháng, ghi vào tài liệu gốc trong cùng 
 |---|---|---|
 | 1 | Gọi `fetch` ngoài `lib/api/http.ts` (trình duyệt) và `lib/bff/upstream.ts` (server) | Đ-E2, Đ-E14 — ESLint chặn |
 | 2 | `localStorage`, `sessionStorage`, `document.cookie` | Đ-E2 — không có gì của phiên nằm ở đó |
-| 3 | Sửa tay `lib/api/schema.d.ts` | File sinh; sửa tay là cổng CI codegen đỏ |
+| 3 | Sửa tay `lib/api/**/schema.d.ts` | File sinh; sửa tay là cổng CI codegen đỏ |
 | 4 | Thêm component UI bằng `pnpm dlx shadcn@latest add` | Đ-E12 — phải `pnpm exec shadcn add` (bản ghim) |
 | 5 | Màu thô (`bg-blue-600`), mã màu tùy ý, radius riêng theo màn | Đ-E12 — token ở `app/globals.css` |
 | 6 | Import `@base-ui/react` ngoài `components/ui/` | Đ-E12 |
@@ -119,11 +119,22 @@ Bốn tầng, phụ thuộc **một chiều**: `app/` → `features/` → `compo
 
 ## 7. Codegen từ hợp đồng
 
-- `pnpm gen:api` sinh `lib/api/schema.d.ts`, **commit vào repo**.
-- Hợp đồng `.yaml` đổi → chạy lại codegen và sửa chỗ đỏ **trong cùng commit**. Cổng CI so lại bằng
-  `git diff --exit-code`.
-- Module mới (GĐ2+): thêm script `gen:api:<module>` ra `lib/api/<module>/schema.d.ts`. Không đổi
-  version `openapi-typescript` kèm theo việc khác — đổi version là đổi file sinh ra.
+- `pnpm gen:api` sinh type cho **mọi** hợp đồng, file sinh **commit vào repo**.
+- Hợp đồng `.yaml` đổi → chạy lại codegen và sửa chỗ đỏ **trong cùng commit**. Cổng CI chạy lại
+  `pnpm gen:api` rồi đòi **worktree sạch** (`git status --porcelain` rỗng) — không phải
+  `git diff --exit-code`, vì `git diff` im lặng với file chưa commit.
+- **Module mới: không thêm script nào** (đổi 2026-09-19). `scripts/gen-api.mjs` **suy ra** danh sách
+  hợp đồng từ glob `../backend/Modules/*/Presentation/*-v1.yaml` và ghi ra `lib/api/<nhóm>/schema.d.ts`
+  (`<nhóm>` = tên file bỏ hậu tố `-v1`; với mọi module đã lên kế hoạch nó trùng tên module — `identity`,
+  `profile`, `content`). **Không có ngoại lệ đường dẫn nào**; Identity đã dời vào `lib/api/identity/`
+  cùng ngày. Thêm module = thả file `.yaml` vào, không sửa `package.json` lẫn `ci.yml`.
+  *Trước đó luật là "thêm script `gen:api:<module>`". Bỏ vì nó tạo ba danh sách phải khớp nhau —
+  hợp đồng nào tồn tại, sinh cho cái nào, cổng kiểm cái nào — mà thiếu một dòng ở danh sách 2 hoặc 3
+  đều cho **cổng xanh giả**, không phải đỏ.*
+- Hai chỗ `gen-api.mjs` cố ý đỏ thay vì im lặng: **glob không khớp hợp đồng nào** (đổi chỗ thư mục)
+  và **hai hợp đồng cùng một đích** (hai file cùng tên nhóm, ví dụ `content-v1` cạnh `content-v2`).
+  Phần lập kế hoạch là hàm thuần `planJobs`, có unit test ở `scripts/gen-api.test.ts`.
+- Không đổi version `openapi-typescript` kèm theo việc khác — đổi version là đổi file sinh ra.
 
 ## 8. MSW chỉ trong Vitest (Đ-E7, đổi 2026-09-17)
 

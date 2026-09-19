@@ -362,7 +362,7 @@ cũng được, vì trình duyệt tự gửi cookie cùng origin.
 npx @redocly/cli lint src/backend/Modules/Identity/Presentation/identity-v1.yaml   # 2 warning đã biết, 0 error
 dotnet test tests/SocialApp.IntegrationTests --filter "Category=Contract"
 
-cd src/frontend && pnpm gen:api     # sinh lại lib/api/schema.d.ts từ yaml, COMMIT file sinh ra
+cd src/frontend && pnpm gen:api     # sinh lại lib/api/<nhóm>/schema.d.ts từ MỌI yaml, COMMIT file sinh ra
 ```
 
 ---

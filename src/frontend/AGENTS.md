@@ -61,7 +61,7 @@ không phải phong cách. Chi tiết và lý do ở
 - **pnpm, ghim chính xác** (Đ-E9): không `npm`/`yarn`, không `^`/`~` trong `package.json`.
 - **`@types/node` luôn cùng major với `.nvmrc`.** Đổi bản Node thì đổi cả hai trong một commit — để
   lệch là kiểu của một bản Node khác bản đang chạy. Hiện tại: Node **24** (đổi Đ-E9 ngày 2026-09-17).
-- **`lib/api/schema.d.ts` là file sinh** (`pnpm gen:api` từ `identity-v1.yaml`) — sửa tay là cổng CI
+- **`lib/api/<nhóm>/schema.d.ts` là file sinh** (`pnpm gen:api`, mọi hợp đồng `*-v1.yaml` của backend) — sửa tay là cổng CI
   codegen đỏ. Kiểu cho payload API lấy từ `lib/api/types.ts`, không tự khai lại (Đ-E2, Mục 7 của
   `frontend-rules.md`).
 - **Không có mock trình duyệt** (đổi Đ-E7 ngày 2026-09-17): dev chạy đủ FE + BE. MSW chỉ dùng trong

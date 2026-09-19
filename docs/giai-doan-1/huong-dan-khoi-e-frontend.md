@@ -346,6 +346,8 @@ mặc định theo hệ thống). Token thật sau init: `--primary: oklch(0.514
   tự động**, script `gen:api` và cổng CI codegen đều trỏ `lib/api/`; chuyển vào feature là mỗi module một đường dẫn output và
   cổng CI phải liệt kê tay. GĐ1 giữ nguyên `lib/api/schema.d.ts` phẳng; module thứ hai (GĐ2) mới tách
   `lib/api/<module>/schema.d.ts` như Mục 13 đã ghi.
+  *Đã thực hiện 2026-09-19 (đầu GĐ2): Identity dời vào `lib/api/identity/`, `gen:api` suy danh sách hợp đồng từ glob
+  và cổng CI không liệt kê đường dẫn nữa — xem `frontend-rules.md` Mục 7 và `giai-doan-2.md` Mục 8.3.*
 - **Tên `features/` là tên màn, không phải tên module backend.** Ánh xạ không 1-1 theo cả hai chiều: `Content` (CMP-04 =
   posts, comments, reactions, media, feed) đẻ ra bốn feature qua ba giai đoạn; còn `/feed` một màn thì gọi `content` +
   `profile` + `social-graph`. Chỉ `lib/api/` bám tên module backend.
