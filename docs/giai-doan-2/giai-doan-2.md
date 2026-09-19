@@ -1036,6 +1036,11 @@ Sau A5, hai module đã có type thật: thêm một test canh gác giống
 > **Mục tiêu khối:** biến mọi luật của Phần A thành thứ **chặn merge**, và giữ nguyên tinh thần GĐ1: khung không sửa,
 > chỉ thêm dòng.
 
+> **Hướng dẫn thi công từng bước:** [huong-dan-khoi-b-c-test-va-luu-tru.md](huong-dan-khoi-b-c-test-va-luu-tru.md)
+> — mục tiêu và kết quả mong đợi của từng đầu việc, file nào, lệnh nào, cạm bẫy nào, checklist nghiệm thu.
+> Gộp chung với khối C vì B.2 giao cả hai cho cùng một người (BE-2) và hai khối gặp nhau ở `C5`.
+> Mục B.4 dưới đây giữ nguyên vai trò "cái gì và vì sao".
+
 ### B1 — Harness cho hai context mới
 
 `PostgresFixture` thêm `SeededContentDatabaseAsync(key)` chạy migrate cả ba module. Giữ nguyên luật chọn hàm của
@@ -1071,6 +1076,10 @@ Mục 9: thêm cổng thì **phải thử cho đỏ một lần rồi khôi ph�
 
 > **Mục tiêu khối:** đóng rủi ro ISS-02 sớm nhất có thể, và để lại một interface mà GĐ5 dùng lại được cho media
 > tin nhắn mà không phải sửa gì.
+
+> **Hướng dẫn thi công từng bước:** [huong-dan-khoi-b-c-test-va-luu-tru.md](huong-dan-khoi-b-c-test-va-luu-tru.md)
+> Phần I — mục tiêu và kết quả mong đợi của từng đầu việc, file nào, lệnh nào, cạm bẫy nào, checklist nghiệm thu.
+> Mục B.5 dưới đây giữ nguyên vai trò "cái gì và vì sao".
 
 ### C1 — `IObjectStorage` + `R2Options` ở SharedKernel
 
