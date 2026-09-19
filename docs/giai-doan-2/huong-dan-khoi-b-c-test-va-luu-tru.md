@@ -129,7 +129,10 @@ từ #0–#6 mà không chờ gì.
 **Cập nhật cuối ngày 2026-09-19:** #0 (năm `Q-*` chốt theo đề xuất, đã ghi ngược) · #1 `B5` · #2 `B1` (1 m 35 s → 1 m 23 s,
 dưới ngưỡng) · #3 `C1` · #4 `C3` · #5 `C5` · #6 `C4` · **#7** (bucket `socialmedia-dev`/`-staging`, CORS, token, `user-secrets`)
 · **#8 `C2`** (code + PUT thật từ trình duyệt — **ISS-02 đóng trên dev**) — **xong**. Unit 92 → 113, Integration 176 → 191,
-Arch 11. **Khối C xong.** Còn lại: #9 (hai `.yaml`) → #10 `B2` → #11 khối D → #12 `B4` → #13 `B3`.
+Arch 11. **Khối C xong.** **#9 xong** cùng ngày: `profile-v1.yaml` (4 operation) + `content-v1.yaml` (6 operation) khớp Mục 8
+từng status code, `pnpm gen:api` tự sinh `lib/api/profile/` và `lib/api/content/` **không sửa `package.json`/`ci.yml`** (Q-B4
+đúng như hứa); Q-D1 chốt và ghi vào Mục 8.2. **Chưa có cổng máy nào canh hai file này cho tới `B4`.** Còn lại: #10 `B2` →
+#11 khối D → #12 `B4` → #13 `B3`.
 
 ### 0.4 Hai khối phụ thuộc lane khác ở đâu — và cách không bị chặn
 

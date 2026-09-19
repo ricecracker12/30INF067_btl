@@ -663,6 +663,13 @@ ProfileResponse { userId, displayName, bio?, avatarUrl?, createdAt, updatedAt }
 `avatarUrl` là presigned GET 15 phút (Đ-2.9), **không** phải `avatar_key`. Client không bao giờ thấy key của người
 khác — đó cũng là lý do `PUT /users/me/avatar` nhận `mediaKey` chứ không nhận URL.
 
+**Request body (chốt 2026-09-19 lúc viết hợp đồng — Mục 8 bản gốc chỉ đặc tả response):**
+
+```
+UpsertProfileRequest { displayName (bắt buộc, 2–50 ký tự sau trim), bio? (≤ 500; null = XÓA bio, bỏ trường = giữ nguyên) }
+SetAvatarRequest     { mediaKey (bắt buộc, dạng avatars/{userId}/{uuid7}.{ext}) }
+```
+
 ### 8.2 Content
 
 | Method | Path | Auth | Thành công | Lỗi |
@@ -687,6 +694,22 @@ PostPage      { items: [PostResponse], nextCursor: string | null }
 - `reactionCounts` là object rỗng `{}` ở GĐ2 (Đ-2.12), **không** phải `null` — FE viết một lần, GĐ3 không phải sửa.
 - **Không có** `mediaKey` trong `PostResponse`: key là chi tiết nội bộ, chỉ đi ra ngoài trong `UploadTicket` của
   chính người vừa xin upload.
+
+**Request body (chốt 2026-09-19 lúc viết hợp đồng — Mục 8 bản gốc chỉ đặc tả response):**
+
+```
+CreateUploadsRequest { purpose: "post" | "avatar" (bắt buộc), files: [{ contentType, sizeBytes }] 1..10 (bắt buộc) }
+CreatePostRequest    { body? (≤ 5000), privacy (BẮT BUỘC), mediaKeys?: [{ mediaKey, contentType, sizeBytes }] ≤ 10 }
+UpdatePostRequest    { body?, privacy? }   — body {} rỗng → 400; có mediaKeys → 400 (field lạ, GĐ2 không sửa ảnh)
+```
+
+> **Q-D1 (chốt 2026-09-19):** `mediaKeys` của `POST /posts` là **mảng object** `{mediaKey, contentType, sizeBytes}`, không phải
+> mảng chuỗi. Đ-2.8 lớp 2 đối chiếu HEAD với *"khai báo lúc presign"*, mà server không giữ trạng thái giữa presign và commit
+> — mảng chuỗi thì hoặc thêm bảng `media_uploads` tạm (một migration, một luồng dọn nữa), hoặc bỏ luôn lớp 2. Client đang cầm
+> `File` nên gửi lại khai báo là rẻ nhất, và không có gì để giả: HEAD vẫn là thứ quyết định. Tên trường giữ `mediaKeys` để
+> `errors.mediaKeys` (AC-03) đúng như Mục 10.1. Ba điểm nhỏ chốt cùng lúc: `privacy` **bắt buộc** (tùy chọn + mặc định
+> `public` là composer quên gửi thành bài công khai ngoài ý muốn); `PATCH` với body `{}` → 400 (OpenAPI không diễn đạt gọn
+> "ít nhất một trường", ContractTests chỉ so mảng `required`); `bio: null` = xóa, bỏ trường = giữ nguyên.
 
 ### 8.3 Codegen frontend
 
