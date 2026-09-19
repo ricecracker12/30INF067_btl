@@ -133,11 +133,15 @@ jobs:
       # CONG BUNDLE: bundle gui cho TRINH DUYET (.next/static) khong duoc chua MSW, URL API dev, hay code server cua
       # BFF (Đ-E14): ioredis, ten bien cau hinh server, tien to key phien Redis. Lot vao la token/khoa co duong ra
       # trinh duyet. `server-only` da chan luc build; cong nay la luoi thu hai, doc thang ban build.
+      # B5 (GD2, 2026-09-19): them R2__ (tien to bien cau hinh R2 -- lot vao la ai do dat NEXT_PUBLIC_ hoac import module
+      # server vao code trinh duyet, rui ro R2-01) va X-Amz-Signature (chu ky presigned URL -- trinh duyet CO thay no luc
+      # chay trong uploadUrl API tra ve, nhung KHONG duoc nam trong bundle: nam trong bundle la co chu ky hard-code hoac
+      # code tu ky o client, Đ-2.5/Đ-2.8 cam). Do vi FE nhac ten header mot cach chinh dang thi doi code FE, KHONG noi grep.
       - name: Bundle production sach MSW va code server BFF (CI GATE)
         run: |
-          hits=$(grep -rlE "mockServiceWorker|setupWorker|localhost:5259|ioredis|SESSION_ENCRYPTION_KEY|API_INTERNAL_URL|bff:session" .next/static || true)
+          hits=$(grep -rlE "mockServiceWorker|setupWorker|localhost:5259|ioredis|SESSION_ENCRYPTION_KEY|API_INTERNAL_URL|bff:session|R2__|X-Amz-Signature" .next/static || true)
           if [ -n "$hits" ]; then
-            echo "::error::MSW, URL API dev hoac code server BFF lot vao bundle trinh duyet"
+            echo "::error::MSW, URL API dev, code server BFF hoac khoa/chu ky R2 lot vao bundle trinh duyet"
             echo "$hits"
             exit 1
           fi
