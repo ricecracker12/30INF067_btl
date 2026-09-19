@@ -1,5 +1,4 @@
 using System.Net;
-using System.Net.Http.Json;
 using Microsoft.Extensions.DependencyInjection;
 using SocialApp.IntegrationTests.Harness;
 using SocialApp.Modules.Content.Presentation;
@@ -11,8 +10,12 @@ namespace SocialApp.IntegrationTests.Profile;
 /// <summary>
 /// D0: khẳng định chính cái HARNESS đúng, trước khi có endpoint nào để đổ lỗi. Cùng nếp <c>AuthHarnessTests</c> của GĐ1.
 ///
-/// Test <see cref="Token_USER_qua_tang_1_route_chua_co_404_an_danh_401"/> là test "chưa có controller" — nó ĐỎ khi D2 tới
-/// và phải GỠ trong chính commit đó (nếp D1 của GĐ1). Giữ lại sau khi có controller là một test khẳng định điều sai.
+/// Test "chưa có controller" (<c>Token_USER_qua_tang_1_route_chua_co_404_an_danh_401</c>) đã được GỠ ở D1, đúng nếp D1 của
+/// GĐ1: giữ lại sau khi có controller là một test khẳng định điều sai. Nó đỏ SỚM HƠN một bước so với dự kiến của D0 (D1 chứ
+/// không phải D2) và đỏ bằng <b>405</b> chứ không phải 400/200 — <c>ProfilesController</c> của D1 nhận route
+/// <c>api/v1/users</c>, nên <c>PUT /api/v1/users/me/profile</c> khớp template <c>{userId}/profile</c> ở tầng ROUTING rồi
+/// mới lệch method. Cả hai khẳng định của nó đã có chỗ đứng thật trong <see cref="ProfileTests"/>: token USER qua tầng 1
+/// (404 chứ không 401) và ẩn danh → 401, cùng trên endpoint có thật của D1.
 /// </summary>
 [Collection(PostgresCollection.Name)]
 public sealed class ProfileHarnessTests(PostgresFixture postgres, ModulesApiFactory factory)
@@ -21,32 +24,6 @@ public sealed class ProfileHarnessTests(PostgresFixture postgres, ModulesApiFact
     public Task InitializeAsync() => factory.UseFreshDatabaseAsync(postgres);
 
     public Task DisposeAsync() => Task.CompletedTask;
-
-    /// <summary>
-    /// Hai khẳng định trong một test vì chúng chỉ có nghĩa cạnh nhau: 404 một mình không phân biệt được "token qua tầng 1,
-    /// route chưa có" với "route bị bỏ qua xác thực", còn 401 một mình không nói gì về token.
-    ///
-    /// 404 ở đây là MỐC TẠM của D0. D2 nối <c>ProfilesController</c> vào thì dòng này chuyển sang 400/200 — và nếu nó VẪN
-    /// 404 sau khi controller có thật thì nguyên nhân gần như chắc chắn là thiếu <c>AddApplicationPart</c> trong Program.cs:
-    /// hỏng câm duy nhất của D0, không exception, không log, Swagger rỗng.
-    /// </summary>
-    [Fact]
-    public async Task Token_USER_qua_tang_1_route_chua_co_404_an_danh_401()
-    {
-        var client = new ModulesTestClient(factory);
-
-        using var request = new HttpRequestMessage(HttpMethod.Put, "/api/v1/users/me/profile")
-        {
-            Content = JsonContent.Create(new { displayName = "An", bio = (string?)null }),
-        };
-        request.Headers.Authorization = ModulesTestClient.Bearer(Guid.NewGuid());
-
-        using var withToken = await client.Http.SendAsync(request);
-        using var anonymous = await client.Http.PutAsJsonAsync("/api/v1/users/me/profile", new { displayName = "An" });
-
-        Assert.Equal(HttpStatusCode.NotFound, withToken.StatusCode);
-        Assert.Equal(HttpStatusCode.Unauthorized, anonymous.StatusCode);
-    }
 
     /// <summary>
     /// Ba chỗ phải khớp tên nhóm (<c>[ApiExplorerSettings]</c> · <c>SwaggerDoc</c> · tên file hợp đồng). D0 mới nối được hai

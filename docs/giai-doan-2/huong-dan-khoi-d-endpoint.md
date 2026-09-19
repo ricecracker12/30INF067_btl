@@ -528,6 +528,7 @@ public static class ContentErrors
 **Bước 5 — harness.** `ModulesApiFactory` theo bảng Mục 1.5. Test khung `ProfileHarnessTests`: (a) `PUT /api/v1/users/me/profile`
 với bearer USER → **404** (route chưa có; đồng thời chứng minh token của `TestJwt` qua tầng 1 của app); (b) ẩn danh → **401**.
 `D2` xóa (a) khi controller có thật (nếp `D1` GĐ1), giữ (b) hoặc để `TC-A01-profile` của `B2` thay.
+**Thực tế: cả (a) lẫn (b) chết ở `D1`, không phải `D2`, và chết bằng `405`** — xem "Thực tế thi công" của `D1`.
 
 **Bước 6 — `B4` ở local.** Viết `ContractTestsBase` + `ProfileContractTests` + `ContentContractTests` + hai dòng csproj theo
 hướng dẫn B/C Mục 10. Chạy `--filter "Category=Contract"`: chiều 1 xanh (chưa có gì để lộ), chiều 2 đỏ liệt kê **đủ 10
@@ -535,8 +536,9 @@ operation**. Danh sách đó là bảng tiến độ của khối D. **Không co
 
 ### Cạm bẫy đã biết
 
-- **Quên `AddApplicationPart`** → mọi controller 404 (có token) / 401 (ẩn danh), Swagger rỗng, và không có lỗi nào. Test
-  khung bước 5 (a) bắt ngay khi `D1` xong mà vẫn 404.
+- **Quên `AddApplicationPart`** → mọi controller 404 (có token) / 401 (ẩn danh), Swagger rỗng, và không có lỗi nào. Từ
+  `D1` trở đi, `ProfileTests` bắt chỗ này: thiếu dòng đó thì *mọi* nhánh của nó ra 404 — kể cả nhánh đáng lẽ 400 — nên
+  `UserId_sai_dang_tra_400_kem_errors_userId` đỏ trước tiên.
 - **Gọi `AddFluentValidationAutoValidation` trong module** → lỗi validate bị nhân đôi. Host đã gọi một lần; module chỉ
   `AddValidatorsFromAssembly`.
 - **Đăng ký service cần `IConfiguration`/`IHostEnvironment` trong `Add<Module>Module`** → `PostgresFixture` dựng trần đỏ.
@@ -569,6 +571,49 @@ trong MVP — Mục 6.1); `ProfileService.GetAsync(userId)` → `Result<ProfileR
 - **`detail` chứa `userId`** ("Người dùng 0192… chưa có hồ sơ") → lộ id vào response, và `D9` rà PII đỏ. Câu cố định, không nội suy.
 - **FE hỏi "làm sao biết `userId` của mình để gọi?"** → từ `GET /me` của Identity (`MeResponse.userId`). Không thêm
   `GET /users/me/profile` — hợp đồng không có, thêm là `B4` chiều 1 đỏ.
+
+### Thực tế thi công
+
+**Bằng chứng.** `dotnet test SocialApp.sln`: Unit 117 (không đổi), Architecture 13 (không đổi), Integration 196 → 201
+(+6 `ProfileTests`, −1 test khung của `D0`). Thử cho đỏ ở local rồi khôi phục:
+
+| Đột biến | Test đỏ |
+|---|---|
+| Route đổi thành `[HttpGet("{userId:guid}/profile")]` | cả ba dòng `UserId_sai_dang_tra_400_kem_errors_userId` — nhận 404 thay vì 400 |
+| `ProfileErrors.NotFound` nội suy id: `$"Người dùng {userId} chưa có hồ sơ."` | `PROF_03_nguoi_chua_onboarding_tra_404_va_detail_khong_neu_userId` |
+| `[Authorize]` của controller đổi thành `[AllowAnonymous]` | `An_danh_tra_401` — nhận 404 thay vì 401 |
+
+`Ho_so_cua_chinh_minh_khi_chua_onboarding_van_404` **không có đột biến riêng nào giết nó** mà không giết luôn `PROF-03`:
+nó canh một cách hỏng cần người cố ý viết thêm nhánh (`if (userId == actorId) return ...`), không phải một dòng gõ sai.
+Giữ vì cái nhánh đó là thứ dễ bị đề xuất thêm vào nhất khi `D2` tới, và giá của nó là một lời gọi HTTP.
+
+**Chỗ lệch so với các bước trên — đã làm như sau:**
+
+- **Test khung của `D0` chết ở `D1`, không phải `D2`, và chết bằng `405` chứ không phải 400/200.** Bước 5 của `D0` đoán
+  `PUT /api/v1/users/me/profile` còn 404 cho tới khi `D2` nối action `PUT me/profile`. Sai: `ProfilesController` của `D1`
+  đã nhận route `api/v1/users`, nên đường dẫn đó khớp template `{userId}/profile` ngay ở tầng **routing** rồi mới lệch
+  method — ASP.NET Core chọn endpoint 405, và endpoint đó không mang metadata `[Authorize]` nên nhánh **ẩn danh cũng 405**,
+  không còn 401. Tức là (b) cũng hỏng, không chỉ (a). Đã **xóa cả test** trong commit này (nếp `D1` GĐ1) thay vì "xóa (a),
+  giữ (b)": hai khẳng định của nó có chỗ đứng thật hơn trong `ProfileTests` — token USER qua tầng 1 (404 chứ không 401) và
+  ẩn danh → 401, cả hai trên endpoint có thật. Mục 2 bước 5 và cạm bẫy `AddApplicationPart` đã sửa theo trong cùng commit.
+- **Thêm ngoài bốn nhánh của bước 4:** `Ho_so_cua_chinh_minh_khi_chua_onboarding_van_404`. Trông thừa cạnh `PROF-03`
+  nhưng nó canh đúng thứ Đ-2.4 dựa vào: service "ưu ái" người gọi (trả 200 hồ sơ rỗng, hoặc tự tạo hồ sơ) thì FE mất tín
+  hiệu onboarding mà không test nào khác đỏ. Và `me` vào danh sách id sai dạng, để `GET /users/me/profile` được chứng minh
+  là **400** chứ không phải một endpoint ẩn.
+- **`IProfileStore` chỉ có `FindAsync`.** Mục 1.5 liệt kê `UpsertAsync`/`SetAvatarKeyAsync` cùng file; chúng vào ở `D2`/`D3`
+  cùng commit với endpoint gọi chúng — khai trước là một dòng không test nào chạm tới. Cùng lý do với `ModulesTestClient` ở `D0`.
+- **`ToResponse` (entity → DTO, kèm ký `avatarUrl`) nằm ở `ProfileService`**, `private`. `D2`/`D3` cũng trả `ProfileResponse`
+  nên dùng lại đúng hàm này; tách ra mapper riêng chỉ có nghĩa khi có người gọi thứ hai ngoài service.
+- **`ProfileService` nhận `IObjectStorage` nhưng `AddProfileModule` KHÔNG đăng ký nó** — host làm việc đó (`Program.cs`,
+  `R2StorageExtensions`). Bốn chỗ dựng module trần (`new ServiceCollection()`, Mục 1.3 luật 1) vẫn xanh vì chúng chỉ
+  *đăng ký*, không resolve `ProfileService`.
+
+**Lỗi tìm ra khi rà, CHƯA sửa ở đây vì không thuộc `D1`:**
+`StartupConfigurationTests.Development_boots_without_r2_config_and_first_use_names_the_variables` (khối C) đỏ trên máy
+**đã có khóa R2 trong user-secrets** — Development lúc đó nhận `R2ObjectStorage` thật chứ không phải
+`UnconfiguredObjectStorage`, nên `HeadAsync` đi ra mạng thay vì ném `InvalidOperationException`. Đỏ **từ trước `D1`**
+(kiểm bằng cách stash và chạy lại trên `7419cea`), xanh trên CI vì CI không có user-secrets. Là test tự ràng vào môi
+trường máy chạy, thuộc khối C — sửa ở việc riêng.
 
 ---
 
