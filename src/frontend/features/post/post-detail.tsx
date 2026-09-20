@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { useCallback, useEffect, useState } from "react"
 
 import { FormAlert } from "@/components/form/form-alert"
@@ -12,7 +13,7 @@ import { errorMessage } from "@/lib/api/messages"
 import { ApiError } from "@/lib/api/problem"
 import type { PostResponse } from "@/lib/api/types"
 
-import { PostCard } from "./post-card"
+import { PostItem } from "./post-item"
 
 /**
  * Chi tiết một bài — `GET /posts/{postId}`.
@@ -37,6 +38,7 @@ type Loaded =
   | { key: string; error: string }
 
 export function PostDetail({ postId }: { postId: string }) {
+  const router = useRouter()
   const [data, setData] = useState<Loaded | null>(null)
   const [attempt, setAttempt] = useState(0)
 
@@ -60,10 +62,20 @@ export function PostDetail({ postId }: { postId: string }) {
     return () => controller.abort()
   }, [postId, attempt])
 
-  // Ảnh presigned hết hạn 15 phút: card nạp lại bài một lần và trả về bản mới (Đ-2.9).
-  const onRefreshed = useCallback(
-    (next: PostResponse) => setData({ key, post: next }),
-    [key]
+  /**
+   * Bài đổi: sửa xong (200 trả `PostResponse` mới), hoặc card nạp lại vì ảnh presigned hết hạn (Đ-2.9).
+   * `null` là vừa xóa — **rời trang ngay**: sau xóa mềm, `GET /posts/{id}` trả 404 kể cả với chính tác
+   * giả (Mục 7.3), nên ở lại là ở lại trên một URL đã chết.
+   */
+  const onChanged = useCallback(
+    (next: PostResponse | null) => {
+      if (next === null) {
+        router.replace("/me")
+        return
+      }
+      setData({ key, post: next })
+    },
+    [key, router]
   )
 
   if (current === null) {
@@ -95,7 +107,7 @@ export function PostDetail({ postId }: { postId: string }) {
     )
   }
 
-  return <PostCard post={current.post} standalone onRefreshed={onRefreshed} />
+  return <PostItem post={current.post} standalone onChanged={onChanged} />
 }
 
 /**

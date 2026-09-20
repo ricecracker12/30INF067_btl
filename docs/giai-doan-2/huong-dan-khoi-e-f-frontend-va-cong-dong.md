@@ -890,6 +890,80 @@ Lý do (Mục 8.2): FE so id thì mỗi chỗ render lặp một bản logic quy
 | Hiện "Bài đã bị xóa" cho 403 | Tiết lộ bài có tồn tại | Một câu chung (Bước 4) |
 | Sau xóa vẫn giữ card trong danh sách | Bấm vào → 404 | Gỡ khỏi state ngay sau 204 |
 
+### Thực tế thi công
+
+**Bằng chứng.** Vitest **418 → 441** (+23: `features/post/post-item.test.tsx` 19, cộng 2 ca xóa/sửa trong
+`user-posts.test.tsx` và 2 ca trong `post-detail.test.tsx`). `pnpm lint`, `typecheck`, `test`, `build` xanh cả
+bốn. Hợp đồng không đổi.
+
+**Kiểm tay trên `localhost:3000` với API + Postgres dev — ĐÃ CHẠY 2026-09-21, Chrome 153.0.8010.50**, tài khoản
+mới, ba bài:
+
+| Quan sát | Khớp với |
+|---|---|
+| Đổi **mỗi** mức riêng tư → PATCH mang đúng `{"privacy":"private"}`, **không** kèm `body` | Bước 2 — `edited_at` chỉ đóng dấu cho thay đổi có thật |
+| Nhãn "đã chỉnh sửa" hiện ngay sau 200, **không** gọi thêm `GET` | 200 trả nguyên `PostResponse` |
+| Xóa trên `/posts/{id}` → rời trang về `/me`, danh sách còn 2 bài | Bước 3 |
+| Mở lại URL cũ → trang "không tìm thấy", **HTTP 200** (trang render bình thường; 404 là của API) | Mục 7.4 — không phải lỗi 500 |
+| `GET /posts/{đã xóa}` bằng token của **chính tác giả** → **404** | Mục 7.3 |
+| `DELETE` lần hai → **403** | Xóa mềm; FE hiện một câu chung cho cả "của người khác" |
+
+**Bảng đột biến — mười sáu dòng, tất cả bị bắt** (áp một đột biến, chạy test, khôi phục; `git status` sạch
+trước và sau):
+
+| Đột biến | Test đỏ |
+|---|---|
+| Bỏ `canEdit`, luôn hiện nút Sửa/Xóa | `canEdit: false` → nút KHÔNG CÓ TRONG DOM |
+| Ẩn nút bằng CSS thay vì không render | như trên |
+| Luôn gửi cả `body` lẫn `privacy` | `chỉ đổi body → PATCH gửi ĐÚNG body` |
+| Xóa hết chữ gửi `null` thay vì `""` | `xóa hết chữ gửi ""` |
+| So `body` với rỗng thay vì với giá trị ban đầu | `gõ rồi xóa về đúng giá trị cũ thì Lưu TẮT lại` |
+| Nút Lưu không tắt khi chưa đổi gì | `nút Lưu TẮT khi chưa đổi gì` |
+| Bỏ chốt gửi khi patch rỗng | `submit form khi chưa đổi gì: KHÔNG gửi request` |
+| Bỏ `validationErrors`, mọi 400 lùi về bảng chung | `400 của server hiện theo key body` |
+| 403 khi sửa dùng câu của `post-read` | `403 khi sửa → MỘT câu không tiết lộ` |
+| Sửa xong không thoát chế độ sửa | `200 → thoát chế độ sửa` |
+| Xóa không hỏi xác nhận, gọi `DELETE` ngay | `bấm Xóa mở hộp thoại; chưa xác nhận thì KHÔNG gọi API` |
+| 403 khi xóa vẫn gỡ bài khỏi danh sách | `403 khi xóa: KHÔNG gỡ bài` |
+| 403 khi xóa nói thẳng "bài đã bị xóa" | `403 KHÔNG nói 'bài đã bị xóa'` |
+| 204 không báo ra ngoài (bài ở lại danh sách) | `xác nhận → DELETE, 204 thì báo bằng null` |
+| Danh sách không gỡ bài sau khi xóa | `xóa xong thì bài BIẾN MẤT khỏi danh sách` |
+| Trang chi tiết ở lại URL đã chết sau khi xóa | `xóa xong thì RỜI trang` |
+
+**Bốn đột biến LÚC ĐẦU lọt lưới** — ba trong số đó là cùng một bài học đã gặp ở `E5`:
+
+- **Bỏ chốt `if (!daDoi) return` trong `onSubmit`.** Xanh giả vì nút Lưu `disabled` đã chặn cú bấm — **lần thứ
+  hai** một chốt ở tầng dưới bị che bởi `disabled` (lần đầu là `pendingRef` của `E5`). Đã thêm ca
+  `fireEvent.submit(form)`: một form submit được bằng phím hay bằng script thì `disabled` trên một nút không
+  phải hàng rào.
+- **Danh sách không gỡ bài sau khi xóa**, và **trang chi tiết ở lại URL đã chết**: hai đột biến ở chỗ *nối*
+  `PostItem` vào `PostList`/`PostDetail`, mà test đơn vị của `PostItem` chỉ kiểm tới `onChanged(null)`. Đã thêm
+  hai ca **tích hợp** — xóa thật trong danh sách, xóa thật trên trang chi tiết.
+- **403 khi xóa vẫn gỡ bài.** Đã thêm ca khẳng định `onChanged` **không** được gọi: gỡ card sau một 403 là nói
+  dối theo chiều ngược lại — bài vẫn còn trên server.
+
+**Chỗ lệch so với kế hoạch — đã làm như sau:**
+
+- **File mới ngoài kế hoạch: `features/post/post-item.tsx`.** Bước 1 viết `{post.canEdit && <PostActions …/>}`
+  như thể card tự dựng nút. Nhưng "đang sửa bài nào" là **trạng thái**, mà `PostCard` phải giữ được tính thuần
+  (nhận một `post`, vẽ ra, không giữ gì của người dùng) — nếu không thì `PostList` và `PostDetail` mỗi bên dựng
+  một bản. `PostItem` là chỗ giữ trạng thái đó, dùng chung cho cả hai màn.
+- **`PostList` bỏ prop `renderActions`.** E5 để sẵn prop đó cho E6; hóa ra nó không đủ — nút và form phải đi
+  cùng nhau trong một component có state. Không ai từng truyền prop đó nên bỏ đi không phá gì.
+- **Sửa hai ca test của `E5` mà E6 làm đổi nghĩa**, không phải làm hỏng: ca "GĐ2 không có nút bình luận hay cảm
+  xúc" dùng `queryByRole("button")` để nói "không nút nào" — nay bài của chính mình có nút Sửa/Xóa, nên ca đó
+  đổi sang `canEdit: false`. Trộn hai chuyện vào một khẳng định là ca test đổi nghĩa mỗi lần thêm thao tác mới.
+  `post-detail.test.tsx` phải mock `next/navigation` vì `PostDetail` giờ điều hướng sau khi xóa.
+- **Form sửa nói thẳng "Không sửa được ảnh của bài đã đăng."** khi bài có ảnh. Bước 2 chỉ yêu cầu *không có* nút
+  thêm/bớt ảnh; thiếu một câu thì người dùng đi tìm nút không tồn tại.
+
+**Hai cạm bẫy mới:**
+
+| Cạm bẫy | Triệu chứng | Chặn bằng |
+|---|---|---|
+| `AlertDialogAction` của kit **đóng hộp thoại ngay khi bấm**, trước khi request xong | Người dùng bấm "Xóa bài", hộp thoại biến mất, và trong lúc chờ server không có gì trên màn cho biết đang xảy ra chuyện gì | `event.preventDefault()` trong `onClick`, tự đóng sau khi `DELETE` trả lời — thành công thì đóng, lỗi thì đóng và hiện câu lỗi |
+| Test đơn vị của một component "có thao tác" **không** phủ được chỗ nối nó vào màn | Ba đột biến ở `PostList`/`PostDetail` lọt lưới dù `PostItem` có 19 ca | Mỗi thao tác đổi dữ liệu cần **một** ca tích hợp ở từng màn nó xuất hiện — không nhiều hơn, nhưng không thiếu |
+
 ---
 
 ## 8. E7 — Nới CSP cho R2 + ghi **Đ-E17**

@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { http, HttpResponse } from "msw"
-import { beforeEach, describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { BFF_URL } from "@/lib/api/config"
 import type { PostResponse } from "@/lib/api/types"
@@ -10,6 +10,12 @@ import { server } from "@/mocks/node"
 import { fakeSession } from "@/mocks/session"
 
 import { PostDetail } from "./post-detail"
+
+// `PostDetail` rời trang sau khi xóa bài (E6 bước 3) — `useRouter` phải có ở mọi ca, kể cả ca không xóa.
+const replace = vi.fn()
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace }),
+}))
 
 // 404 của `GET /posts/{id}` có BA nghĩa (Mục 7.4): không tồn tại · đã xóa mềm (kể cả với chính tác giả,
 // Mục 7.3) · BR-02 không cho xem. Server cố ý trả cùng một phản hồi cho cả ba. File này giữ lời hứa rằng
@@ -35,6 +41,7 @@ const anh = (url: string) => ({
 })
 
 beforeEach(() => {
+  replace.mockClear()
   fakeSession.start()
 })
 
@@ -149,6 +156,59 @@ describe("PostDetail — ảnh presigned hết hạn (Đ-2.9)", () => {
     )
     // Bài vẫn hiện — người dùng đang đọc nó; đá họ sang trang "không tìm thấy" vì một tấm ảnh là quá tay.
     expect(screen.getByTestId("post-card")).toBeInTheDocument()
+  })
+})
+
+describe("PostDetail — xóa bài (E6)", () => {
+  it("xóa xong thì RỜI trang — URL cũ đã chết", async () => {
+    server.use(
+      http.get(POST, () => HttpResponse.json(bai({ canEdit: true }))),
+      http.delete(POST, () => new HttpResponse(null, { status: 204 }))
+    )
+    const user = userEvent.setup()
+    render(<PostDetail postId="p1" />)
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Xóa" })).toBeInTheDocument()
+    )
+    await user.click(screen.getByRole("button", { name: "Xóa" }))
+    await user.click(screen.getByRole("button", { name: "Xóa bài" }))
+
+    // Sau xóa mềm, `GET /posts/{id}` trả 404 kể cả với chính tác giả (Mục 7.3): ở lại là ở lại trên một
+    // URL sẽ trả "không tìm thấy" ngay lần tải lại đầu tiên.
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/me"))
+  })
+
+  it("sửa xong thì ở LẠI trang, hiện nội dung mới", async () => {
+    server.use(
+      http.get(POST, () =>
+        HttpResponse.json(bai({ canEdit: true, body: "Chào" }))
+      ),
+      http.patch(POST, () =>
+        HttpResponse.json(
+          bai({
+            canEdit: true,
+            body: "Đã sửa",
+            editedAt: "2026-09-21T03:00:00Z",
+          })
+        )
+      )
+    )
+    const user = userEvent.setup()
+    render(<PostDetail postId="p1" />)
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Sửa" })).toBeInTheDocument()
+    )
+    await user.click(screen.getByRole("button", { name: "Sửa" }))
+    const o = screen.getByLabelText("Nội dung")
+    await user.clear(o)
+    await user.type(o, "Đã sửa")
+    await user.click(screen.getByRole("button", { name: "Lưu" }))
+
+    await waitFor(() => expect(screen.getByText("Đã sửa")).toBeInTheDocument())
+    expect(replace).not.toHaveBeenCalled()
+    expect(screen.getByTestId("edited-badge")).toBeInTheDocument()
   })
 })
 

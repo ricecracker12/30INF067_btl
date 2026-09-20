@@ -8,9 +8,8 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
-import type { PostResponse } from "@/lib/api/types"
 
-import { PostCard } from "./post-card"
+import { PostItem } from "./post-item"
 import type { PostPageState } from "./use-post-page"
 
 // Danh sách bài của một người: `/me` (bài của mình) và `/users/{userId}` (bài của người khác). Cùng một
@@ -27,16 +26,9 @@ type Props = {
   emptyMessage: string
   /** `/me` có nút "Đăng bài đầu tiên"; hồ sơ người khác thì không. */
   emptyAction?: ReactNode
-  /** Nút Sửa/Xóa cho từng bài (E6). Card không tự dựng — quyền là `post.canEdit`, hành động là của màn. */
-  renderActions?: (post: PostResponse) => ReactNode
 }
 
-export function PostList({
-  page,
-  emptyMessage,
-  emptyAction,
-  renderActions,
-}: Props) {
+export function PostList({ page, emptyMessage, emptyAction }: Props) {
   // Trang đầu chưa về và chưa có lỗi: skeleton, KHÔNG để màn trắng và cũng không nháy câu "chưa có bài".
   if (!page.loaded && page.items.length === 0 && page.error === null) {
     return <PostListSkeleton />
@@ -49,11 +41,13 @@ export function PostList({
       {page.items.map((post) => (
         // `key` theo `postId`, KHÔNG theo index: nối trang mà dùng index thì bài nhảy chỗ và React giữ
         // nhầm state của card cũ.
-        <PostCard
+        // `PostItem` chứ không `PostCard`: nút Sửa/Xóa và chế độ sửa là trạng thái của TỪNG dòng, và
+        // `onChanged(null)` sau khi xóa gỡ luôn bài khỏi danh sách — để lại card cũ là để lại một liên
+        // kết chết (sau xóa mềm, `GET /posts/{id}` trả 404 kể cả với tác giả).
+        <PostItem
           key={post.postId}
           post={post}
-          actions={renderActions?.(post)}
-          onRefreshed={(next) => page.replaceItem(next.postId, next)}
+          onChanged={(next) => page.replaceItem(post.postId, next)}
         />
       ))}
 

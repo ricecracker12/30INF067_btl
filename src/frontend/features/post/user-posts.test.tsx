@@ -8,7 +8,7 @@ import {
 } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { delay, http, HttpResponse } from "msw"
-import { beforeEach, describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { BFF_URL } from "@/lib/api/config"
 import type { PostPage, PostResponse } from "@/lib/api/types"
@@ -19,6 +19,12 @@ import { fakeSession } from "@/mocks/session"
 import { ComposeFirstPostButton } from "./post-list"
 import { useUserPosts } from "./use-post-page"
 import { UserPosts } from "./user-posts"
+
+// `PostItem` (E6) rời trang sau khi xóa ở chế độ `standalone`; trong danh sách thì không, nhưng
+// `useRouter` vẫn phải có vì cùng một component.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace: vi.fn() }),
+}))
 
 // Cursor keyset của Đ-2.11 nhìn từ phía client. Khuôn này GĐ4 (feed) và GĐ5 (lịch sử hội thoại) sẽ chép
 // lại (Mục 17), nên ba luật dưới đây phải có test canh, không phải chỉ có comment:
@@ -311,6 +317,63 @@ describe("UserPosts — trạng thái rỗng và lỗi", () => {
   })
 })
 
+describe("UserPosts — xóa bài trong danh sách (E6)", () => {
+  it("xóa xong thì bài BIẾN MẤT khỏi danh sách, không để lại liên kết chết", async () => {
+    phucVuHaiTrang(
+      trang([bai("p1", { canEdit: true }), bai("p2", { canEdit: true })], null),
+      trang([], null)
+    )
+    server.use(
+      http.delete(
+        `${BFF_URL}/api/posts/:postId`,
+        () => new HttpResponse(null, { status: 204 })
+      )
+    )
+    const user = userEvent.setup()
+    moManHinh()
+
+    await waitFor(() => expect(cards()).toHaveLength(2))
+    await user.click(within(cards()[0]!).getByRole("button", { name: "Xóa" }))
+    await user.click(screen.getByRole("button", { name: "Xóa bài" }))
+
+    // Sau xóa mềm, `GET /posts/{id}` trả 404 KỂ CẢ với tác giả (Mục 7.3) — giữ card lại là giữ một
+    // liên kết bấm vào ra 404.
+    await waitFor(() => expect(cards()).toHaveLength(1))
+    expect(cards().map((c) => c.dataset.postId)).toEqual(["p2"])
+  })
+
+  it("sửa xong thì card trong danh sách hiện nội dung mới và nhãn 'đã chỉnh sửa'", async () => {
+    phucVuHaiTrang(
+      trang([bai("p1", { canEdit: true, body: "Chào", editedAt: null })], null),
+      trang([], null)
+    )
+    server.use(
+      http.patch(`${BFF_URL}/api/posts/:postId`, () =>
+        HttpResponse.json(
+          bai("p1", {
+            canEdit: true,
+            body: "Đã sửa",
+            editedAt: "2026-09-21T03:00:00Z",
+          })
+        )
+      )
+    )
+    const user = userEvent.setup()
+    moManHinh()
+
+    await waitFor(() => expect(cards()).toHaveLength(1))
+    await user.click(within(cards()[0]!).getByRole("button", { name: "Sửa" }))
+    const o = screen.getByLabelText("Nội dung")
+    await user.clear(o)
+    await user.type(o, "Đã sửa")
+    await user.click(screen.getByRole("button", { name: "Lưu" }))
+
+    await waitFor(() => expect(cards()).toHaveLength(1))
+    expect(screen.getByText("Đã sửa")).toBeInTheDocument()
+    expect(screen.getByTestId("edited-badge")).toBeInTheDocument()
+  })
+})
+
 describe("PostCard — nội dung một bài", () => {
   it("`reactionCounts: {}` rỗng render được, KHÔNG phải `null` (Đ-2.12)", async () => {
     phucVuHaiTrang(
@@ -336,7 +399,12 @@ describe("PostCard — nội dung một bài", () => {
   })
 
   it("GĐ2 KHÔNG có nút bình luận hay cảm xúc — endpoint là GĐ3", async () => {
-    phucVuHaiTrang(trang([bai("p1")], null), trang([], null))
+    // `canEdit: false` để phép đo này chỉ nói về bình luận/cảm xúc: bài của chính mình có nút Sửa/Xóa
+    // (E6), và trộn hai chuyện vào một khẳng định là ca test đổi nghĩa mỗi khi thêm thao tác mới.
+    phucVuHaiTrang(
+      trang([bai("p1", { canEdit: false })], null),
+      trang([], null)
+    )
     moManHinh()
 
     await waitFor(() => expect(cards()).toHaveLength(1))
