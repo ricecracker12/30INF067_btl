@@ -1,0 +1,25 @@
+# Stack khôi phục — project RIÊNG `socialapp-restore`, volume RIÊNG, cổng RIÊNG. Không bao giờ chạm
+# pgdata của staging/production. Dùng qua deploy/restore.sh (A5 drill và sự cố thật — runbook-khoi-phuc.md).
+#
+# Image PHẢI cùng dòng với stack gốc (postgres:16 Debian/glibc). Khôi phục vào -alpine (musl) là
+# collation khác → index text hỏng ngầm, không báo lỗi.
+name: socialapp-restore
+
+volumes:
+  pgdata-restore:
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      # Chỉ để entrypoint không từ chối chạy; dữ liệu khôi phục mang mật khẩu của DB gốc.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-restore-drill}
+    ports: ["127.0.0.1:15432:5432"]   # chỉ localhost; khác 5432/18080 để không đụng stack nào
+    volumes:
+      - pgdata-restore:/var/lib/postgresql/data
+      - ./backups:/backups:ro           # base/ wal/ dump/ — chỉ đọc: drill không được phép sửa bản sao
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U socialapp -d socialapp"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
