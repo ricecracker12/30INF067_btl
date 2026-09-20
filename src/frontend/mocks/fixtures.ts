@@ -80,6 +80,26 @@ export const uploadTicket = {
   },
 } satisfies T.UploadTicket
 
+/**
+ * Kịch bản của luồng ảnh, chọn bằng **dữ liệu nhập** chứ không bằng cờ ẩn — đúng nếp `SCENARIO_EMAILS`
+ * của GĐ1: test đọc là thấy nhánh nào đang chạy, và mock **giống server hơn** một `server.use` trả cùng
+ * một mã cho mọi request.
+ *
+ * `sizeBytes` là chỗ móc tự nhiên nhất: nó đi từ `imageFileError` của client, qua thân presign, tới
+ * `mediaKey` server ký — tức là một con số duy nhất lái được cả chuỗi ba bước.
+ */
+export const MEDIA_SCENARIO = {
+  /**
+   * File có đúng dung lượng này làm `POST /media/uploads` cấp một `mediaKey` **đã gắn vào bài khác**;
+   * `POST /posts` sau đó trả **409** (BR-03). Dựng được cả chuỗi thay vì chặn thẳng ở bước cuối — nhờ
+   * vậy ca test chứng minh luôn rằng client gửi lại đúng key nó vừa nhận.
+   */
+  sizeBytesKeyDaDung: 4_242,
+} as const
+
+/** `mediaKey` mà server coi là đã dùng ở bài khác — cấp bởi kịch bản `sizeBytesKeyDaDung`. */
+export const mediaKeyDaDung = `posts/${userId}/anh-da-dung.jpg`
+
 export const postId = "0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a20"
 /** Bài không đọc được (không tồn tại / BR-02 không đạt / đã xóa mềm) — hợp đồng trả 404 cho cả ba. */
 export const postIdKhongDocDuoc = "0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a21"

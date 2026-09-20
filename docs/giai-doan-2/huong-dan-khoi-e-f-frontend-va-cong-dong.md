@@ -263,7 +263,16 @@ B.8 ghi `F2` là *"Frontend trỏ staging thật, **bỏ mock**"*. Nhưng **mock
 
 - **Đề xuất:** `F2` giữ nguyên mã việc nhưng nội dung là: (a) **xác nhận** `mocks/` chỉ còn phục vụ Vitest bằng một
   lệnh grep, (b) phần chính là **kiểm tab Network trên staging**. Ghi ngược một mệnh đề vào B.8.
-- **Lệnh xác nhận (a):** `grep -rn "@/mocks" app features components lib` → **không dòng nào**.
+- **Lệnh xác nhận (a)** *(sửa 2026-09-21 khi thi công `E8`)*: lệnh cũ `grep -rn "@/mocks" app features
+  components lib` ra **44 dòng** và tất cả đều là file `.test.tsx` — luật thật là **code app** không import
+  mocks, còn file test thì phải import. Lệnh đúng:
+
+  ```
+  grep -rn "@/mocks" app features components lib --include="*.ts" --include="*.tsx" | grep -v "\.test\."
+  ```
+
+  → **không dòng nào** (đã chạy 2026-09-21). Giữ nguyên lệnh cũ là `F2` dừng vì một cổng sai, và người chạy
+  sẽ đi sửa thứ không hỏng.
 
 #### Q-E8 — Playwright có vào CI ở GĐ2 không? ✅ **chốt 2026-09-20 theo đề xuất**
 
@@ -1067,6 +1076,89 @@ kích nhánh 400, `mediaKey` đặc biệt kích 409.
 | Sinh ảnh lúc chạy | Byte không phải JPEG hợp lệ → R2 vẫn nhận, nhưng lỗi trông hệt CORS | Ảnh thật trong `e2e/fixtures/` |
 | E2E để lại bài rác trên bucket `-dev` | Bucket phình dần | Spec tự xóa bài ở bước cuối; phần còn lại worker dọn sau 24 giờ |
 | `onUnhandledRequest: "error"` của MSW chặn lượt `PUT` tới R2 giả | Test đỏ vì thiếu handler, không phải vì code sai | Thêm handler cho host R2 trong `mocks/handlers.ts` |
+
+### Thực tế thi công
+
+**Bước 1 — rà Vitest: không thiếu dòng nào.** Bốn nhóm của Mục 10.5 dòng 1 đã viết xong cùng `E2`–`E6`:
+BR-01 phía client (`lib/validation/post.test.ts`, 12 ca) · nhánh 400/403/409 của composer · một ảnh lỗi không
+hủy cả lô · nối trang theo cursor. File test nằm cạnh mã nguồn. *Lệch nhỏ đã có từ GĐ1:* `test/` chứa cả
+`server-only.ts` — shim cho alias của Vitest, không phải test; để nguyên.
+
+**Bước 2 — kịch bản chọn bằng DỮ LIỆU NHẬP.** `mocks/handlers.ts` đã phủ `/bff/api/users/*`,
+`/bff/api/posts/*`, `/bff/api/media/uploads` và host R2 giả từ `E1`; `E8` thêm phần còn thiếu là *kịch bản*:
+một `sizeBytes` cụ thể (`MEDIA_SCENARIO.sizeBytesKeyDaDung`) lấy về một `mediaKey` mà `POST /posts` coi là đã
+gắn vào bài khác → **409** (BR-03). Giá trị thật của nó không phải là "có thêm một nhánh", mà là **mock giống
+server hơn**: một `server.use` trả 409 cho mọi request chứng minh được ít hơn hẳn. Ca test dùng nó đi hết
+chuỗi ba bước và khẳng định thêm một điều mà ca cũ không nói được — **client gửi lại đúng `mediaKey` nó vừa
+nhận lúc presign**. Vitest **441 → 442**.
+
+**Bước 3 — ảnh fixture thật, commit vào repo.** `e2e/fixtures/anh-nho.jpg` (5.209 byte) và `anh-nho.png`
+(16.592 byte), 80×60 nhiễu ngẫu nhiên, sinh một lần bằng `System.Drawing` của Windows rồi **kiểm byte**: JPEG
+có `FFD8`/`FFD9` và khối `JFIF`; PNG có chữ ký và chunk `IEND`. Không sinh lúc chạy (Q-E8).
+
+**Bước 4 — sáu spec.** Bốn spec mới (`onboarding`, `post-create`, `post-edit-delete`, `post-forbidden`) và hai
+spec mở rộng (`csp`, `login-storage`), cộng `e2e/post-helpers.ts` cho phần dựng tài khoản/bài mà cả bốn đều cần.
+
+**Bằng chứng cuối (Bước 5).** `pnpm test:e2e` cả bộ, **Chrome 153.0.8010.50**, `workers: 1`, API + Postgres +
+Redis + Mailpit dev + bucket `socialmedia-dev`:
+
+```
+1 skipped
+17 passed (7.9m)
+```
+
+Ca `skipped` là `single-flight.spec.ts` — skip **có điều kiện** từ GĐ1 (cần access token hết hạn thật), đúng ý đồ,
+không phải ca bị tắt. Vitest: **442 passed**, `lint` / `typecheck` / `build` xanh.
+
+**Bước 5 — và đây là chỗ `E8` trả về nhiều nhất: chạy cả bộ lần đầu làm lộ một HỒI QUY đã sống ba commit.**
+
+Bốn spec của **GĐ1** đỏ, và không phải vì `E8`:
+
+| Spec | Ca |
+|---|---|
+| `csp.spec.ts` | luồng đăng nhập → `/me` → tải lại → đăng xuất |
+| `guard.spec.ts` | đăng nhập → `/me` hiện `roleDisplayName`; đăng xuất → `/login` |
+| `login-storage.spec.ts` | trình duyệt KHÔNG thấy JWT |
+| `login-storage.spec.ts` | CSRF: logout từ Origin khác bị 403 |
+
+Cả bốn dựng tài khoản bằng `taoTaiKhoanDaXacMinh` — **đã xác minh nhưng CHƯA CÓ HỒ SƠ** — rồi chờ `me-profile`
+trên `/me`. Từ commit **`0aacb96` (`E2`)**, `RequireProfile` đá mọi tài khoản chưa onboarding sang `/onboarding`,
+nên `me-profile` không bao giờ xuất hiện. Bốn ca này đã đỏ suốt `E2` → `E6` mà **không ai biết**: Playwright không
+vào CI (Q-E8, Đ-E8), và mỗi đầu việc chỉ chạy spec liên quan tới chính nó.
+
+Đã sửa: bốn ca chuyển sang `taoTaiKhoanCoHoSo` — hồ sơ là **tiền đề** của chúng, không phải thứ chúng kiểm. Mỗi ca
+tốn thêm một lượt `/auth/*` (khai lại trong `giuHanMucAuth`).
+
+**Bài học, và nó lớn hơn bốn ca:** một bộ E2E không ai chạy cả lượt thì không phải cổng, nó là bốn file đỏ chờ
+người phát hiện. Đề nghị thêm vào checklist khối E (Mục 16) một dòng — *"`pnpm test:e2e` chạy CẢ BỘ, xanh, kèm bản
+Chrome"* — và coi nó là cổng của **`F3`**, không phải của từng đầu việc: cả bộ tốn ~7 phút, bắt chạy mỗi commit là
+không thực tế, nhưng đóng khối mà chưa chạy lần nào thì con số dán vào PR không có nghĩa gì.
+
+**Chỗ lệch so với kế hoạch — đã làm như sau:**
+
+- **Sửa `e2e/dev-api.ts` của GĐ1: ngân sách hạn mức `/auth/*` chuyển từ BIẾN MODULE sang MỘT FILE.** Đây không
+  phải dọn dẹp tùy hứng mà là điều kiện để `Bước 5` có gì để dán: cả bộ **không chạy nổi một lượt**. Playwright
+  **khởi động lại worker sau mỗi test thất bại**, nên `used` về 0, lượt khai kế tiếp không chờ, và một ca 429
+  kéo cả bộ đổ theo dây chuyền — đo được **11/18 spec đỏ, cả bộ chạy hết 40 giây** vì không chờ lần nào. File
+  trong `tmpdir()` làm ngân sách sống qua cả worker restart lẫn hai lượt `playwright test` liền nhau.
+- **Thêm `e2e/post-helpers.ts` ngoài danh sách sáu spec.** Bốn spec đều cần đúng một thứ — "một tài khoản đã
+  xác minh **và đã có hồ sơ**" — mà `taoTaiKhoanDaXacMinh` của GĐ1 dừng ở bước xác minh. Bốn bản chép là bốn chỗ
+  để lệch khi hợp đồng `PUT /users/me/profile` đổi.
+- **`post-forbidden.spec.ts` kiểm CẢ HAI VẾ của "một câu".** Bước 4 chỉ yêu cầu "B mở bài private của A → một
+  câu, không lộ tồn tại". Nhưng một câu **tự nó** không chứng minh gì: phép thử thật là so nó với câu của một
+  `postId` **không tồn tại** và đòi hai câu **bằng nhau từng ký tự**. Hai câu khác nhau ở đây nghĩa là người lạ
+  phân biệt được "bài có thật mà tôi không được xem" với "không có bài nào".
+- **Mỗi spec tự dọn bài ở bước cuối** (`donBai`) — cạm bẫy "E2E để lại bài rác trên bucket `-dev`". Xóa mềm là
+  tất cả FE/API làm được; object do worker dọn sau (Đ-2.13).
+
+**Hai cạm bẫy mới:**
+
+| Cạm bẫy | Triệu chứng | Chặn bằng |
+|---|---|---|
+| "Chuyển tiếp tới handler mặc định" bằng `fetch` cùng URL trong một `server.use` | **Đệ quy vô hạn** — chính msw bắt lại request đó; worker Vitest chết với **exit 134**, và báo cáo ghi "11 passed (14)" trông như một ca treo | Ghi thân request bằng `server.events.on("request:start")` + `request.clone().json()`, KHÔNG override handler đang cần kiểm |
+| Ngân sách hạn mức giữ trong biến module của harness Playwright | Một ca 429 làm worker restart → ngân sách về 0 → 429 dây chuyền; cả bộ "chạy xong" trong 40 giây mà không chờ lần nào | Ngân sách ra file (xem chỗ lệch ở trên). **Vẫn phải nhớ:** hai lượt chạy cách nhau dưới 75 giây thì lượt sau tự chờ, đó là đúng — không phải test treo |
+| Ghi `ref.current` trong THÂN RENDER (`use-post-page.ts`, `E5`) | Chưa vỡ hôm nay; vỡ khi GĐ4 dùng transition — một render bị hủy vẫn kịp ghi đè, và lượt đọc sau lấy giá trị của render không bao giờ commit | Đồng bộ trong `useEffect` không deps. `loadMore` luôn chạy trong event handler, tức sau commit, nên vẫn thấy đúng giá trị đang hiển thị |
+| Kịch bản mock chọn theo `sizeBytes` áp cho **mọi** `purpose` | Một file đúng 4.242 byte làm test **avatar** đỏ với câu "Ảnh này không thuộc về bạn" — `mediaKeyDaDung` mang tiền tố `posts/`, mà `PUT /users/me/avatar` từ chối key ngoài `avatars/` | Kịch bản chỉ áp khi `purpose === "post"` |
 
 ---
 

@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test"
 
-import { giuHanMucAuth, taoTaiKhoanDaXacMinh } from "./dev-api"
+import { giuHanMucAuth } from "./dev-api"
+import { ANH_JPG, dangNhapUi, donBai, taoTaiKhoanCoHoSo } from "./post-helpers"
 
 // Đ-E15 — Content-Security-Policy có nonce, kiểm trên trình duyệt thật: script của app chạy được, script chèn vào thì
 // không. Chạy được cả trên `pnpm dev` (CSP dev có 'unsafe-eval') lẫn bản build (`PLAYWRIGHT_BASE_URL`).
@@ -98,9 +99,13 @@ test("luồng đăng nhập → /me → tải lại → đăng xuất: không vi
   page,
   request,
 }) => {
-  // register + verify + login trên UI + logout
-  await giuHanMucAuth(4)
-  const { email, password } = await taoTaiKhoanDaXacMinh(request, "csp")
+  // register + verify + login API (dựng hồ sơ) + login UI + logout
+  await giuHanMucAuth(5)
+  // HỒ SƠ là TIỀN ĐỀ, không phải thứ ca này kiểm: từ `E2`, `RequireProfile` đá mọi tài khoản chưa
+  // onboarding sang `/onboarding`, nên `taoTaiKhoanDaXacMinh` (chỉ xác minh, chưa có hồ sơ) không bao giờ
+  // tới được `/me`. Bốn ca của GĐ1 đã đỏ vì điều này từ commit E2 và không ai biết — Playwright không vào
+  // CI (Q-E8), và tới `E8` mới có người chạy cả bộ.
+  const { email, password } = await taoTaiKhoanCoHoSo(request, "csp", "An CSP")
   await ghiViPham(page)
 
   await page.goto("/login?next=%2Fme")
@@ -117,4 +122,54 @@ test("luồng đăng nhập → /me → tải lại → đăng xuất: không vi
   await page.getByRole("button", { name: "Đăng xuất" }).click()
   await expect(page).toHaveURL(/\/login$/)
   expect(await viPham(page)).toEqual([])
+})
+
+// --- E8 mở rộng: Đ-E17 ---
+//
+// `E7` đã kiểm rằng header CSP CÓ host R2 trong `connect-src` và `img-src`. Ca dưới đây kiểm điều khác
+// hẳn, và là điều duy nhất đáng tin: CSP **không chặn** lượt `PUT` thật lên R2. Header đúng mà host lệch
+// một ký tự thì lượt `PUT` chết, và triệu chứng của nó **giống hệt** CORS sai — đúng ca ISS-02.
+
+test("CSP không chặn PUT lên R2: upload ảnh thật, không vi phạm connect-src nào", async ({
+  page,
+  request,
+}) => {
+  await giuHanMucAuth(4)
+  const tk = await taoTaiKhoanCoHoSo(request, "csp-r2", "An CSP R2")
+  await ghiViPham(page)
+
+  await dangNhapUi(page, tk)
+  await page.goto("/compose")
+  await page.getByLabel("Nội dung").fill("CSP không chặn PUT.")
+  await page.getByRole("radio", { name: /Chỉ mình tôi/ }).click()
+  await page.getByLabel(/^Ảnh \(tối đa/).setInputFiles(ANH_JPG)
+
+  const dong = page.getByTestId("upload-row")
+  await expect(dong).toHaveCount(1)
+  // `xong` nghĩa là lượt `PUT` tới host R2 đã trả 2xx — CSP cho đi, CORS cho đi, chữ ký đúng.
+  await expect(dong).toHaveAttribute("data-status", "xong", { timeout: 60_000 })
+
+  await page.getByRole("button", { name: "Đăng bài" }).click()
+  await expect(page.getByTestId("post-created")).toBeVisible({
+    timeout: 30_000,
+  })
+
+  // Không vi phạm nào — đặc biệt không `connect-src` (chặn `PUT`) và không `img-src` (chặn ảnh hiện ra).
+  expect(await viPham(page)).toEqual([])
+
+  await page.goto("/me")
+  const card = page.getByTestId("post-card").first()
+  await expect(card.getByTestId("post-image")).toHaveCount(1)
+  await expect
+    .poll(async () =>
+      card
+        .getByTestId("post-image")
+        .first()
+        .evaluate((img) => (img as HTMLImageElement).naturalWidth)
+    )
+    .toBeGreaterThan(0)
+  expect(await viPham(page)).toEqual([])
+
+  const postId = await card.getAttribute("data-post-id")
+  await donBai(request, tk, postId ? [postId] : [])
 })

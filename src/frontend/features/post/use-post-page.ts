@@ -71,10 +71,17 @@ export function useUserPosts(userId: string | null): PostPageState {
   // Dữ liệu của lượt xem KHÁC thì coi như chưa có gì — không cần xóa state, chỉ cần không đọc nó.
   const current = data?.key === key ? data : null
 
-  // Bản sao đồng bộ để `loadMore` (trong sự kiện bấm) thấy cursor mới nhất, chứ không phải giá trị của
-  // lần render đang treo; và để chặn gọi đôi.
+  // Bản sao để `loadMore` (trong sự kiện bấm) thấy cursor mới nhất, chứ không phải giá trị của lần render
+  // đang treo; và để chặn gọi đôi.
+  //
+  // Đồng bộ trong EFFECT, không gán thẳng khi render: React cấm ghi `ref.current` lúc render vì một render
+  // bị hủy (transition, Suspense) vẫn kịp ghi đè, và lượt đọc sau đó lấy giá trị của render không bao giờ
+  // commit. Effect không deps chạy sau MỌI commit, còn `loadMore` luôn chạy trong event handler — tức là
+  // sau commit — nên nó vẫn thấy đúng giá trị đang hiển thị.
   const currentRef = useRef<Loaded | null>(null)
-  currentRef.current = current
+  useEffect(() => {
+    currentRef.current = current
+  })
   const pendingRef = useRef(false)
   const seenRef = useRef(new Set<string>())
   // Tăng mỗi lượt xem mới — lượt gọi của `userId` cũ về muộn sẽ bị bỏ, không ghi đè danh sách mới.

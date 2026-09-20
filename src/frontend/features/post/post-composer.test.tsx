@@ -4,7 +4,7 @@ import { http, HttpResponse } from "msw"
 import { beforeEach, describe, expect, it } from "vitest"
 
 import { BFF_URL } from "@/lib/api/config"
-import { r2Host } from "@/mocks/fixtures"
+import { MEDIA_SCENARIO, mediaKeyDaDung, r2Host } from "@/mocks/fixtures"
 import { server } from "@/mocks/node"
 import { fakeSession } from "@/mocks/session"
 
@@ -348,6 +348,49 @@ describe("PostComposer — POST /posts", () => {
       screen.getByText("Một ảnh không được đính kèm hai lần.")
     ).toBeInTheDocument()
     expect(screen.getByText("Mức riêng tư là bắt buộc.")).toBeInTheDocument()
+  })
+
+  it("409 dựng từ CHUỖI THẬT: ảnh lên xong, key đã dùng ở bài khác (BR-03)", async () => {
+    // Khác ca 409 bên dưới: ở đây mock KHÔNG trả 409 cho mọi request, nó chỉ trả 409 khi `mediaKeys` thật
+    // sự mang một key đã gắn vào bài khác (kịch bản chọn bằng dữ liệu nhập, E8 bước 2). Nhờ vậy ca này
+    // chứng minh thêm một điều mà một `server.use` trả thẳng 409 không chứng minh được: client gửi lại
+    // ĐÚNG `mediaKey` nó vừa nhận lúc presign.
+    // Ghi thân request qua SỰ KIỆN, không qua `server.use`: override handler ở đây là thay luôn nhánh
+    // 409 đang cần kiểm. (Đừng thử "chuyển tiếp" bằng `fetch` cùng URL — chính msw bắt lại và thành đệ
+    // quy vô hạn, worker Vitest chết với exit 134.)
+    const bodies: { mediaKeys?: { mediaKey: string }[] }[] = []
+    server.events.on("request:start", ({ request }) => {
+      if (request.method !== "POST" || !request.url.endsWith("/api/posts"))
+        return
+      void request
+        .clone()
+        .json()
+        .then((b) => bodies.push(b as { mediaKeys?: { mediaKey: string }[] }))
+    })
+    const user = nguoiDung()
+    render(<PostComposer />)
+
+    await user.type(oNoiDung(), "Ảnh này đã dùng rồi.")
+    await user.click(screen.getByRole("radio", { name: /Công khai/ }))
+    await user.upload(
+      oAnh(),
+      anh("da-dung.jpg", "image/jpeg", MEDIA_SCENARIO.sizeBytesKeyDaDung)
+    )
+    await waitFor(() =>
+      expect(dongAnh().every((row) => row.dataset.status === "xong")).toBe(true)
+    )
+
+    await user.click(nutDang())
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "Ảnh này đã được dùng trong một bài khác. Hãy chọn lại ảnh."
+        )
+      ).toBeInTheDocument()
+    )
+    // Key gửi lên phải đúng key nhận lúc presign — không dựng lại, không sửa.
+    expect(bodies[0]?.mediaKeys?.[0]?.mediaKey).toBe(mediaKeyDaDung)
   })
 
   it("403 và 409 ra HAI câu khác nhau — cùng ngữ cảnh `post-create`", async () => {

@@ -5,7 +5,9 @@ import { BFF_URL } from "@/lib/api/config"
 import type * as T from "@/lib/api/types"
 
 import {
+  MEDIA_SCENARIO,
   me,
+  mediaKeyDaDung,
   post,
   postIdKhongDocDuoc,
   postIdKhongSuaDuoc,
@@ -245,7 +247,17 @@ export const handlers = [
     return HttpResponse.json(
       body.files.map((f, i) => ({
         ...uploadTicket,
-        mediaKey: `${prefix}/${userId}/anh-${i}.jpg`,
+        // Kịch bản theo dữ liệu nhập (E8 bước 2): một dung lượng cụ thể lấy về `mediaKey` mà `POST /posts`
+        // coi là đã gắn vào bài khác. Server thật không nhìn `sizeBytes` để chọn key; ở đây nó chỉ là cái
+        // móc để dựng nhánh 409 mà KHÔNG phải cho một `server.use` trả 409 cho mọi request.
+        // CHỈ cho `purpose: "post"`: `mediaKeyDaDung` mang tiền tố `posts/`, mà `PUT /users/me/avatar` từ
+        // chối mọi key không nằm dưới `avatars/{userId}/` (Đ-2.7). Áp cho cả avatar thì một file đúng 4.242
+        // byte sẽ làm test avatar đỏ với câu "Ảnh này không thuộc về bạn" — nghi phạm sai hoàn toàn.
+        mediaKey:
+          body.purpose === "post" &&
+          f.sizeBytes === MEDIA_SCENARIO.sizeBytesKeyDaDung
+            ? mediaKeyDaDung
+            : `${prefix}/${userId}/anh-${i}.jpg`,
         uploadUrl: `${r2Host}/socialmedia-dev/${prefix}/anh-${i}.jpg?X-Amz-Signature=gia`,
         requiredHeaders: {
           "Content-Type": f.contentType,
@@ -265,6 +277,15 @@ export const handlers = [
 
   http.post(url(`${BFF_ROUTES.api}/posts`), async ({ request }) => {
     const body = (await request.json()) as T.CreatePostRequest
+    // BR-03: một ảnh chỉ gắn được vào MỘT bài. 409, không phải 400 — ảnh đó không dùng lại được, người
+    // dùng phải chọn lại ảnh khác.
+    if ((body.mediaKeys ?? []).some((m) => m.mediaKey === mediaKeyDaDung)) {
+      return problemResponse(
+        409,
+        "Xung đột",
+        "Ảnh đã được dùng trong một bài khác."
+      )
+    }
     // BR-01: body rỗng thì phải có ít nhất một ảnh.
     if (!body.body?.trim() && (body.mediaKeys ?? []).length === 0) {
       return validationResponse({
