@@ -1093,6 +1093,71 @@ phòng tác giả theo Q-D8.
 - **Đường `403` cho "chưa có hồ sơ" và "key của người khác" trả hai `detail` khác nhau** → status code không lộ nhưng thông
   điệp lộ. Cả hai đều `Result.Forbidden()` — yaml ghi rõ *"cùng một phản hồi, không nêu lý do nào"*.
 
+### Thực tế thi công
+
+**Bằng chứng.** `dotnet test SocialApp.sln`: Unit 155 → 186 (+17 `CreatePostRequestValidatorTests`, +6 `PostResponseMapperTests`,
++8 ca `Theory`), Architecture 13 (không đổi), Integration 245 → 262 (+17 `CreatePostTests`). Còn đúng ba đỏ, không cái nào
+thuộc D5: hai dòng matrix `TC-A03`/`TC-A03-delete` (chờ `D7`/`D8`) và một đỏ nền của máy dev
+(`StartupConfigurationTests.Development_boots_without_r2_config_…` — user-secrets local có khóa R2; CI không có nên xanh).
+
+**`TC-A03-media` đỏ → XANH ở commit này** — đúng thứ `D5` sinh ra để làm. Trạng thái matrix sau `D5`: 15/17 dòng xanh.
+
+Thử cho đỏ ở local rồi khôi phục — bảy đột biến, đều bị bắt, `git status` sạch trước và sau:
+
+| Đột biến | Test đỏ |
+|---|---|
+| Bỏ kiểm tiền tố `posts/{actorId}/` (Đ-2.7) | `TC_A03_media_anh_cua_nguoi_khac_…` **+ dòng matrix `TC-A03-media`** |
+| Bỏ vòng lặp `HEAD` (Đ-2.8 lớp 2) | `Object_chua_tai_len_thi_400_va_HEAD_da_chay_du_so_key` |
+| `MediaCount = 0` lúc INSERT | `AC_01_…` + `Bai_chi_co_anh_khong_co_chu_…` (`ck_posts_not_empty` nổ ngay ở INSERT) |
+| Store nuốt unique violation (trả `true`) | `POST_08_dung_lai_anh_da_gan_bai_khac_tra_409_…` |
+| Bỏ kiểm "đã có hồ sơ" (Đ-2.4) | `Chua_co_ho_so_thi_403_co_ho_so_roi_thi_201_cung_mot_request` |
+| `reactionCounts` → `null` khi rỗng (Đ-2.12) | 2 integration + `PostResponseMapperTests.reactionCounts_rong_…` |
+| `canEdit` luôn `true` | 2 ca của `PostResponseMapperTests` |
+
+Dòng đầu bảng là dòng quan trọng nhất của cả khối B lẫn khối D: nó **chứng minh việc mở khung ở `Q-B2` có giá trị thật**.
+Bảng đột biến của `B3` (Bước 2) ghi *"Bỏ kiểm tiền tố … → `TC-A03-media`; **vẫn xanh nghĩa là `Q-B2` chưa xử lý**"* — đã
+thử, và nó đỏ.
+
+**Chỗ lệch so với các bước trên — đã làm như sau:**
+
+- **Bước 1: KHÔNG dùng `RuleForEach(...).ChildRules(...).OverridePropertyName("mediaKeys")`.** Cùng lý do đã đo bằng máy ở
+  `D4`: FluentValidation ghép chỉ số và tên trường con vào **sau** tên đã ghi đè, cho ra `mediaKeys[0].MediaKey` thay vì
+  `mediaKeys` mà hợp đồng đòi (`CreateUploadsRequestValidatorTests.Vi_sao_khong_dung_RuleForEach_ChildRules_key_van_mang_chi_so`
+  canh khẳng định đó). Bản thi công dùng `RuleFor(x => x.MediaKeys).Cascade(CascadeMode.Stop)` với ba mệnh đề: dạng key →
+  trùng key → khai báo loại/dung lượng.
+- **Thêm `When(...)` quanh cụm luật `mediaKeys`.** Không có nó thì lô 11 ảnh sai dạng bắn **hai** câu cùng lúc dưới một ô
+  (một của BR-01 về số lượng, một về dạng key) và người dùng không biết sửa gì trước. Có test riêng:
+  `Qua_muoi_anh_kem_anh_sai_dang_chi_ra_mot_cau_ve_so_luong`.
+- **Thứ tự ba mệnh đề là dạng key TRƯỚC trùng lặp.** Hai key rác giống hệt nhau mà báo "một ảnh không được đính kèm hai
+  lần" là trả lời sai câu hỏi.
+- **Service kiểm trùng key MỘT lần nữa** (`ContentErrors.DuplicateMediaKeys`), cùng lập luận Bước 2 đã dùng cho BR-01:
+  service không giả định mình luôn được gọi qua MVC. Kèm theo, tách câu của `DuplicateMediaKeys` thành hằng
+  `ContentErrors.DuplicateMediaKeysMessage` để validator và service dùng chung — hai chỗ bắt một loại lỗi mà gõ hai câu
+  là một loại lỗi có hai cách nói.
+- **`ModulesTestClient` phải có `JsonSerializerOptions` riêng mang `JsonStringEnumConverter(JsonNamingPolicy.CamelCase)`.**
+  Phát hiện khi bốn test đỏ ở `$.privacy`: app ghi `"public"` chữ thường (đúng Q-D2) còn `ReadFromJsonAsync` mặc định
+  không đọc được. **Khai lại policy trong test thay vì lấy `JsonSerializerOptions` của app là cố ý** — dùng chung thì app
+  ghi PascalCase test vẫn xanh, mà cổng hợp đồng không so schema của response nên CI cũng xanh: đúng loại lưới giả Q-D2
+  sinh ra để chặn.
+- **`PostResponseMapper` có unit test riêng** (không có trong Bước 6). Nó canh hai thứ mà `CreatePostTests` không với tới:
+  dự phòng tác giả của `Q-D8` (Đ-2.4 làm ca đó gần như không tạo được qua HTTP) và bản lô `ToResponses` mà `D6` sẽ dùng —
+  Bước 4 đòi viết sẵn hàm đó, nên viết kèm test để nó không nằm đấy không ai chạy.
+- **Bước 6 không nêu ca "HEAD lệch khai báo"; đã thêm.** Hai nhánh `SizeMismatch`/`TypeMismatch` của `MediaHeadPolicy` là
+  nhánh duy nhất phân biệt "đã ký URL" với "đang có gì trong bucket"; `BR01-05` của `B3` chỉ canh một trong hai.
+- **`AC_01` khẳng định thêm ba cột đọc thẳng từ DB** (`media_count`, `status`, `body`). API theo thiết kế không phân biệt
+  được "`media_count` đúng ngay từ INSERT" với "INSERT 0 rồi UPDATE" — chỉ `ck_posts_not_empty` và một câu `SELECT` nhìn
+  thấy khác biệt đó.
+
+**`READ-01` đang XANH nhưng vì lý do sai — sẽ đúng ở `D6`.** `ArrangePath` của nó nay chạy được (bài `private` của B tạo
+được), rồi `GET /api/v1/posts/{id}` rơi vào **404 vì chưa có route**, trùng đúng mã kỳ vọng 404 của BR-02. Không sửa gì ở
+đây: dòng này trở thành lưới thật ngay khi `D6` thêm action, và bảng đột biến của `B3` (*"Bỏ nhánh BR-02 cho `private`"*)
+là chỗ xác nhận. Ghi ra để không ai đọc bảng 15/17 rồi tưởng BR-02 đã có lưới.
+
+**Một đỏ không giải thích được, ghi lại nguyên trạng:** lần chạy `dotnet test SocialApp.sln` đầu tiên sau khi thêm test của
+`D5` báo **1 đỏ ở `SocialApp.UnitTests`**, nhưng không kịp ghi tên test. Chạy lại **8 lần** (5 lần riêng project + 3 lần cả
+solution, có `--logger trx` để liệt kê từng test không `Passed`) đều **186/186 xanh**, và không lần nào có test unit nào
+khác `Passed`. Chưa tái hiện được nên chưa kết luận; nếu nó xuất hiện lại trên CI thì đây là dấu vết đầu tiên.
+
 ---
 
 ## 8. D6 — `GET /posts/{postId}` + `GET /users/{userId}/posts`

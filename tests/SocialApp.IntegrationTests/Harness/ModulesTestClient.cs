@@ -1,9 +1,11 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Npgsql;
 using SocialApp.SharedKernel.Storage;
+using SocialApp.Modules.Content.Application.Posts;
 using SocialApp.Modules.Profile.Application.Profiles;
 
 namespace SocialApp.IntegrationTests.Harness;
@@ -37,6 +39,21 @@ public sealed class ModulesTestClient
     }
 
     public HttpClient Http { get; }
+
+    /// <summary>
+    /// Tùy chọn đọc JSON cho DTO có enum. App ghi enum ra <b>chữ thường</b> (<c>"public"</c>, <c>"post"</c>) nhờ
+    /// <c>JsonStringEnumConverter(JsonNamingPolicy.CamelCase)</c> ở <c>Program.cs</c> — chốt Q-D2 — nên bản mặc định của
+    /// <c>ReadFromJsonAsync</c> ném ngay ở <c>$.privacy</c>.
+    ///
+    /// Khai lại policy ở đây thay vì lấy từ app là CỐ Ý: test phải đọc được đúng thứ dây truyền đi, giống hệt type mà
+    /// <c>openapi-typescript</c> sinh cho FE (union <c>'public' | 'friends' | 'private'</c>). Dùng chung
+    /// <c>JsonSerializerOptions</c> với app thì app ghi PascalCase test vẫn xanh, và cổng hợp đồng không so schema của
+    /// response nên CI cũng xanh — đúng loại lưới giả Q-D2 sinh ra để chặn.
+    /// </summary>
+    public static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
+    {
+        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
+    };
 
     /// <summary>
     /// Header <c>Authorization</c> cho một người gọi. <paramref name="userId"/> chính là <c>sub</c>, tức là <c>actorId</c>
@@ -123,6 +140,46 @@ public sealed class ModulesTestClient
         };
         request.Headers.Authorization = Bearer(userId, role);
         return Http.SendAsync(request);
+    }
+
+    /// <summary>
+    /// <c>POST /posts</c> với tư cách <paramref name="userId"/> (D5). Nhận <paramref name="body"/> dạng ẩn danh vì test
+    /// phải gửi được <c>privacy</c> vắng mặt, field lạ, và <c>mediaKeys</c> sai dạng — những thứ DTO đã gõ kiểu thì
+    /// không phát ra nổi.
+    ///
+    /// <paramref name="role"/> và <paramref name="token"/> mở ra cho hai nhánh riêng: vai trò thiếu <c>post.create</c>
+    /// (tầng 2) và token hết hạn (<c>AC-04</c>, tầng 1).
+    /// </summary>
+    public Task<HttpResponseMessage> CreatePostAsync(Guid userId, object body, string role = "USER", string? token = null)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/posts")
+        {
+            Content = JsonContent.Create(body),
+        };
+        request.Headers.Authorization = token is null
+            ? Bearer(userId, role)
+            : new AuthenticationHeaderValue("Bearer", token);
+        return Http.SendAsync(request);
+    }
+
+    /// <summary>Như <see cref="CreatePostAsync"/> nhưng đọc luôn body 201. Dùng ở nhánh đã biết chắc là thành công.</summary>
+    public async Task<PostResponse> CreatePostOkAsync(Guid userId, object body)
+    {
+        using var response = await CreatePostAsync(userId, body);
+        Assert.Equal(System.Net.HttpStatusCode.Created, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<PostResponse>(Json))!;
+    }
+
+    /// <summary>
+    /// Dựng một ảnh bài ĐÃ tải lên đúng chuẩn cho <paramref name="userId"/> và trả về khai báo để gửi trong
+    /// <c>mediaKeys</c>. Dùng <c>StorageKeys.ForPost</c> của code sản phẩm thay vì ghép chuỗi trong test: key gõ tay mà
+    /// lệch dạng thì test đỏ ở lớp regex và không bao giờ chạm tới lớp mình định kiểm (bài học từ D3).
+    /// </summary>
+    public object PutPostObject(Guid userId, string contentType = "image/jpeg", long sizeBytes = 1024)
+    {
+        var key = StorageKeys.ForPost(userId, contentType);
+        PutObject(key, sizeBytes, contentType);
+        return new { mediaKey = key, contentType, sizeBytes };
     }
 
     /// <summary>

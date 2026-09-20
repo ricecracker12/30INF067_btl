@@ -3,8 +3,10 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using SocialApp.Modules.Content.Application.Media;
+using SocialApp.Modules.Content.Application.Posts;
 using SocialApp.Modules.Content.Infrastructure;
 using SocialApp.Modules.Content.Infrastructure.Cleanup;
+using SocialApp.Modules.Content.Infrastructure.Persistence;
 using SocialApp.SharedKernel.Contracts;
 
 namespace SocialApp.Modules.Content.DependencyInjection;
@@ -62,6 +64,14 @@ public static class ContentModuleExtensions
         // Chỉ ĐĂNG KÝ nên dòng này vẫn dựng trần được bằng `new ServiceCollection()`; chỗ trần không resolve nó nên thiếu
         // IObjectStorage ở đó không sao — cùng lập luận với ProfileService trong AddProfileModule.
         services.AddSingleton<UploadTicketService>();
+
+        // D5. Scoped vì PostStore giữ ContentDbContext (scoped); PostService theo cùng vòng đời của thứ nó cầm.
+        // PostResponseMapper cũng scoped dù chỉ cầm IObjectStorage (singleton): nó là cộng tác viên của PostService và
+        // D6/D7 sẽ dùng chung cùng một instance trong một request. IObjectStorage và IUserDirectory do HOST và module
+        // Profile đăng ký — AddContentModule vẫn dựng trần được vì bốn lớp test ở Mục 1.3 luật 1 không resolve chúng.
+        services.AddScoped<IPostStore, PostStore>();
+        services.AddScoped<PostResponseMapper>();
+        services.AddScoped<PostService>();
 
         return services;
     }

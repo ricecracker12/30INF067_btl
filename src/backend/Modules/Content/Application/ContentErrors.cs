@@ -48,5 +48,12 @@ public static class ContentErrors
     /// UNIQUE <c>storage_key</c> nổ và người dùng nhận 409 "ảnh đã dùng ở bài khác" — sai hẳn nguyên nhân.
     /// </summary>
     public static Error DuplicateMediaKeys =>
-        Error.Validation(PostContentPolicy.MediaKeysKey, "Một ảnh không được đính kèm hai lần.");
+        Error.Validation(PostContentPolicy.MediaKeysKey, DuplicateMediaKeysMessage);
+
+    /// <summary>
+    /// Câu của <see cref="DuplicateMediaKeys"/>, tách ra thành hằng ở D5 để <c>CreatePostRequestValidator</c> dùng CHUNG.
+    /// Hai chỗ cùng bắt một loại lỗi (validator trước action, service phòng khi không được gọi qua MVC) mà gõ hai câu là
+    /// một loại lỗi có hai cách nói.
+    /// </summary>
+    public const string DuplicateMediaKeysMessage = "Một ảnh không được đính kèm hai lần.";
 }
