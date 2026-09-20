@@ -239,6 +239,10 @@ Kit hiện có: `alert`, `button`, `card`, `field`, `input`, `input-group`, `lab
   bản **đã ghim** — không `pnpm dlx shadcn@latest`, Đ-E12). `avatar` cho `E3`/`E5`, `alert-dialog` cho xác nhận xóa
   (`E6`), `radio-group` cho ba mức riêng tư (`E4`), `progress` cho tiến trình (`E4`), `badge` cho nhãn "đã chỉnh
   sửa" (`E5`).
+- **Đã thêm đủ (chốt lại 2026-09-21, sau `E8`):** sáu component vào kit, **mỗi cái đi cùng đầu việc dùng nó**
+  chứ không thêm một lượt — `avatar` (`E3`) · `radio-group`, `progress` (`E4`) · `badge` (`E5`) ·
+  `alert-dialog` (`E6`). Thêm sớm cả sáu là mấy file `components/ui/**` không ai import, và `shadcn add --diff`
+  về sau không phân biệt được "chưa dùng" với "đã sửa tay". Kit GĐ2 vì thế có **17** component.
 - **Ràng buộc:** `components/ui/**` nằm trong `.prettierignore` — **không** chạy Prettier lên chúng, để
   `shadcn add --diff` về sau không bị nhiễu. Không `shadcn eject`, không `shadcn apply` (nó đảo thứ tự dòng trong
   `globals.css`).
@@ -1160,6 +1164,70 @@ không thực tế, nhưng đóng khối mà chưa chạy lần nào thì con s�
 | Ghi `ref.current` trong THÂN RENDER (`use-post-page.ts`, `E5`) | Chưa vỡ hôm nay; vỡ khi GĐ4 dùng transition — một render bị hủy vẫn kịp ghi đè, và lượt đọc sau lấy giá trị của render không bao giờ commit | Đồng bộ trong `useEffect` không deps. `loadMore` luôn chạy trong event handler, tức sau commit, nên vẫn thấy đúng giá trị đang hiển thị |
 | Kịch bản mock chọn theo `sizeBytes` áp cho **mọi** `purpose` | Một file đúng 4.242 byte làm test **avatar** đỏ với câu "Ảnh này không thuộc về bạn" — `mediaKeyDaDung` mang tiền tố `posts/`, mà `PUT /users/me/avatar` từ chối key ngoài `avatars/` | Kịch bản chỉ áp khi `purpose === "post"` |
 
+### Dọn nợ sau `E8` (2026-09-21)
+
+Một lượt rà lại toàn khối sau khi `E8` đã commit. Bảy mục, và **một trong số đó là lỗi do chính lượt dọn này
+tạo ra** — ghi lại vì nó là bài học lớn hơn bản vá.
+
+| # | Nợ | Đã làm |
+|---|---|---|
+| D1 | Hàng đợi upload **không hủy khi rời màn**: `putToR2` nhận `signal` từ `E3` nhưng `E4` chưa nối vào | `AbortController` tạo **trong effect**, hủy ở cleanup; `sendOne` bỏ qua `AbortError` thay vì đánh dấu lỗi |
+| D2 | `loadMore` không truyền `signal` — trang đầu hủy được, trang sau không | `pageAbortRef` giữ controller của lượt xem hiện tại, cả hai trang hủy cùng một chỗ |
+| C1 | `fieldMessage(key: **string**)` — gõ nhầm `"file"` im lặng lùi về bảng chung | Union `FieldErrorKey` cho mọi key của `errors` ở hai hợp đồng |
+| C2 | `donBai` ở dòng cuối thân test — **test đỏ giữa chừng là rác ở lại**, đúng lúc cần dọn nhất | `donRacSauTest` trong `afterEach`, dọn theo **tài khoản** chứ không theo danh sách id |
+| D3 | `buildPatch` export mà không ai dùng ngoài file | Năm ca unit cho nó — hàm thuần, rẻ, pin đúng luật `null` ≠ `""` |
+| C4 | `test/server-only.ts` lệch luật *"`test/` chỉ chứa `setup.ts`"* | Sửa câu luật trong `frontend-rules.md` cho khớp thực tế, ghi ngày và lý do |
+| D4 | `Q-E5` rải rác qua bốn đầu việc | Một dòng tổng: sáu component, mỗi cái đi cùng đầu việc dùng nó; kit GĐ2 có **17** |
+
+**C2 làm khác đề xuất ban đầu, và lý do đáng ghi:** dự định là `afterEach` xóa theo danh sách `postId`.
+Nhưng bài tạo qua UI chỉ lộ `postId` sau khi màn render xong — test đỏ trước đó thì **không có id nào để xóa**,
+tức là đúng ca cần dọn lại là ca dọn không được. Hỏi thẳng *"bài của tài khoản này"* thì không cần biết id, và
+tài khoản là mới ở mỗi test nên phạm vi xóa không bao giờ chạm dữ liệu test khác. Mọi lỗi lúc dọn đều nuốt:
+dọn rác hỏng **không được** biến một test xanh thành đỏ.
+
+**C3 (`globalSetup` gộp tài khoản để giảm 51 lượt `/auth/*`) — CỐ Ý KHÔNG LÀM.** Gộp tài khoản đổi ~5 phút lấy
+việc các spec phụ thuộc lẫn nhau: `post-create` đăng bài sẽ làm `post-forbidden` đếm sai số card. Cái giá đó
+đắt hơn thời gian tiết kiệm được. Đóng nợ bằng "chấp nhận ~8 phút, chạy một lần ở `F3`".
+
+#### `useRef(new AbortController())` chết dưới StrictMode — lỗi do chính lượt dọn này tạo ra
+
+Bản `D1` đầu tiên viết `const abortRef = useRef(new AbortController())`. Khuôn đó **chết** dưới `<StrictMode>`
+của Next dev: React mount → unmount → mount lại, cleanup của lần mount đầu gọi `abort()`, và lần mount thứ hai
+`useRef` trả về **đúng controller vừa bị hủy**. Mọi lượt `PUT` sau đó ném `AbortError` ngay, và vì `sendOne` cố
+ý bỏ qua `AbortError` nên mọi ảnh **kẹt ở `dang-gui` vĩnh viễn**.
+
+Đo được: **ba spec E2E đỏ** (`post-create`, ca R2 của `csp`, ca ảnh của `login-storage`) trong khi **Vitest vẫn
+xanh 447 ca**. Vitest render thẳng, không qua StrictMode — nên cả 447 ca không ca nào chạm tới lớp lỗi này.
+
+Đã sửa: tạo controller **trong effect**. Và quan trọng hơn bản vá, đã thêm **một ca canh**: render
+`PostComposer` bọc `<StrictMode>` rồi tải một ảnh, đòi `xong`. Ca đó **đã thử cho đỏ** — áp lại khuôn
+`useRef(new ...)` thì nó đỏ, khôi phục thì xanh.
+
+**Luật rút ra:** tài nguyên có vòng đời (controller, subscription, timer) **không bao giờ** khởi tạo bằng
+`useRef(new Thing())` — lần mount thứ hai nhận lại cái đã hủy. Khởi tạo trong effect, hủy trong cleanup của
+chính effect đó.
+
+#### `retries: 1` cho Playwright
+
+Worker Playwright thỉnh thoảng chết trên Windows với `0xC0000409` (STATUS_STACK_BUFFER_OVERRUN) **trước khi
+test chạy dòng đầu tiên** — gặp 2026-09-21 với `register.spec.ts`: đỏ ở **0ms** trong lượt cả bộ, chạy riêng
+ngay sau đó **xanh trong 1,9 giây**. Không có `retries` thì một lần Windows hắt hơi là mất cả lượt 8 phút.
+
+`retries` ở đây **không che lỗi**: Playwright in riêng dòng `flaky` khi một ca đỏ rồi xanh lại, và con số đó
+phải dán vào PR y như `passed`/`failed` — một ca flaky vẫn là một ca cần nhìn.
+
+#### Bằng chứng sau lượt dọn
+
+Vitest **442 → 448** (+5 `buildPatch`, +1 ca StrictMode). `lint` / `typecheck` / `build` xanh. Playwright cả bộ,
+**Chrome 153.0.8010.50**, `workers: 1`:
+
+```
+1 skipped
+17 passed (7.9m)
+```
+
+**0 failed, 0 flaky.** Ca `skipped` vẫn là `single-flight.spec.ts` — skip có điều kiện từ GĐ1.
+
 ---
 
 ## 10. F1 — Deploy staging qua CD tự động
@@ -1372,6 +1440,10 @@ hay `truncated` **không phải** kết quả sạch — chạy lại).
 - [ ] File mới đặt đúng tầng; `features/profile/` và `features/post/` **không** import chéo nhau
 - [ ] UI dùng kit và token; không màu thô; component mới thêm bằng `pnpm exec shadcn add` (bản ghim)
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build` xanh cả bốn
+- [ ] **`pnpm test:e2e` chạy CẢ BỘ, xanh, kèm bản Chrome đã chạy** — cổng của `F3`, không phải của từng đầu
+      việc (cả bộ tốn ~8 phút). *Thêm 2026-09-21 sau `E8`:* bốn spec của GĐ1 đã đỏ từ commit `0aacb96` (`E2`)
+      suốt ba commit mà không ai biết, vì mỗi đầu việc chỉ chạy spec của chính nó và Playwright không vào CI
+      (Q-E8). Một bộ E2E không ai chạy cả lượt thì không phải cổng — nó là mấy file đỏ chờ người phát hiện
 - [ ] `pnpm gen:api` xong worktree sạch
 - [ ] Đ-E17 đã ghi vào hướng dẫn khối E của GĐ1, trong cùng commit với code CSP
 - [ ] Không `console.log` token, `uploadUrl`, presigned GET, hay link xác minh

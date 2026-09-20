@@ -84,6 +84,10 @@ export function useUserPosts(userId: string | null): PostPageState {
   })
   const pendingRef = useRef(false)
   const seenRef = useRef(new Set<string>())
+  // Controller của LƯỢT XEM hiện tại. Trang đầu hủy được từ cleanup của effect; trang sau (`loadMore`) phải
+  // dùng chung controller đó, nếu không thì rời trang giữa lúc "Xem thêm" đang bay là một request chạy tiếp
+  // vào hư không — và bất đối xứng "trang đầu hủy, trang sau không" là thứ không ai giải thích được sau này.
+  const pageAbortRef = useRef<AbortController | null>(null)
   // Tăng mỗi lượt xem mới — lượt gọi của `userId` cũ về muộn sẽ bị bỏ, không ghi đè danh sách mới.
   const runRef = useRef(0)
 
@@ -150,6 +154,7 @@ export function useUserPosts(userId: string | null): PostPageState {
     seenRef.current = new Set()
     pendingRef.current = false
     const controller = new AbortController()
+    pageAbortRef.current = controller
 
     void fetchPage(userId, `${userId}:${attempt}`, null, run, controller.signal)
     // Rời trang hoặc đổi người: hủy lượt đang bay.
@@ -167,7 +172,13 @@ export function useUserPosts(userId: string | null): PostPageState {
     )
       return
     setPendingMore(true)
-    void fetchPage(userId, now.key, now.nextCursor, runRef.current)
+    void fetchPage(
+      userId,
+      now.key,
+      now.nextCursor,
+      runRef.current,
+      pageAbortRef.current?.signal
+    )
   }, [userId, fetchPage])
 
   const reload = useCallback(() => setAttempt((n) => n + 1), [])

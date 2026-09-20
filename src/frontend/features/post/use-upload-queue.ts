@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 
 import { contentApi } from "@/lib/api/content-api"
 import { fieldMessage, R2_PUT_FAILED } from "@/lib/api/messages"
@@ -82,6 +82,23 @@ export function useUploadQueue(): UploadQueue {
   const itemsRef = useRef<UploadItem[]>([])
   const runningRef = useRef(0)
 
+  // Hủy mọi lượt `PUT` đang bay khi rời màn. `putToR2` đã nhận `signal` từ E3 ("viết ở đây, E4 dùng lại")
+  // nhưng E4 chưa nối vào: bỏ trang giữa lúc mười ảnh đang lên thì mười lượt vẫn chạy tới cùng, tốn băng
+  // thông của người vừa bỏ đi và để lại mười object mồ côi thay vì ít hơn.
+  //
+  // Controller tạo TRONG effect, không phải `useRef(new AbortController())`. Khuôn `useRef(...)` trông
+  // gọn hơn nhưng **chết dưới StrictMode**: React mount → unmount → mount lại, cleanup gọi `abort()` trên
+  // controller đó, và lần mount thứ hai `useRef` trả về ĐÚNG controller vừa bị hủy — mọi lượt `PUT` sau đó
+  // ném `AbortError` ngay và mọi ảnh kẹt ở `dang-gui` vĩnh viễn. Đã đo: ba spec E2E đỏ, trong khi Vitest
+  // vẫn xanh vì test render thẳng, không qua StrictMode. Tạo trong effect thì lần mount thứ hai có
+  // controller mới.
+  const abortRef = useRef<AbortController | null>(null)
+  useEffect(() => {
+    const controller = new AbortController()
+    abortRef.current = controller
+    return () => controller.abort()
+  }, [])
+
   const commit = useCallback((next: UploadItem[]) => {
     itemsRef.current = next
     setItems(next)
@@ -113,13 +130,17 @@ export function useUploadQueue(): UploadQueue {
           file: item.file,
           // Giá trị ĐÃ NẰM TRONG chữ ký — dùng lại cái server ký, không dựng lại từ `file.type`.
           contentType: item.ticket.requiredHeaders["Content-Type"],
+          signal: abortRef.current?.signal,
           onProgress: (loaded, total) =>
             patch(id, {
               percent: total > 0 ? Math.round((loaded / total) * 100) : 0,
             }),
         })
         patch(id, { status: "xong", percent: 100, error: undefined })
-      } catch {
+      } catch (error) {
+        // Mình tự hủy (rời màn) thì KHÔNG đánh dấu lỗi: không còn ai đọc, và `setState` sau unmount là
+        // công vô ích. Cùng giao kèo `error.name === "AbortError"` với `request()` và `uploadAvatar`.
+        if (error instanceof Error && error.name === "AbortError") return
         patch(id, { status: "loi", error: R2_PUT_FAILED })
       }
     },

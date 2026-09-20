@@ -3,10 +3,15 @@ import { expect, test } from "@playwright/test"
 import { giuHanMucAuth } from "./dev-api"
 import {
   dangNhapUi,
-  donBai,
+  donRacSauTest,
   taoBaiApi,
   taoTaiKhoanCoHoSo,
 } from "./post-helpers"
+
+// Dọn rác trong `afterEach`, không ở dòng cuối thân test: test đỏ giữa chừng là đúng lúc cần dọn nhất.
+test.afterEach(async ({ request }) => {
+  await donRacSauTest(request)
+})
 
 // E6 trên trình duyệt thật. Hai điều chỉ đo được ở đây: nhãn "đã chỉnh sửa" đến từ `editedAt` mà SERVER
 // đóng dấu, và URL của bài vừa xóa phải ra trang "không tìm thấy" — không phải lỗi 500, và không phải
@@ -56,6 +61,4 @@ test("sửa → nhãn 'đã chỉnh sửa'; xóa → mở lại URL cũ ra trang
   await expect(page.getByText("Không tìm thấy bài viết.")).toBeVisible()
   // 404 là câu trả lời cuối cùng — không mời người dùng thử lại vô ích.
   await expect(page.getByRole("button", { name: "Thử lại" })).toHaveCount(0)
-
-  await donBai(request, tk, [idSua, idXoa])
 })

@@ -155,6 +155,25 @@ export const R2_PUT_FAILED =
   "Không tải được ảnh lên. Kiểm tra kết nối rồi thử lại."
 
 /**
+ * Các key mà `errors` của Problem Details dùng ở hai hợp đồng GĐ2. Union chứ không `string`: `fieldMessage`
+ * đọc `error.fieldErrors[key]`, nên một key gõ nhầm (`"file"` thay vì `"files"`) im lặng lùi về bảng chung
+ * và người dùng mất đúng câu server muốn nói. Thêm key mới ở `.yaml` thì thêm một dòng ở đây.
+ */
+export type FieldErrorKey =
+  | "body"
+  | "files"
+  | "mediaKey"
+  | "mediaKeys"
+  | "privacy"
+  | "displayName"
+  | "bio"
+  | "token"
+  | "email"
+  | "password"
+  | "cursor"
+  | "limit"
+
+/**
  * 400 của một endpoint đọc ĐÚNG CÂU SERVER dưới key của `errors` trước, RỒI MỚI lùi về bảng
  * `errorMessage` (Đ-E5: mọi 400 hiển thị theo key của `errors`).
  *
@@ -165,7 +184,7 @@ export const R2_PUT_FAILED =
  */
 export function fieldMessage(
   error: unknown,
-  key: string,
+  key: FieldErrorKey,
   context: ErrorContext
 ): string {
   if (error instanceof ApiError && error.status === 400) {

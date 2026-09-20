@@ -1,5 +1,6 @@
 import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
+import { StrictMode } from "react"
 import { http, HttpResponse } from "msw"
 import { beforeEach, describe, expect, it } from "vitest"
 
@@ -253,6 +254,31 @@ describe("PostComposer — hàng đợi ảnh", () => {
         "Chỉ nhận ảnh JPEG, PNG hoặc WebP, tối đa 10 MB mỗi ảnh."
       )
     ).toHaveLength(2)
+  })
+})
+
+describe("PostComposer — sống được dưới StrictMode", () => {
+  it("mount hai lần (StrictMode) vẫn tải ảnh xong — controller hủy không được sống sót qua lần mount đầu", async () => {
+    // Ca này canh một lớp lỗi mà mọi ca khác trong file BỎ LỌT: `render(<X />)` gắn component một lần, còn
+    // Next dev bọc `<StrictMode>` nên React mount → unmount → mount lại. Thứ chết ở đó là mọi tài nguyên
+    // khởi tạo bằng `useRef(new Thing())`: cleanup của lần mount đầu hủy nó, lần mount thứ hai nhận lại
+    // đúng cái đã hủy. Đã xảy ra thật với `AbortController` của hàng đợi — ba spec E2E đỏ, Vitest xanh.
+    const user = nguoiDung()
+    render(
+      <StrictMode>
+        <PostComposer />
+      </StrictMode>
+    )
+
+    await user.type(oNoiDung(), "Ảnh dưới StrictMode.")
+    await user.click(screen.getByRole("radio", { name: /Công khai/ }))
+    await user.upload(oAnh(), anh("a.jpg"))
+
+    // `xong`, không phải kẹt ở `dang-gui`.
+    await waitFor(() =>
+      expect(dongAnh().every((row) => row.dataset.status === "xong")).toBe(true)
+    )
+    expect(nutDang()).toBeEnabled()
   })
 })
 

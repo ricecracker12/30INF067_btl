@@ -15,6 +15,7 @@ import { post } from "@/mocks/fixtures"
 import { server } from "@/mocks/node"
 import { fakeSession } from "@/mocks/session"
 
+import { buildPatch } from "./post-edit-form"
 import { PostItem } from "./post-item"
 
 vi.mock("next/navigation", () => ({
@@ -59,6 +60,46 @@ const nutLuu = () => screen.getByRole("button", { name: "Lưu" })
 
 beforeEach(() => {
   fakeSession.start()
+})
+
+describe("buildPatch — thân PATCH, hàm thuần", () => {
+  const goc = (over: Partial<PostResponse> = {}) =>
+    bai({ body: "Chào", privacy: "public", ...over })
+
+  it("không đổi gì → object RỖNG, và đó là tín hiệu để tắt nút Lưu", () => {
+    expect(buildPatch(goc(), { body: "Chào", privacy: "public" })).toEqual({})
+  })
+
+  it("`body: null` của bài chỉ có ảnh quy về `\"\"` khi so, không thành 'đã đổi' giả", () => {
+    // `post.body` là `null` còn ô soạn chữ hiển thị `""`: so hai thứ khác kiểu thì lần nào cũng "đã đổi",
+    // và nút Lưu bật sẵn cho một thay đổi không tồn tại.
+    expect(
+      buildPatch(goc({ body: null }), { body: "", privacy: "public" })
+    ).toEqual({})
+  })
+
+  it('xóa hết chữ → `body: ""`, KHÔNG phải `null`', () => {
+    // `null` nghĩa là "không gửi" với `System.Text.Json`; gửi `null` là giữ nguyên chữ cũ.
+    const patch = buildPatch(goc(), { body: "", privacy: "public" })
+    expect(patch).toEqual({ body: "" })
+    expect(patch.body).not.toBeNull()
+  })
+
+  it("giữ NGUYÊN khoảng trắng người dùng gõ — server mới là bên `NormalizeBody`", () => {
+    expect(buildPatch(goc(), { body: "  Chào  ", privacy: "public" })).toEqual({
+      body: "  Chào  ",
+    })
+  })
+
+  it("đổi cả hai → gửi cả hai; đổi một → chỉ gửi một", () => {
+    expect(buildPatch(goc(), { body: "Khác", privacy: "private" })).toEqual({
+      body: "Khác",
+      privacy: "private",
+    })
+    expect(buildPatch(goc(), { body: "Chào", privacy: "friends" })).toEqual({
+      privacy: "friends",
+    })
+  })
 })
 
 describe("PostItem — quyền đến từ server (canEdit)", () => {

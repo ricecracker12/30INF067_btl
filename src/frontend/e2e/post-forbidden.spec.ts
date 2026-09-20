@@ -3,10 +3,15 @@ import { expect, test } from "@playwright/test"
 import { API, giuHanMucAuth } from "./dev-api"
 import {
   dangNhapUi,
-  donBai,
+  donRacSauTest,
   taoBaiApi,
   taoTaiKhoanCoHoSo,
 } from "./post-helpers"
+
+// Dọn rác trong `afterEach`, không ở dòng cuối thân test: test đỏ giữa chừng là đúng lúc cần dọn nhất.
+test.afterEach(async ({ request }) => {
+  await donRacSauTest(request)
+})
 
 // BR-02 + Mục 7.4 nhìn từ phía người KHÔNG được xem. Đây là ca bảo mật của khối E: server trả CÙNG một
 // 404 cho "không tồn tại", "đã xóa" và "không được xem", và FE không được nói khác đi — nói khác là dùng
@@ -57,6 +62,4 @@ test("tài khoản B mở bài private của A: MỘT câu, không lộ bài có
     headers: b.auth,
   })
   expect(rieng.status()).toBe(404)
-
-  await donBai(request, a, [idRieng, idCong])
 })

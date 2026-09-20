@@ -157,8 +157,10 @@ Bốn tầng, phụ thuộc **một chiều**: `app/` → `features/` → `compo
 - Playwright **không vào CI ở GĐ1** (cần API + Postgres + Redis + Mailpit chạy). Kết quả chạy local
   dán vào PR — cùng nếp "kiểm tay ghi bằng chứng" của khối D — **kèm bản Chrome đã chạy** (lệch Đ-E8:
   dùng Chrome hệ thống, bản khác nhau giữa các máy).
-- File test nằm **cạnh mã nguồn** (`lib/validation/auth.test.ts`). `test/` chỉ chứa `setup.ts`;
-  `e2e/` chứa spec Playwright.
+- File test nằm **cạnh mã nguồn** (`lib/validation/auth.test.ts`). `test/` chỉ chứa **harness của Vitest**,
+  không chứa ca test nào: `setup.ts` và `server-only.ts` (shim cho alias `server-only`, Đ-E14) — *sửa câu
+  này 2026-09-21, trước đó ghi "chỉ chứa `setup.ts`" và đã lệch thực tế từ GĐ1*. `e2e/` chứa spec
+  Playwright, `e2e/fixtures/` chứa ảnh thật commit vào repo (Q-E8).
 - Thêm một luật ESLint hay một cổng CI thì phải **thử cho đỏ một lần** rồi khôi phục — `git status`
   sạch trước và sau.
 

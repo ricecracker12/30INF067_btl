@@ -55,6 +55,8 @@ export async function taoTaiKhoanCoHoSo(
     data: { displayName, bio: null },
   })
   expect(res.status(), await res.text()).toBe(200)
+
+  ghiDanhDon(tk)
   return tk
 }
 
@@ -82,18 +84,50 @@ export async function taoBaiApi(
   return ((await res.json()) as { postId: string }).postId
 }
 
+// ── Dọn rác (cạm bẫy Mục 9: "E2E để lại bài rác trên bucket `-dev`") ──────────────────────────────────
+//
+// Dọn theo TÀI KHOẢN, không theo danh sách id, và trong `afterEach`, không ở dòng cuối thân test. Hai lý do:
+//
+//  1. Đặt lệnh xóa ở cuối test thì **test đỏ giữa chừng là rác ở lại** — đúng lúc cần dọn nhất.
+//  2. Bài tạo qua UI chỉ lộ `postId` sau khi màn render xong; đỏ trước đó thì không có id nào để xóa.
+//     Hỏi thẳng "bài của tài khoản này" thì không cần biết id, và tài khoản là mới ở mỗi test nên phạm vi
+//     xóa không bao giờ chạm dữ liệu của test khác.
+
+const doiDon: TaiKhoan[] = []
+
+/** `taoTaiKhoanCoHoSo` tự gọi — spec không phải nhớ. */
+function ghiDanhDon(tk: TaiKhoan) {
+  doiDon.push(tk)
+}
+
 /**
- * Dọn bài sau spec (cạm bẫy Mục 9: "E2E để lại bài rác trên bucket `-dev`").
- *
- * Xóa mềm là tất cả FE/API làm được — object trên R2 do worker dọn sau (Đ-2.13). 403 ở đây là bài đã
- * xóa rồi, không phải lỗi của spec, nên không `expect` gì.
+ * Gọi trong `test.afterEach`. Xóa mềm là tất cả FE/API làm được; object trên R2 do worker dọn sau
+ * (Đ-2.13). Mọi lỗi ở đây đều nuốt: dọn rác hỏng KHÔNG được biến một test xanh thành đỏ, và một 403
+ * chỉ nghĩa là bài đã xóa rồi.
  */
-export async function donBai(
-  request: APIRequestContext,
-  tk: TaiKhoan,
-  postIds: readonly string[]
-) {
-  for (const id of postIds) {
-    await request.delete(`${API}/posts/${id}`, { headers: tk.auth })
+export async function donRacSauTest(request: APIRequestContext) {
+  for (const tk of doiDon.splice(0)) {
+    try {
+      let cursor: string | null = null
+      do {
+        const qs = cursor
+          ? `?cursor=${encodeURIComponent(cursor)}&limit=50`
+          : "?limit=50"
+        const res = await request.get(`${API}/users/${tk.userId}/posts${qs}`, {
+          headers: tk.auth,
+        })
+        if (!res.ok()) break
+        const page = (await res.json()) as {
+          items: { postId: string }[]
+          nextCursor: string | null
+        }
+        for (const p of page.items) {
+          await request.delete(`${API}/posts/${p.postId}`, { headers: tk.auth })
+        }
+        cursor = page.nextCursor
+      } while (cursor)
+    } catch {
+      // Token hết hạn, API đã tắt, mạng rớt — không có gì đáng làm đỏ một test đã chạy xong.
+    }
   }
 }

@@ -1,7 +1,17 @@
 import { expect, test, type Response } from "@playwright/test"
 
 import { API, giuHanMucAuth } from "./dev-api"
-import { ANH_JPG, dangNhapUi, donBai, taoTaiKhoanCoHoSo } from "./post-helpers"
+import {
+  ANH_JPG,
+  dangNhapUi,
+  donRacSauTest,
+  taoTaiKhoanCoHoSo,
+} from "./post-helpers"
+
+// Dọn rác trong `afterEach`, không ở dòng cuối thân test: test đỏ giữa chừng là đúng lúc cần dọn nhất.
+test.afterEach(async ({ request }) => {
+  await donRacSauTest(request)
+})
 
 // E4 + Đ-E14 trên API DEV THẬT: sau khi đăng nhập, TRÌNH DUYỆT không bao giờ thấy JWT — không ở header request (Network
 // tab), không ở body response, không ở cookie, không ở Web Storage. Token chỉ nằm ở Next server + Redis.
@@ -192,11 +202,4 @@ test("đăng bài có ảnh: Web Storage vẫn TRỐNG, không JWT, không chữ
     return out
   })
   expect(daLuu).toEqual([])
-
-  const postId = await page
-    .goto("/me")
-    .then(() =>
-      page.getByTestId("post-card").first().getAttribute("data-post-id")
-    )
-  await donBai(request, tk, postId ? [postId] : [])
 })

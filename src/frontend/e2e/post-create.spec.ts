@@ -5,9 +5,14 @@ import {
   ANH_JPG,
   ANH_PNG,
   dangNhapUi,
-  donBai,
+  donRacSauTest,
   taoTaiKhoanCoHoSo,
 } from "./post-helpers"
+
+// Dọn rác trong `afterEach`, không ở dòng cuối thân test: test đỏ giữa chừng là đúng lúc cần dọn nhất.
+test.afterEach(async ({ request }) => {
+  await donRacSauTest(request)
+})
 
 // E4 trên trình duyệt thật với **ảnh thật** và **bucket R2 thật** (`socialmedia-dev`). Đây là ca duy nhất
 // chứng minh được ISS-02 đã đóng: ba nghi phạm của bước `PUT` (CORS bucket, chữ ký, CSP) chỉ tồn tại ở
@@ -19,7 +24,6 @@ test("đăng bài với 2 ảnh thật: PUT thẳng lên R2, bài hiện đủ 2
 }) => {
   await giuHanMucAuth(4)
   const tk = await taoTaiKhoanCoHoSo(request, "create", "An Đăng Bài")
-  const daTao: string[] = []
 
   const denR2: string[] = []
   const quaBff: string[] = []
@@ -76,9 +80,4 @@ test("đăng bài với 2 ảnh thật: PUT thẳng lên R2, bài hiện đủ 2
         .evaluate((img) => (img as HTMLImageElement).naturalWidth)
     )
     .toBeGreaterThan(0)
-
-  const postId = await card.getAttribute("data-post-id")
-  if (postId) daTao.push(postId)
-  // Dọn: bài rác trên bucket `-dev` phình dần nếu spec nào cũng để lại (cạm bẫy Mục 9).
-  await donBai(request, tk, daTao)
 })

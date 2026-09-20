@@ -1,7 +1,17 @@
 import { expect, test, type Page } from "@playwright/test"
 
 import { giuHanMucAuth } from "./dev-api"
-import { ANH_JPG, dangNhapUi, donBai, taoTaiKhoanCoHoSo } from "./post-helpers"
+import {
+  ANH_JPG,
+  dangNhapUi,
+  donRacSauTest,
+  taoTaiKhoanCoHoSo,
+} from "./post-helpers"
+
+// Dọn rác trong `afterEach`, không ở dòng cuối thân test: test đỏ giữa chừng là đúng lúc cần dọn nhất.
+test.afterEach(async ({ request }) => {
+  await donRacSauTest(request)
+})
 
 // Đ-E15 — Content-Security-Policy có nonce, kiểm trên trình duyệt thật: script của app chạy được, script chèn vào thì
 // không. Chạy được cả trên `pnpm dev` (CSP dev có 'unsafe-eval') lẫn bản build (`PLAYWRIGHT_BASE_URL`).
@@ -169,7 +179,4 @@ test("CSP không chặn PUT lên R2: upload ảnh thật, không vi phạm conne
     )
     .toBeGreaterThan(0)
   expect(await viPham(page)).toEqual([])
-
-  const postId = await card.getAttribute("data-post-id")
-  await donBai(request, tk, postId ? [postId] : [])
 })
