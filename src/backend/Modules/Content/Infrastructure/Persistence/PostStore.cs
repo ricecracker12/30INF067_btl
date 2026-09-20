@@ -47,4 +47,67 @@ public sealed class PostStore(ContentDbContext db) : IPostStore
             return false;
         }
     }
+
+    /// <summary>
+    /// <c>AsNoTracking</c>: đường đọc. Global query filter (<c>status &lt;&gt; 'deleted'</c>) áp tự động — KHÔNG
+    /// <c>IgnoreQueryFilters()</c> ở đây (luật 7 của khối D); bài đã xóa "biến mất" là hành vi đúng của D6/D8.
+    /// </summary>
+    public Task<Post?> FindAsync(Guid postId, CancellationToken ct) =>
+        db.Posts.AsNoTracking().SingleOrDefaultAsync(p => p.PostId == postId, ct);
+
+    /// <summary>
+    /// Keyset của Đ-2.11. Hai mệnh đề đáng chú ý:
+    ///
+    /// <b>BR-02 trong WHERE.</b> Ba vế dưới đây là bản SQL của <see cref="Application.Posts.PostVisibility.CanView"/>;
+    /// <paramref name="areFriends"/> là <c>bool</c> đã tính nên EF gấp nó thành hằng <c>TRUE</c>/<c>FALSE</c> và vế thứ
+    /// ba biến mất khỏi câu SQL khi <c>false</c>.
+    ///
+    /// <b>So sánh keyset.</b> Đ-2.11 viết <c>(created_at, post_id) &lt; (@at, @id)</c> — so sánh BỘ của Postgres, đọc
+    /// thẳng <c>idx_posts_author_created</c>. LINQ không có so sánh bộ nên tách thành hai vế; <c>Guid</c> không có toán
+    /// tử <c>&lt;</c> trong C# nên dùng <c>CompareTo</c> (xem "Thực tế thi công" của D6 về việc Npgsql có dịch được
+    /// không).
+    /// </summary>
+    public async Task<IReadOnlyList<Post>> ListByAuthorAsync(
+        Guid authorId, Guid actorId, bool areFriends, PostCursor? cursor, int take, CancellationToken ct)
+    {
+        var query = db.Posts
+            .AsNoTracking()
+            .Where(p => p.AuthorId == authorId)
+            .Where(p => p.Privacy == PostPrivacy.Public
+                     || p.AuthorId == actorId
+                     || (areFriends && p.Privacy == PostPrivacy.Friends));
+
+        if (cursor is { } at)
+            query = query.Where(p => p.CreatedAt < at.CreatedAt
+                                  || (p.CreatedAt == at.CreatedAt && p.PostId.CompareTo(at.PostId) < 0));
+
+        return await query
+            .OrderByDescending(p => p.CreatedAt)
+            .ThenByDescending(p => p.PostId)
+            .Take(take)
+            .ToListAsync(ct);
+    }
+
+    /// <summary>
+    /// MỘT câu cho cả trang. Lọc thêm <c>OwnerType == Post</c> dù <c>owner_id</c> là UUID v7 gần như không đụng nhau:
+    /// bảng ĐA HÌNH (Đ-2.12) nên <c>owner_type</c> là một nửa khóa logic, và <c>idx_media_owner</c> dựng theo đúng cặp
+    /// đó — bỏ vế này là câu truy vấn không dùng được index.
+    /// </summary>
+    public async Task<IReadOnlyDictionary<Guid, IReadOnlyList<MediaAttachment>>> MediaOfAsync(
+        IReadOnlyCollection<Guid> postIds, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(postIds);
+
+        if (postIds.Count == 0)
+            return new Dictionary<Guid, IReadOnlyList<MediaAttachment>>();
+
+        var rows = await db.MediaAttachments
+            .AsNoTracking()
+            .Where(m => m.OwnerType == MediaOwnerType.Post && postIds.Contains(m.OwnerId))
+            .ToListAsync(ct);
+
+        return rows
+            .GroupBy(m => m.OwnerId)
+            .ToDictionary(g => g.Key, g => (IReadOnlyList<MediaAttachment>)[.. g.OrderBy(m => m.Position)]);
+    }
 }

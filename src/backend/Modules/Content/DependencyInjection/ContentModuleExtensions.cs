@@ -73,6 +73,9 @@ public static class ContentModuleExtensions
         services.AddScoped<PostResponseMapper>();
         services.AddScoped<PostService>();
 
+        // D6. Đường ĐỌC tách khỏi đường ghi: hai service không dùng chung phụ thuộc nào ngoài store và mapper.
+        services.AddScoped<PostReadService>();
+
         return services;
     }
 

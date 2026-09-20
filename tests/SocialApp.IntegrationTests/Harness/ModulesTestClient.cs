@@ -182,6 +182,34 @@ public sealed class ModulesTestClient
         return new { mediaKey = key, contentType, sizeBytes };
     }
 
+    /// <summary><c>GET /posts/{postId}</c> với tư cách <paramref name="userId"/> (D6).</summary>
+    public Task<HttpResponseMessage> GetPostAsync(Guid userId, object postId)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, $"/api/v1/posts/{postId}");
+        request.Headers.Authorization = Bearer(userId);
+        return Http.SendAsync(request);
+    }
+
+    /// <summary>
+    /// <c>GET /users/{userId}/posts</c> với tư cách <paramref name="actorId"/> (D6). <paramref name="query"/> nhận
+    /// nguyên chuỗi query (đã có dấu <c>?</c>) để test gửi được cursor rác và limit sai kiểu — những thứ tham số đã gõ
+    /// kiểu không phát ra nổi.
+    /// </summary>
+    public Task<HttpResponseMessage> ListPostsAsync(Guid actorId, Guid authorId, string query = "")
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, $"/api/v1/users/{authorId:D}/posts{query}");
+        request.Headers.Authorization = Bearer(actorId);
+        return Http.SendAsync(request);
+    }
+
+    /// <summary>Như <see cref="ListPostsAsync"/> nhưng đọc luôn body 200.</summary>
+    public async Task<PostPage> ListPostsOkAsync(Guid actorId, Guid authorId, string query = "")
+    {
+        using var response = await ListPostsAsync(actorId, authorId, query);
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<PostPage>(Json))!;
+    }
+
     /// <summary>
     /// Đọc thẳng DB bằng Npgsql — KHÔNG qua EF và không qua API. Chép khuôn <c>AuthTestClient.QueryRowAsync</c> của GĐ1.
     /// Cần cho <c>PROF-02</c>: "vẫn đúng MỘT dòng" là khẳng định về bảng, mà API thì theo thiết kế không phân biệt được

@@ -1254,6 +1254,75 @@ một request trang → **1**.
   chỗ code review chặn (luật 7).
 - **Nhánh `friends` gọi `AreFriendsAsync` cho từng bài** → N lời gọi ở GĐ4. Ở endpoint theo người dùng, tính một lần.
 
+### Thực tế thi công
+
+**Bằng chứng.** `dotnet test SocialApp.sln`: Unit 186 → 218 (+8 `PostCursorTests`, +11 `PostVisibilityTests`,
++10 `ValidationErrorsTests`, +3 ca khác), Architecture 13 (không đổi), Integration 262 → 288
+(+12 `ReadPostTests`, +14 `ListPostsTests`). Còn đúng ba đỏ, không cái nào thuộc D6: `TC-A03` (chờ D7),
+`TC-A03-delete` (chờ D8), và đỏ nền R2 của máy dev (CI xanh).
+
+**`READ-01` nay xanh VÌ ĐÚNG LÝ DO.** Sau `D5` nó xanh do `GET /posts/{id}` chưa có route nên 404 trùng mã kỳ vọng
+(đã ghi ở "Thực tế thi công" của D5). Đột biến "bỏ kiểm BR-02" **làm nó đỏ** — đó là bằng chứng nó đã thành lưới thật.
+Matrix nay **15/17**, hai dòng đỏ còn lại thuộc D7/D8.
+
+Thử cho đỏ ở local rồi khôi phục — sáu đột biến, đều bị bắt, `git status` sạch trước và sau:
+
+| Đột biến | Test đỏ |
+|---|---|
+| Bỏ kiểm BR-02 ở `GET /posts/{id}` | **dòng matrix `READ-01`** + 4 test của `ReadPostTests` |
+| Lọc BR-02 **sau** `Take(limit)` thay vì trong `WHERE` | `BR02_loc_trong_cau_truy_van_nen_trang_khong_bi_thieu_hut` |
+| `nextCursor` dựng từ dòng thừa thứ `limit+1` | `PAGE_01_…` + `PAGE_03_…` |
+| Bỏ `ToUniversalTime()` trong `PostCursor.TryDecode` | `PAGE_02_…` (500 thay vì 200) |
+| Bỏ luật cursor ở validator (rác → trang đầu) | `PAGE_02_…` |
+| Bỏ hạ camelCase ở `ValidationErrors` | 4 ca `limit_…` + `PAGE_02_…` + 3 unit |
+
+**Q-D6 đã có câu trả lời bằng máy: LINQ `CompareTo` dịch được, KHÔNG cần `FromSql`.** Đọc câu SQL thật trong log EF
+(probe tạm, đã gỡ):
+
+```sql
+WHERE p.status <> 'deleted' AND p.author_id = @__authorId_0 AND (p.privacy = 'public' OR p.author_id = @__actorId_1)
+  AND (p.created_at < @__at_CreatedAt_2 OR (p.created_at = @__at_CreatedAt_2 AND p.post_id < @__at_PostId_3))
+ORDER BY p.created_at DESC, p.post_id DESC LIMIT @__p_4
+```
+
+Ba điều đọc ra được từ đó: `Guid.CompareTo(x) < 0` thành `p.post_id < @…` (Npgsql dịch, không client-eval); query filter
+`status <> 'deleted'` áp tự động; và vế `areFriends` **biến mất** khỏi câu SQL khi nó là `false` — EF gấp hằng đúng như
+Bước 5 dự đoán.
+
+**Chỗ lệch so với các bước trên — đã làm như sau:**
+
+- **Câu SQL là dạng TÁCH (`a < x OR (a = x AND b < y)`), không phải so sánh BỘ (`(a,b) < (x,y)`) như Đ-2.11 viết.** Đó là
+  thứ LINQ sinh ra, và Q-D6 chốt "dịch được → giữ". Hai dạng cho cùng kết quả; dạng bộ đọc index gọn hơn một chút.
+  Nếu `PERF-01` (k6, GĐ4) chỉ ra đây là điểm nghẽn thì đường lui đã có sẵn trong Q-D6 (`FromSql` nội suy cho riêng mệnh
+  đề keyset) — **không** đổi bây giờ khi chưa có số đo.
+- **Lỗi tìm ra khi rà, đã sửa ở SharedKernel:** model `[FromQuery]` cho key `errors` theo **tên thuộc tính C#**
+  (`Limit`, `Cursor`) trong khi hợp đồng ghi `limit`, `cursor`. Sai ở **cả hai** nhánh hỏng — model binding
+  (`?limit=abc`) lẫn FluentValidation (`?limit=51`) — nên sửa trong validator là không đủ:
+  `ValidatorOptions.Global.PropertyNameResolver` của host không với tới đường query, và nhánh binding thì không đi qua
+  FluentValidation chút nào. Đã hạ camelCase ở `ValidationErrors.FieldName`, bằng CHÍNH `JsonNamingPolicy.CamelCase` mà
+  serializer dùng. Với key vốn đã đúng hợp đồng (body qua FluentValidation, tham số route `postId`/`userId`) đây là phép
+  đồng nhất — có `ValidationErrorsTests.Key_da_dung_hop_dong_thi_khong_doi` canh bảy key cũ, và cả 288 test integration
+  xác nhận không hồi quy.
+  **Đây là sửa ở phễu chung của MỌI 400 trong app** (`SharedKernelProblemDetailsFactory` là người gọi duy nhất); ghi ra
+  đây vì impact analysis trả `UNKNOWN` và con số "1 người gọi" không phản ánh đúng tầm với thật sự.
+- **Bước 3 nói `TryDecode` quy cursor `+07:00` về UTC; bảng Mục 0 ghi ca đó là "400, không 500".** Hai chỗ lệch nhau.
+  Đã theo **Bước 3** (đoạn mã tường minh): cursor đúng dạng `"O"` mang offset khác 0 giải mã được và ra **200** — cùng
+  một mốc thời gian, chỉ khác cách biểu diễn, nên keyset không đổi kết quả. Điều bảng Mục 0 thật sự muốn là "không 500",
+  và điều đó vẫn đúng. Ghi ở `PostCursorTests.Cursor_mang_offset_khac_0_…` và `PAGE_02_…`.
+- **Test đếm SQL phải TỰ NÂNG mức log EF.** `appsettings` đặt `Microsoft.EntityFrameworkCore` ở `Warning` (chống nhiễu)
+  mà `Executed DbCommand` là `Information` — không nâng thì sink rỗng và test xanh vì **không đếm được gì**, đúng loại
+  lưới giả. Đặt qua `UseSetting` cho riêng app của test, không đổi cấu hình sản phẩm. Kèm một khẳng định canh gác
+  ("phải bắt được câu SQL của `content.posts`") để sink rỗng là đỏ chứ không phải xanh.
+- **`PostVisibility` là file riêng, và endpoint DANH SÁCH cố ý KHÔNG gọi nó.** Ba mệnh đề BR-02 tồn tại hai bản: một hàm
+  thuần cho đường đọc một bài, một mệnh đề `WHERE` cho đường danh sách (bắt buộc — lọc sau `Take` là cạm bẫy số một của
+  D6). Hai bản của cùng một luật lệch được, nên có đột biến canh đúng chuyện đó.
+- **`ReadPostTests` thêm hai ca không có trong Bước 7**: "đổi `privacy` có hiệu lực ngay ở lần đọc kế tiếp" (nghĩa đen
+  của *"tại thời điểm đọc"* — D7 chưa có nên `UPDATE` thẳng DB), và "bài đã xóa mềm thì chính tác giả cũng 404" (lưới
+  cho luật 7: thêm `IgnoreQueryFilters()` vào đường đọc là đỏ).
+- **Ca "hai phản hồi 404 giống hệt nhau" bỏ qua `traceId` VÀ `instance`.** Cả hai đều chính đáng: `traceId` mới mỗi
+  request theo thiết kế, `instance` là chính URL người gọi vừa gõ. Mọi trường còn lại (`type`, `title`, `status`,
+  `detail`) phải giống hệt — lệch một chữ là lộ thông tin qua câu chữ dù status code giống nhau.
+
 ---
 
 ## 9. D7 — `PATCH /posts/{postId}`

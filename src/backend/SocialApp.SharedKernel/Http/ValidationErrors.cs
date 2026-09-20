@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.AspNetCore.Mvc.ModelBinding.Metadata;
 
@@ -12,6 +13,10 @@ namespace SocialApp.SharedKernel.Http;
 /// <list type="bullet">
 /// <item>Key là đường dẫn JSON (<c>$…</c>) → tên trường client gửi (<c>$.items[0].name</c> → <c>items[0].name</c>); gốc (<c>$</c>,
 /// <c>$[0]</c>) và body rỗng (<c>""</c>) → <see cref="BodyKey"/>.</item>
+/// <item><b>Mọi key hạ về camelCase</b> bằng CHÍNH <c>JsonNamingPolicy.CamelCase</c> mà serializer dùng (D6). Cần vì model
+/// <c>[FromQuery]</c> cho key theo TÊN THUỘC TÍNH C# (<c>Limit</c>, <c>Cursor</c>) ở cả hai nhánh hỏng — model binding
+/// (<c>?limit=abc</c>) lẫn FluentValidation (<c>?limit=51</c>) — trong khi hợp đồng ghi <c>limit</c>, <c>cursor</c>. Với key
+/// đã camelCase sẵn (body qua FluentValidation, tham số route <c>postId</c>/<c>userId</c>) đây là phép đồng nhất.</item>
 /// <item>Lỗi ở đường dẫn JSON LUÔN nhận thông điệp cố định — kể cả khi ai đó bật lại
 /// <c>AllowInputFormatterExceptionMessages</c>: key <c>$…</c> chỉ do input formatter sinh, không bao giờ do FluentValidation.</item>
 /// <item>Lỗi còn lại (FluentValidation, thông điệp model binding đã Việt hóa ở <see cref="Localize"/>) giữ nguyên thông điệp.</item>
@@ -78,8 +83,15 @@ public static class ValidationErrors
         provider.SetNonPropertyValueMustBeANumberAccessor(() => MustBeNumber);
     }
 
-    private static string FieldName(string key) =>
-        key.StartsWith("$.", StringComparison.Ordinal) && key.Length > 2 ? key[2..]
-        : key.Length == 0 || key.StartsWith('$') ? BodyKey
-        : key;
+    private static string FieldName(string key)
+    {
+        var name =
+            key.StartsWith("$.", StringComparison.Ordinal) && key.Length > 2 ? key[2..]
+            : key.Length == 0 || key.StartsWith('$') ? BodyKey
+            : key;
+
+        // Cùng policy với serializer, không tự viết `char.ToLower(name[0])`: hai cách hạ chữ là hai cách lệch nhau, và
+        // policy của System.Text.Json là thứ quyết định tên trường ĐI RA trong mọi DTO.
+        return JsonNamingPolicy.CamelCase.ConvertName(name);
+    }
 }
