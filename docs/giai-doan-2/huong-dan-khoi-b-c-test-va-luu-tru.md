@@ -1243,6 +1243,43 @@ không so: *"sửa một chữ mô tả mà đỏ test thì cả nhóm sẽ họ
 khóa R2 (`Q-C1`). Controller mới mà chạm DB/R2 lúc khởi động thì cổng hợp đồng đỏ — sửa controller, đừng
 sửa `ApiFactory`.
 
+### Thực tế thi công
+
+**Bằng chứng.** Lệnh đúng của CI (`--filter "Category=Contract" -- RunConfiguration.TreatNoTestsAsError=true`):
+**6/6 xanh**, đúng con số ở "Xong khi". Integration tổng 309 → 313 (+4: hai lớp con mới × hai `[Fact]`); Unit 218 và
+Architecture 13 không đổi. Còn đúng một đỏ trong cả solution, là đỏ nền R2 của máy dev.
+
+**Đã tách lớp cơ sở theo phương án khuyến nghị**, không chép ba bản. `ContractTestsBase` giữ toàn bộ logic so sánh; ba
+lớp con còn đúng hai thuộc tính mỗi lớp. `IdentityContractTests` **mất phần thân nhưng không mất một khẳng định nào** —
+cùng hai `[Fact]`, cùng `CrossCuttingStatusCodes = [429, 500]`, cùng lý do trong XML doc.
+
+**Thử cho đỏ HAI lần, mỗi chiều một lần** (Bước 4 chỉ đòi một; chiều 2 đáng thử riêng vì nó là chiều từng bị `Skip` ở
+GĐ1):
+
+| Đột biến | Test đỏ | Thông điệp |
+|---|---|---|
+| Thêm `[ProducesResponseType(418)]` vào `POST /media/uploads`, không sửa yaml | `ContentContractTests.Runtime_must_not_expose_anything_outside_the_contract` | `Code trả status code chưa ghi trong content-v1.yaml: POST /media/uploads: 418` |
+| Thêm `'403'` vào `DELETE /users/me/avatar` trong yaml, code không khai | `ProfileContractTests.Contract_must_be_fully_implemented` | `profile-v1.yaml ghi status code mà action chưa khai [ProducesResponseType]: DELETE /users/me/avatar: 403` |
+
+Cả hai lần, **năm test còn lại vẫn xanh** — lớp con độc lập với nhau, và thông điệp chỉ thẳng vào đúng một operation.
+`git status` sạch trước và sau cả hai.
+
+**Chỗ lệch so với các bước trên — đã làm như sau:**
+
+- **Không cần sửa `ci.yml`.** Bước "API contract (CI GATE)" đã lọc theo `Category=Contract` từ GĐ1, nên hai lớp con mới
+  tự động vào cổng nhờ `[Trait]` trên từng lớp. Đây chính là lý do luật số 1 của phần "ba điều bắt buộc" tồn tại: quên
+  `[Trait]` ở lớp con thì cổng chạy 4 test thay vì 6 và **vẫn xanh**.
+- **Thông điệp lỗi nay nêu TÊN FILE hợp đồng** (`content-v1.yaml: …`) thay vì chuỗi cố định `identity-v1.yaml` của bản
+  cũ. Với ba module, một thông điệp không nói rõ file nào thì người đọc log phải đoán — và đoán sai thì sửa nhầm hợp
+  đồng của module khác.
+- **Đã thử một đột biến hỏng và ghi lại để người sau khỏi mất thời gian:** thêm `'409': $ref Conflict` vào
+  `profile-v1.yaml` làm test đỏ với *"File hợp đồng không parse được: Invalid Reference identifier 'Conflict'"* — đỏ
+  đúng nhưng **sai lý do**, vì `profile-v1.yaml` không có component `Conflict`. Muốn thử chiều 2 thì phải dùng component
+  file đó thật sự có (`Forbidden`, `Unauthorized`, `ValidationProblem`).
+- **`B4` không còn phụ thuộc `D9` nữa sau khi `D9` xong.** Kế hoạch xếp `B4` ngay sau `D9` vì cổng chiều 2 chỉ xanh khi
+  đủ mười operation; `D9` đã rà và xác nhận điều đó bằng probe tạm, nên `B4` ở đây chỉ là biến probe thành test thường
+  trực. Không có gì phải sửa ở code sản phẩm.
+
 ---
 
 
