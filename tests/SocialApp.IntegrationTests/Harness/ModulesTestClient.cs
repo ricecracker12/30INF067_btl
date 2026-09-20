@@ -233,6 +233,14 @@ public sealed class ModulesTestClient
         return (await response.Content.ReadFromJsonAsync<PostResponse>(Json))!;
     }
 
+    /// <summary><c>DELETE /posts/{postId}</c> với tư cách <paramref name="userId"/> (D8).</summary>
+    public Task<HttpResponseMessage> DeletePostAsync(Guid userId, object postId, string role = "USER")
+    {
+        var request = new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/posts/{postId}");
+        request.Headers.Authorization = Bearer(userId, role);
+        return Http.SendAsync(request);
+    }
+
     /// <summary>
     /// Đọc thẳng DB bằng Npgsql — KHÔNG qua EF và không qua API. Chép khuôn <c>AuthTestClient.QueryRowAsync</c> của GĐ1.
     /// Cần cho <c>PROF-02</c>: "vẫn đúng MỘT dòng" là khẳng định về bảng, mà API thì theo thiết kế không phân biệt được

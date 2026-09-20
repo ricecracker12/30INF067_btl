@@ -371,6 +371,10 @@ paths:
 
         Gọi lại lần hai trên bài đã xóa → **403** (cùng phản hồi với "không phải của bạn"), không phải 404 — thao tác
         ghi cần ownership dùng 403 (Mục 6.1). Đây là dòng `TC-A03-delete`.
+
+        `postId` sai dạng → **400** `errors.postId` (chốt Q-D7, 2026-09-19): route cố ý không ràng buộc `:guid` nên id
+        hỏng đi qua model binding chứ không rơi khỏi route. Ràng buộc `:guid` sẽ cho **404**, lệch hẳn `GET`/`PATCH`
+        cùng đường dẫn vốn đã hứa 400.
       security:
         - bearerAuth: []
       parameters:
@@ -381,6 +385,8 @@ paths:
           headers:
             X-Correlation-ID:
               $ref: '#/components/headers/XCorrelationId'
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':

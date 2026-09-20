@@ -179,6 +179,36 @@ public sealed class PostService(
     }
 
     /// <summary>
+    /// <c>DELETE /posts/{postId}</c> — <b>xóa MỀM</b> (Đ-2.10): đặt <c>status = 'deleted'</c> + <c>deleted_at</c>, không
+    /// <c>DELETE</c> dòng nào.
+    ///
+    /// Tầng 3 y hệt <see cref="UpdateAsync"/>, và <b>gọi lần hai trả 403 một cách TỰ NHIÊN</b>: global query filter đã
+    /// loại bài <c>deleted</c> nên <see cref="IPostStore.FindForUpdateAsync"/> trả <c>null</c> ở lượt thứ hai, rơi đúng
+    /// vào nhánh <see cref="Result.Forbidden"/> sẵn có. Viết <c>if (post.Status == Deleted) return NotFound</c> là đi
+    /// vòng — và ra sai mã, vì bảng Mục 6.1 chốt thao tác GHI cần ownership dùng 403.
+    ///
+    /// <b>KHÔNG xóa gì trên R2, KHÔNG xóa dòng <c>media_attachments</c></b> (Đ-2.10, Đ-2.13). Hai lý do, cả hai đều
+    /// nặng: bấm nhầm là mất ảnh vĩnh viễn, và <c>MediaCleanupWorker</c> (C4) tìm object mồ côi CHÍNH BẰNG những dòng
+    /// <c>media_attachments</c> còn lại. Dọn là việc của worker sau 7 ngày.
+    /// </summary>
+    public async Task<Result> DeleteAsync(Guid postId, Guid actorId, CancellationToken ct)
+    {
+        var post = await posts.FindForUpdateAsync(postId, ct);
+
+        // Ba lý do trượt, một phản hồi — trong đó "đã xóa rồi" đến đây dưới dạng null nhờ query filter.
+        if (post is null || post.AuthorId != actorId)
+            return Result.Forbidden();
+
+        post.Status = PostStatus.Deleted;
+        post.DeletedAt = clock.GetUtcNow();
+        await posts.SaveAsync(ct);
+
+        logger.LogInformation("Đã xóa mềm bài {PostId}", post.PostId);
+
+        return Result.Success();
+    }
+
+    /// <summary>
     /// Rỗng hoặc toàn khoảng trắng → <c>null</c>, để <c>body</c> của bài chỉ có ảnh là <c>null</c> đúng như ví dụ hợp
     /// đồng, và để nhất quán với <c>ck_posts_not_empty</c> (DB so <c>btrim(coalesce(body,''))</c>) lẫn với
     /// <see cref="PostContentPolicy.Validate"/> (dùng <c>IsNullOrWhiteSpace</c>). Ba nơi cùng coi bốn giá trị

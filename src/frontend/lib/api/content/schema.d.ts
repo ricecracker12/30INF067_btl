@@ -92,6 +92,10 @@ export interface paths {
          *
          *     Gọi lại lần hai trên bài đã xóa → **403** (cùng phản hồi với "không phải của bạn"), không phải 404 — thao tác
          *     ghi cần ownership dùng 403 (Mục 6.1). Đây là dòng `TC-A03-delete`.
+         *
+         *     `postId` sai dạng → **400** `errors.postId` (chốt Q-D7, 2026-09-19): route cố ý không ràng buộc `:guid` nên id
+         *     hỏng đi qua model binding chứ không rơi khỏi route. Ràng buộc `:guid` sẽ cho **404**, lệch hẳn `GET`/`PATCH`
+         *     cùng đường dẫn vốn đã hứa 400.
          */
         delete: operations["deletePost"];
         options?: never;
@@ -690,6 +694,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            400: components["responses"]["ValidationProblem"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             429: components["responses"]["TooManyRequests"];

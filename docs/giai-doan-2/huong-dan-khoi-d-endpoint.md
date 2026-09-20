@@ -1463,6 +1463,50 @@ Hai dòng đầu là hai dòng của bảng đột biến `B3` (Bước 2) dành
   dòng `media_attachments` còn để nhánh (2) tìm thấy.
 - **Kiểm DB sau xóa bằng `db.Posts.FindAsync`** → filter che mất, test tưởng bài đã bị xóa cứng. Đọc bằng `NpgsqlCommand`.
 
+### Thực tế thi công
+
+**Bằng chứng.** `dotnet test SocialApp.sln`: Unit 218 và Architecture 13 (không đổi — D8 không thêm hàm thuần nào),
+Integration 300 → 308 (+8 `DeletePostTests`). Bốn cổng frontend xanh sau `pnpm gen:api`
+(`lint`/`typecheck`/`test` 245/`build`); chạy `gen:api` lần hai không đổi thêm file nào.
+
+**`TC-A03-delete` đỏ → XANH: AuthZ matrix nay 17/17.** Và đây là commit làm **nhánh xanh trở lại**: sau D8 chỉ còn đúng
+MỘT đỏ trong cả solution, là đỏ nền của máy dev
+(`StartupConfigurationTests.Development_boots_without_r2_config_…` — user-secrets local có khóa R2; CI không có nên xanh).
+Bốn dòng matrix mà `B2` cố ý để đỏ nay xanh đủ cả bốn.
+
+Thử cho đỏ ở local rồi khôi phục — năm đột biến, đều bị bắt, `git status` sạch trước và sau:
+
+| Đột biến | Test đỏ |
+|---|---|
+| Bỏ `post.AuthorId != actorId` (IDOR ở DELETE) | **dòng matrix `TC-A03-delete`** + `Ba_ly_do_truot_…` + `ADMIN_qua_duoc_…` |
+| Quên gán `DeletedAt` | `Xoa_mem_giu_nguyen_dong_posts_dong_media_va_object_R2` |
+| "Đã xóa rồi" trả 404 thay vì 403 | `Xoa_lan_hai_tra_403_…` + `Ba_ly_do_truot_…` |
+| Xóa luôn object R2 "cho sạch bucket" | `Xoa_mem_giu_nguyen_…` (`fake.Deleted` không còn rỗng) |
+| Ràng buộc route `{postId:guid}` (phương án Q-D7 đã loại) | `Q_D7_postId_sai_dang_tra_400_…` (ra 404) |
+
+Dòng đầu là dòng thứ hai của bảng đột biến `B3` dành cho khối D (`DeleteAsync` — "hai hàm khác nhau, một dòng không canh
+được cả hai"), đã thử và đúng như bảng dự đoán. Dòng cuối là ca duy nhất chứng minh **phương án bị loại** của Q-D7 thật
+sự sai chứ không chỉ "khác": ràng buộc `:guid` cho 404, lệch hẳn `GET`/`PATCH` cùng đường dẫn vốn đã hứa 400.
+
+**Chỗ lệch so với các bước trên — đã làm như sau:**
+
+- **Ghi ngược Q-D7 làm HAI chỗ trong `content-v1.yaml`, không phải một.** Bước 3 chỉ nói thêm `'400'` vào `responses`;
+  đã thêm, và thêm cả một đoạn vào `description` nói **vì sao** có mã đó (route không ràng buộc `:guid`) cùng **phương
+  án bị loại**. Không có đoạn đó thì người đọc hợp đồng sau này thấy một mã 400 không có lý do và rất dễ "dọn" bằng cách
+  đúng là thứ Q-D7 đã loại. `schema.d.ts` sinh lại trong cùng commit (+5 dòng).
+- **Thêm ca "bài đã xóa thì `PATCH` cũng 403"** (không có trong Bước 4). Hai endpoint ghi dùng chung một khuôn tầng 3
+  nên chúng phải trả lời giống nhau cho cùng một trạng thái; test này canh chỗ giao nhau đó, thứ mà test của riêng D7
+  hay riêng D8 đều không với tới.
+- **Thêm ca ADMIN** (cặp với ca cùng tên ở `UpdatePostTests`), kèm khẳng định `status` trong DB vẫn là `published` — mã
+  403 một mình không chứng minh được là bài **chưa** bị đụng.
+- **`Ba_ly_do_truot_…` có ca ĐỐI CHỨNG "bài của chính mình xóa được"**, cùng lý do đã ghi ở D7: thiếu nó thì một bản
+  "mọi DELETE đều 403" vẫn làm test xanh.
+- **Mọi khẳng định về DB đọc bằng `NpgsqlCommand`, không qua `DbSet`** — đúng cạm bẫy thứ ba ở trên. Kèm `media_count`
+  vẫn là 1 sau khi xóa: xóa mềm không đụng tới con số đó.
+- **`[ProducesResponseType(400)]` trên `DELETE` chưa có lưới tự động** cho tới khi `B4` (cổng hợp đồng) được commit sau
+  `D9`: cổng chiều 1 là thứ so "action khai mã nào" với "hợp đồng có mã nào". Ở commit này nó chỉ được canh bằng mắt và
+  bằng `Q_D7_postId_sai_dang_…` (canh hành vi runtime, không canh phần khai báo).
+
 ---
 
 ## 11. D9 — Rà RFC 7807 + `[ProducesResponseType]` + `[ApiExplorerSettings]`

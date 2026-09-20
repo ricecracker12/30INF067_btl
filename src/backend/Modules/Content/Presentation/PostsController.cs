@@ -95,6 +95,30 @@ public sealed class PostsController(PostService posts, PostReadService reads) : 
     }
 
     /// <summary>
+    /// Xóa mềm bài của mình (FR-005, Đ-2.10). Sau đó bài không còn là tài nguyên: chính tác giả <c>GET</c> cũng 404, và
+    /// <c>DELETE</c> lần hai là <b>403</b> — cùng phản hồi với "không phải của bạn". Đây là dòng <c>TC-A03-delete</c>.
+    ///
+    /// <b>400 khai ở đây là chốt Q-D7</b>: route cố ý không ràng buộc <c>:guid</c> (Mục 1.5) nên
+    /// <c>DELETE /posts/abc</c> chắc chắn ra 400 <c>errors.postId</c> lúc chạy. Hợp đồng ban đầu chỉ có 204/401/403 —
+    /// đã thêm <c>400</c> vào <c>content-v1.yaml</c> trong chính commit này, kèm <c>pnpm gen:api</c>.
+    ///
+    /// Object trên R2 và dòng <c>media_attachments</c> KHÔNG bị đụng tới — xem <see cref="PostService.DeleteAsync"/>.
+    /// </summary>
+    [HttpDelete("posts/{postId}")]
+    [RequirePermission(ContentPermissions.PostDelete)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest, "application/problem+json")]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized, "application/problem+json")]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden, "application/problem+json")]
+    public async Task<IActionResult> Delete(Guid postId, CancellationToken ct)
+    {
+        var result = await posts.DeleteAsync(postId, User.GetUserId(), ct);
+
+        // ToActionResult của Result (không mang dữ liệu) trả thẳng NoContent khi thành công.
+        return result.ToActionResult(this);
+    }
+
+    /// <summary>
     /// Bài của một người, mới nhất trước, phân trang keyset (Đ-2.11).
     ///
     /// <b>Không có 404</b> trong danh sách mã: người dùng không tồn tại, chưa có bài, hay có bài mà người gọi không được
