@@ -2,6 +2,11 @@
 .env
 .env.*
 !.env.example
+deploy/backup.env
+!deploy/backup.env.example
+# ---- Sao lưu (GĐ7 khối A) — chỉ tồn tại trên VM, không bao giờ vào repo ----
+deploy/backups/
+deploy/backup.log
 **/appsettings.*.Production.json
 deploy/origin-cert/
 *.pem
