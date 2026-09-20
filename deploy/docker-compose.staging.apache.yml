@@ -58,11 +58,27 @@ services:
   postgres:
     image: postgres:16
     restart: unless-stopped
+    # A1 — WAL archiving (giai-doan-7.md Đ-7.11). archive_timeout=15min là dòng giữ cam kết RPO ≤ 15 phút:
+    # không có nó, segment chưa đầy thì chưa archive và 15 phút cuối nằm trên đúng cái đĩa vừa hỏng.
+    # /backups = bind ./backups (cạnh compose): wal/ base/ dump/ — backup.sh ghi, restore.sh đọc, rclone đẩy R2.
+    # Trước lần `up` đầu tiên với cấu hình này: tạo ./backups và ./backups/wal thuộc uid 999 (hướng dẫn khối A, A1).
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_command=test ! -f /backups/wal/%f && cp %p /backups/wal/%f
+      - -c
+      - archive_timeout=15min
     environment:
       POSTGRES_DB: socialapp
       POSTGRES_USER: socialapp
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    volumes: [pgdata:/var/lib/postgresql/data]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./backups:/backups
     networks: [internal]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U socialapp -d socialapp"]
