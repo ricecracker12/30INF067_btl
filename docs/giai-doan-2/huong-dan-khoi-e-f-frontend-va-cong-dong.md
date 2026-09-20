@@ -757,6 +757,93 @@ cho cả "không tồn tại", "đã xóa" và "không được xem" (Mục 7.4 
 | `key={index}` cho danh sách | Bài nhảy chỗ khi nối trang | `key={post.postId}` |
 | Hiện hai câu khác nhau cho 404 "không tồn tại" và 404 "không được xem" | Status code tự khai tài nguyên có tồn tại | Một câu duy nhất |
 
+### Thực tế thi công
+
+**Bằng chứng.** Vitest **392 → 418** (+26: `features/post/user-posts.test.tsx` 19,
+`features/post/post-detail.test.tsx` 7). `pnpm lint`, `typecheck`, `test`, `build` xanh cả bốn; ba route
+`/compose`, `/posts/[postId]`, `/users/[userId]` có trong bảng route của bản build. Hợp đồng không đổi.
+
+**Kiểm tay trên `localhost:3000` với API + Postgres dev — ĐÃ CHẠY 2026-09-21, Chrome 153.0.8010.50**, tài khoản
+mới, **25 bài tạo qua API thật**:
+
+| Quan sát | Khớp với |
+|---|---|
+| Trang đầu **20 card**, bấm "Xem thêm" một lần → **25 card**, **25 `postId` duy nhất**, **0 bài thiếu** | Đ-2.11 — `limit` mặc định 20, cursor nối đúng một lô |
+| Thứ tự: bài mới nhất đứng đầu, bài cũ nhất đứng cuối | `sort = (created_at DESC, post_id DESC)` |
+| Hết trang → nút "Xem thêm" **biến mất** | `nextCursor === null` |
+| Query lượt hai: `?cursor=MjAyNi0wOS0yMFQyMDowNzowMi40MTA3MjEwKzAwOjAwfDAxYTBjMDZkLWU0MGEtNzNjYi04YjRjLTJjZjIwYzBkNzU1Yw&limit=20` | Cursor đi **nguyên vẹn** — FE không dựng, không sửa, không encode lại |
+| `/posts/{id}` mở đúng bài; `/posts/{id-không-tồn-tại}` → **đúng một câu**, không nút "Thử lại" | Mục 7.4 |
+| `/users/{id}` → hồ sơ + 20 bài đầu | Q-E6 |
+
+**Trang đầu bị gọi HAI lần trên dev** (`limit=20` xuất hiện hai lượt trong Network) — đó là StrictMode của Next chạy
+effect hai lần, không phải lỗi: `runRef` hủy lượt đầu và `seenRef` khử trùng, nên **25 id vẫn duy nhất**. Production
+chạy effect một lần. Chính lượt chạy này là bằng chứng cho luật 3 của cursor.
+
+**Bảng đột biến — mười sáu dòng, tất cả bị bắt** (áp một đột biến, chạy test, khôi phục; `git status` sạch trước và
+sau):
+
+| Đột biến | Test đỏ |
+|---|---|
+| Coi `nextCursor: ""` là "còn trang" | `nextCursor: null` → nút Xem thêm BIẾN MẤT |
+| Bỏ khử trùng theo `postId` | `lô TRÙNG không sinh card lặp` |
+| Bỏ chốt `pendingRef` trong `loadMore` | `loadMore gọi hai lần liền chỉ bắn MỘT request` |
+| Gửi `limit=100` (ngoài `1..50`) | `trang đầu KHÔNG gửi cursor, gửi đúng limit 20` |
+| Trang đầu gửi một cursor bịa ra | `trang đầu KHÔNG gửi cursor…` |
+| Dữ liệu cũ không hết hiệu lực khi đổi `userId` | `đổi userId: KHÔNG nháy bài của người cũ` |
+| Trang sau hỏng thì xóa sạch danh sách | `trang SAU hỏng: danh sách cũ VẪN còn` |
+| Nút "Xem thêm" chỉ bị `disabled` thay vì biến mất | `nextCursor: null` → nút BIẾN MẤT |
+| Nói "chưa đăng bài nào" cả khi trang đầu hỏng | `trang đầu hỏng: KHÔNG nói 'chưa đăng bài nào'` |
+| Nhãn "đã chỉnh sửa" theo so ngày thay vì `editedAt` | `nhãn 'đã chỉnh sửa' theo editedAt` |
+| Bỏ sắp xếp ảnh theo `position` | `ảnh xếp theo position` |
+| Ảnh vỡ thì nạp lại **không** giới hạn số lần | `ảnh vỡ → nạp lại ĐÚNG MỘT LẦN` |
+| `key` ảnh theo `position` thay vì `url` | `ảnh vỡ → nạp lại ĐÚNG MỘT LẦN` (khẳng định node `<img>` là node MỚI) |
+| 404 nói thẳng "Bài này đã bị xóa." | `không nói bài có tồn tại hay không` |
+| 404 dùng chung nhánh với 5xx (có nút Thử lại) | `404 → KHÔNG có nút Thử lại` |
+| Card trong danh sách không dẫn tới chi tiết | `card trong DANH SÁCH dẫn tới trang chi tiết` |
+
+**Ba đột biến LÚC ĐẦU lọt lưới** — và đó là thông tin, không phải thủ tục:
+
+- **Bỏ chốt `pendingRef`.** Ca "bấm Xem thêm hai lần" xanh giả vì `disabled={page.pending}` đã chặn cú bấm thứ hai
+  **ở tầng UI**. Chốt trong hook vẫn phải có: GĐ4 thay nút bằng `IntersectionObserver`, không có `disabled` nào để
+  dựa. Đã thêm một ca gọi thẳng `page.loadMore()` hai lần qua một component trần, và một ca bấm nút khi trang sau
+  **cố ý chậm** (`delay(60)` của msw) — không có độ trễ đó thì lượt đầu đã xong và nút đã biến mất trước cú bấm thứ hai.
+- **Dữ liệu cũ không hết hiệu lực khi đổi `userId`.** Ca tương ứng chỉ có ở `PostDetail`; danh sách thì không. Đã thêm.
+- **`key` ảnh theo `position`.** Test cũ chỉ kiểm thuộc tính `src`, mà React cập nhật `src` dù có thay node hay không.
+  Đã khẳng định **danh tính node** (`expect(thẻMới).not.toBe(thẻCũ)`) — chính việc thay node mới buộc trình duyệt
+  tải lại thay vì dùng lại ảnh hỏng trong cache.
+
+**Chỗ lệch so với kế hoạch — đã làm như sau:**
+
+- **Lệch Bước 4: nút "Xem thêm", KHÔNG `IntersectionObserver`.** Bước 4 viết "ẩn nút/ngắt observer", để ngỏ cả hai.
+  GĐ2 chọn nút vì cuộn vô hạn tự động làm người dùng bàn phím không tới được cuối trang, và nó **nuốt lỗi** — một
+  trang hỏng giữa chừng trông y hệt "hết bài". GĐ4 đổi sang observer thì đổi trong **đúng `post-list.tsx`**; phần
+  cursor ở `use-post-page.ts` không phải chạm.
+- **Lệch Bước 1: trạng thái KHÔNG phải bốn `useState` rời** (`items`, `nextCursor`, `pending`, `error`). Luật ESLint
+  `react-hooks/immutability`/`set-state-in-effect` của repo **cấm** `setState` đồng bộ trong effect, mà "đổi `userId`
+  thì xóa danh sách" đúng là thế. Đã gom thành một object mang `key = "{userId}:{attempt}"`: dữ liệu của lượt xem cũ
+  tự hết hiệu lực vì `key` không khớp, không ai phải xóa bằng tay. `PostDetail` và `PublicProfile` dùng cùng khuôn.
+  **Bề mặt `PostPageState` vẫn đúng như Bước 1 mô tả** — chỗ đổi là cách giữ, không phải cái giữ.
+- **Không có `features/post/my-posts.tsx`.** Đ-E13 cấm `features/post` import `features/profile`, mà `/me` cần
+  `userId` từ `profileStore`. Đã để `UserPosts` nhận `userId` qua **prop** và đẩy việc đọc store lên
+  `app/(app)/(with-profile)/me/page.tsx` — tầng `app/` là chỗ **duy nhất** được biết cả hai feature. Trang `/me` vì
+  thế thành `"use client"`; nó vốn toàn component client nên không mất gì của RSC. **Không mở ngoại lệ ESLint nào.**
+- **`<img>` thường, không `next/image`** — kèm `eslint-disable` có lý do tại chỗ. `next/image` **tải ảnh về server
+  Next** rồi phục vụ lại, tức byte ảnh đi qua origin của app: đúng thứ Đ-2.5 cấm. Nó còn đòi khai host R2 trong
+  `remotePatterns`, mà URL presigned đổi chữ ký mỗi 15 phút nên cache của optimizer là cache của những URL đã chết.
+- **Nhãn ba mức riêng tư dùng lại `features/post/privacy.ts`** — file đó tách ra khỏi `post-composer.tsx` và đi
+  trong **commit E4**, không phải commit này: composer `import` nó nên hai thứ không tách commit được.
+- **`post.author.userId` CÓ xuất hiện trong `features/`** (`post-card.tsx`) — nhưng chỉ làm `href` tới hồ sơ tác giả,
+  **không** dùng để quyết định quyền. Luật Mục 16 cấm cái sau; `canEdit` vẫn là nguồn duy nhất cho quyền (E6).
+
+**Ba cạm bẫy mới, không có trong bảng trên:**
+
+| Cạm bẫy | Triệu chứng | Chặn bằng |
+|---|---|---|
+| `react-hooks/set-state-in-effect` cấm khuôn quen "effect đổi param → reset state" | `pnpm lint` **đỏ** ở cả ba màn nạp theo param (`useUserPosts`, `PostDetail`, `PublicProfile`) | Gom state thành một object mang `key`; dữ liệu cũ hết hiệu lực bằng **so key lúc render**, không bằng một lượt `setState` |
+| `disabled` trên nút che mất lỗ hổng ở tầng hook | Ca "bấm hai lần" xanh **dù** bỏ chốt gọi đôi trong hook | Test gọi thẳng `page.loadMore()` — đúng cách GĐ4 sẽ gọi nó từ observer |
+| `FieldLabel` là `<label>` thật; `role="radiogroup"` không gắn được vào đó | (E4 đã gặp) | — |
+| Trang đầu gọi **hai lần** trên dev | Network hiện hai lượt `limit=20` | StrictMode, không phải lỗi — `runRef` + `seenRef` chặn phần hệ quả; production chạy effect một lần |
+
 ---
 
 ## 7. E6 — Sửa / xóa bài của mình
