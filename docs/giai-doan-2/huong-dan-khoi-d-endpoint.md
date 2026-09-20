@@ -656,13 +656,19 @@ public async Task<UserProfile> UpsertAsync(Guid userId, string displayName, stri
 {
     // ON CONFLICT: created_at GIỮ NGUYÊN (không có trong SET), avatar_key GIỮ NGUYÊN (PUT profile không đụng avatar — D3 mới đụng).
     // updated_at gán tay: SQL thô đi vòng StampUpdatedAt. RETURNING để trả đúng dòng sau ghi, không SELECT lần hai.
-    return await db.Profiles.FromSql($"""
+    //
+    // ToListAsync + Single() ở client, KHÔNG SingleAsync: EF xếp `INSERT … RETURNING` vào loại non-composable, mà
+    // SingleAsync thêm LIMIT 2 tức là compose lên trên nó → InvalidOperationException trước khi chạm DB (500 trần ở
+    // tầng HTTP). ToListAsync không sửa một ký tự nào của SQL. Bọc bằng CTE không cứu được — xem "Thực tế thi công".
+    var rows = await db.Profiles.FromSql($"""
         INSERT INTO profile.profiles (user_id, display_name, bio, avatar_key, created_at, updated_at)
         VALUES ({userId}, {displayName}, {bio}, NULL, {now}, {now})
         ON CONFLICT (user_id) DO UPDATE
            SET display_name = EXCLUDED.display_name, bio = EXCLUDED.bio, updated_at = EXCLUDED.updated_at
         RETURNING *
-        """).AsNoTracking().SingleAsync(ct);
+        """).AsNoTracking().ToListAsync(ct);
+
+    return rows.Single();
 }
 ```
 
@@ -688,6 +694,51 @@ Sau `D2`, xóa test khung (a) của `D0` và thêm test 200 cho `D1`.
   một lần, trước validator lẫn store nhìn thấy nó… — không: validator chạy **trước** service (auto-validation), nên
   validator tự trim khi đo, service trim khi lưu. Hai lần `Trim()` là đúng, đừng gộp.
 - **`RETURNING *` với `FromSql` cần `AsNoTracking`** khi không định sửa tiếp — tránh tracker giữ một entity mà transaction đã đóng.
+- **`FromSql` + `SingleAsync()` trên `INSERT … RETURNING` là 500, không phải chạy được.** Xem "Thực tế thi công" bên dưới —
+  đoạn mã ở Bước 2 đã sửa theo.
+
+### Thực tế thi công
+
+**Bằng chứng.** `dotnet test SocialApp.sln`: Unit 117 → 126 (+9 `UpsertProfileRequestValidatorTests`), Architecture 13
+(không đổi), Integration 201 → 216 (+14 `UpsertProfileTests`, +1 nhánh 200 của `ProfileTests`). Thử cho đỏ ở local rồi
+khôi phục:
+
+| Đột biến | Test đỏ |
+|---|---|
+| Bỏ `updated_at` khỏi `SET` của `ON CONFLICT` | `PROF_02_…` |
+| Thêm `created_at = EXCLUDED.created_at` vào `SET` | `PROF_02_…` |
+| Bỏ `.Trim()` ở `ProfileService.UpsertAsync` | `DisplayName_thua_khoang_trang_van_200_va_duoc_luu_da_trim` |
+| Bỏ chuẩn hóa `bio` rỗng → `null` | `Q_D3_bio_vang_mat_null_rong_hay_toan_khoang_trang_deu_xoa_bio` |
+| Thêm `avatar_key = EXCLUDED.avatar_key` vào `SET` | `Sua_ho_so_khong_lam_mat_avatar_da_dat` — **lần thử đầu KHÔNG bắt được**, xem bên dưới |
+
+**Chỗ lệch so với các bước trên — đã làm như sau:**
+
+- **Bước 2 sai một dòng: `SingleAsync()` sau `FromSql` cho 500, không phải chạy được.** EF xếp `INSERT … RETURNING` vào
+  loại SQL **non-composable**, mà `SingleAsync` thì thêm `LIMIT 2` — tức là *compose* lên trên nó — nên EF ném
+  `InvalidOperationException` ("was called with non-composable SQL and with a query composing over it") **trước khi chạm
+  DB**. Triệu chứng ở tầng HTTP chỉ là 500 trần, không chỉ vào nguyên nhân. Đã đổi sang `.AsNoTracking().ToListAsync(ct)`
+  rồi `.Single()` ở client: `ToListAsync` không sửa một ký tự nào của SQL nên hợp lệ, vẫn đúng một round-trip, và
+  `Single()` vẫn khẳng định "đúng một dòng". **Bọc bằng CTE không cứu được** — Postgres đòi CTE ghi dữ liệu phải ở top
+  level, mà EF sẽ nhét nó vào subquery. Đoạn mã ở Bước 2 đã sửa trong cùng commit.
+- **Đột biến `avatar_key` lọt qua toàn bộ bộ test viết theo Bước 4.** Cạm bẫy "đưa `avatar_key` vào `SET`" có trong danh
+  sách nhưng không có test nào canh nó, vì D2 không có đường API nào đặt được `avatar_key` và D3 thì chưa tồn tại. Đã
+  thêm `Sua_ho_so_khong_lam_mat_avatar_da_dat`, dựng trạng thái bằng **SQL trực tiếp** (`ModulesTestClient.ExecuteSqlAsync`,
+  mới) — ngoại lệ có chủ đích với nếp "dựng dữ liệu qua API thật", vì ở đây không có API thật để dùng. D3 tới thì thay
+  nhánh SQL đó bằng `PUT /users/me/avatar`.
+- **`UserProfile.BioMaxLength` là hằng MỚI của entity** (Bước 1 đặt `MaxBioLength` trong validator). Lý do: cột DB
+  `varchar(500)` và validator phải đọc **cùng một** hằng, đúng như `display_name` đã làm từ khối A —
+  `UserProfileConfiguration` nay dùng `UserProfile.BioMaxLength` thay cho số 500 gõ tay. Impact analysis của `UserProfile`:
+  **MEDIUM**, 5 phụ thuộc, 0 execution flow; thay đổi là *thêm* một hằng nên không chỗ nào phải sửa theo.
+- **Một thông điệp cho cả ba nhánh độ dài của `displayName`** (quá ngắn / quá dài / toàn khoảng trắng), đúng đoạn mã mẫu.
+  Ghi ra đây vì nó là lựa chọn, không phải mặc định: ba câu khác nhau chỉ làm FE phải nghĩ xem hiện câu nào.
+- **`SocialApp.UnitTests` nay tham chiếu `SocialApp.Modules.Profile`** — validator là hàm thuần trên DTO nên biên độ dài
+  kiểm ở tầng unit (9 ca) rẻ hơn 9 lượt HTTP; integration chỉ giữ ca chứng minh validator **được nối vào** đường request.
+- **Bước 5 (ghi ngược Q-D3) đã xong từ trước**: dòng `UpsertProfileRequest` ở Mục 8.1 của `giai-doan-2.md` đã mang
+  *"vắng mặt HOẶC null = xóa — PUT là thay thế toàn phần, chốt Q-D3"* ngay lúc chốt quyết định. Không sửa lại; thay vào
+  đó Q-D3 được **canh bằng máy** ở `Q_D3_bio_…` với đủ bốn cách nói "không có bio".
+- **`ModulesTestClient` thêm `PutProfileAsync`/`PutProfileOkAsync`** (gửi body ẩn danh chứ không phải DTO — hợp đồng phân
+  biệt "bio vắng mặt" với "bio null" ở mức JSON, mà DTO thì luôn phát ra cả hai trường), `QueryRowAsync`, `ExecuteSqlAsync`.
+- **Test khung (a) của `D0` không còn gì để xóa ở đây** — nó đã chết ở `D1`, xem "Thực tế thi công" của `D1`.
 
 ---
 

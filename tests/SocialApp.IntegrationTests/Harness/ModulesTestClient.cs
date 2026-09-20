@@ -1,6 +1,9 @@
 using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Npgsql;
+using SocialApp.Modules.Profile.Application.Profiles;
 
 namespace SocialApp.IntegrationTests.Harness;
 
@@ -48,6 +51,71 @@ public sealed class ModulesTestClient
     /// </summary>
     public void PutObject(string key, long sizeBytes, string contentType) =>
         _factory.Storage.Put(key, sizeBytes, contentType);
+
+    /// <summary>
+    /// <c>PUT /users/me/profile</c> với tư cách <paramref name="userId"/> (D2). Gửi body dạng ẩn danh thay vì
+    /// <c>UpsertProfileRequest</c> để test bỏ hẳn được một trường — hợp đồng phân biệt "bio vắng mặt" với "bio null" ở
+    /// mức JSON, và DTO thì luôn phát ra cả hai trường. Nhánh field lạ thì test tự dựng body, không qua đây.
+    /// </summary>
+    public Task<HttpResponseMessage> PutProfileAsync(Guid userId, object body)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Put, "/api/v1/users/me/profile")
+        {
+            Content = JsonContent.Create(body),
+        };
+        request.Headers.Authorization = Bearer(userId);
+        return Http.SendAsync(request);
+    }
+
+    /// <summary>Như <see cref="PutProfileAsync"/> nhưng đọc luôn body 200. Dùng ở nhánh đã biết chắc là thành công.</summary>
+    public async Task<ProfileResponse> PutProfileOkAsync(Guid userId, object body)
+    {
+        using var response = await PutProfileAsync(userId, body);
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<ProfileResponse>())!;
+    }
+
+    /// <summary>
+    /// Đọc thẳng DB bằng Npgsql — KHÔNG qua EF và không qua API. Chép khuôn <c>AuthTestClient.QueryRowAsync</c> của GĐ1.
+    /// Cần cho <c>PROF-02</c>: "vẫn đúng MỘT dòng" là khẳng định về bảng, mà API thì theo thiết kế không phân biệt được
+    /// một dòng với hai dòng. Tham số vị trí <c>$1, $2…</c>; NULL thành <c>null</c>; <c>null</c> nếu không có dòng nào.
+    /// </summary>
+    public async Task<IReadOnlyDictionary<string, object?>?> QueryRowAsync(string sql, params object[] parameters)
+    {
+        await using var connection = new NpgsqlConnection(_factory.ConnectionString);
+        await connection.OpenAsync();
+
+        await using var command = new NpgsqlCommand(sql, connection);
+        foreach (var value in parameters)
+            command.Parameters.Add(new NpgsqlParameter { Value = value });
+
+        await using var reader = await command.ExecuteReaderAsync();
+        if (!await reader.ReadAsync())
+            return null;
+
+        var row = new Dictionary<string, object?>(StringComparer.Ordinal);
+        for (var i = 0; i < reader.FieldCount; i++)
+            row[reader.GetName(i)] = await reader.IsDBNullAsync(i) ? null : reader.GetValue(i);
+        return row;
+    }
+
+    /// <summary>
+    /// Chạy một câu lệnh GHI thẳng vào DB bằng Npgsql — không qua EF, không qua API. Ngoại lệ CÓ CHỦ ĐÍCH với nếp "dựng
+    /// dữ liệu qua API thật", và chỉ hợp lệ khi endpoint dựng được trạng thái đó chưa tồn tại: ở D2 là <c>avatar_key</c>
+    /// (D3 mới có <c>PUT /users/me/avatar</c>). Có endpoint thật rồi thì đổi test sang gọi nó và GỠ hàm này — để lại là
+    /// mở sẵn một cửa hậu cho test tự bơm dữ liệu.
+    /// </summary>
+    public async Task ExecuteSqlAsync(string sql, params object[] parameters)
+    {
+        await using var connection = new NpgsqlConnection(_factory.ConnectionString);
+        await connection.OpenAsync();
+
+        await using var command = new NpgsqlCommand(sql, connection);
+        foreach (var value in parameters)
+            command.Parameters.Add(new NpgsqlParameter { Value = value });
+
+        await command.ExecuteNonQueryAsync();
+    }
 
     /// <summary>
     /// Đọc Problem Details của một phản hồi lỗi. Trả <c>errors</c> đã phẳng thành <c>{field: [message]}</c> — rỗng khi phản

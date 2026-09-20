@@ -2,13 +2,18 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using SocialApp.Modules.Profile.Application.Profiles;
+using SocialApp.SharedKernel.Authentication;
 using SocialApp.SharedKernel.Http;
 
 namespace SocialApp.Modules.Profile.Presentation;
 
 /// <summary>
 /// Tầng HTTP của module Profile — bốn action theo <c>profile-v1.yaml</c>: <c>GET {userId}/profile</c> (D1),
-/// <c>PUT me/profile</c> (D2), <c>PUT me/avatar</c> + <c>DELETE me/avatar</c> (D3). D1 mới nối action đầu tiên.
+/// <c>PUT me/profile</c> (D2), <c>PUT me/avatar</c> + <c>DELETE me/avatar</c> (D3). D2 nối action thứ hai.
+///
+/// <c>GET {userId}/profile</c> và <c>PUT me/profile</c> KHÔNG tranh route nhau dù <c>me</c> khớp được template
+/// <c>{userId}</c>: khác HTTP method. Hệ quả có thật: <c>GET /users/me/profile</c> rơi vào <c>{userId}</c> → 400, còn
+/// <c>PUT /api/v1/users/{someGuid}/profile</c> → 405. Cả hai đều đúng hợp đồng (không có operation nào như vậy).
 ///
 /// <list type="bullet">
 /// <item><b>Route KHÔNG có ràng buộc <c>:guid</c>.</b> Với <c>Guid userId</c>, id sai dạng làm model binding hỏng và
@@ -41,6 +46,26 @@ public sealed class ProfilesController(ProfileService profiles) : ControllerBase
     public async Task<ActionResult<ProfileResponse>> Get(Guid userId, CancellationToken ct)
     {
         var result = await profiles.GetAsync(userId, ct);
+        return result.ToActionResult(this);
+    }
+
+    /// <summary>
+    /// Onboarding (Đ-2.4) hoặc sửa hồ sơ của chính mình. Upsert: lần đầu TẠO, các lần sau SỬA, cùng mã <b>200</b> —
+    /// hợp đồng cố ý không có 201, FE không phải phân nhánh.
+    ///
+    /// <c>actorId</c> lấy từ <c>User.GetUserId()</c>, KHÔNG từ route/body/query (Mục 1.3 luật 5). Đây là lý do route là
+    /// <c>me</c> chứ không phải <c>{userId}</c>: không có id nào của người khác để truyền vào, nên không có tầng 3 để
+    /// quên. Trả nguyên <c>ProfileResponse</c> để FE không phải gọi lại <c>GET</c>.
+    ///
+    /// Không có 404 ở đây: chưa có hồ sơ thì câu lệnh TẠO nó. Đó là cả điểm của upsert.
+    /// </summary>
+    [HttpPut("me/profile")]
+    [ProducesResponseType<ProfileResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest, "application/problem+json")]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized, "application/problem+json")]
+    public async Task<ActionResult<ProfileResponse>> Upsert(UpsertProfileRequest request, CancellationToken ct)
+    {
+        var result = await profiles.UpsertAsync(User.GetUserId(), request, ct);
         return result.ToActionResult(this);
     }
 }

@@ -21,7 +21,8 @@ internal sealed class UserProfileConfiguration : IEntityTypeConfiguration<UserPr
         builder.Property(x => x.DisplayName).HasColumnName("display_name")
             .HasMaxLength(UserProfile.DisplayNameMaxLength).IsRequired();
 
-        builder.Property(x => x.Bio).HasColumnName("bio").HasMaxLength(500);
+        // 500 lấy từ hằng số của entity, cùng lý do với display_name ở trên (D2).
+        builder.Property(x => x.Bio).HasColumnName("bio").HasMaxLength(UserProfile.BioMaxLength);
         builder.Property(x => x.AvatarKey).HasColumnName("avatar_key").HasMaxLength(200);
 
         // Nguồn thời gian: giá trị do đồng hồ app gán trong entity; DEFAULT now() chỉ là lưới cho SQL

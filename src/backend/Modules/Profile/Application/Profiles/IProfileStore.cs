@@ -20,4 +20,17 @@ public interface IProfileStore
     /// được hai chuyện đó và cố ý không cần: hợp đồng trả cùng một 404 cho cả hai (PROF-03).
     /// </summary>
     Task<UserProfile?> FindAsync(Guid userId, CancellationToken ct);
+
+    /// <summary>
+    /// Tạo-hoặc-sửa hồ sơ trong MỘT câu lệnh và trả về dòng sau khi ghi. Phải NGUYÊN TỬ: đọc-rồi-ghi
+    /// (<see cref="FindAsync"/> → null → <c>Add</c>) là hai tab cùng onboarding — cả hai thấy null, cả hai INSERT, tab
+    /// sau ăn PK violation và người dùng nhận 500 ở đúng bước đầu tiên của sản phẩm.
+    ///
+    /// <paramref name="displayName"/> đã được service <c>Trim()</c>; <paramref name="bio"/> rỗng/toàn khoảng trắng đã
+    /// được chuẩn hóa thành <c>null</c> (Q-D3). Store không tự chuẩn hóa: nó không biết luật của hợp đồng.
+    ///
+    /// <paramref name="now"/> đến từ <c>TimeProvider</c> của service, không phải <c>now()</c> của DB — cùng nguồn thời
+    /// gian với UUID v7 và <c>created_at</c> của hai module còn lại.
+    /// </summary>
+    Task<UserProfile> UpsertAsync(Guid userId, string displayName, string? bio, DateTimeOffset now, CancellationToken ct);
 }

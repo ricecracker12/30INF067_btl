@@ -9,9 +9,13 @@ namespace SocialApp.Modules.Profile.Application.Profiles;
 /// <see cref="IObjectStorage"/> của SharedKernel để ký <c>avatarUrl</c> (Đ-2.9) — cả hai đều là bề mặt trừu tượng nên lớp
 /// này test được mà không cần Postgres lẫn R2.
 ///
-/// Lớn dần theo từng đầu việc: <c>UpsertAsync</c> vào ở D2, <c>SetAvatarAsync</c>/<c>RemoveAvatarAsync</c> ở D3.
+/// <c>TimeProvider</c> (D2) là đồng hồ ghi <c>created_at</c>/<c>updated_at</c> — cùng nguồn với UUID v7 và với hai module
+/// còn lại, và là thứ test lùi mốc thời gian được mà không phải sửa DB. Đăng ký bằng <c>TryAddSingleton</c> ở
+/// <c>AddProfileModule</c>.
+///
+/// Lớn dần theo từng đầu việc: <c>SetAvatarAsync</c>/<c>RemoveAvatarAsync</c> vào ở D3.
 /// </summary>
-public sealed class ProfileService(IProfileStore profiles, IObjectStorage storage)
+public sealed class ProfileService(IProfileStore profiles, IObjectStorage storage, TimeProvider clock)
 {
     /// <summary>
     /// <c>GET /users/{userId}/profile</c>. Hồ sơ là dữ liệu CÔNG KHAI trong MVP (Mục 6.1) nên KHÔNG có tầng 3 ở đây:
@@ -29,6 +33,33 @@ public sealed class ProfileService(IProfileStore profiles, IObjectStorage storag
         var profile = await profiles.FindAsync(userId, ct);
         if (profile is null)
             return ProfileErrors.NotFound;
+
+        return ToResponse(profile);
+    }
+
+    /// <summary>
+    /// <c>PUT /users/me/profile</c> — bước ONBOARDING của Đ-2.4. Một mã 200 cho cả tạo lẫn sửa: FE không cần biết đây là
+    /// lần đầu hay không, và không có nhánh nào để đoán sai.
+    ///
+    /// <paramref name="actorId"/> đến từ <c>User.GetUserId()</c> ở controller (Mục 1.3 luật 5) — route là <c>me</c> nên
+    /// KHÔNG có tầng 3: người gọi chỉ có thể sửa chính mình, không có id nào khác để truyền vào.
+    ///
+    /// Hai bước chuẩn hóa trước khi xuống store, cả hai đều thuộc về đây chứ không thuộc store:
+    /// <list type="number">
+    /// <item><c>Trim()</c> tên hiển thị — hợp đồng đo "2–50 ký tự sau khi trim", nên lưu bản chưa trim là DB giữ khoảng
+    /// trắng mà <c>GET</c> trả lại <c>"  An  "</c>. Đây là lần <c>Trim()</c> thứ hai có chủ đích; lần thứ nhất ở
+    /// validator lúc ĐO. Xem <see cref="UpsertProfileRequestValidator"/> — hai lần là đúng, đừng gộp.</item>
+    /// <item><c>bio</c> rỗng hoặc toàn khoảng trắng → <c>null</c> (Q-D3): vắng mặt, <c>null</c>, <c>""</c> và <c>"   "</c>
+    /// đều là "không có bio", và để chúng thành bốn giá trị khác nhau trong DB thì <c>GET</c> trả bốn thứ khác nhau cho
+    /// cùng một ý.</item>
+    /// </list>
+    /// </summary>
+    public async Task<Result<ProfileResponse>> UpsertAsync(Guid actorId, UpsertProfileRequest request, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var bio = string.IsNullOrWhiteSpace(request.Bio) ? null : request.Bio;
+        var profile = await profiles.UpsertAsync(actorId, request.DisplayName.Trim(), bio, clock.GetUtcNow(), ct);
 
         return ToResponse(profile);
     }

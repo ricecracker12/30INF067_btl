@@ -1,14 +1,16 @@
 using System.Net;
+using System.Net.Http.Json;
 using System.Text.Json;
 using SocialApp.IntegrationTests.Harness;
+using SocialApp.Modules.Profile.Application.Profiles;
 using SocialApp.SharedKernel.Errors;
 
 namespace SocialApp.IntegrationTests.Profile;
 
 /// <summary>
-/// D1 — <c>GET /users/{userId}/profile</c>. Ba nhánh viết được ở D1; nhánh 200 chờ D2 vì dựng hồ sơ phải đi qua
-/// <c>PUT /users/me/profile</c> (API thật), không phải bằng một câu INSERT trong test — test nào tự bơm dữ liệu vào DB thì
-/// nó đang kiểm store chứ không kiểm endpoint, và sẽ vẫn xanh khi upsert của D2 hỏng.
+/// D1 — <c>GET /users/{userId}/profile</c>. Nhánh 200 vào ở D2 (dựng hồ sơ phải đi qua <c>PUT /users/me/profile</c>, API
+/// thật, không phải một câu INSERT trong test — test tự bơm dữ liệu vào DB thì nó đang kiểm store chứ không kiểm endpoint,
+/// và sẽ vẫn xanh khi upsert của D2 hỏng).
 /// </summary>
 [Collection(PostgresCollection.Name)]
 public sealed class ProfileTests(PostgresFixture postgres, ModulesApiFactory factory)
@@ -89,6 +91,35 @@ public sealed class ProfileTests(PostgresFixture postgres, ModulesApiFactory fac
         Assert.Equal((int)HttpStatusCode.BadRequest, status);
         Assert.Equal(ProblemTitles.BadRequest, title);
         Assert.Contains("userId", errors.Keys, StringComparer.Ordinal);
+    }
+
+    /// <summary>
+    /// D2 — nhánh 200 mà D1 chưa viết được. Hồ sơ CÔNG KHAI trong MVP (Mục 6.1): người đọc là một người khác hẳn, không
+    /// phải chủ hồ sơ, và vẫn 200 — không có tầng 3 ở endpoint này.
+    ///
+    /// <c>avatarUrl</c> phải là <c>null</c> khi chưa đặt avatar (D3 mới đặt được): ký một URL cho <c>avatarKey</c> null
+    /// là FE nhận một link hỏng thay vì biết đường hiện ảnh mặc định. <c>bio</c> vắng trong body → <c>null</c>, không
+    /// phải chuỗi rỗng (Q-D3).
+    /// </summary>
+    [Fact]
+    public async Task Ho_so_da_onboarding_tra_200_dung_hinh_dang_avatarUrl_null()
+    {
+        var client = new ModulesTestClient(factory);
+        var owner = Guid.NewGuid();
+        var created = await client.PutProfileOkAsync(owner, new { displayName = "An Nguyễn" });
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"/api/v1/users/{owner:D}/profile");
+        request.Headers.Authorization = ModulesTestClient.Bearer(Guid.NewGuid());
+        using var response = await client.Http.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var profile = (await response.Content.ReadFromJsonAsync<ProfileResponse>())!;
+        Assert.Equal(owner, profile.UserId);
+        Assert.Equal("An Nguyễn", profile.DisplayName);
+        Assert.Null(profile.Bio);
+        Assert.Null(profile.AvatarUrl);
+        Assert.Equal(created.CreatedAt, profile.CreatedAt);
     }
 
     /// <summary>
