@@ -134,7 +134,7 @@ ngoài ra sau cùng**, để không ngồi chờ:
 | 10  | `B2` — sáu dòng matrix, **cố ý đỏ**, chụp run đỏ                                                | `B1`, và (nếu chốt `Q-B2`) sửa khung tối thiểu | Push và **chờ CI xong** trước khi push tiếp                                                                                   |
 | 11  | **Khối D** (`D0` → `D9`)                                                                        | `C2`, `C3`, `C5`, #9, và #10 **trước `D5`**    | Hướng dẫn riêng: [huong-dan-khoi-d-endpoint.md](huong-dan-khoi-d-endpoint.md) (viết 2026-09-19) — chốt `Q-D2`–`Q-D9` ở Mục 1.4 trước khi gõ |
 | 12  | `B4` — `ContractTestsBase` + hai lớp con + hai dòng csproj                                      | `D0` + #9                                      | Csproj **không** đẩy sớm được (Mục 10)                                                                                        |
-| 13  | `B3` — 19 dòng xanh, bảng đột biến, bốn test BR-01                                              | `D5`, `D7`, `D8`                               | Kết thúc hai khối                                                                                                             |
+| 13  | `B3` — 17 dòng xanh, bảng đột biến, bốn test BR-01                                              | `D5`, `D7`, `D8`                               | Kết thúc hai khối                                                                                                             |
 
 
 **Trạng thái lúc sửa mục này (2026-09-19):** khối A xong (`26afb47`…`7a09549`); `Q-B4` xong (`485ffd2`); **chưa có**
@@ -955,7 +955,7 @@ là thêm một lượt migrate ba module vào mỗi lần chạy CI. Dùng chun
 
 **Mục tiêu.** Mỗi endpoint chạm tài nguyên có chủ của GĐ2 có một dòng chạy qua **đủ ba tầng** trên app thật.
 
-**Xong khi.** Sáu dòng có trong `AuthZMatrix.cs`, `Category=AuthZ` chạy 19 dòng, và mỗi dòng đã được nhìn
+**Xong khi.** Sáu dòng có trong `AuthZMatrix.cs`, `Category=AuthZ` chạy 17 dòng (18 test — xem "Thực tế thi công"), và mỗi dòng đã được nhìn
 thấy đỏ ít nhất một lần (đó là `B3`).
 
 ### Sáu dòng — chép nguyên kỳ vọng từ Mục 6.3, không lấy từ output
@@ -1031,6 +1031,61 @@ seed GĐ1 (`PermissionCodes.cs`). Thấy thiếu quyền thì kiểm lại `B1` 
 - **Quên** `[ProducesResponseType]` **khiến matrix xanh nhưng cổng hợp đồng đỏ.** Hai cổng khác nhau; đừng sửa
 cổng này bằng cách nới cổng kia.
 
+### Thực tế thi công
+
+**Bằng chứng.** `--filter "Category=AuthZ"`: **12 → 18** test (17 dòng matrix + `Ma_tran_khong_rong_va_ma_khong_trung`),
+trong đó **4 đỏ có chủ đích** và không dòng nào đỏ vì lý do khác dự kiến. Integration tổng: 239 → 245, **240 xanh**.
+Unit 155 và Architecture 13 không đổi. Ngoài 4 dòng này còn đúng một đỏ nền của máy dev không liên quan
+(`StartupConfigurationTests.Development_boots_without_r2_config_…` — user-secrets local có khóa R2; CI không có nên xanh).
+
+Trạng thái từng dòng mới, và **vì sao** — Bước 3 đòi đỏ phải là 404 (chưa có route), không phải 500 (thiếu bảng):
+
+| Dòng | Bây giờ | Lý do |
+|---|---|---|
+| `TC-A03` | 🔴 | `ArrangePath` ném: `POST /api/v1/posts` → **404**, chưa có `D5` |
+| `TC-A03-delete` | 🔴 | như trên |
+| `READ-01` | 🔴 | như trên (`privacy=private`) |
+| `TC-A03-media` | 🔴 | arrange xong (hồ sơ A tạo được — `D2` đã có), gọi thật nhận **404** thay vì 403 |
+| `TC-A01-posts` | 🟢 | xanh sẵn nhờ fallback policy — xem ghi chú bên dưới |
+| `TC-A01-profile` | 🟢 | `PUT /users/me/profile` đã có từ `D2`, 401 thật |
+
+Không dòng nào ra 500 → `B1` đã đúng, database của matrix có đủ ba module.
+
+**Chỗ lệch so với các bước trên — đã làm như sau:**
+
+- **Lệch luật 5 (Mục 1.2) lần thứ hai, ngoài `Q-B2`: khung phải mang được BODY.** `Q-B2` đã mở khung một lần cho
+  `CallerUserId`; nhưng `AuthZMatrixTests` dựng `new HttpRequestMessage(c.Method, path)` **không có content**, mà
+  `POST /posts` và `PATCH /posts/{id}` đều khai `requestBody: required: true` trong `content-v1.yaml`. Request không
+  body dừng ở model binding với **400** — trước cả tầng 3 — nên `TC-A03` và `TC-A03-media` **không bao giờ chạm tới thứ
+  chúng định canh**, dù `D5`/`D7` có đúng hay sai. Đây đúng là trường hợp Mục 6.3 chừa đường (*"sửa khung một lần ở GĐ2
+  rẻ hơn nhiều so với sửa ở GĐ5"*), và làm **cùng lúc** với sửa của `Q-B2` để khung chỉ mở một lần.
+  Cụ thể: `AuthZCase` thêm `object? Body = null` (tham số cuối, có mặc định → 11 dòng GĐ1 không đổi một ký tự), khung
+  thêm hai dòng `if (c.Body is not null) request.Content = JsonContent.Create(c.Body);`.
+  Ba khẳng định của `Ma_tran_phan_quyen` (mã trả về, `problem+json` cho 401/403, không trùng Id) **không đổi** — hình
+  dạng khung theo nghĩa luật 5 vẫn nguyên.
+- **`TC-A01-posts` xanh ngay từ bây giờ, và điều đó KHÔNG phải lỗi** — nhưng cũng không phải thứ nó tưởng mình canh.
+  `POST /api/v1/posts` chưa có route; request ẩn danh vẫn nhận **401** vì `FallbackPolicy` của `C4` áp cho **mọi**
+  request mà middleware authorization nhìn thấy, kể cả request **không khớp endpoint nào** (chính lý do `UseSwagger`
+  phải đứng trước `UseAuthorization` — xem comment trong `Program.cs`). Giá trị thật của dòng này là **đối chứng với
+  `DEFAULT-DENY`**: nó giữ cho `POST /posts` không bao giờ trả về gì khác 401 khi không có token.
+  **Hệ quả cho bảng đột biến của `B3` (Bước 2), ghi trước để người làm không mất buổi:** dòng *"Bỏ `[Authorize]` trên
+  controller của `POST /posts` → `TC-A01-posts` đỏ"` **sẽ không đỏ** — bỏ `[Authorize]` thì action không còn
+  `IAuthorizeData` nào, fallback policy nhảy vào và vẫn trả 401. Đột biến thật sự làm đỏ dòng đó là **`[AllowAnonymous]`
+  trên action** (thứ duy nhất khiến fallback policy bị bỏ qua). Sửa bảng đột biến, đừng sửa dòng matrix.
+- **`ArrangePath` của `TC-A03-media` không phụ thuộc dữ liệu nào nhưng vẫn có mặt.** Nó tồn tại chỉ để tạo **hồ sơ cho
+  chính người gọi** — đúng nội dung `Q-B2`. Nhìn qua tưởng thừa (path là hằng `/api/v1/posts`); xóa đi thì dòng xanh vì
+  lý do sai kể từ lúc `D5` xong.
+- **Khóa ảnh của "người khác" là một `Guid` hằng, không phải `Guid.NewGuid()`.** Người gọi luôn là một Guid ngẫu nhiên
+  mới nên hai id không thể trùng; hằng số đọc được ngay tại chỗ hơn một giá trị phải lần ngược mới biết là của ai.
+- **Ba hàm phụ đặt ngay trong `AuthZMatrix.cs`** (`TaoBaiCuaNguoiKhacAsync`, `TaoHoSoAsync`, `NemNeuKhongPhaiAsync`),
+  đúng Bước 1: khung không có chỗ cho file thứ tư.
+- **Bước 2 nói mỗi dòng ghi `AddedIn: "GĐ2"`** — đã làm, nhưng bằng **tham số vị trí** thứ ba như 11 dòng GĐ1 đang viết,
+  không phải tham số tên. Một file, một cách viết.
+- **Con số "19 dòng" của bản nháp không khớp thực tế: đúng ra là 17 dòng (18 test).** 11 dòng GĐ1 + 6 dòng GĐ2 = 17;
+  `Category=AuthZ` chạy 18 vì có thêm `Ma_tran_khong_rong_va_ma_khong_trung`. 19 là **ước lượng cũ**, không phải kết quả
+  đo; đã sửa thành 17 ở cả sáu chỗ trong hai file hướng dẫn (Mục 0.3 #13, Mục 8, Mục 9 Bước 2 và cạm bẫy của nó,
+  `huong-dan-khoi-d` Mục 0.2 #7 và Mục 0.3).
+
 ---
 
 
@@ -1053,7 +1108,7 @@ bốn test BR-01 integration xanh (theo `Q-B3`); (d) `git status` sạch.
 **Ngoại lệ:** nếu PR `loveart1210 → develop` đang được review và nhóm dựa vào trạng thái xanh của nhánh, giữ
 commit đỏ ở local và chép output vào PR thay cho link.
 
-### Bước 2 — bảng đột biến (làm sau khi `D5`/`D7`/`D8` xong và 19 dòng đã xanh)
+### Bước 2 — bảng đột biến (làm sau khi `D5`/`D7`/`D8` xong và 17 dòng đã xanh)
 
 Mỗi dòng thử bằng tay **một lần**: sửa tạm → chạy `--filter "Category=AuthZ"` → thấy **đúng** dòng dự kiến đỏ
 → hoàn tác. Ghi kết quả vào PR.
@@ -1094,7 +1149,7 @@ chung (luật chọn hàm, `B1`).
 - **Đột biến làm đỏ *nhiều* dòng hơn dự kiến.** Không phải "càng tốt" — nghĩa là hai dòng đang canh chung một
 thứ và một trong hai không có giá trị riêng. Ghi vào PR.
 - **Đột biến làm đỏ *sai* dòng.** Dừng lại. Dòng dự kiến không canh thứ ta tưởng nó canh.
-- **Chạy bảng đột biến trước khi 19 dòng xanh.** Đỏ sẵn thì không phân biệt được đỏ do đột biến hay do chưa xong.
+- **Chạy bảng đột biến trước khi 17 dòng xanh.** Đỏ sẵn thì không phân biệt được đỏ do đột biến hay do chưa xong.
 
 ---
 

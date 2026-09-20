@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using SocialApp.IntegrationTests.Harness;
 
 namespace SocialApp.IntegrationTests.AuthZ;
@@ -31,11 +32,20 @@ public sealed class AuthZMatrixTests(PostgresFixture postgres, AuthZApiFactory f
     {
         var c = AuthZMatrix.Cases.Single(x => x.Id == id);
         var client = factory.CreateClient();
-        var path = c.ArrangePath is null ? c.Path : await c.ArrangePath(new AuthZArrange(client, _db));
+
+        // Q-B2: ký token TRƯỚC khi dựng dữ liệu, rồi truyền chính id đó vào ArrangePath. Thứ tự ngược lại (bản GĐ1) làm
+        // hàm dựng dữ liệu không biết người gọi là ai, và TC-A03-media xanh vì lý do sai — xem AuthZArrange.
+        var callerUserId = Guid.NewGuid();
+        var path = c.ArrangePath is null ? c.Path : await c.ArrangePath(new AuthZArrange(client, _db, callerUserId));
 
         using var request = new HttpRequestMessage(c.Method, path);
-        if (TestJwt.ForCaller(c.Caller) is { } token)
+        if (TestJwt.ForCaller(c.Caller, callerUserId) is { } token)
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        // Endpoint có `requestBody: required` (POST /posts, PATCH /posts/{id}) thì request không body dừng ở model
+        // binding với 400 — trước cả tầng 3, tức là dòng không bao giờ chạm tới thứ nó định canh. Xem AuthZCase.Body.
+        if (c.Body is not null)
+            request.Content = JsonContent.Create(c.Body);
 
         using var response = await client.SendAsync(request);
 

@@ -97,7 +97,7 @@ Hai chỗ **không** phải phụ thuộc, đừng xếp hàng cho gọn:
 | 4 | **Kiểm `B2` đã push và run đỏ đã chụp** | `B2` | Chưa có thì làm `B2` **ngay bây giờ**, chờ CI xong, rồi mới sang #5 |
 | 5 | `D5` | `D2`, `D4`, #4 | `TC-A03-media` chuyển đỏ → xanh ở đây |
 | 6 | `D6` | `D5` | `READ-01` chuyển đỏ → xanh |
-| 7 | `D7` → `D8` | `D6` | `TC-A03`, `TC-A03-delete` chuyển đỏ → xanh; 19 dòng matrix xanh |
+| 7 | `D7` → `D8` | `D6` | `TC-A03`, `TC-A03-delete` chuyển đỏ → xanh; 17 dòng matrix xanh |
 | 8 | `D9` | tất cả | `B4` local xanh cả hai chiều → **commit `B4`** ngay sau |
 | 9 | `B3` | `D5`, `D7`, `D8` | Bảng đột biến + bốn test BR-01 — kết thúc khối B lẫn D |
 
@@ -106,7 +106,7 @@ Hai chỗ **không** phải phụ thuộc, đừng xếp hàng cho gọn:
 | Mốc | Xong cái gì | Mở khóa gì |
 |---|---|---|
 | **Cuối Ngày 7** | `D0`–`D4` | Lane E bỏ mock được cho onboarding + avatar (`E2`, `E3`) ở dev; `B4` local báo thiếu đúng 5 operation của `posts` |
-| **Cuối Ngày 8** | `D5`–`D8`, 19 dòng matrix xanh | `E4`–`E6` chạy trên API thật; `B3` bắt đầu được |
+| **Cuối Ngày 8** | `D5`–`D8`, 17 dòng matrix xanh | `E4`–`E6` chạy trên API thật; `B3` bắt đầu được |
 | **Trưa Ngày 9** | `D9` + `B4` commit + `B3` | Năm cổng CI xanh; khối F bắt đầu |
 
 ### 0.4 Phần cắt được nếu trễ
