@@ -1,3 +1,6 @@
+import Link from "next/link"
+
+import { Button } from "@/components/ui/button"
 import { MeProfile } from "@/features/auth/me-profile"
 import { AvatarCard } from "@/features/profile/avatar-card"
 import { ProfileCard } from "@/features/profile/profile-card"
@@ -8,6 +11,10 @@ export default function MePage() {
   return (
     <div className="flex flex-col gap-8">
       <ProfileCard />
+      {/* Đường duy nhất tới `/compose` cho tới khi E5 dựng danh sách bài trên chính màn này. */}
+      <Button render={<Link href="/compose" />} className="w-fit">
+        Đăng bài
+      </Button>
       <AvatarCard />
       <MeProfile />
     </div>

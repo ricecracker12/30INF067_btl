@@ -1,6 +1,5 @@
 import { contentApi } from "@/lib/api/content-api"
-import { errorMessage } from "@/lib/api/messages"
-import { ApiError } from "@/lib/api/problem"
+import { fieldMessage, R2_PUT_FAILED } from "@/lib/api/messages"
 import { profileApi } from "@/lib/api/profile-api"
 import type { ImageContentType, ProfileResponse } from "@/lib/api/types"
 import { putToR2 } from "@/lib/upload/r2"
@@ -27,31 +26,6 @@ export class AvatarUploadError extends Error {
     super(message)
     this.name = "AvatarUploadError"
   }
-}
-
-/**
- * Câu của bước 2, CỐ ĐỊNH — không đi qua `errorMessage`: R2 không phải API của mình, nó không trả
- * Problem Details, và trình duyệt cố ý không cho biết là mạng, CORS hay CSP. Nói "kiểm tra kết nối" là
- * việc duy nhất người dùng làm được; người sửa nhìn vào cấu hình bucket và header CSP (Đ-E17).
- */
-export const PUT_FAILED_MESSAGE =
-  "Không tải được ảnh lên. Kiểm tra kết nối rồi thử lại."
-
-/**
- * Lỗi 400 của hai endpoint hai đầu hiện ĐÚNG CÂU SERVER dưới ô chọn ảnh (Đ-E5: mọi 400 hiển thị theo key
- * của `errors`) — `files` cho bước 1, `mediaKey` cho bước 3. Chúng nói được thứ bảng `errorMessage` không
- * nói được: "ảnh chưa tải lên xong", "loại ảnh ngoài allowlist". Không có key thì lùi về bảng chung.
- */
-function messageFor(
-  error: unknown,
-  key: "files" | "mediaKey",
-  context: "upload" | "avatar"
-): string {
-  if (error instanceof ApiError && error.status === 400) {
-    const first = error.fieldErrors[key]?.[0]
-    if (first) return first
-  }
-  return errorMessage(context, error)
 }
 
 /**
@@ -85,7 +59,7 @@ export async function uploadAvatar(
   } catch (error) {
     throw new AvatarUploadError(
       "presign",
-      messageFor(error, "files", "upload"),
+      fieldMessage(error, "files", "upload"),
       error
     )
   }
@@ -100,7 +74,7 @@ export async function uploadAvatar(
     })
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") throw error
-    throw new AvatarUploadError("put", PUT_FAILED_MESSAGE, error)
+    throw new AvatarUploadError("put", R2_PUT_FAILED, error)
   }
 
   try {
@@ -108,7 +82,7 @@ export async function uploadAvatar(
   } catch (error) {
     throw new AvatarUploadError(
       "attach",
-      messageFor(error, "mediaKey", "avatar"),
+      fieldMessage(error, "mediaKey", "avatar"),
       error
     )
   }

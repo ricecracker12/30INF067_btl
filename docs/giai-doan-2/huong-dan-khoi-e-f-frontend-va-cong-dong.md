@@ -637,6 +637,81 @@ Vitest (`msw/node`) — bốn ca Mục 10.5 dòng 1:
 | `XMLHttpRequest` lọt ra ngoài `lib/upload/` | Lỗ Đ-E2 mở rộng dần | Q-E3 — luật ESLint, đã thử cho đỏ |
 | Log `uploadUrl` khi dò lỗi | Chữ ký vào console, vào Sentry, vào ảnh chụp màn hình dán vào PR | Luật Mục 1.2 #7; grep PR |
 
+### Thực tế thi công
+
+**Bằng chứng.** Vitest **361 → 392** (+31: `lib/validation/post.test.ts` 18,
+`features/post/post-composer.test.tsx` 13). `pnpm lint`, `typecheck`, `test`, `build` xanh cả bốn; `/compose` có
+trong bảng route của bản build. Hợp đồng không đổi ở đầu việc này nên không chạy lại codegen.
+
+**Kiểm tay trên `localhost:3000` với bucket `socialmedia-dev` — ĐÃ CHẠY 2026-09-21 trên Chrome 153.0.8010.50**,
+tài khoản mới, **mười ảnh PNG thật** (43 KB → 692 KB) trong MỘT lượt chọn. Đây là phần không mock nào thay được: E3
+đã đóng ISS-02 cho một ảnh dưới tiền tố `avatars/`, còn thứ chỉ hiện ra ở đây là **tiền tố `posts/` và ba lượt `PUT`
+chạy song song**.
+
+| Quan sát | Khớp với |
+|---|---|
+| **10** lượt `PUT` tới `https://<account-id>.r2.cloudflarestorage.com/...`, **0 byte ảnh** qua `/bff/*` | Đ-2.5 |
+| **Đúng MỘT** `POST /bff/api/media/uploads` cho cả mười ảnh | Đ-2.15 — mười lời gọi là 10% hạn mức 100 req/phút cho một bài |
+| `POST /bff/api/posts` → **201** với mười `mediaKeys` | Đ-2.8 lớp 2 — server `HEAD` từng object và đối chiếu `contentType` + `sizeBytes`; 201 nghĩa là cả mười khớp |
+| Không request nào rời hai origin `localhost:3000` và host R2 | Đ-E17 — `connect-src` mở đúng host cần, không hơn |
+| **Không** header `Authorization` nào rời trình duyệt; `localStorage` và `sessionStorage` **rỗng** | Đ-E14, Đ-E2 |
+
+`connect-src` sai thì cả mười lượt `PUT` đã chết trước khi có `POST /posts` — nên một dòng 201 ở cuối là bằng chứng
+cho cả chuỗi. **ISS-02 đóng cho lát cắt bài đăng.**
+
+**Bảng đột biến — mười lăm dòng, tất cả bị bắt** (áp một đột biến, chạy test, khôi phục; `git status` sạch trước và sau):
+
+| Đột biến | Test đỏ |
+|---|---|
+| Presign khai `purpose: "avatar"` thay vì `"post"` | `MỘT lời gọi presign cho cả lô ba ảnh` |
+| Bỏ lọc `imageFileError` khi thêm ảnh | `ảnh sai loại bị bỏ…` |
+| Bỏ chặn quá 10 ảnh | `11 ảnh: báo DƯỚI Ô ẢNH…` |
+| `claimNext` không đánh dấu `dang-gui` (ba thợ cùng nhận một ảnh) | `MỘT lời gọi presign…` treo ở `every xong` |
+| `PUT` hỏng vẫn coi là `xong` | `MỘT ảnh lỗi KHÔNG hủy cả lô` |
+| `sizeBytes` gửi lên không theo file thật | `gửi ba giá trị mỗi ảnh ĐÚNG BẰNG…` |
+| `retryItem` không làm gì | `MỘT ảnh lỗi KHÔNG hủy cả lô` |
+| Nút Đăng không đợi mọi ảnh `xong` | `MỘT ảnh lỗi KHÔNG hủy cả lô` |
+| Nút "Thử lại" hiện ở mọi dòng | `MỘT ảnh lỗi KHÔNG hủy cả lô` |
+| `privacy` có mặc định ngầm `public` | `chưa chọn mức riêng tư: chặn ở client` |
+| Bài chỉ có ảnh gửi chuỗi rỗng thay vì `null` | `bài chỉ có ảnh: body gửi null` |
+| Bỏ `validationErrors`, mọi 400 lùi về bảng chung | `400 của server hiện theo key…` |
+| BR-01 kiểm chữ TRƯỚC ảnh | `ẢNH TRƯỚC, CHỮ SAU…` |
+| Trim `body` trước khi đo độ dài | `khoảng trắng KHÔNG bị trim trước khi đo` |
+| Bỏ kiểm `privacy` ở client | `chưa chọn mức riêng tư: chặn ở client` |
+
+**Chỗ lệch so với kế hoạch — đã làm như sau:**
+
+- **Lệch Mục 5 Bước 1: `lib/validation/post.ts` KHÔNG chứa dòng "loại/dung lượng một ảnh" của bảng.** Dòng đó đã
+  nằm ở `lib/validation/media.ts` từ `E3` — nó là luật của **một file**, không phải của một bài. `post.ts` chỉ giữ
+  ba mệnh đề BR-01 cộng `privacy`, và `use-upload-queue.ts` `import` luật kia.
+- **Lệch Mục 5 Bước 5: `privacy` KHÔNG có giá trị chọn sẵn.** Bước 5 cho phép "UI có giá trị chọn sẵn"; đã chọn
+  cách ngược lại (`null` = chưa chọn, chặn ở client bằng đúng câu `PrivacyRequired` của server). Lý do: bài đăng
+  nhầm mức riêng tư **không rút lại được**, và một mặc định im lặng là thứ người dùng không bao giờ thấy mình đã
+  chọn. Không phải "chặt hơn server" — server cũng bắt buộc trường này, cùng câu.
+- **Lệch Q-E5: chỉ thêm `radio-group` và `progress` vào kit ở đầu việc này.** `alert-dialog` và `badge` đi cùng
+  `E5`/`E6` — cùng lý do `E3` đã ghi.
+- **Không điều hướng sang `/posts/{postId}` sau khi đăng.** Trang chi tiết là việc của `E5`; đưa người dùng tới một
+  route chưa tồn tại là đổi một lỗi 400 lấy một trang 404. Composer ở lại màn, báo "Đã đăng bài." kèm liên kết tới
+  bài — liên kết đó sống khi `E5` xong.
+- **`R2_PUT_FAILED` và `fieldMessage` dời từ `features/profile/upload-avatar.ts` xuống `lib/api/messages.ts`.**
+  `features/` không import chéo nhau (Đ-E13), nên `E4` chỉ có hai đường: chép lại hai thứ đó, hoặc đẩy xuống `lib/`.
+  Câu của bước `PUT` không phải của màn mà của **đường truyền** — avatar và composer hỏng vì cùng ba nghi phạm
+  (mạng, CORS, CSP) và người dùng làm cùng một việc. `upload-avatar.ts` dùng lại, hành vi không đổi.
+- **File mới ngoài kế hoạch: `features/post/privacy.ts`.** Bước 5 để nhãn ba mức riêng tư nằm ngay trong composer,
+  nhưng `E5` (nhãn trên card) và `E6` (form sửa) cần đúng ba câu đó — ba bản chép là ba chỗ để lệch, và lệch ở đây
+  nghĩa là cùng một bài được gọi hai tên trên hai màn. Tách ngay bây giờ vì chỗ dùng thứ hai đã nhìn thấy.
+- **Thêm một nút "Đăng bài" trên `/me`.** `/compose` không có đường nào tới từ giao diện cho tới khi `E5` dựng danh
+  sách bài trên chính màn đó. Một `Link` trong `app/` (chỉ ráp, Đ-E13), gỡ được khi `E5` thay bằng chỗ tốt hơn.
+
+**Bốn cạm bẫy mới, không có trong bảng trên:**
+
+| Cạm bẫy | Triệu chứng | Chặn bằng |
+|---|---|---|
+| `react-hooks/immutability` chặn `useCallback` **tự gọi lại chính nó** — khuôn "bơm hàng đợi" quen thuộc (`pump()` trong `finally`) là **lint đỏ**, không phải cảnh báo | `pump accessed before it is declared` | Đổi sang **hồ thợ**: `claimNext()` nhận và đánh dấu một ảnh, `runWorker` tự lấy ảnh kế tiếp khi xong, `pump` chỉ mở thợ cho đủ trần. Không đệ quy, và ba thợ đọc chung `itemsRef` |
+| Trạng thái hàng đợi chỉ ở `useState` | Ba lượt `PUT` cùng nhận một ảnh: `setItems` chưa kịp cập nhật giữa hai vòng lặp | `itemsRef` là bản sao **đồng bộ**, mọi thay đổi đi qua `commit`; `claimNext` đánh dấu `dang-gui` ngay trong cùng một lượt |
+| `FieldLabel` là `<label>` thật, không nhận prop `render` của Base UI | `Property 'render' does not exist` khi định bọc nhóm radio bằng nhãn | Tên nhóm đi qua `FieldTitle` + `aria-labelledby` — `role="radiogroup"` không gắn được vào một `<label>` |
+| Ticket hết hạn giữa chừng khi thử lại | Chữ ký chết giữa lượt `PUT` → đúng câu lỗi của ca CORS/CSP, tức là **nghi phạm sai** | Trừ hao `TICKET_SAFETY_MS` 60 giây trước khi coi `uploadUrl` là còn hạn; sát hạn thì presign lại một file (một request rẻ) |
+
 ---
 
 ## 6. E5 — Danh sách + chi tiết bài

@@ -142,3 +142,35 @@ export function validationErrors<K extends string>(
     formMessage: unmatched || !matchedAny ? COMMON[400] : null,
   }
 }
+
+/**
+ * Câu cho bước `PUT` thẳng lên R2 — CỐ ĐỊNH, không đi qua `errorMessage`: R2 không phải API của mình, nó
+ * không trả Problem Details, và trình duyệt cố ý không cho biết là mạng, CORS hay CSP (ca ISS-02).
+ *
+ * Nằm ở đây chứ không ở màn nào, dù `r2.ts` ghi "mỗi màn nói một câu khác": câu này không phải của màn
+ * mà của ĐƯỜNG TRUYỀN — avatar (E3) và composer (E4) hỏng vì cùng ba nghi phạm đó và người dùng làm cùng
+ * một việc. Chép sang feature thứ hai là hai chỗ để lệch nhau.
+ */
+export const R2_PUT_FAILED =
+  "Không tải được ảnh lên. Kiểm tra kết nối rồi thử lại."
+
+/**
+ * 400 của một endpoint đọc ĐÚNG CÂU SERVER dưới key của `errors` trước, RỒI MỚI lùi về bảng
+ * `errorMessage` (Đ-E5: mọi 400 hiển thị theo key của `errors`).
+ *
+ * Vì sao cần: `errorMessage` ánh xạ theo `(ngữ cảnh, status)` nên mọi 400 ra đúng một câu
+ * `"Dữ liệu không hợp lệ."`, che mất những câu server duy nhất người dùng dùng được — "Ảnh chưa được tải
+ * lên xong…", "Một ảnh không được đính kèm hai lần.". Dùng khi màn chỉ có MỘT chỗ hiện lỗi cho cả lời gọi
+ * (bước presign, bước gắn ảnh); form nhiều trường dùng `validationErrors` để chia về từng ô.
+ */
+export function fieldMessage(
+  error: unknown,
+  key: string,
+  context: ErrorContext
+): string {
+  if (error instanceof ApiError && error.status === 400) {
+    const first = error.fieldErrors[key]?.[0]
+    if (first) return first
+  }
+  return errorMessage(context, error)
+}
