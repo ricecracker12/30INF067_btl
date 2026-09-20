@@ -63,11 +63,16 @@ export const profile = {
 export const mediaKey = `posts/${userId}/01a0b811f70376b7812581bf3209feca.jpg`
 export const avatarKey = `avatars/${userId}/01a0b811f70376b7812581bf3209feca.jpg`
 
+/**
+ * Host R2 giả. Origin RIÊNG, khác `BFF_URL` — đó là cả ý nghĩa của Đ-2.5: byte ảnh không đi qua origin
+ * của app. Test của E3/E4 chặn `PUT` ở đây để dựng nhánh "R2 từ chối" và nhánh "mạng/CORS/CSP".
+ */
+export const r2Host = "https://r2.example.test"
+
 /** `uploadUrl` thật mang chữ ký — fixture để chuỗi giả, không bao giờ chép chữ ký thật vào repo. */
 export const uploadTicket = {
   mediaKey,
-  uploadUrl:
-    "https://r2.example.test/socialmedia-dev/posts/anh.jpg?X-Amz-Signature=gia",
+  uploadUrl: `${r2Host}/socialmedia-dev/posts/anh.jpg?X-Amz-Signature=gia`,
   expiresIn: 600,
   requiredHeaders: {
     "Content-Type": "image/jpeg",

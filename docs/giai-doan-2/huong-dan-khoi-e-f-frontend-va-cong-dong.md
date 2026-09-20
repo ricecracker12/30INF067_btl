@@ -484,6 +484,81 @@ quan gì đến nhau.
 | Lưu `avatarUrl` vào store rồi hiện mãi | Sau 15 phút ảnh vỡ, không lỗi nào trong log | Coi `avatarUrl` là **dữ liệu có hạn**: `onError` của `<img>` → gọi lại `profileApi.get` **một** lần |
 | Chưa có hồ sơ mà gọi `PUT /users/me/avatar` | 403 khó hiểu | Q-D9 — `E2` đứng trước; `RequireProfile` đã chặn |
 
+### Thực tế thi công
+
+**Bằng chứng.** Vitest **325 → 361** (+36: `lib/upload/r2.test.ts` 5, `lib/validation/media.test.ts` 18,
+`features/profile/avatar-card.test.tsx` 13). `pnpm lint`, `typecheck`, `test`, `build` xanh cả bốn; `pnpm gen:api`
+xong `git status --porcelain -- lib/api/*/schema.d.ts` **rỗng** (hợp đồng không đổi ở đầu việc này).
+**Kiểm tay trên `localhost:3000` với bucket `socialmedia-dev` — ĐÃ CHẠY 2026-09-21, ba bước đi hết, ảnh lên thật.**
+Đây là phần **không mock nào thay được** (Mục 1.2 luật 4): ba nghi phạm của bước 2 (CORS bucket, chữ ký, CSP) chỉ tồn
+tại ở trình duyệt thật và cho **cùng một triệu chứng**. Giá trị quan sát, **đã che chữ ký** (luật Mục 1.2 #7 — bản đầy
+đủ mang `X-Amz-Signature`, `X-Amz-Credential` chứa access key ID, và account ID nằm trong tên host):
+
+| Bước | Quan sát | Khớp với |
+|---|---|---|
+| 1 | `POST /bff/api/media/uploads` → 201, `mediaKey` = `avatars/{userId}/{uuid7}.webp`, `expiresIn: 600`, `requiredHeaders` = `{Content-Type: image/webp, Content-Length: "94612"}` | Đ-2.7 tiền tố theo `purpose`; `uploadUrl` có `X-Amz-SignedHeaders=content-length;content-type;host` — **đúng ba header đã ký**, và `Content-Length` do trình duyệt tự đặt |
+| 2 | `PUT` thẳng tới `https://<account-id>.r2.cloudflarestorage.com/socialmedia-dev/avatars/…webp?…` — **không** qua `/bff/*`; object có thật trong bucket, **94.61 KB** đúng bằng `sizeBytes` đã khai | Đ-2.5 (byte không đi qua origin của app) và Đ-2.8 lớp 2 (`HEAD` của server đối chiếu được) |
+| 3 | `PUT /bff/api/users/me/avatar` → **200**, `avatarUrl` là presigned GET `X-Amz-Expires=900`, `X-Amz-SignedHeaders=host` | Đ-2.9 — 15 phút, và **không bao giờ** là `avatar_key` |
+| — | Thẻ `<img>` tải ảnh **200** từ host R2 | Đ-E17: `img-src` **và** `connect-src` đều đã mở đúng host — `connect-src` sai thì bước 2 đã chết trước |
+| — | `DELETE /bff/api/users/me/avatar` → **204**, avatar biến mất khỏi hồ sơ, nhưng **object vẫn còn** trong bucket; ảnh `.jpg` của lượt đầu vẫn nằm cạnh `.webp` của lượt sau | Đ-2.10 — chỉ gỡ liên kết, dọn trễ; khớp `AvatarTests.Doi_avatar_lan_hai_khong_xoa_object_cu` |
+
+Hai dòng `X-Amz-Expires` (**600** cho `PUT`, **900** cho GET) và hai danh sách `SignedHeaders` khớp **từng ký tự** với
+`example` trong `content-v1.yaml` và `profile-v1.yaml` — hợp đồng tả đúng thứ chạy thật, không phải tả thứ mong muốn.
+**ISS-02 đóng cho lát cắt avatar**; `E4` chỉ còn phải chứng minh nó đứng vững với mười ảnh song song.
+
+**Bảng đột biến — chín dòng, tất cả bị bắt** (áp một đột biến, chạy test của nó, khôi phục):
+
+| Đột biến | Test đỏ |
+|---|---|
+| Gộp câu bước 2 vào `errorMessage("avatar", …)` | `bước 2 … câu RIÊNG về kết nối` |
+| Bỏ chốt `refreshed` (nạp lại hồ sơ mỗi lần ảnh vỡ) | `ảnh vỡ … nạp lại hồ sơ ĐÚNG MỘT LẦN` |
+| `purpose: "post"` thay vì `"avatar"` lúc presign | `presign khai ĐÚNG purpose=avatar…` |
+| Bỏ `if (invalid) return` — cứ gọi API dù file sai | hai ca `client chặn trước khi gọi API` |
+| `file.size < 1` thành `< 0` (cho file rỗng qua) | bảng ngưỡng `0 byte` của `media.test.ts` |
+| Bỏ nhánh đọc `errors[key]`, lùi hết về bảng chung | hai ca `400 … hiện ĐÚNG CÂU SERVER theo key` |
+| Coi mọi phản hồi của R2 là xong (bỏ nhánh status ≠ 2xx) | `status ≠ 2xx là R2 TỪ CHỐI` |
+| Gửi thêm `x-requested-with` vào `PUT` | `gửi ĐÚNG Content-Type đã ký…` |
+| `contentType` của `PUT` gõ cứng `image/jpeg` | `presign khai ĐÚNG purpose=avatar…` (nhánh webp) |
+
+Hai dòng cuối cùng của bảng này **lúc đầu lọt lưới** và đó là thông tin, không phải thủ tục: test đầu tiên chỉ kiểm
+body presign nên một hằng số gõ cứng ở bước 2 vẫn xanh, và ca "nạp lại một lần" xanh **nhờ `loadProfile` single-flight**
+chứ không nhờ chốt `refreshed` — xem hai cạm bẫy mới bên dưới.
+
+**Chỗ lệch so với kế hoạch — đã làm như sau:**
+
+- **Lệch Mục 15: luật ESLint của `Q-E3` áp ở `E3`, không đợi `E4`.** Kế hoạch commit ghi `Q-E3` ở commit #5 (`E4`),
+  nhưng chính Mục 4 bắt viết `lib/upload/r2.ts` ngay tại `E3` ("viết ở đây, `E4` dùng lại"). Để luật lại cho `E4`
+  nghĩa là có một commit mà `XMLHttpRequest` mở toang mà không cổng nào kêu — đúng cái lỗ `Q-E3` được lập ra để bịt.
+  **Đã thử cho đỏ hai chiều** (luật FE Mục 9, `git status` sạch trước và sau): một file `features/profile/…` gọi
+  `new XMLHttpRequest()` → `pnpm lint` **đỏ** đúng thông điệp `Q-E3`; cùng file đặt dưới `lib/upload/` → **xanh**,
+  mà `fetch` trong chính file đó vẫn **đỏ** (override dựng lại `RESTRICTED_GLOBALS` và chỉ bỏ XHR).
+- **Lệch mẫu code của `E4` Bước 2: `r2.ts` KHÔNG có dòng `eslint-disable-next-line no-restricted-globals`.** Mẫu ở
+  Mục 5 viết sẵn dòng đó, nhưng `Q-E3` đã tắt luật cho cả `lib/upload/**`, nên directive tại chỗ là **directive thừa**
+  và ESLint 9 báo lại (`reportUnusedDisableDirectives` mặc định bật). Giữ nguyên lời giải thích dưới dạng comment
+  thường; chỗ chặn thật là override, và chuyển `r2.ts` ra khỏi `lib/upload/` là lint đỏ ngay.
+- **Lệch `Q-E5`: chỉ thêm `avatar` vào kit ở đầu việc này**, không chạy cả câu lệnh sáu component. Bốn cái còn lại
+  (`alert-dialog`, `radio-group`, `progress`, `badge`) đi cùng đầu việc dùng chúng — thêm sớm là bốn file `components/ui/**`
+  không ai import, và `shadcn add --diff` về sau không phân biệt được "chưa dùng" với "đã sửa tay".
+- **File mới ngoài kế hoạch: `lib/validation/media.ts`.** `E4` Bước 1 xếp BR-01 vào `lib/validation/post.ts`, nhưng
+  dòng "loại/dung lượng một ảnh" của bảng đó là luật của **một file**, không phải của một bài — avatar cần đúng nó mà
+  không cần ba luật kia. Tách ra để `E4` `import` lại thay vì chép câu chữ lần thứ hai (chép là hai chỗ để lệch với
+  `CreateUploadsRequestValidator.FileNotAllowed`).
+- **Nới bảng ba trạng thái lỗi của Mục 4 cho 400.** Bảng ghi bước 1 và bước 3 "theo `errorMessage(…)`"; nhưng
+  `errorMessage` ánh xạ theo `(ngữ cảnh, status)` nên mọi 400 ra đúng một câu `"Dữ liệu không hợp lệ."`, che mất hai
+  câu server duy nhất người dùng dùng được ("Ảnh chưa được tải lên xong…", "Ảnh đại diện chỉ nhận JPEG, PNG hoặc WebP.").
+  Đã làm: 400 đọc `errors.files` (bước 1) / `errors.mediaKey` (bước 3) trước, **rồi mới** lùi về bảng — đúng Đ-E5
+  ("mọi 400 hiển thị theo key của `errors`"), và hai ca test canh chỗ này.
+
+**Năm cạm bẫy mới, không có trong bảng trên:**
+
+| Cạm bẫy | Triệu chứng | Chặn bằng |
+|---|---|---|
+| XHR giả của msw **không cài `abort()`** (`grep -c abort` trong `@mswjs/interceptors@0.41.9` `interceptors/XMLHttpRequest/index.mjs` ra **0**) | Test "hủy giữa chừng" **xanh giả**: `xhr.abort()` không làm gì, request vẫn chạy tới `onload` | Không viết ca đó bằng msw. `r2.ts` vẫn có `onabort`; nghiệm thu nhánh hủy chỉ trên trình duyệt thật — **`E4` (hủy một ảnh đang lên) phải nhớ điều này** |
+| `userEvent.upload` mặc định **lọc file theo `accept`** (`applyAccept: true`) | Ca "chọn ảnh GIF" xanh giả: file bị bỏ trước khi `change` bắn, chỗ chặn thật không hề chạy | `userEvent.setup({ applyAccept: false })` — đời thật kéo-thả và hộp thoại macOS cũng bỏ qua `accept` |
+| Base UI `Avatar.Image` mặc định nạp trước bằng `new window.Image()`, **không** gắn `<img>` vào DOM cho tới khi `loaded` | Không có phần tử nào để nghe `error` → nhánh "URL hết hạn" không chạy được, và trong jsdom ảnh mãi ở `loading` | `keepMounted` + `onLoadingStatusChange` — thẻ `<img>` thật nằm trong DOM và chính `error` của nó là nguồn tin |
+| `loadProfile` **single-flight** gộp nhiều lần ảnh vỡ liên tiếp | Ca "nạp lại đúng một lần" xanh cả khi **bỏ** chốt `refreshed` | Chờ lượt nạp đầu **xong** (và trả về một `avatarUrl` khác) rồi mới làm vỡ lần hai |
+| `ProfileResponse.avatarUrl` là field **không bắt buộc** của hợp đồng (`avatarUrl?: string \| null`) | `string \| null \| undefined` ở mọi chỗ dùng; và narrow `profile` ở component ngoài **không theo được** vào closure `async` | Prop nhận cả `undefined`; tách `AvatarEditor` nhận `profile: ProfileResponse` đã hết `null` thay vì ép kiểu |
+
 ---
 
 ## 5. E4 — Composer đăng bài + upload thật có tiến trình

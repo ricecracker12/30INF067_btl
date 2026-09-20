@@ -12,6 +12,7 @@ import {
   postPage,
   problem,
   profile,
+  r2Host,
   registerResponse,
   uploadTicket,
   userId,
@@ -219,7 +220,8 @@ export const handlers = [
     }
     return HttpResponse.json({
       ...profile,
-      avatarUrl: "https://r2.example.test/avatar.jpg?X-Amz-Signature=gia",
+      // Presigned GET 15 phút (Đ-2.9) — URL mới mỗi lần đặt avatar, không phải `avatar_key`.
+      avatarUrl: `${r2Host}/socialmedia-dev/avatars/moi.jpg?X-Amz-Signature=gia`,
     } satisfies T.ProfileResponse)
   }),
 
@@ -235,11 +237,16 @@ export const handlers = [
         files: ["Mỗi bài tối đa 10 ảnh."],
       })
     }
+    // Tiền tố theo `purpose` (Đ-2.7): `avatars/` cho avatar, `posts/` cho bài. Không phải trang trí —
+    // `PUT /users/me/avatar` giả ở trên từ chối 403 mọi key không nằm dưới `avatars/{userId}/`, đúng như
+    // server, nên mock nào trả sai tiền tố sẽ làm E3 hỏng ở bước 3 chứ không phải bước 1.
+    const prefix = body.purpose === "avatar" ? "avatars" : "posts"
     // Một ticket cho MỖI file, CÙNG THỨ TỰ với `files` gửi lên — E4 ghép ticket với file theo index.
     return HttpResponse.json(
       body.files.map((f, i) => ({
         ...uploadTicket,
-        mediaKey: `posts/${userId}/anh-${i}.jpg`,
+        mediaKey: `${prefix}/${userId}/anh-${i}.jpg`,
+        uploadUrl: `${r2Host}/socialmedia-dev/${prefix}/anh-${i}.jpg?X-Amz-Signature=gia`,
         requiredHeaders: {
           "Content-Type": f.contentType,
           "Content-Length": String(f.sizeBytes),
@@ -249,6 +256,12 @@ export const handlers = [
     )
   }),
 
+  /**
+   * Bước 2 của luồng ba bước: `PUT` THẲNG lên R2, ngoài origin của app (Đ-2.5). Mặc định 200 như R2 thật.
+   * Nhánh hỏng dựng bằng `server.use(...)` trong từng test — hai nhánh khác hẳn nhau: `HttpResponse.error()`
+   * (mạng/CORS/CSP, ca ISS-02) và một status ≠ 2xx (R2 từ chối chữ ký).
+   */
+  http.put(`${r2Host}/*`, () => new HttpResponse(null, { status: 200 })),
 
   http.post(url(`${BFF_ROUTES.api}/posts`), async ({ request }) => {
     const body = (await request.json()) as T.CreatePostRequest
