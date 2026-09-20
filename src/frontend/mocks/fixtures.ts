@@ -43,3 +43,59 @@ export const validationProblem = (errors: Record<string, string[]>) =>
     ...problem(400, "Dữ liệu không hợp lệ", "Dữ liệu đầu vào không hợp lệ"),
     errors,
   }) satisfies T.ProblemDetails
+
+// --- GĐ2: profile-v1.yaml + content-v1.yaml ---
+// Giá trị chép từ `example` của hai hợp đồng; chỗ hợp đồng không có `example` (PostResponse, PostPage)
+// thì dựng giá trị hợp lệ tối thiểu — `satisfies` vẫn bắt lệch hình dạng lúc compile.
+
+/** Người dùng CHƯA onboarding: `GET /users/{id}/profile` trả 404 — tín hiệu của E2, không phải lỗi. */
+export const userIdChuaCoHoSo = "0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a11"
+
+export const profile = {
+  userId,
+  displayName: "An Nguyễn",
+  bio: "Sinh viên năm 3, thích chụp ảnh phố.",
+  avatarUrl: null,
+  createdAt: "2026-09-20T02:10:22Z",
+  updatedAt: "2026-09-20T02:10:22Z",
+} satisfies T.ProfileResponse
+
+export const mediaKey = `posts/${userId}/01a0b811f70376b7812581bf3209feca.jpg`
+export const avatarKey = `avatars/${userId}/01a0b811f70376b7812581bf3209feca.jpg`
+
+/** `uploadUrl` thật mang chữ ký — fixture để chuỗi giả, không bao giờ chép chữ ký thật vào repo. */
+export const uploadTicket = {
+  mediaKey,
+  uploadUrl:
+    "https://r2.example.test/socialmedia-dev/posts/anh.jpg?X-Amz-Signature=gia",
+  expiresIn: 600,
+  requiredHeaders: {
+    "Content-Type": "image/jpeg",
+    "Content-Length": "1048576",
+  },
+} satisfies T.UploadTicket
+
+export const postId = "0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a20"
+/** Bài không đọc được (không tồn tại / BR-02 không đạt / đã xóa mềm) — hợp đồng trả 404 cho cả ba. */
+export const postIdKhongDocDuoc = "0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a21"
+/** Bài không sửa/xóa được — hợp đồng trả 403 cho cả "của người khác" lẫn "đã xóa mềm". */
+export const postIdKhongSuaDuoc = "0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a22"
+
+export const post = {
+  postId,
+  author: { userId, displayName: "An Nguyễn", avatarUrl: null },
+  body: "Chiều nay ở phố cổ.",
+  privacy: "public",
+  media: [],
+  commentCount: 0,
+  // GĐ2 luôn `{}` rỗng, KHÔNG `null` (Đ-2.12) — pin ở đây để E5 không dựng nhánh `?? {}` vô nghĩa.
+  reactionCounts: {},
+  createdAt: "2026-09-20T02:10:22Z",
+  editedAt: null,
+  canEdit: true,
+} satisfies T.PostResponse
+
+export const postPage = {
+  items: [post],
+  nextCursor: null,
+} satisfies T.PostPage
