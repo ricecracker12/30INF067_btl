@@ -39,7 +39,7 @@ services:
   frontend:
     image: ghcr.io/ricecracker12/30inf067_btl/frontend:staging
     restart: unless-stopped
-    env_file: [./.env]                 # API_INTERNAL_URL, REDIS_URL, APP_ORIGIN, SESSION_ENCRYPTION_KEY, TRUSTED_PROXY_HOPS
+    env_file: [./.env]                 # API_INTERNAL_URL, REDIS_URL, APP_ORIGIN, SESSION_ENCRYPTION_KEY, TRUSTED_PROXY_HOPS, R2__Endpoint (Đ-E17)
     ports: ["127.0.0.1:3000:3000"]     # chỉ localhost — apache ProxyPass / → đây
     networks: [internal]
     depends_on:

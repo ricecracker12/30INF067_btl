@@ -1339,13 +1339,14 @@ Theo Mục 10.5. Playwright chạy local, `workers: 1`, kết quả dán vào PR
 Trước khi merge: `R2__*` đã có trong `.env` trên server. Sau deploy: service `migrate` chạy xanh cho **cả ba** module;
 `/health/ready` = 200.
 
-> **Bổ sung B.8 bản gốc (Q-E1, chốt 2026-09-20, trước khi thi công `E7`):** `.env` trên server còn phải có **một biến
-> nữa** — host R2 cho CSP của frontend (`R2_PUBLIC_HOST`, dạng `https://<account-id>.r2.cloudflarestorage.com`, không
-> path, không dấu `/` cuối). Đây là biến **server** của Next (không `NEXT_PUBLIC_`), tách khỏi `R2__Endpoint` của API
-> có chủ đích: `R2__` là không gian cấu hình binding của .NET, và cổng CI bundle đang grep đúng chuỗi đó (`B5`) — dùng
-> lại tên ấy trong code FE là tự đặt mìn dưới cổng của chính mình. Cái giá: hai biến mang cùng một giá trị, phải khớp
-> nhau; bù lại bằng một dòng kiểm ở `F1` (header `Content-Security-Policy` của `/login` trên staging phải có host R2).
-> Thiếu biến này thì upload **chết trên staging** dù dev xanh.
+> **Bổ sung B.8 bản gốc (Q-E1, ĐẢO lại 2026-09-20 sau khi thi công `E7`):** **KHÔNG có biến mới nào** cho `.env` trên
+> server. Frontend dựng CSP cho R2 từ **chính `R2__Endpoint`** mà API đã dùng — container frontend thấy nó sẵn nhờ
+> `env_file: [./.env]`. Bản chốt đầu buổi sinh thêm `R2_PUBLIC_HOST` vì sợ cổng CI bundle (`B5`, grep chuỗi `R2__` trên
+> `.next/static`) đỏ; **đã đo và cổng không đỏ** — `proxy.ts` là middleware, chuỗi đó chỉ nằm trong `.next/server`.
+> Bỏ biến thứ hai là bỏ luôn cái giá "hai biến một giá trị, có thể lệch". Ràng buộc còn lại: hằng tên biến phải nằm
+> trong `proxy.ts`, không trong `lib/security/csp.ts` (xem Đ-E17). Dòng kiểm ở `F1` giữ nguyên: header
+> `Content-Security-Policy` của `/login` trên staging phải có host R2 — thiếu thì upload **chết trên staging** dù dev
+> xanh, và `R2__Endpoint` sai dạng (có path, có `/` cuối) thì Next **từ chối phục vụ**, không chỉ chặn upload.
 
 ### F2 — Frontend trỏ staging thật, bỏ mock
 

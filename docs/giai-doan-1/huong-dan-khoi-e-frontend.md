@@ -492,6 +492,69 @@ thi công ở GĐ5; ghi ngược `ke-hoach-trien-khai.md` GĐ5)*
   kết nối đang mở phải bị cắt khi người dùng đăng xuất hoặc bị `revoked:user` (GĐ6) — vé chỉ kiểm lúc bắt tay.
 - **CSP (Đ-E15):** `connect-src 'self'` đã cho WebSocket cùng origin; không phải nới.
 
+**Đ-E17 — CSP nới đúng hai chỉ thị cho host R2, host lấy từ `R2__Endpoint` đã có sẵn.** *(chốt 2026-09-20, nhóm
+chốt; nới Đ-E15 — thi công ở GĐ2 khối E đầu việc `E7`)*
+
+> **Sửa cùng ngày 2026-09-20 (nhóm chốt): bỏ biến `R2_PUBLIC_HOST`, dùng thẳng `R2__Endpoint`.** Bản chốt đầu buổi
+> sinh một biến FE riêng vì sợ cổng CI bundle (`ci.yml`, grep chuỗi `R2__` trên `.next/static`) đỏ. **Đã đo: không
+> đỏ.** Đặt `R2_HOST_ENV = "R2__Endpoint"` rồi `pnpm build` và chạy đúng lệnh của cổng trên `.next/static` → không
+> file nào dính; chuỗi `R2__` chỉ nằm trong `.next/server` vì `proxy.ts` là middleware, không bao giờ vào bundle
+> trình duyệt. Lý do "tự đặt mìn dưới chân cổng" của Q-E1 **sai với cách dùng này**. Đổi lại được thứ đáng hơn: một
+> giá trị ở **một** chỗ, không còn hai biến có thể lệch nhau — cái giá mà chính Q-E1 đã ghi là phải trả.
+
+- **Vì sao phải nới.** Đ-E15 đặt `connect-src 'self'` và `img-src 'self' blob: data:`. GĐ2 có hai lượt gọi ra ngoài
+  origin mà cả hai đều cần thiết: trình duyệt `PUT` ảnh **thẳng** lên R2 (Đ-2.5 — đi vòng qua Next server là nhân đôi
+  băng thông VPS cho mỗi ảnh và biến Route Handler thành ống truyền file 10 MB), và hiển thị ảnh từ **presigned GET**
+  15 phút (Đ-2.9 — URL đã ký trỏ thẳng host R2, không proxy qua origin mình). CSP hiện tại chặn cả hai.
+- **Nới đúng hai chỉ thị:** `connect-src` (lượt `PUT`) và `img-src` (lượt `GET`). **Không** `default-src`, **không**
+  `script-src`, **không** `form-action`, **không** `style-src`. Lý do: R2 phục vụ nội dung **do người dùng tải lên** —
+  cho host đó chạy script là biến kho ảnh thành kho XSS, đúng lý do SVG đã bị loại khỏi allowlist (Đ-2.8). Nới bằng
+  `*` hay `https:` cũng bị loại: mất gần hết giá trị của CSP để đổi lấy một dòng cấu hình ngắn hơn.
+- **Host lấy từ biến nào.** `R2__Endpoint` — **đúng biến API đang dùng**, không sinh biến thứ hai. Dạng
+  `scheme://host`, không kèm tên bucket, không `/` cuối; cùng ràng buộc với `APP_ORIGIN` và `Cors__AllowedOrigins`,
+  và `R2Options.EndpointProblem()` phía API kiểm y hệt. Container frontend đã thấy biến này sẵn nhờ
+  `env_file: [./.env]`, nên **không phải thêm dòng nào vào `deploy/.env` trên server**. **Không** `NEXT_PUBLIC_`
+  (nó nhúng giá trị vào bundle).
+- **`__` không phải vấn đề, và cổng CI bundle cũng không.** `__` là quy ước binding của .NET; với `process.env` của
+  Node nó chỉ là một tên chuỗi, không diễn giải gì thêm. Còn cổng bundle: **đã đo, xanh** (xem khối "Sửa cùng ngày"
+  ở trên). Ràng buộc để nó **còn** xanh: hằng `R2_HOST_ENV` đặt trong `proxy.ts`, **không** trong
+  `lib/security/csp.ts` — `app/layout.tsx` import `NONCE_HEADER` từ `csp.ts`, nên nếu về sau có client component nào
+  import module đó thì cả module vào bundle và cổng đỏ với thông điệp không liên quan gì tới nguyên nhân thật.
+- **Dev local:** `pnpm dev` KHÔNG tự có `R2__Endpoint`. `dotnet user-secrets` là kho **của .NET** — Node không đọc
+  được, và tên key bên đó là `R2:Endpoint` (dấu hai chấm), không phải `R2__Endpoint`; đã đo, `process.env` của Node
+  rỗng cả hai tên. Chép giá trị từ chính user-secrets sang **`src/frontend/.env`** (FE dùng MỘT file env duy nhất —
+  không `.env.local`, chốt 2026-09-20). Thiếu thì dev vẫn chạy (chỉ production mới từ chối phục vụ), nhưng lượt
+  `PUT` lên R2 bị CSP chặn. `.env` đã nằm trong `.gitignore` và `.dockerignore` (`.env*`), không vào repo lẫn image.
+- **Kết quả đo câu còn mở của Q-E1 — `process.env` trong `proxy.ts` đọc LÚC CHẠY, không bị chụp lúc build.** Đo thật,
+  không suy: `pnpm build` với biến **vắng mặt** → build xanh; rồi chạy `node .next/standalone/server.js` với biến đặt
+  **chỉ lúc chạy** → header `Content-Security-Policy` của `/login` có host R2 trong đúng `connect-src` và `img-src`.
+  **Hệ quả: không cần build-arg trong Dockerfile, không cần chuyển proxy sang runtime Node.** Điều kiện để kết luận này
+  còn đúng: biến được đọc **lười** bên trong `proxy()`, không ở tầng module — đọc ở tầng module thì `next build` nạp
+  file mà không có biến nào và build CI đỏ, đúng lỗi `lib/bff/config.ts` đã gặp một lần.
+- **Thiếu biến thì từ chối phục vụ** (production), nêu thẳng tên biến. Đo thật: bỏ biến ra → `/login` trả **500**, log
+  ghi `Thiếu biến môi trường R2__Endpoint khi chạy production: …`. Ngưỡng là `NODE_ENV === "production"`, **không**
+  phải `!dev`: `NODE_ENV` trong Vitest là `test`, lấy `!dev` làm ngưỡng thì mọi test cũ của Đ-E15 đỏ vì thiếu một biến
+  chúng không liên quan — đã gặp khi thi công, đây là lý do ngưỡng nằm ở `production` chứ không ở `development`.
+- **Giá phải trả.** Ảnh của người dùng phục vụ từ **domain bên thứ ba**: nếu R2 bị chiếm hoặc bucket bị cấu hình sai
+  thành công khai ghi, nội dung từ domain đó vào thẳng trang dưới danh nghĩa `img-src`. Đổi lại, nó **không** chạy được
+  script và **không** nhận được form — hai chỉ thị kia vẫn `'self'`. SVG vẫn bị loại khỏi allowlist upload (Đ-2.8), nên
+  không có đường biến một "ảnh" thành tài liệu chạy script.
+- **Bảng đột biến** (thử cho đỏ rồi khôi phục, `git status` sạch trước và sau):
+
+  | Đột biến | Test bắt |
+  |---|---|
+  | Bỏ host R2 khỏi `connect-src` | `csp.test.ts` — "PUT lên R2 được phép" |
+  | Bỏ host R2 khỏi `img-src` | `csp.test.ts` — "ảnh presigned hiện được" |
+  | Thêm host R2 vào `script-src` | `csp.test.ts` — "host R2 KHÔNG được chạy script" |
+  | `r2Host = null` mà vẫn ghép chuỗi | `csp.test.ts` — "thiếu biến thì chỉ thị không có chuỗi rỗng thừa" |
+  | Bỏ kiểm `u.origin !== value` | `checkR2Host` — ca `/` cuối, có path, có query |
+  | Bỏ nhánh ném lỗi khi production thiếu biến | `proxy.test.ts` — "production thiếu biến → ném lỗi nêu tên biến" |
+  | Đọc `process.env` một lần ở tầng module | `proxy.test.ts` — "đọc env lúc chạy, đổi biến giữa hai request" |
+  | Đưa `R2_HOST_ENV` trở lại `csp.ts` | Không có test — chặn bằng **cổng CI bundle** đã đo ở trên, và bằng chú thích tại chỗ |
+
+- **Chưa làm ở Đ-E17:** ca E2E `PUT` thật lên R2 trên `/compose` — màn đó thuộc `E4`, chưa tồn tại lúc chốt quyết định
+  này. Địa chỉ nhận: `E8` (Playwright), cùng lượt với các ca của lát cắt GĐ2.
+
 ---
 
 ## 2. E1 — Scaffold Next.js 16 + shadcn/ui preset `b50KEhMiu`
@@ -851,6 +914,12 @@ export const API_BASE_URL: string = (() => {
 
 `src/frontend/.env.example` ghi hai dòng có chú thích: `NEXT_PUBLIC_API_BASE_URL=http://localhost:5259/api/v1` và
 `# NEXT_PUBLIC_API_MOCKING=enabled`. Giá trị thật đặt trong `src/frontend/.env.local` (đã bị `.gitignore`).
+
+> **ĐÃ THAY — đừng làm theo đoạn trên.** Giữ lại làm hồ sơ của bản đầu. `NEXT_PUBLIC_API_BASE_URL` chết từ **Đ-E14**
+> (2026-09-17: trình duyệt chỉ gọi BFF cùng origin, không có gốc API nào ở phía trình duyệt);
+> `NEXT_PUBLIC_API_MOCKING` chết từ lần đổi **Đ-E7** cùng ngày (không còn mock trình duyệt). FE dùng **một** file
+> `src/frontend/.env`, không `.env.local` (chốt 2026-09-20); biến duy nhất phải đặt tay ở dev là `R2__Endpoint`
+> (Đ-E17). Danh sách biến BFF nằm ở `deploy/.env.example`.
 
 **Bước 3 — lỗi.** Một kiểu lỗi cho mọi thứ không phải 2xx, đọc được cả khi body không phải Problem Details (apache trả trang
 HTML 502 lúc API đang khởi động lại):
@@ -2114,7 +2183,7 @@ không có image FE thì F1 không có gì để deploy.
 2. `src/frontend/Dockerfile` — ba stage `deps` (`pnpm install --frozen-lockfile`) → `build` (`pnpm build`, **không biến
    nào**) → `runner` (`NODE_ENV=production`, `HOSTNAME=0.0.0.0`, `PORT=3000`, user `app`, chép `public/`,
    `.next/standalone/`, `.next/static/`, `HEALTHCHECK` gọi `/login`).
-3. `src/frontend/.dockerignore` — loại `node_modules`, `.next`, `e2e`, báo cáo Playwright, **`.env*`** (`.env.local` có thể
+3. `src/frontend/.dockerignore` — loại `node_modules`, `.next`, `e2e`, báo cáo Playwright, **`.env*`** (`.env` có thể
    mang `SESSION_ENCRYPTION_KEY`), `*.key`, `*.pem`.
 4. Biến LÚC CHẠY của container (không có mặc định ở production — thiếu thì `/bff/*` báo lỗi nêu tên biến):
 

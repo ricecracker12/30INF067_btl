@@ -165,25 +165,39 @@ và không có cách nào biết là do code hay do cấu hình.
 Cùng nếp `Q-D1`–`Q-D9` của khối D: nêu đề xuất kèm lý do, nhóm xác nhận, rồi **ghi ngược** vào tài liệu gốc trong
 commit tương ứng. Chưa chốt thì không gõ đầu việc liên quan.
 
-#### Q-E1 — Host R2 vào CSP lấy từ biến nào? ✅ **chốt 2026-09-20 theo đề xuất, đã ghi vào** `giai-doan-2.md` (B.8 `F1`)
+#### Q-E1 — Host R2 vào CSP lấy từ biến nào? ✅ **ĐẢO lại 2026-09-20 (nhóm chốt): dùng `R2__Endpoint`, KHÔNG sinh biến mới**
 
 `connect-src`/`img-src` cần **một host cụ thể**; `proxy.ts` phải biết nó trước khi trang render, nên không suy được
 từ `uploadUrl` mà API trả lúc chạy.
 
-- **Đề xuất:** biến **server** riêng `R2_PUBLIC_HOST` dạng `https://<account-id>.r2.cloudflarestorage.com` (không
-  path, không `/` cuối — cùng ràng buộc với `APP_ORIGIN` và `Cors__AllowedOrigins`). Thêm vào `deploy/.env.example`
-  và `deploy/.env` trên server. **Không** tiền tố `NEXT_PUBLIC_` (luật frontend Mục 1 #12).
-- **Đã cân nhắc rồi loại:** đọc lại `R2__Endpoint` (đã có sẵn trong `deploy/.env`, container FE cũng thấy nhờ
-  `env_file`). Loại vì hai lý do: đó là **không gian cấu hình của API** (`__` là quy ước binding của .NET, không
-  phải của Next), và cổng CI bundle đang grep chuỗi `R2__` — dùng tên đó trong code FE là tự đặt mìn dưới chân
-  cổng của chính mình.
-- **Cái giá đã biết:** hai biến mang cùng một giá trị, có thể lệch. Bù lại bằng một dòng trong `F1` và một unit
-  test dạng chuỗi (`R2_PUBLIC_HOST` phải là `scheme://host` hợp lệ, không path, không `/` cuối).
-- **Còn mở, phải đo — không chốt được bằng đề xuất:** `proxy.ts` chạy trong runtime của middleware, nơi `process.env` **có thể bị thay thế lúc
-  build** thay vì đọc lúc chạy. Kiểm bằng cách build (`pnpm build && pnpm start`) với biến **chỉ** đặt lúc chạy, mở
-  một trang, đọc header `Content-Security-Policy`. Nếu host không có ở đó thì đọc
-  `node_modules/next/dist/docs/` để chọn đường (đặt biến lúc build trong Dockerfile, hay chuyển proxy sang runtime
-  Node) — và ghi kết quả vào Đ-E17.
+- **CHỐT HIỆN HÀNH:** đọc thẳng `R2__Endpoint` — biến API đã có sẵn trong `deploy/.env`, và container frontend đã
+  thấy nhờ `env_file: [./.env]`. **Không phải thêm dòng nào vào `deploy/.env` trên server.** Hằng
+  `R2_HOST_ENV = "R2__Endpoint"` đặt trong `proxy.ts` (không bao giờ vào bundle trình duyệt), **không** trong
+  `lib/security/csp.ts`. Vẫn **không** tiền tố `NEXT_PUBLIC_` (luật frontend Mục 1 #12).
+- **Đề xuất ĐẦU BUỔI (đã bỏ):** biến server riêng `R2_PUBLIC_HOST`. Hai lý do khi đó là (a) `R2__*` là không gian
+  cấu hình của API, (b) cổng CI bundle grep chuỗi `R2__` nên dùng tên đó trong code FE là "tự đặt mìn dưới chân
+  cổng của chính mình".
+- **Vì sao đảo — (b) SAI, đã đo, không suy.** Đặt `R2_HOST_ENV = "R2__Endpoint"`, `pnpm build`, rồi chạy **đúng
+  lệnh của cổng** (`grep -rlE "…|R2__|X-Amz-Signature" .next/static`) → **không file nào dính**. Chuỗi `R2__` chỉ
+  nằm trong `.next/server`, vì `proxy.ts` là middleware và không bao giờ vào bundle trình duyệt. Còn (a) chỉ là lập
+  luận đặt tên: với `process.env` của Node, `__` không được diễn giải gì thêm.
+- **Cái giá đổi chiều.** Phương án cũ phải trả "hai biến một giá trị, có thể lệch" — chính Q-E1 đã ghi. Phương án
+  hiện hành **không còn cái giá đó**, và đổi lấy một ràng buộc rẻ hơn: giữ hằng tên biến trong `proxy.ts`. Ràng
+  buộc này **không có test** canh (không có cách viết test cho "đừng import module này từ client"); nó dựa vào cổng
+  CI bundle và một chú thích tại chỗ ở `csp.ts`.
+- **Dev local:** `pnpm dev` không tự có `R2__Endpoint` — `dotnet user-secrets` là kho của .NET, Node không đọc
+  được, và key bên đó tên `R2:Endpoint` chứ không phải `R2__Endpoint` (Mục 1.1 điểm 4). Chép sang
+  **`src/frontend/.env`**; FE dùng **một** file env duy nhất, **không** `.env.local` (chốt 2026-09-20).
+- **~~Còn mở, phải đo~~ — ĐÃ ĐO xong ở `E7` (2026-09-20): `process.env` trong `proxy.ts` đọc LÚC CHẠY.** Cách đo:
+  `pnpm build` với biến **vắng mặt** (build xanh) → chạy `node .next/standalone/server.js` với biến đặt **chỉ lúc
+  chạy** → header `Content-Security-Policy` của `/login` có host R2 trong đúng `connect-src` và `img-src`.
+  **Không cần** build-arg trong Dockerfile, **không cần** chuyển proxy sang runtime Node. Điều kiện để kết luận còn
+  đúng: đọc biến **lười** bên trong `proxy()`, không ở tầng module. Chi tiết và bảng đột biến ở Đ-E17
+  (`huong-dan-khoi-e-frontend.md`).
+  *Lưu ý dựng lại phép đo:* bản build dùng `output: standalone` — `pnpm start` báo lỗi và không phục vụ; phải chạy
+  `node .next/standalone/server.js` (và chép `.next/static` sang). Cổng khởi động của BFF (Đ-E14) cũng đòi
+  `API_INTERNAL_URL`, `REDIS_URL`, `APP_ORIGIN`, `SESSION_ENCRYPTION_KEY` có mặt, nếu không nó từ chối phục vụ trước
+  khi tới được CSP.
 
 #### Q-E2 — `/onboarding` đặt ở đâu để guard hồ sơ không lặp vô hạn? ✅ **chốt 2026-09-20 theo đề xuất**
 

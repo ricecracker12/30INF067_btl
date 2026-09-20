@@ -163,9 +163,15 @@ pnpm dev
 ```
 
 Mở **http://localhost:3000**. Trình duyệt chỉ gọi **BFF** cùng origin (`/bff/*`); Next server gọi API
-`http://localhost:5259/api/v1` và giữ token trong **Redis** — nên FE dev cần Redis của Mục 4.2 đang chạy. **Không cần**
-file `.env.local`: thiếu biến thì `lib/bff/config.ts` dùng mặc định local (khóa mã hóa phiên sinh ngẫu nhiên mỗi lần
-`pnpm dev` — khởi động lại là phải đăng nhập lại). Danh sách biến: `src/frontend/.env.example`.
+`http://localhost:5259/api/v1` và giữ token trong **Redis** — nên FE dev cần Redis của Mục 4.2 đang chạy. Cấu hình BFF
+**không bắt buộc**: thiếu biến thì `lib/bff/config.ts` dùng mặc định local (khóa mã hóa phiên sinh ngẫu nhiên mỗi lần
+`pnpm dev` — khởi động lại là phải đăng nhập lại). Cần đặt gì thì đặt vào **`src/frontend/.env`** — FE dùng **một** file
+env duy nhất, không `.env.local` (chốt 2026-09-20). Danh sách biến của BFF: `deploy/.env.example` — dev thiếu biến
+nào cũng có mặc định local, nên `src/frontend/.env.example` chỉ giữ thứ **phải** đặt tay ở dev.
+
+> Làm `E3`/`E4` (ảnh) thì `.env` phải có `R2__Endpoint` — chép từ `dotnet user-secrets` của API sang. Node **không**
+> đọc được user-secrets (kho của .NET), và key bên đó tên `R2:Endpoint` chứ không phải `R2__Endpoint`. Thiếu nó thì
+> CSP chặn lượt `PUT` lên R2, triệu chứng trông hệt CORS sai trên bucket (Đ-E17).
 
 > Vì sao DevTools không còn thấy `Authorization: Bearer …`: token không bao giờ tới trình duyệt (Đ-E14). Muốn xem token
 > để gỡ lỗi API thì gọi API bằng `curl` như [Mục 6.3](#63-gọi-endpoint-cần-đăng-nhập).
@@ -217,8 +223,8 @@ docker compose -f deploy/docker-compose.dev.yml up -d --build
 docker compose -f deploy/docker-compose.dev.yml run --rm --entrypoint "dotnet SocialApp.Api.dll --migrate" api
 ```
 
-API khi đó ở **http://localhost:8080**. Muốn BFF gọi vào đây thì tạo `src/frontend/.env.local` với
-`API_INTERNAL_URL=http://localhost:8080/api/v1`. Đừng chạy song song với `dotnet run` nếu không cần: hai API cùng
+API khi đó ở **http://localhost:8080**. Muốn BFF gọi vào đây thì thêm `API_INTERNAL_URL=http://localhost:8080/api/v1`
+vào `src/frontend/.env`. Đừng chạy song song với `dotnet run` nếu không cần: hai API cùng
 trỏ một DB.
 
 **Rút ngắn access token để thử refresh** (E7) — mặc định 900 giây:
@@ -603,14 +609,14 @@ Repo được index bởi GitNexus để phân tích tác động trước khi s
 | Mọi thao tác báo lỗi 503 / không giữ được phiên | Redis chưa chạy: `docker compose -f deploy/docker-compose.dev.yml up -d redis` |
 | `POST /bff/…` trả 403 | Request không có `Origin` đúng `APP_ORIGIN` (chống CSRF) — FE chạy ở cổng khác 3000 thì đặt `APP_ORIGIN` |
 | Console: `Refused to execute inline script … Content Security Policy` | Script inline không mang nonce (Đ-E15). Dùng `next/script` hoặc đọc nonce từ header `x-nonce`; không nới CSP |
-| Vừa `pnpm dev` lại thì bị đăng xuất | Bình thường ở dev: khóa mã hóa phiên sinh lại mỗi lần khởi động. Đặt `SESSION_ENCRYPTION_KEY` trong `.env.local` nếu cần giữ |
+| Vừa `pnpm dev` lại thì bị đăng xuất | Bình thường ở dev: khóa mã hóa phiên sinh lại mỗi lần khởi động. Đặt `SESSION_ENCRYPTION_KEY` trong `src/frontend/.env` nếu cần giữ |
 | 429 Too Many Requests | Rate limit `/auth/*` 10 request/phút/IP. Chờ một phút |
 | Integration test lỗi `Docker is either not running…` | Bật Docker Desktop |
 | `pnpm` sai phiên bản / lockfile lỗi | `corepack enable` rồi `pnpm install`. Không dùng `npm install` |
 | Không thấy mail xác minh (dev) | Mailpit chưa bật: `docker compose -f deploy/docker-compose.dev.yml up -d mailpit` |
 | Staging `/login` 404, `/` là trang apache | Bình thường ở thời điểm này: FE chưa deploy (F1) |
 | Trang Apache **503** (`Service Unavailable`), `/health/ready` vẫn 200 | Frontend không listen trên `127.0.0.1:3000`: container chưa `up` sau lần bind fail, hoặc crash thiếu biến BFF. `docker compose … ps` + `logs frontend` |
-| Container frontend dừng ngay, exit 1 | Thiếu / sai biến BFF — `docker logs` có dòng `[bff] …` nêu tên biến (`src/frontend/.env.example`) |
+| Container frontend dừng ngay, exit 1 | Thiếu / sai biến BFF — `docker logs` có dòng `[bff] …` nêu tên biến (`deploy/.env.example`) |
 
 ---
 
