@@ -1261,6 +1261,13 @@ Giống `D9`/`D10` của GĐ1: đối chiếu từng mã lỗi trong hợp đồ
 > **Mục tiêu khối:** lát cắt dọc chạm tới người dùng thật, và chứng minh CORS bằng trình duyệt — thứ backend không tự
 > chứng minh được.
 
+> **Hướng dẫn thi công từng bước:** [huong-dan-khoi-e-f-frontend-va-cong-dong.md](huong-dan-khoi-e-f-frontend-va-cong-dong.md)
+> — mục tiêu và kết quả mong đợi của từng đầu việc `E1`–`E8` và `F1`–`F5`, file nào, lệnh nào, cạm bẫy nào, checklist
+> nghiệm thu. Gộp khối E và khối F vào một file vì tới lúc chúng bắt đầu thì A–D đã xong, không còn lane để chạy song
+> song. Mục 1.4 của file đó liệt kê tám điểm (`Q-E1`–`Q-E8`) mà Phần B chưa nói đủ hoặc nói lệch nhau (host R2 vào CSP
+> lấy từ biến nào, chỗ đặt `/onboarding`, `XMLHttpRequest` trong luật ESLint, số ngữ cảnh lỗi, kit cần thêm, bản đồ
+> route, nội dung thật của `F2`, Playwright có vào CI không).
+
 Luật đặt file theo `frontend-rules.md` Mục 2: màn nào thì `features/<màn>/`. Tên theo **màn**, không theo module
 backend: `features/profile/`, `features/post/`. Không `features/` nào import chéo `features/` khác.
 
@@ -1271,6 +1278,14 @@ backend: `features/profile/`, `features/post/`. Không `features/` nào import c
 `RequestOptions.method` thêm `PUT | PATCH | DELETE`; `errorMessage` thêm ngữ cảnh `profile`, `post`, `upload`.
 
 Mọi lời gọi đi qua proxy chung `/bff/api/...` — **không thêm route BFF nào** (Đ-E14, luật frontend Mục 4).
+
+> **Lệch B.7 bản gốc (Q-E4, chốt 2026-09-20, trước khi thi công `E1`):** `errorMessage` nhận **bảy** ngữ cảnh —
+> `profile-read`, `profile-write`, `avatar`, `upload`, `post-create`, `post-read`, `post-write` — không phải ba
+> (`profile`, `post`, `upload`) như câu trên. Lý do: bảng ánh xạ theo `(ngữ cảnh, status)`, mà **403 mang nghĩa khác
+> nhau trên các endpoint của cùng một module** — `POST /posts` 403 là "chưa có hồ sơ hoặc thiếu quyền đăng bài",
+> `PATCH /posts/{id}` 403 là "không phải bài của bạn", `PUT /users/me/avatar` 403 là "khóa ảnh không phải của bạn".
+> Gộp ba endpoint vào một ngữ cảnh thì hoặc mất hai câu, hoặc phải đoán nghĩa 403 ở chỗ hiển thị — đúng thứ Đ-E6
+> sinh ra để tránh.
 
 ### E2 — Onboarding hồ sơ
 
@@ -1316,15 +1331,33 @@ Theo Mục 10.5. Playwright chạy local, `workers: 1`, kết quả dán vào PR
 
 > **Mục tiêu khối:** chứng minh trên hệ thống thật, không phải trên máy local và không phải trên mock.
 
+> **Hướng dẫn thi công từng bước:** [huong-dan-khoi-e-f-frontend-va-cong-dong.md](huong-dan-khoi-e-f-frontend-va-cong-dong.md)
+> Mục 10–14 — cùng file với khối E.
+
 ### F1 — Deploy staging qua CD tự động
 
 Trước khi merge: `R2__*` đã có trong `.env` trên server. Sau deploy: service `migrate` chạy xanh cho **cả ba** module;
 `/health/ready` = 200.
 
+> **Bổ sung B.8 bản gốc (Q-E1, chốt 2026-09-20, trước khi thi công `E7`):** `.env` trên server còn phải có **một biến
+> nữa** — host R2 cho CSP của frontend (`R2_PUBLIC_HOST`, dạng `https://<account-id>.r2.cloudflarestorage.com`, không
+> path, không dấu `/` cuối). Đây là biến **server** của Next (không `NEXT_PUBLIC_`), tách khỏi `R2__Endpoint` của API
+> có chủ đích: `R2__` là không gian cấu hình binding của .NET, và cổng CI bundle đang grep đúng chuỗi đó (`B5`) — dùng
+> lại tên ấy trong code FE là tự đặt mìn dưới cổng của chính mình. Cái giá: hai biến mang cùng một giá trị, phải khớp
+> nhau; bù lại bằng một dòng kiểm ở `F1` (header `Content-Security-Policy` của `/login` trên staging phải có host R2).
+> Thiếu biến này thì upload **chết trên staging** dù dev xanh.
+
 ### F2 — Frontend trỏ staging thật, bỏ mock
 
 `mocks/` chỉ còn phục vụ Vitest (luật frontend Mục 8). Kiểm Network: chỉ thấy `/bff/*` và các `PUT` thẳng tới R2 —
 không có JWT nào, không có `storage_key` của người khác.
+
+> **Lệch B.8 bản gốc (Q-E7, chốt 2026-09-20):** `F2` **không còn việc "bỏ mock"** — mock trình duyệt đã bị bỏ từ GĐ1
+> (Đ-E7, đổi 2026-09-17): không cờ `NEXT_PUBLIC_API_MOCKING`, không `public/mockServiceWorker.js`, code app không
+> import `@/mocks/*`. Giữ nguyên mã việc, đổi nội dung thành hai phần: (a) **xác nhận** bằng lệnh —
+> `grep -rn "@/mocks" app features components lib` không ra dòng nào; (b) phần chính là **kiểm tab Network trên
+> staging** theo bốn điều ở câu trên. Để nguyên câu cũ thì `F2` giao một việc không còn tồn tại, và người tick
+> checklist sẽ tick một ô rỗng.
 
 ### F3 — E2E lát cắt + bằng chứng ISS-02
 
