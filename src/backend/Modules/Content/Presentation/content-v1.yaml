@@ -17,7 +17,8 @@
 #
 # QUYẾT ĐỊNH ĐÃ CHỐT chạm tới hợp đồng này (giai-doan-2.md Mục 3):
 #   Đ-2.5   Ảnh đi THẲNG trình duyệt → R2; API không bao giờ nhận byte ảnh. POST /media/uploads chỉ trả URL đã ký.
-#   Đ-2.6   Không thêm mã quyền mới. POST /media/uploads: [Authorize] + kiểm post.create trong service khi purpose=post.
+#   Đ-2.6   Không thêm mã quyền mới. POST /media/uploads: [Authorize] + kiểm post.create ở controller bằng
+#           IAuthorizationService với policy perm:post.create khi purpose=post (chốt Q-D5, 2026-09-19).
 #   Đ-2.7   Key mang tiền tố người dùng; POST /posts kiểm MỌI key thuộc posts/{actorId}/ — khác → 403 (TC-A03-media).
 #   Đ-2.8   Ba lớp: allowlist + ≤10MB lúc presign (ký kèm Content-Type, Content-Length) → HEAD lại lúc commit → CHECK ở DB.
 #   Đ-2.9   URL ảnh trong PostResponse là presigned GET 15 phút, cấp SAU khi qua BR-02.
@@ -91,8 +92,10 @@ paths:
       operationId: createUploads
       summary: Xin URL tải ảnh lên R2 cho tối đa 10 file (presign theo lô, Đ-2.15)
       description: |
-        Tầng 2 (Đ-2.6): `[Authorize]` cho mọi `purpose`; riêng `purpose=post` service kiểm thêm quyền `post.create`
-        bằng `IPermissionCache` — thiếu → **403**. Người chưa có quyền đăng bài vẫn đổi được avatar.
+        Tầng 2 (Đ-2.6): `[Authorize]` cho mọi `purpose`; riêng `purpose=post` controller kiểm thêm quyền `post.create`
+        bằng `IAuthorizationService` với policy `perm:post.create` — thiếu → **403**. Người chưa có quyền đăng bài vẫn
+        đổi được avatar. Cùng handler và cùng lối tắt ADMIN với `[RequirePermission]` (chốt Q-D5, 2026-09-19: gọi thẳng
+        `IPermissionCache` chặn nhầm ADMIN, vì ADMIN không có dòng `role_permissions` nào).
 
         Với mỗi file, server kiểm allowlist (`image/jpeg`, `image/png`, `image/webp`) và `sizeBytes ≤ 10485760`
         (10 MB), sinh key `posts/{userId}/{uuid7}.{ext}` hay `avatars/{userId}/{uuid7}.{ext}` theo `purpose`, rồi ký

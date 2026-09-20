@@ -198,7 +198,7 @@ Ma trận 17 mã quyền của Mục 6.7.2 đã seed từ GĐ1 và seeder chạy
 
 | Endpoint | Tầng 2 | Tầng 3 |
 |---|---|---|
-| `POST /media/uploads` với `purpose=post` | `[RequirePermission("post.create")]` | — (key sinh theo `userId` người gọi) |
+| `POST /media/uploads` với `purpose=post` | `[Authorize]` + `IAuthorizationService` với `perm:post.create` (Q-D5) | — (key sinh theo `userId` người gọi) |
 | `POST /media/uploads` với `purpose=avatar` | `[Authorize]` | — |
 | `PUT /users/me/profile`, `PUT/DELETE /users/me/avatar` | `[Authorize]` | không cần: route là `me`, id lấy từ token |
 | `POST /posts` | `post.create` | hồ sơ tồn tại (Đ-2.4) + key thuộc tiền tố của người gọi (Đ-2.7) |
@@ -208,8 +208,10 @@ Ma trận 17 mã quyền của Mục 6.7.2 đã seed từ GĐ1 và seeder chạy
 
 Một endpoint hai mức quyền theo `purpose` là chỗ dễ sai: **không** đặt `[RequirePermission("post.create")]` cho cả
 endpoint (người chưa có quyền đăng bài vẫn phải đổi được avatar), và **không** bỏ trắng tầng 2 rồi kiểm trong service
-(mất tính khai báo). Cách làm: `[Authorize]` ở attribute + kiểm `post.create` trong service khi `purpose=post`, bằng
-chính `IPermissionCache` của SharedKernel. Ghi rõ ở hợp đồng: `purpose=post` mà thiếu quyền → **403**.
+(mất tính khai báo). Cách làm: `[Authorize]` ở attribute + kiểm `post.create` **ở controller bằng `IAuthorizationService`
+với policy `perm:post.create`** — cùng handler và short-circuit Admin của tầng 2 (chốt Q-D5, 2026-09-19: gọi thẳng
+`IPermissionCache` chặn nhầm Admin, vì `GetAsync("ADMIN")` trả rỗng — lối tắt ADMIN nằm trong `PermissionHandler`, không
+trong cache; xem `huong-dan-khoi-d-endpoint.md` Q-D5). Ghi rõ ở hợp đồng: `purpose=post` mà thiếu quyền → **403**.
 
 ### Đ-2.7 `storage_key` mang tiền tố người dùng, và commit phải kiểm tiền tố đó
 

@@ -910,6 +910,60 @@ hai mức quyền tách nhau). Cho log: `CapturingLogSink` không có dòng nào
 - **Test 403 bằng cách xóa dòng `role_permissions` của USER** → `PermissionCache` có TTL, và DB là của riêng lớp test nhưng
   cache là của app — đỏ/xanh tùy thứ tự. Dùng vai trò không tồn tại.
 
+### Thực tế thi công
+
+**Bằng chứng.** `dotnet test SocialApp.sln`: Unit 138 → 155 (+17 `CreateUploadsRequestValidatorTests`), Architecture 13
+(không đổi), Integration 230 → 239 (+9 `MediaUploadsTests`). Một đỏ nền của máy dev vẫn còn và không liên quan D4
+(`StartupConfigurationTests.Development_boots_without_r2_config_…` — user-secrets local có khóa R2; CI không có nên xanh).
+Bốn cổng frontend xanh sau `pnpm gen:api` (`lint`/`typecheck`/`test` 245/`build`); chạy `gen:api` lần hai không đổi thêm
+file nào. `/swagger/content-v1/swagger.json` đọc bằng máy (probe tạm, đã gỡ): `createUploads` khai đúng **201, 400, 401,
+403** như bảng Mục 11 (không thừa mã nào), `UploadPurpose.enum` = `["post","avatar"]` — chữ thường, đúng Q-D2 — và
+`CreateUploadsRequest.required` = `["files","purpose"]`. Thử cho đỏ ở local rồi khôi phục — năm đột biến, đều bị bắt:
+
+| Đột biến | Test đỏ |
+|---|---|
+| Bỏ hẳn nhánh kiểm `post.create` khi `purpose=post` | `Q_D5_vai_tro_thieu_post_create_bi_403_o_purpose_post_nhung_van_201_o_purpose_avatar` |
+| Bỏ `[JsonPropertyName]` của `RequiredHeaders` (key hạ thành `contentType`) | `requiredHeaders_ra_JSON_dung_hai_key_co_gach_noi_va_Content_Length_la_chuoi` |
+| `expiresIn` trả `PutUrlMinutes` (10) thay vì `* 60` | `Lo_ba_file_tra_201_ba_ticket_cung_thu_tu_voi_key_cua_nguoi_goi` |
+| Thêm `uploadUrl` vào dòng `LogInformation` | `Khong_log_uploadUrl_lan_mediaKey` |
+| `UploadPurpose? Purpose` → `UploadPurpose` (bỏ `NotNull`) | `Q_D2_purpose_vang_mat_hay_la_deu_ra_400_duoi_key_purpose` |
+
+**Chỗ lệch so với các bước trên — đã làm như sau:**
+
+- **Bước 2: KHÔNG dùng `RuleForEach(...).ChildRules(...).OverridePropertyName("files")`.** Bước 2 đã hẹn phải kiểm key
+  bằng test và "hạ về `Must` trên cả danh sách" nếu sai — đã kiểm, và nó sai: FluentValidation ghép chỉ số cùng tên
+  trường con vào **sau** tên đã ghi đè, cho ra `files[0].SizeBytes` thay vì `files` mà hợp đồng đòi. Bản thi công dùng
+  `RuleFor(x => x.Files).Cascade(CascadeMode.Stop)` với ba mệnh đề (`NotEmpty` → số lượng → `All(IsAllowed)`). Khẳng
+  định về FluentValidation được ghi lại **bằng máy** ở
+  `CreateUploadsRequestValidatorTests.Vi_sao_khong_dung_RuleForEach_ChildRules_key_van_mang_chi_so`, để bản nào của thư
+  viện đổi hành vi này thì có test đỏ nhắc — chứ không phải một câu trong tài liệu không ai chạy.
+  Cái giá đã chấp nhận: thông điệp không nói file thứ mấy hỏng. Đổi lại `errors` có đúng key hợp đồng, và FE hiện câu
+  đó dưới ô chọn ảnh — chỗ đó là **một** ô, không phải mười ô.
+- **`Cascade(CascadeMode.Stop)` là quyết định thêm, không có trong Bước 2.** Không có nó thì lô vừa quá 10 file vừa có
+  file sai loại đổ hai câu cùng lúc xuống một ô, và `"files": null` làm `Must` ném `NullReferenceException` → 500 thay
+  vì 400.
+- **Thông điệp allowlist tính số MB từ `MediaAttachment.MaxSizeBytes`** (`/ (1024 * 1024)`) thay vì gõ `10`. Cùng lập
+  luận với `PostContentPolicy.BodyTooLong`: con số trong câu và con số trong luật phải là một nguồn.
+- **`UploadTicketService` đăng ký `Singleton`, không `Scoped`** như `ProfileService`. Nó không cầm `DbContext` — chỉ
+  `IObjectStorage`, thứ đã là singleton. Vòng đời theo thứ nó cầm, không theo thói quen của service bên cạnh.
+- **Hai test Q-D5 thay vì một.** Bước 5 chỉ nêu ca `GUEST`. Ca đó chứng minh "thiếu quyền thì bị chặn", nhưng bản gọi
+  thẳng `IPermissionCache` — đúng thứ Q-D5 loại bỏ — **cũng qua được nó**. Ca thứ hai (`ADMIN` xin URL ảnh bài) là ca
+  duy nhất phân biệt hai cách làm, và là loại hỏng mà kiểm tay bằng tài khoản USER không bao giờ thấy.
+- **Test log khẳng định trên cả `RenderMessage()`, template, lẫn từng `Properties`.** Serilog giữ tham số **riêng** khỏi
+  câu, nên chỉ đọc `MessageTemplate.Text` là bỏ sót đúng trường hợp nguy hiểm (`Log("Cấp ticket {Url}", url)`). Kèm một
+  khẳng định **khẳng định dương** ("dòng log hợp lệ vẫn phải có") — thiếu nó thì xóa hẳn log đi test vẫn xanh.
+- **Đã sửa `content-v1.yaml` — một chỗ ngoài hai chỗ Mục 1.3 luật 8 báo trước.** `description` của `createUploads` và
+  dòng Đ-2.6 ở đầu file đang ghi *"service kiểm thêm quyền `post.create` bằng `IPermissionCache`"* — tức là hợp đồng mô
+  tả đúng cơ chế mà Q-D5 đã chứng minh là hỏng (chặn nhầm ADMIN). Để nguyên là để hợp đồng dạy người đọc sau làm lại
+  đúng cái lỗi đó. **Hình dạng API không đổi** (không thêm/bớt mã, trường, schema nào) nên cổng hợp đồng `B4` không bị
+  ảnh hưởng; `pnpm gen:api` đã chạy lại và `schema.d.ts` nằm trong cùng commit (diff: 4 dòng JSDoc).
+- **Ghi ngược Q-D5 đã làm ở Đ-2.6** (`giai-doan-2.md`): cả mệnh đề trong đoạn văn **và** ô "Tầng 2" của dòng
+  `POST /media/uploads` với `purpose=post` trong bảng — bảng còn ghi `[RequirePermission("post.create")]`, đúng thứ cạm
+  bẫy đầu tiên của mục này cấm.
+- **Một nới lỏng có chủ đích, ghi lại để không ai tưởng là lỗ hổng vừa phát hiện:** `StorageKeys.IsAllowedContentType`
+  so khớp không phân biệt hoa thường, nên `IMAGE/JPEG` được nhận dù hợp đồng chỉ liệt kê chữ thường — cùng loại nới với
+  chiều đọc enum của Q-D2. Có test riêng (`Content_type_viet_hoa_van_duoc_nhan_noi_hon_hop_dong`).
+
 ---
 
 ## 7. D5 — `POST /posts`

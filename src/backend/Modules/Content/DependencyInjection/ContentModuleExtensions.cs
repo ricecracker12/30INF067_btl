@@ -2,6 +2,7 @@ using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using SocialApp.Modules.Content.Application.Media;
 using SocialApp.Modules.Content.Infrastructure;
 using SocialApp.Modules.Content.Infrastructure.Cleanup;
 using SocialApp.SharedKernel.Contracts;
@@ -55,6 +56,12 @@ public static class ContentModuleExtensions
         // CHỈ đăng ký validator của module. KHÔNG gọi AddFluentValidationAutoValidation ở đây: đó là cấu hình MVC toàn
         // cục, host đã gọi một lần — gọi lại là mỗi lỗi validate hiện hai lần trong `errors`.
         services.AddValidatorsFromAssembly(typeof(ContentModuleExtensions).Assembly, ServiceLifetime.Singleton);
+
+        // D4. Singleton, KHÁC ProfileService (scoped): UploadTicketService không chạm DbContext — nó chỉ ký HMAC cục bộ
+        // bằng IObjectStorage, thứ đã là singleton (R2StorageExtensions). Vòng đời theo thứ nó cầm, không theo thói quen.
+        // Chỉ ĐĂNG KÝ nên dòng này vẫn dựng trần được bằng `new ServiceCollection()`; chỗ trần không resolve nó nên thiếu
+        // IObjectStorage ở đó không sao — cùng lập luận với ProfileService trong AddProfileModule.
+        services.AddSingleton<UploadTicketService>();
 
         return services;
     }

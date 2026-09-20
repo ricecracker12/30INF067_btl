@@ -108,6 +108,24 @@ public sealed class ModulesTestClient
     }
 
     /// <summary>
+    /// <c>POST /media/uploads</c> với tư cách <paramref name="userId"/> (D4). Nhận <paramref name="body"/> dạng ẩn danh
+    /// chứ không nhận <c>CreateUploadsRequest</c>: test phải gửi được <c>purpose</c> vắng mặt, <c>purpose</c> lạ
+    /// (<c>"everyone"</c>) và <c>files: null</c> — những thứ DTO đã gõ kiểu thì không phát ra nổi.
+    ///
+    /// <paramref name="role"/> mở ra để kiểm hai mức quyền của Đ-2.6: <c>"GUEST"</c> là vai trò KHÔNG có dòng nào trong
+    /// <c>identity.role_permissions</c>, nên nó thiếu <c>post.create</c> mà không phải xóa dữ liệu của ai.
+    /// </summary>
+    public Task<HttpResponseMessage> CreateUploadsAsync(Guid userId, object body, string role = "USER")
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/media/uploads")
+        {
+            Content = JsonContent.Create(body),
+        };
+        request.Headers.Authorization = Bearer(userId, role);
+        return Http.SendAsync(request);
+    }
+
+    /// <summary>
     /// Đọc thẳng DB bằng Npgsql — KHÔNG qua EF và không qua API. Chép khuôn <c>AuthTestClient.QueryRowAsync</c> của GĐ1.
     /// Cần cho <c>PROF-02</c>: "vẫn đúng MỘT dòng" là khẳng định về bảng, mà API thì theo thiết kế không phân biệt được
     /// một dòng với hai dòng. Tham số vị trí <c>$1, $2…</c>; NULL thành <c>null</c>; <c>null</c> nếu không có dòng nào.

@@ -15,8 +15,10 @@ export interface paths {
         put?: never;
         /**
          * Xin URL tải ảnh lên R2 cho tối đa 10 file (presign theo lô, Đ-2.15)
-         * @description Tầng 2 (Đ-2.6): `[Authorize]` cho mọi `purpose`; riêng `purpose=post` service kiểm thêm quyền `post.create`
-         *     bằng `IPermissionCache` — thiếu → **403**. Người chưa có quyền đăng bài vẫn đổi được avatar.
+         * @description Tầng 2 (Đ-2.6): `[Authorize]` cho mọi `purpose`; riêng `purpose=post` controller kiểm thêm quyền `post.create`
+         *     bằng `IAuthorizationService` với policy `perm:post.create` — thiếu → **403**. Người chưa có quyền đăng bài vẫn
+         *     đổi được avatar. Cùng handler và cùng lối tắt ADMIN với `[RequirePermission]` (chốt Q-D5, 2026-09-19: gọi thẳng
+         *     `IPermissionCache` chặn nhầm ADMIN, vì ADMIN không có dòng `role_permissions` nào).
          *
          *     Với mỗi file, server kiểm allowlist (`image/jpeg`, `image/png`, `image/webp`) và `sizeBytes ≤ 10485760`
          *     (10 MB), sinh key `posts/{userId}/{uuid7}.{ext}` hay `avatars/{userId}/{uuid7}.{ext}` theo `purpose`, rồi ký
