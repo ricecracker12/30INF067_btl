@@ -1558,6 +1558,61 @@ sự sai chứ không chỉ "khác": ràng buộc `:guid` cho 404, lệch hẳn 
 - **`title` của 404/409 khác ví dụ yaml** → `ProblemTitles` mặc định đã đúng ("Không tìm thấy tài nguyên", "Xung đột dữ liệu");
   đừng đặt `Title` riêng trong `Error` trừ khi yaml đòi câu khác (khối D không có ca nào).
 
+### Thực tế thi công
+
+**D9 là đầu việc RÀ, và kết quả rà là: không phải sửa một dòng `[ProducesResponseType]` nào.** Mười action đã khai đúng
+tập mã của bảng Mục 11 ngay từ commit tạo ra chúng (luật 2 của Mục 1.3 bắt khai cùng commit, và nó đã được tuân thủ).
+Commit này vì vậy chỉ gồm **một test mới** + ghi chú chéo + mục này.
+
+**Bằng chứng — trọng tài chạy bằng máy, cả hai chiều, cho cả hai module** (probe tạm dựng theo đúng khuôn
+`IdentityContractTests`, đã gỡ):
+
+```
+[profile-v1] operation yaml=4 code=4 | KHỚP HOÀN TOÀN
+[content-v1] operation yaml=6 code=6 | KHỚP HOÀN TOÀN
+```
+
+Không operation thừa/thiếu, không status code thừa/thiếu, không `required` nào lệch — tức là **cả ba phần** mà `B4` sẽ
+canh đều đã xanh trước khi `B4` được viết. Probe đã được **thử cho đỏ** một lần (thêm `[ProducesResponseType(410)]` vào
+`GET /users/{userId}/posts` → báo đúng `THỪA mã GET /users/{userId}/posts: 410`), nên "KHỚP HOÀN TOÀN" không phải kết
+quả của một phép so chạy trong chân không.
+
+Kiểm Swagger theo Bước 2–3: `PostPrivacy.enum = ["public","friends","private"]` và
+`UploadPurpose.enum = ["post","avatar"]` — **chữ thường**, Q-D2 đạt; Swashbuckle KHÔNG rơi về PascalCase như Bước 3 dự
+phòng, nên không có gì phải ghi vào PR ở mục đó.
+
+Bốn phép grep kiểm luật:
+
+| Luật | Lệnh | Kết quả |
+|---|---|---|
+| 6 — không có nhánh Admin ở tầng 3 | `SystemRoles.Admin\|"ADMIN"` trong hai module | **0** |
+| 7 — `IgnoreQueryFilters` | trong hai module | **1 lời gọi thật**, ở `MediaCleanupWorker.cs:151`; hai kết quả còn lại là comment giải thích |
+| 9 — không log URL/key | `Log*(` có `url\|storagekey\|presigned\|mediakey` | **0** |
+| D9 — thông điệp không mang dữ liệu runtime | `$"` trong `Application` của hai module | 8 chuỗi nội suy, **tất cả chỉ chứa hằng số** |
+
+Chi tiết phép grep cuối, vì nó là phép dễ đọc nhầm nhất: tám chuỗi nội suy đều chèn hằng
+(`UserProfile.DisplayNameMinLength`, `PostContentPolicy.MaxMediaCount`, `MediaAttachment.MaxSizeBytes / (1024 * 1024)`,
+`ListUserPostsQuery.MaxLimit`). Có **đúng một** chuỗi nội suy giá trị runtime — `PostCursor.Encode`
+(`$"{CreatedAt:O}|{PostId:D}"`) — và nó **không phải thông điệp lỗi** mà là phần thân của cursor; giá trị bên trong vốn
+đã nằm công khai trong `PostResponse`. Ghi ra để lần rà sau không ai coi nó là vi phạm rồi "sửa".
+
+**Chỗ lệch so với các bước trên — đã làm như sau:**
+
+- **Bước 4 không chạy được như viết: `ContractTestsBase` chưa tồn tại.** Kế hoạch ở `D0` bước 6 hẹn viết nó ở local
+  (không commit) ngay sau `D0`; việc đó đã không xảy ra. Thay vì bỏ qua phần nghiệm thu quan trọng nhất của `D9`, đã
+  dựng probe tạm theo đúng khuôn `IdentityContractTests`, chạy, ghi kết quả ở trên, rồi gỡ. **`B4` vẫn còn nguyên** là
+  đầu việc kế tiếp — nó biến probe này thành test thường trực, thêm hai dòng `<Content Include>` vào csproj, và quyết
+  định "chép ba bản hay tách lớp cơ sở".
+- **`ProblemDetailsTests` không nhận case mới; nó nằm ở `Profile/AvatarTests`** — đúng như Bước "Kết quả mong đợi" đã
+  dặn (lớp đó dùng `ApiFactory` và cố ý không chạm DB). Đã đặt ghi chú chéo ở **cả hai** file để người đọc
+  `ProblemDetailsTests` biết nguồn sinh thứ sáu nằm ở đâu và vì sao.
+- **Test mới khẳng định đủ năm trường + `traceId` + không key rác**, không chỉ mã 400: nó tồn tại để chứng minh Q-D4 hội
+  tụ với đường FluentValidation, mà "hội tụ" nghĩa là giống nhau ở từng trường. Đã thử cho đỏ: đổi
+  `ProfileErrors.AvatarNotUploaded` từ `Error.Validation` sang `Error` thường → đỏ cả nó lẫn ca lớp 2a của `D3`.
+
+**Số liệu.** Unit 218 và Architecture 13 không đổi; Integration 308 → 309. Còn đúng một đỏ, là đỏ nền của máy dev
+(`StartupConfigurationTests.Development_boots_without_r2_config_…`).
+
 ---
 
 ## 12. Kế hoạch commit

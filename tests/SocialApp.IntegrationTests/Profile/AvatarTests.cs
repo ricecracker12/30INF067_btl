@@ -246,6 +246,52 @@ public sealed class AvatarTests(PostgresFixture postgres, ModulesApiFactory fact
         Assert.Equal(0L, row!["n"]);
     }
 
+    /// <summary>
+    /// <b>D9 — case của <c>ProblemDetailsTests</c> nhưng ở đây vì cần DB.</b> Chứng minh <b>Q-D4</b> cho ra ĐÚNG hình
+    /// dạng 400 mà <c>[ApiController]</c> dùng cho FluentValidation: cùng <c>type</c>, <c>title</c>, <c>detail</c>,
+    /// <c>errors</c> theo trường, và có <c>traceId</c>.
+    ///
+    /// Nguồn sinh ở đây khác hẳn: lỗi phát hiện SAU I/O (HEAD lên R2), trong service, qua
+    /// <c>Error.Validation</c> → <c>ValidationProblem(ModelState)</c> — chứ không phải auto-validation trước action. FE
+    /// không được thấy hai hình dạng cho cùng một loại lỗi, nên hai đường phải hội tụ.
+    ///
+    /// Vì sao không nằm trong <c>ProblemDetailsTests</c>: lớp đó dùng <c>ApiFactory</c> và CỐ Ý không chạm DB, còn
+    /// <c>PUT /users/me/avatar</c> cần một hồ sơ có thật. Có ghi chú chéo ở đầu <c>ProblemDetailsTests</c>.
+    /// </summary>
+    [Fact]
+    public async Task D9_400_sinh_tu_Error_Validation_co_cung_hinh_dang_voi_400_cua_FluentValidation()
+    {
+        var client = new ModulesTestClient(factory);
+        var actor = Guid.NewGuid();
+        await OnboardAsync(client, actor);
+
+        // Key đúng dạng, đúng của mình, nhưng object chưa có trên bucket → lỗi chỉ biết được sau HEAD.
+        using var response = await client.SetAvatarAsync(actor, StorageKeys.ForAvatar(actor, "image/jpeg"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+
+        using var document = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var problem = document.RootElement;
+
+        Assert.Equal("https://httpstatuses.io/400", problem.GetProperty("type").GetString());
+        Assert.Equal(ProblemTitles.BadRequest, problem.GetProperty("title").GetString());
+        Assert.Equal(400, problem.GetProperty("status").GetInt32());
+        Assert.Equal(ProblemTitles.ValidationDetail, problem.GetProperty("detail").GetString());
+        Assert.False(string.IsNullOrWhiteSpace(problem.GetProperty("traceId").GetString()));
+
+        var errors = problem.GetProperty("errors");
+        Assert.True(errors.TryGetProperty("mediaKey", out var messages), $"errors không có key 'mediaKey': {errors}");
+        // Thông điệp viết tay, cố ý không đọc hằng của ProfileErrors — cùng nếp với ca lớp 2a ở trên: đổi chữ trong
+        // SharedKernel/module là test này đỏ và phải nhìn lại hợp đồng.
+        Assert.Equal(
+            "Ảnh chưa được tải lên xong. Hãy chờ tải lên hoàn tất rồi thử lại.",
+            messages.EnumerateArray().Single().GetString());
+
+        // Không key nào rỗng hay còn dạng đường dẫn JSON — cùng khẳng định với ProblemDetailsTests.
+        Assert.All(errors.EnumerateObject(), e => Assert.False(e.Name.Length == 0 || e.Name.StartsWith('$')));
+    }
+
     /// <summary>Tầng 1 cho cả hai action.</summary>
     [Fact]
     public async Task An_danh_tra_401_o_ca_PUT_lan_DELETE()
