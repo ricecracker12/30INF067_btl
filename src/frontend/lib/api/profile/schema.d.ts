@@ -199,8 +199,10 @@ export interface components {
             };
         };
         /**
-         * @description Tầng 3 từ chối — ở module này chỉ có một trường hợp: `mediaKey` nằm dưới tiền tố của **người khác**
-         *     (Đ-2.7). Thông điệp cố ý không nêu key hay id nào.
+         * @description Tầng 3 từ chối — ở module này có **hai** trường hợp, cùng một phản hồi: `mediaKey` nằm dưới tiền tố
+         *     của **người khác** (Đ-2.7), hoặc **người gọi chưa có hồ sơ** (chốt Q-D9 — `PUT` phải trả một
+         *     `ProfileResponse`, mà chưa onboarding thì không có gì để trả; nhất quán với Đ-2.4). Thông điệp cố ý
+         *     không nêu key hay id nào, và hai trường hợp không phân biệt được từ ngoài.
          */
         Forbidden: {
             headers: {

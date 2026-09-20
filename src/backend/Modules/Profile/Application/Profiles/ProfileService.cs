@@ -13,7 +13,7 @@ namespace SocialApp.Modules.Profile.Application.Profiles;
 /// còn lại, và là thứ test lùi mốc thời gian được mà không phải sửa DB. Đăng ký bằng <c>TryAddSingleton</c> ở
 /// <c>AddProfileModule</c>.
 ///
-/// Lớn dần theo từng đầu việc: <c>SetAvatarAsync</c>/<c>RemoveAvatarAsync</c> vào ở D3.
+/// Bốn thao tác, đủ cho bốn endpoint của module.
 /// </summary>
 public sealed class ProfileService(IProfileStore profiles, IObjectStorage storage, TimeProvider clock)
 {
@@ -62,6 +62,61 @@ public sealed class ProfileService(IProfileStore profiles, IObjectStorage storag
         var profile = await profiles.UpsertAsync(actorId, request.DisplayName.Trim(), bio, clock.GetUtcNow(), ct);
 
         return ToResponse(profile);
+    }
+
+    /// <summary>
+    /// <c>PUT /users/me/avatar</c> — ba lớp của Đ-2.8, chạy theo ĐÚNG thứ tự này:
+    /// <list type="number">
+    /// <item><b>Sai dạng → 400.</b> Đã xong trước khi vào đây (<see cref="SetAvatarRequestValidator"/>, auto-validation).</item>
+    /// <item><b>Tiền tố của người khác → 403</b> (Đ-2.7). TRƯỚC khi HEAD: kẻ dò key của người khác không được tiêu một
+    /// lời gọi R2 nào — R2 tính tiền theo lời gọi, và đảo thứ tự biến endpoint này thành máy bơm hóa đơn.</item>
+    /// <item><b>Object chưa có, hoặc sai loại → 400</b> (HEAD, Đ-2.8 lớp 2). Đây là thứ chỉ biết được SAU I/O nên không
+    /// phải việc của validator — xem <c>Error.Validation</c> (Q-D4); 400 sinh ra đi qua cùng
+    /// <c>ValidationProblemDetails</c> với 400 của FluentValidation nên FE không thấy hai hình dạng.</item>
+    /// </list>
+    ///
+    /// <b>Dung lượng KHÔNG kiểm ở đây.</b> <c>Content-Length</c> nằm trong chữ ký của presigned PUT (Đ-2.8 lớp 1), nên
+    /// object to hơn khai báo không vào nổi bucket qua URL ta ký. Kiểm lại là làm chậm mọi request vì một trường hợp
+    /// không tồn tại.
+    ///
+    /// <b>Không xóa object avatar cũ</b> (Đ-2.10): đổi avatar chỉ đổi con trỏ. Xóa trong request thì một lần
+    /// <c>UPDATE</c> rollback là hồ sơ trỏ vào object đã bốc hơi. Avatar mồ côi là nợ CÓ ĐỊA CHỈ của Profile (Mục 7.5),
+    /// worker dọn rác (C4) lo.
+    ///
+    /// Chưa có hồ sơ → <b>403</b> (Q-D9): nhất quán với Đ-2.4 ("chưa onboarding thì chưa đăng bài được" → cũng chưa gắn
+    /// avatar được), không thêm mã mới vào hợp đồng, và dùng chung <c>Error.Forbidden</c> nên không lộ được gì qua
+    /// chênh lệch câu chữ.
+    /// </summary>
+    public async Task<Result<ProfileResponse>> SetAvatarAsync(Guid actorId, string mediaKey, CancellationToken ct)
+    {
+        if (!StorageKeys.BelongsTo(mediaKey, StorageKeys.AvatarsPrefix, actorId))
+            return Result<ProfileResponse>.Forbidden();
+
+        var head = await storage.HeadAsync(mediaKey, ct);
+        if (head is null)
+            return ProfileErrors.AvatarNotUploaded;
+        if (!StorageKeys.IsAllowedContentType(head.ContentType))
+            return ProfileErrors.AvatarTypeNotAllowed;
+
+        var profile = await profiles.SetAvatarKeyAsync(actorId, mediaKey, clock.GetUtcNow(), ct);
+
+        return profile is null ? Result<ProfileResponse>.Forbidden() : ToResponse(profile);
+    }
+
+    /// <summary>
+    /// <c>DELETE /users/me/avatar</c> — chỉ gỡ liên kết, <b>luôn 204</b>.
+    ///
+    /// Idempotent theo đúng hợp đồng: đang không có avatar vẫn 204, và CHƯA CÓ HỒ SƠ cũng 204. Khác <c>PUT</c> ở điểm
+    /// cuối đó là cố ý — <c>PUT</c> phải trả một hồ sơ nên không có hồ sơ là không trả được gì (Q-D9 → 403), còn
+    /// <c>DELETE</c> không trả gì cả, nên "không có gì để gỡ" và "đã gỡ xong" là cùng một trạng thái kết thúc. Phân biệt
+    /// hai cái đó chỉ tổ nói cho người gọi biết hồ sơ có tồn tại hay không.
+    ///
+    /// Object trên R2 không bị xóa (Đ-2.10), kể cả khi người dùng chủ động gỡ.
+    /// </summary>
+    public async Task<Result> RemoveAvatarAsync(Guid actorId, CancellationToken ct)
+    {
+        await profiles.SetAvatarKeyAsync(actorId, null, clock.GetUtcNow(), ct);
+        return Result.Success();
     }
 
     /// <summary>

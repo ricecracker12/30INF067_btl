@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Npgsql;
+using SocialApp.SharedKernel.Storage;
 using SocialApp.Modules.Profile.Application.Profiles;
 
 namespace SocialApp.IntegrationTests.Harness;
@@ -16,8 +17,8 @@ namespace SocialApp.IntegrationTests.Harness;
 /// <c>identity.users</c>). Nhờ vậy test dựng được "người dùng thứ hai" chỉ bằng một Guid mới.
 ///
 /// Lớp này lớn dần theo từng đầu việc, KHÔNG dựng sẵn cả bộ ở D0: phương thức gọi endpoint chưa tồn tại thì không compile
-/// được (DTO chưa có) và cũng không kiểm được điều gì. <c>PutProfileAsync</c> vào ở D2, <c>SetAvatarAsync</c> ở D3,
-/// <c>CreatePostAsync</c> ở D5 — mỗi cái đi cùng commit của endpoint mà nó gọi.
+/// được (DTO chưa có) và cũng không kiểm được điều gì. <c>CreatePostAsync</c> vào ở D5 — mỗi cái đi cùng commit của
+/// endpoint mà nó gọi.
 /// </summary>
 public sealed class ModulesTestClient
 {
@@ -75,6 +76,37 @@ public sealed class ModulesTestClient
         return (await response.Content.ReadFromJsonAsync<ProfileResponse>())!;
     }
 
+    /// <summary><c>PUT /users/me/avatar</c> với tư cách <paramref name="userId"/> (D3).</summary>
+    public Task<HttpResponseMessage> SetAvatarAsync(Guid userId, string mediaKey)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Put, "/api/v1/users/me/avatar")
+        {
+            Content = JsonContent.Create(new { mediaKey }),
+        };
+        request.Headers.Authorization = Bearer(userId);
+        return Http.SendAsync(request);
+    }
+
+    /// <summary><c>DELETE /users/me/avatar</c> với tư cách <paramref name="userId"/> (D3).</summary>
+    public Task<HttpResponseMessage> RemoveAvatarAsync(Guid userId)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Delete, "/api/v1/users/me/avatar");
+        request.Headers.Authorization = Bearer(userId);
+        return Http.SendAsync(request);
+    }
+
+    /// <summary>
+    /// Dựng một avatar ĐÃ tải lên đúng chuẩn cho <paramref name="userId"/> và trả key. Dùng
+    /// <c>StorageKeys.ForAvatar</c> của code sản phẩm để sinh key thay vì ghép chuỗi trong test: key gõ tay mà lệch dạng
+    /// thì test đỏ ở lớp 1 (regex) và không bao giờ chạm tới lớp mình định kiểm.
+    /// </summary>
+    public string PutAvatarObject(Guid userId, string contentType = "image/jpeg", long sizeBytes = 1024)
+    {
+        var key = StorageKeys.ForAvatar(userId, contentType);
+        PutObject(key, sizeBytes, contentType);
+        return key;
+    }
+
     /// <summary>
     /// Đọc thẳng DB bằng Npgsql — KHÔNG qua EF và không qua API. Chép khuôn <c>AuthTestClient.QueryRowAsync</c> của GĐ1.
     /// Cần cho <c>PROF-02</c>: "vẫn đúng MỘT dòng" là khẳng định về bảng, mà API thì theo thiết kế không phân biệt được
@@ -97,24 +129,6 @@ public sealed class ModulesTestClient
         for (var i = 0; i < reader.FieldCount; i++)
             row[reader.GetName(i)] = await reader.IsDBNullAsync(i) ? null : reader.GetValue(i);
         return row;
-    }
-
-    /// <summary>
-    /// Chạy một câu lệnh GHI thẳng vào DB bằng Npgsql — không qua EF, không qua API. Ngoại lệ CÓ CHỦ ĐÍCH với nếp "dựng
-    /// dữ liệu qua API thật", và chỉ hợp lệ khi endpoint dựng được trạng thái đó chưa tồn tại: ở D2 là <c>avatar_key</c>
-    /// (D3 mới có <c>PUT /users/me/avatar</c>). Có endpoint thật rồi thì đổi test sang gọi nó và GỠ hàm này — để lại là
-    /// mở sẵn một cửa hậu cho test tự bơm dữ liệu.
-    /// </summary>
-    public async Task ExecuteSqlAsync(string sql, params object[] parameters)
-    {
-        await using var connection = new NpgsqlConnection(_factory.ConnectionString);
-        await connection.OpenAsync();
-
-        await using var command = new NpgsqlCommand(sql, connection);
-        foreach (var value in parameters)
-            command.Parameters.Add(new NpgsqlParameter { Value = value });
-
-        await command.ExecuteNonQueryAsync();
     }
 
     /// <summary>

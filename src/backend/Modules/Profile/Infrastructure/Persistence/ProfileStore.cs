@@ -59,4 +59,29 @@ internal sealed class ProfileStore(ProfileDbContext db) : IProfileStore
 
         return rows.Single();
     }
+
+    /// <summary>
+    /// MỘT câu <c>UPDATE … RETURNING *</c>. Không đọc trước để kiểm "hồ sơ có tồn tại không": số dòng trả về đã trả lời
+    /// câu đó, và đọc-rồi-ghi thì giữa hai bước hồ sơ biến mất được.
+    ///
+    /// <c>updated_at</c> gán TAY, cùng lý do với <c>UpsertAsync</c>: SQL thô đi vòng qua ChangeTracker nên
+    /// <c>ProfileDbContext.StampUpdatedAt</c> không với tới.
+    ///
+    /// <c>ToListAsync</c> rồi <c>SingleOrDefault()</c> ở client, KHÔNG <c>SingleOrDefaultAsync()</c> — cùng cái bẫy
+    /// non-composable đã làm 500 ở <c>UpsertAsync</c>: mọi toán tử thêm <c>LIMIT</c> đều là compose lên trên
+    /// <c>UPDATE … RETURNING</c>.
+    /// </summary>
+    public async Task<UserProfile?> SetAvatarKeyAsync(
+        Guid userId, string? avatarKey, DateTimeOffset now, CancellationToken ct)
+    {
+        var rows = await db.Profiles.FromSql($"""
+            UPDATE profile.profiles
+               SET avatar_key = {avatarKey},
+                   updated_at = {now}
+             WHERE user_id = {userId}
+            RETURNING *
+            """).AsNoTracking().ToListAsync(ct);
+
+        return rows.SingleOrDefault();
+    }
 }

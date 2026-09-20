@@ -9,7 +9,7 @@ namespace SocialApp.Modules.Profile.Presentation;
 
 /// <summary>
 /// Tầng HTTP của module Profile — bốn action theo <c>profile-v1.yaml</c>: <c>GET {userId}/profile</c> (D1),
-/// <c>PUT me/profile</c> (D2), <c>PUT me/avatar</c> + <c>DELETE me/avatar</c> (D3). D2 nối action thứ hai.
+/// <c>PUT me/profile</c> (D2), <c>PUT me/avatar</c> + <c>DELETE me/avatar</c> (D3). Đủ bốn.
 ///
 /// <c>GET {userId}/profile</c> và <c>PUT me/profile</c> KHÔNG tranh route nhau dù <c>me</c> khớp được template
 /// <c>{userId}</c>: khác HTTP method. Hệ quả có thật: <c>GET /users/me/profile</c> rơi vào <c>{userId}</c> → 400, còn
@@ -66,6 +66,39 @@ public sealed class ProfilesController(ProfileService profiles) : ControllerBase
     public async Task<ActionResult<ProfileResponse>> Upsert(UpsertProfileRequest request, CancellationToken ct)
     {
         var result = await profiles.UpsertAsync(User.GetUserId(), request, ct);
+        return result.ToActionResult(this);
+    }
+
+    /// <summary>
+    /// Đặt ảnh đại diện từ một object ĐÃ nằm trên R2 (Đ-2.5: byte ảnh không đi qua API). Nhận <c>mediaKey</c>, không
+    /// nhận URL — xem <see cref="SetAvatarRequest"/>.
+    ///
+    /// Ba mã lỗi ứng với ba lớp của Đ-2.8, thứ tự và lý do ở <see cref="ProfileService.SetAvatarAsync"/>: <b>400</b> sai
+    /// dạng hoặc object chưa có/sai loại, <b>403</b> key của người khác (Đ-2.7) hoặc người gọi chưa có hồ sơ (Q-D9).
+    /// </summary>
+    [HttpPut("me/avatar")]
+    [ProducesResponseType<ProfileResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest, "application/problem+json")]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized, "application/problem+json")]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden, "application/problem+json")]
+    public async Task<ActionResult<ProfileResponse>> SetAvatar(SetAvatarRequest request, CancellationToken ct)
+    {
+        var result = await profiles.SetAvatarAsync(User.GetUserId(), request.MediaKey, ct);
+        return result.ToActionResult(this);
+    }
+
+    /// <summary>
+    /// Gỡ ảnh đại diện — <c>avatar_key = NULL</c>, <b>không</b> xóa object trên R2 (Đ-2.10).
+    ///
+    /// Chỉ có 204 và 401: idempotent theo hợp đồng, nên "vốn không có avatar" và "chưa có hồ sơ" đều là 204.
+    /// <c>ToActionResult</c> của <c>Result</c> không mang dữ liệu trả thẳng <c>NoContent()</c>.
+    /// </summary>
+    [HttpDelete("me/avatar")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized, "application/problem+json")]
+    public async Task<IActionResult> RemoveAvatar(CancellationToken ct)
+    {
+        var result = await profiles.RemoveAvatarAsync(User.GetUserId(), ct);
         return result.ToActionResult(this);
     }
 }

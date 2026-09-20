@@ -799,6 +799,47 @@ chưa có hồ sơ mà `PUT` → 403 (Q-D9).
 - **Dùng `MediaHeadPolicy` của Content cho avatar** → import chéo module, `ModuleBoundaryTests` đỏ. Profile có câu riêng
   trong `ProfileErrors` (câu của yaml khác một chữ: "…rồi thử lại" thay vì "…rồi đăng lại").
 - **Quên `pnpm gen:api` sau khi sửa `description` của 403** → cổng codegen đòi worktree sạch → đỏ.
+- **`UPDATE … RETURNING` cũng dính bẫy non-composable như `INSERT … RETURNING`** — `SingleOrDefaultAsync()` sau `FromSql`
+  là 500. Xem "Thực tế thi công".
+
+### Thực tế thi công
+
+**Bằng chứng.** `dotnet test SocialApp.sln`: Unit 126 → 138 (+12 `SetAvatarRequestValidatorTests`), Architecture 13
+(không đổi), Integration 216 → 230 (+14 `AvatarTests`). Bốn cổng frontend xanh sau `pnpm gen:api`
+(`lint`/`typecheck`/`test` 245/`build`); chạy `gen:api` lần hai không đổi thêm file nào. Thử cho đỏ ở local rồi khôi phục:
+
+| Đột biến | Test đỏ |
+|---|---|
+| HEAD trước khi kiểm tiền tố | `PROF_04_key_cua_nguoi_khac_tra_403_va_khong_ton_mot_luot_HEAD` |
+| Xóa object cũ khi đổi avatar | `Doi_avatar_lan_hai_khong_xoa_object_cu` + `Go_avatar_tra_204_…` |
+| `DELETE` trả 403 khi chưa có hồ sơ | `Go_avatar_lan_hai_va_go_khi_chua_co_ho_so_deu_204` |
+| Q-D9 trả 404 thay vì 403 | `Q_D9_chua_co_ho_so_ma_PUT_avatar_tra_403` |
+| Bỏ kiểm `Content-Type` sau HEAD | `Object_sai_loai_tra_400_kem_cau_ve_loai_anh` |
+
+**Chỗ lệch so với các bước trên — đã làm như sau:**
+
+- **Bước 3: `SingleOrDefaultAsync()` sau `FromSql` trên `UPDATE … RETURNING` cũng là 500**, đúng cái bẫy đã gặp ở `D2`
+  bước 2 — EF xếp mọi `… RETURNING` vào loại non-composable, mà `SingleOrDefaultAsync` thêm `LIMIT`. Dùng
+  `.AsNoTracking().ToListAsync(ct)` rồi `.SingleOrDefault()` ở client. Biết trước từ `D2` nên lần này không tốn một lượt
+  gỡ lỗi nào; ghi ra đây để `D5`–`D8` khỏi gặp lại.
+- **`IProfileStore.SetAvatarKeyAsync` trả `UserProfile?`, không phải `bool`** như Mục 1.5 phác. Với `bool` thì nhánh 200
+  của `PUT` vẫn phải gọi `FindAsync` lần nữa để có `ProfileResponse` — hai lần đọc cho một thao tác, và giữa hai lần đó
+  dữ liệu đổi được. `RETURNING *` đã có sẵn dòng đó trong tay; `null` mang đúng nghĩa "trúng 0 dòng" mà `bool` định nói.
+- **Thêm ca `posts/{me}/….jpg` vào nhóm "sai dạng"** (Bước 5 chỉ nêu `avatars/abc.jpg`). Đó là key hợp lệ của CHÍNH
+  người gọi, chỉ sai tiền tố loại — nếu regex bị nới thành "key nào của mình cũng được" thì ảnh bài viết gắn được làm
+  avatar, và không ca nào khác trong bảng bắt được chuyện đó.
+- **`PROF-04` khẳng định thêm `HeadCalls` không tăng.** Cạm bẫy "HEAD trước kiểm tiền tố" có trong danh sách nhưng chỉ
+  khẳng định mã 403 thì đảo thứ tự vẫn xanh — mã trả về giống hệt, chỉ khác một hóa đơn R2. Bộ đếm của
+  `FakeObjectStorage` là thứ duy nhất nhìn thấy khác biệt đó.
+- **`Sua_ho_so_khong_lam_mat_avatar_da_dat` (viết ở `D2`) đã đổi sang dùng `PUT /users/me/avatar` thật**, đúng như ghi
+  chú của `D2` đã hẹn, và khẳng định qua `avatarUrl` của API thay vì đọc thẳng cột. `ModulesTestClient.ExecuteSqlAsync` —
+  thêm ở `D2` chỉ để phục vụ nhánh SQL đó — đã **gỡ bỏ** vì không còn ai gọi.
+- **Unit test regex là mới**, không có trong Bước 5. Nó canh một chỗ mà integration không với tới: key do
+  `StorageKeys.ForAvatar` sinh ra phải LUÔN qua regex của hợp đồng. Hai nguồn đó độc lập (SharedKernel và yaml), lệch
+  nhau thì luồng hợp lệ đứt ở bước cuối mà không có gì báo trước. Kèm ca "regex neo hai đầu" — không neo thì
+  `"rác/" + key` lọt cả lớp 1 lẫn lớp 2 (`BelongsTo` dùng `StartsWith`, chỉ nhìn phần đầu).
+- **Ghi ngược Q-D9 đã làm**: `description` của `Forbidden` trong `profile-v1.yaml` nay nêu **hai** trường hợp và nói rõ
+  không phân biệt được từ ngoài; `pnpm gen:api` chạy lại, `schema.d.ts` trong cùng commit.
 
 ---
 

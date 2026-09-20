@@ -127,12 +127,12 @@ public sealed class UpsertProfileTests(PostgresFixture postgres, ModulesApiFacto
     /// Đ-2.10 + cạm bẫy của D2: sửa hồ sơ KHÔNG được làm mất avatar. <c>avatar_key</c> nằm ngoài <c>SET</c> của
     /// <c>ON CONFLICT</c>; đưa nó vào là một dòng trông vô hại xóa ảnh người dùng mỗi lần họ đổi tên.
     ///
-    /// Dựng avatar bằng SQL TRỰC TIẾP (<c>ExecuteSqlAsync</c>) — ngoại lệ có chủ đích với nếp "dựng dữ liệu qua API
-    /// thật", vì D2 chưa có endpoint nào đặt được <c>avatar_key</c>. D3 tới thì đổi nhánh này sang
-    /// <c>PUT /users/me/avatar</c> và khẳng định qua <c>avatarUrl</c>.
+    /// Viết ở D2 với avatar dựng bằng SQL trực tiếp (lúc đó D3 chưa có endpoint nào đặt được <c>avatar_key</c>); D3 tới
+    /// thì đổi sang <c>PUT /users/me/avatar</c> thật, đúng như ghi chú của D2 đã hẹn. Thiếu test này thì đột biến "thêm
+    /// <c>avatar_key = EXCLUDED.avatar_key</c>" đi lọt toàn bộ bộ test của D2 — đã thử và nó lọt thật.
     ///
-    /// Thiếu test này thì đột biến "thêm <c>avatar_key = EXCLUDED.avatar_key</c>" đi lọt toàn bộ bộ test của D2 — đã thử
-    /// và nó lọt thật.
+    /// Khẳng định qua <c>avatarUrl</c> của API chứ không qua cột DB: từ D3 trở đi đã có đường đọc hợp lệ, và test đọc
+    /// thẳng cột thì vẫn xanh kể cả khi service quên ký URL.
     /// </summary>
     [Fact]
     public async Task Sua_ho_so_khong_lam_mat_avatar_da_dat()
@@ -142,14 +142,13 @@ public sealed class UpsertProfileTests(PostgresFixture postgres, ModulesApiFacto
 
         await client.PutProfileOkAsync(actor, new { displayName = "An", bio = "Ban đầu." });
 
-        var avatarKey = $"avatars/{actor:D}/0123456789abcdef0123456789abcdef.jpg";
-        await client.ExecuteSqlAsync(
-            "UPDATE profile.profiles SET avatar_key = $2 WHERE user_id = $1", actor, avatarKey);
+        var avatarKey = client.PutAvatarObject(actor);
+        using (var set = await client.SetAvatarAsync(actor, avatarKey))
+            Assert.Equal(HttpStatusCode.OK, set.StatusCode);
 
-        await client.PutProfileOkAsync(actor, new { displayName = "An Nguyễn", bio = "Đã sửa." });
+        var after = await client.PutProfileOkAsync(actor, new { displayName = "An Nguyễn", bio = "Đã sửa." });
 
-        var row = await client.QueryRowAsync("SELECT avatar_key FROM profile.profiles WHERE user_id = $1", actor);
-        Assert.Equal(avatarKey, row!["avatar_key"]);
+        Assert.Equal($"https://fake.invalid/get/{avatarKey}", after.AvatarUrl);
     }
 
     /// <summary>
