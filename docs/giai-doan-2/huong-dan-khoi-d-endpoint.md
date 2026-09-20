@@ -1378,6 +1378,53 @@ public async Task<Result<PostResponse>> UpdateAsync(Guid postId, Guid actorId, U
 → 200 `body: null`; đổi `privacy` → người lạ `GET` bài vừa chuyển `private` → 404 (BR-02 tại thời điểm đọc, không phải lúc ghi);
 bài **đã xóa** → 403; bài **không tồn tại** → 403 (không phải 404). Matrix: `TC-A03` xanh.
 
+### Thực tế thi công
+
+**Bằng chứng.** `dotnet test SocialApp.sln`: Unit 218 (không đổi — D7 không thêm hàm thuần nào), Architecture 13
+(không đổi), Integration 288 → 300 (+12 `UpdatePostTests`). Còn đúng **hai** đỏ: `TC-A03-delete` (chờ D8) và đỏ nền R2
+của máy dev (CI xanh).
+
+**`TC-A03` đỏ → XANH ở commit này** — đúng thứ D7 sinh ra để làm, và là bằng chứng thứ hai của `B3` sau `TC-A03-media`.
+Matrix nay **16/17**.
+
+**`TC-A03-delete` đổi lý do đỏ: 404 → 405.** Route `posts/{postId}` nay tồn tại (GET, PATCH) nhưng chưa có method
+DELETE, nên MVC trả *Method Not Allowed* thay vì *Not Found*. Vẫn đỏ đúng dự kiến; ghi ra để người đọc log của `D8`
+không tưởng có gì hỏng thêm.
+
+Thử cho đỏ ở local rồi khôi phục — sáu đột biến, đều bị bắt, `git status` sạch trước và sau:
+
+| Đột biến | Test đỏ |
+|---|---|
+| Bỏ `post.AuthorId != actorId` (IDOR ở PATCH) | **dòng matrix `TC-A03`** + `Ba_ly_do_truot_…` + `ADMIN_qua_duoc_tang_2_…` |
+| Tầng 3 trả `PostNotFound` (404) thay vì `Forbidden` | **`TC-A03`** + hai test trên — trộn quy ước 3b |
+| Bỏ BR-01 khi sửa `body` | `Bai_chi_chu_ma_xoa_het_chu_tra_400_theo_BR01` |
+| Không đóng dấu `EditedAt` | `POST_06_…` |
+| Bỏ luật "không có gì để sửa" | `Body_rong_tra_400_va_khong_dong_dau_gi` |
+| `FindForUpdateAsync` dùng `AsNoTracking()` | `POST_06_…` + 2 test khác (sửa xong không lưu được) |
+
+Hai dòng đầu là hai dòng của bảng đột biến `B3` (Bước 2) dành cho `D7`, đã thử và đúng như bảng dự đoán.
+
+**Chỗ lệch so với các bước trên — đã làm như sau:**
+
+- **`IPostStore` có HAI hàm tìm bài, không phải một hàm kèm cờ `bool tracked`.** `FindAsync` (no-tracking, D6) cho đường
+  đọc và `FindForUpdateAsync` (tracked, D7) cho đường ghi. Một hàm trả entity vừa để đọc vừa để ghi là chỗ người sau lỡ
+  `SaveAsync` trên một luồng chỉ định đọc, và không có gì báo — đột biến cuối bảng trên cho thấy chiều ngược lại cũng
+  hỏng câm (sửa xong, 200, mà DB không đổi).
+- **Tách `ContentErrors.NothingToUpdateMessage` thành hằng**, để validator và service không nói hai kiểu cho cùng một
+  loại lỗi — cùng việc đã làm với `DuplicateMediaKeysMessage` ở `D5`.
+- **Bước 4 không nêu ca ADMIN; đã thêm.** `ADMIN_qua_duoc_tang_2_nhung_van_khong_sua_duoc_bai_nguoi_khac` là ca duy
+  nhất canh luật 6 của Mục 1.3 ("không có nhánh `role == ADMIN` ở tầng 3") bằng máy — grep chỉ bắt được chuỗi `"ADMIN"`,
+  không bắt được một nhánh viết bằng `SystemRoles.Admin` hay bằng cách khác.
+- **`Ba_ly_do_truot_deu_tra_403` khẳng định thêm một ca ĐỐI CHỨNG**: bài của chính mình vẫn sửa được. Thiếu nó thì một
+  bản "mọi PATCH đều 403" vẫn làm test xanh.
+- **`POST_06` đọc `created_at`/`updated_at` thẳng từ DB.** `updatedAt` KHÔNG có trong `PostResponse` (hợp đồng không
+  khai) nhưng nó là thứ duy nhất chứng minh `ContentDbContext.SaveChangesAsync` đã đóng dấu thay vì service gán tay;
+  kèm khẳng định `created_at` ĐỨNG YÊN.
+- **Ca gửi `mediaKeys` dùng JSON thô, không dùng object ẩn danh.** Cần gửi đúng một field mà DTO không có, và phải thử
+  cả `[]` lẫn mảng có phần tử — mảng rỗng là ca dễ lọt nhất nếu ai đó "chỉ chặn khi có ảnh thật".
+
+---
+
 ### Cạm bẫy đã biết
 
 - **Trả 404 cho "không tồn tại" và 403 cho "của người khác"** → status code tự tố cáo bài có tồn tại. Một `Result.Forbidden()`.

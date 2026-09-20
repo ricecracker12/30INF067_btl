@@ -41,7 +41,13 @@ public static class ContentErrors
     /// 400 của <c>PATCH /posts/{postId}</c> với body <c>{}</c> — không trường nào để sửa. Key là <c>body</c> vì đó là ô người
     /// dùng đang đứng (cùng lập luận với <see cref="PostContentPolicy.Empty"/>).
     /// </summary>
-    public static Error NothingToUpdate => Error.Validation(PostContentPolicy.BodyKey, "Không có gì để sửa.");
+    public static Error NothingToUpdate => Error.Validation(PostContentPolicy.BodyKey, NothingToUpdateMessage);
+
+    /// <summary>
+    /// Câu của <see cref="NothingToUpdate"/>, tách thành hằng ở D7 để <c>UpdatePostRequestValidator</c> dùng CHUNG —
+    /// cùng lý do với <see cref="DuplicateMediaKeysMessage"/>.
+    /// </summary>
+    public const string NothingToUpdateMessage = "Không có gì để sửa.";
 
     /// <summary>
     /// 400 của <c>POST /posts</c> khi <c>mediaKeys</c> có hai phần tử trùng key. Bắt TRƯỚC transaction: để nó chạy tới DB thì

@@ -76,6 +76,25 @@ public sealed class PostsController(PostService posts, PostReadService reads) : 
     }
 
     /// <summary>
+    /// Sửa bài của mình (FR-005). Chỉ <c>body</c> và <c>privacy</c> — gửi <c>mediaKeys</c> vào đây là field lạ → 400,
+    /// đúng ý vì GĐ2 không cho sửa ảnh (Mục 7.3).
+    ///
+    /// <b>Không có 404</b> trong danh sách mã: bài không tồn tại, của người khác, hay đã xóa mềm đều là <b>403</b> với
+    /// cùng một body (quy ước 3b). Đây là dòng <c>TC-A03</c> của AuthZ matrix.
+    /// </summary>
+    [HttpPatch("posts/{postId}")]
+    [RequirePermission(ContentPermissions.PostUpdate)]
+    [ProducesResponseType<PostResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest, "application/problem+json")]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized, "application/problem+json")]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden, "application/problem+json")]
+    public async Task<ActionResult<PostResponse>> Update(Guid postId, UpdatePostRequest request, CancellationToken ct)
+    {
+        var result = await posts.UpdateAsync(postId, User.GetUserId(), request, ct);
+        return result.ToActionResult(this);
+    }
+
+    /// <summary>
     /// Bài của một người, mới nhất trước, phân trang keyset (Đ-2.11).
     ///
     /// <b>Không có 404</b> trong danh sách mã: người dùng không tồn tại, chưa có bài, hay có bài mà người gọi không được

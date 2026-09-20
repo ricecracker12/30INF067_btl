@@ -110,4 +110,13 @@ public sealed class PostStore(ContentDbContext db) : IPostStore
             .GroupBy(m => m.OwnerId)
             .ToDictionary(g => g.Key, g => (IReadOnlyList<MediaAttachment>)[.. g.OrderBy(m => m.Position)]);
     }
+
+    /// <summary>
+    /// KHÔNG <c>AsNoTracking</c> — đây là bản để sửa; <see cref="SaveAsync"/> dựa vào ChangeTracker để biết cột nào đổi.
+    /// Query filter vẫn áp: bài đã xóa mềm trả <c>null</c>.
+    /// </summary>
+    public Task<Post?> FindForUpdateAsync(Guid postId, CancellationToken ct) =>
+        db.Posts.SingleOrDefaultAsync(p => p.PostId == postId, ct);
+
+    public Task SaveAsync(CancellationToken ct) => db.SaveChangesAsync(ct);
 }

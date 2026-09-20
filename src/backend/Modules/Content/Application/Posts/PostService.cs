@@ -118,6 +118,67 @@ public sealed class PostService(
     }
 
     /// <summary>
+    /// <c>PATCH /posts/{postId}</c> — sửa <c>body</c> và/hoặc <c>privacy</c> của bài MÌNH, theo đúng khuôn tầng 3 của
+    /// Mục 6.2.
+    ///
+    /// <b>Ba lý do trượt, MỘT phản hồi 403</b> (quy ước 3b, <c>TC-A03</c>): bài không tồn tại, bài của người khác, bài
+    /// đã xóa mềm (query filter loại sẵn nên nó đến đây dưới dạng <c>null</c>). Khác đường ĐỌC của D6 — ở đó ba lý do
+    /// trượt cho 404 — và sự khác nhau đó là cố ý: thao tác GHI cần ownership trả 403, thao tác ĐỌC nội dung có mức
+    /// hiển thị trả 404 (Mục 6.1).
+    ///
+    /// <b>KHÔNG có nhánh <c>role == ADMIN</c> ở đây</b> (Mục 3.2 của GĐ1). Lối tắt Admin chỉ tồn tại ở tầng 2, trong
+    /// <c>PermissionHandler</c>; lặp lại nó ở tầng 3 nghĩa là "Admin sửa được bài của bất kỳ ai" — đúng lỗ IDOR mà
+    /// GOAL-03 muốn đóng.
+    ///
+    /// <c>editedAt</c> đóng dấu ở đây; <c>updatedAt</c> do <c>ContentDbContext.SaveChangesAsync</c> đóng (A5) — không
+    /// gán tay, hai nguồn thời gian cho một cột là hai nguồn lệch được.
+    ///
+    /// GĐ2 KHÔNG sửa ảnh (Mục 7.3): <see cref="UpdatePostRequest"/> không có trường nào cho ảnh, nên
+    /// <c>media_count</c> giữ nguyên và BR-01 dưới đây dùng chính con số THẬT của bài.
+    /// </summary>
+    public async Task<Result<PostResponse>> UpdateAsync(
+        Guid postId, Guid actorId, UpdatePostRequest request, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var post = await posts.FindForUpdateAsync(postId, ct);
+
+        // Tầng 3. Ba lý do, một phản hồi — xem phần đầu.
+        if (post is null || post.AuthorId != actorId)
+            return Result<PostResponse>.Forbidden();
+
+        // `null` = KHÔNG GỬI (System.Text.Json không phân biệt với vắng mặt). Muốn xóa chữ thì gửi "" — và lúc đó
+        // BR-01 quyết định: bài có ảnh thì được, bài chỉ chữ thì 400.
+        if (request.Body is not null)
+        {
+            var body = NormalizeBody(request.Body);
+            var br01 = PostContentPolicy.Validate(body, post.MediaCount);
+            if (!br01.IsValid)
+                return ContentErrors.FromValidation(br01);
+
+            post.Body = body;
+        }
+
+        if (request.Privacy is { } privacy)
+            post.Privacy = privacy;
+
+        post.EditedAt = clock.GetUtcNow();
+        await posts.SaveAsync(ct);
+
+        logger.LogInformation("Đã sửa bài {PostId}", post.PostId);
+
+        // Đọc lại ảnh và tác giả để trả nguyên PostResponse — FE không phải gọi thêm GET sau khi sửa.
+        var attachments = await posts.MediaOfAsync([post.PostId], ct);
+        var cards = await directory.GetManyAsync([post.AuthorId], ct);
+
+        return mapper.ToResponse(
+            post,
+            attachments.TryGetValue(post.PostId, out var media) ? media : [],
+            cards.GetValueOrDefault(post.AuthorId),
+            actorId);
+    }
+
+    /// <summary>
     /// Rỗng hoặc toàn khoảng trắng → <c>null</c>, để <c>body</c> của bài chỉ có ảnh là <c>null</c> đúng như ví dụ hợp
     /// đồng, và để nhất quán với <c>ck_posts_not_empty</c> (DB so <c>btrim(coalesce(body,''))</c>) lẫn với
     /// <see cref="PostContentPolicy.Validate"/> (dùng <c>IsNullOrWhiteSpace</c>). Ba nơi cùng coi bốn giá trị

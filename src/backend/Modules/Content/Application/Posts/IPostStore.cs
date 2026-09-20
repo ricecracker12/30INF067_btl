@@ -6,8 +6,7 @@ namespace SocialApp.Modules.Content.Application.Posts;
 /// Bảng <c>content.posts</c> + <c>content.media_attachments</c> cho các luồng của khối D. Hiện thực EF nằm ở
 /// <c>Infrastructure/Persistence</c> — <c>Application</c> không chạm EF (<c>PersistenceBoundaryTests</c> canh bằng máy).
 ///
-/// Bốn phương thức sau D6; D7/D8 thêm <c>FindForUpdateAsync</c> và <c>SaveAsync</c> khi tới lượt. Không khai trước thứ
-/// chưa có người gọi — cùng nếp <c>IProfileStore</c>.
+/// Sáu phương thức sau D7. Không khai trước thứ chưa có người gọi — cùng nếp <c>IProfileStore</c>.
 /// </summary>
 public interface IPostStore
 {
@@ -55,4 +54,20 @@ public interface IPostStore
     /// <returns>Gom theo <c>postId</c>. Bài không có ảnh thì <b>vắng mặt</b> trong dictionary, không phải danh sách rỗng.</returns>
     Task<IReadOnlyDictionary<Guid, IReadOnlyList<MediaAttachment>>> MediaOfAsync(
         IReadOnlyCollection<Guid> postIds, CancellationToken ct);
+
+    /// <summary>
+    /// Một bài để SỬA — bản <b>tracked</b>, khác <see cref="FindAsync"/> (no-tracking, đường đọc). Hai hàm chứ không
+    /// một cờ <c>bool tracked</c>: một hàm trả entity vừa để đọc vừa để ghi là chỗ người sau lỡ <c>SaveAsync</c> trên
+    /// một luồng chỉ định đọc, và không có gì báo.
+    ///
+    /// Global query filter vẫn áp, nên bài đã xóa mềm trả <c>null</c> — service dịch thành <b>403</b> cùng với "không
+    /// tồn tại" và "không phải của bạn" (quy ước 3b, <c>TC-A03</c>).
+    /// </summary>
+    Task<Post?> FindForUpdateAsync(Guid postId, CancellationToken ct);
+
+    /// <summary>
+    /// Lưu thay đổi của entity đang được theo dõi. <c>ContentDbContext.SaveChangesAsync</c> đóng dấu <c>updated_at</c>
+    /// (A5) nên service KHÔNG gán tay cột đó — gán tay là hai nguồn thời gian cho một cột.
+    /// </summary>
+    Task SaveAsync(CancellationToken ct);
 }

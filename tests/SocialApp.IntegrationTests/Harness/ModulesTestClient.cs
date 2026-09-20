@@ -211,6 +211,29 @@ public sealed class ModulesTestClient
     }
 
     /// <summary>
+    /// <c>PATCH /posts/{postId}</c> với tư cách <paramref name="userId"/> (D7). Nhận <paramref name="body"/> dạng ẩn
+    /// danh vì test phải gửi được <c>{}</c>, field lạ (<c>mediaKeys</c>) và <c>body: ""</c> — những thứ DTO đã gõ kiểu
+    /// không phát ra nổi.
+    /// </summary>
+    public Task<HttpResponseMessage> UpdatePostAsync(Guid userId, object postId, object body, string role = "USER")
+    {
+        var request = new HttpRequestMessage(HttpMethod.Patch, $"/api/v1/posts/{postId}")
+        {
+            Content = JsonContent.Create(body),
+        };
+        request.Headers.Authorization = Bearer(userId, role);
+        return Http.SendAsync(request);
+    }
+
+    /// <summary>Như <see cref="UpdatePostAsync"/> nhưng đọc luôn body 200.</summary>
+    public async Task<PostResponse> UpdatePostOkAsync(Guid userId, Guid postId, object body)
+    {
+        using var response = await UpdatePostAsync(userId, postId, body);
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<PostResponse>(Json))!;
+    }
+
+    /// <summary>
     /// Đọc thẳng DB bằng Npgsql — KHÔNG qua EF và không qua API. Chép khuôn <c>AuthTestClient.QueryRowAsync</c> của GĐ1.
     /// Cần cho <c>PROF-02</c>: "vẫn đúng MỘT dòng" là khẳng định về bảng, mà API thì theo thiết kế không phân biệt được
     /// một dòng với hai dòng. Tham số vị trí <c>$1, $2…</c>; NULL thành <c>null</c>; <c>null</c> nếu không có dòng nào.
