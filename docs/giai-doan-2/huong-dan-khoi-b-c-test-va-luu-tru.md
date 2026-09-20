@@ -1120,7 +1120,7 @@ Mỗi dòng thử bằng tay **một lần**: sửa tạm → chạy `--filter "
 | Bỏ cùng điều kiện đó trong `DeleteAsync`                                | `TC-A03-delete`                              | IDOR ở `DELETE` — hai hàm khác nhau, một dòng không canh được cả hai                          |
 | Đổi `Result.Forbidden()` thành `Result.NotFound()` ở tầng 3 của `PATCH` | `TC-A03`                                     | Trộn quy ước 3b — 403 và 404 không thay nhau được                                             |
 | Bỏ kiểm tiền tố `posts/{actorId}/` trong `D5`                           | `TC-A03-media`                               | Đ-2.7 — **vẫn xanh nghĩa là** `Q-B2` **chưa xử lý**, quay lại Mục 1.3                         |
-| Bỏ `[Authorize]` trên controller của `POST /posts`                      | `TC-A01-posts`                               | Endpoint mới quên khai tầng 1                                                                 |
+| ~~Bỏ `[Authorize]` trên controller của `POST /posts`~~ → **`[AllowAnonymous]` trên action** | `TC-A01-posts`               | Endpoint mới quên khai tầng 1. **Đã sửa khi thi công**: bỏ attribute KHÔNG đủ — `FallbackPolicy` của `C4` vẫn trả 401. Xem "Thực tế thi công" |
 | Bỏ nhánh BR-02 cho `private` trong `GET /posts/{id}`                    | `READ-01`                                    | Rò rỉ nội dung riêng tư                                                                       |
 | Đổi `AlwaysStrangers` trả `true`                                        | `READ-01` **không** đỏ; test pin của `A6` đỏ | Đối chứng có chủ đích: matrix không phải lưới vạn năng, và đó là lý do `A6` có test pin riêng |
 
@@ -1150,6 +1150,65 @@ chung (luật chọn hàm, `B1`).
 thứ và một trong hai không có giá trị riêng. Ghi vào PR.
 - **Đột biến làm đỏ *sai* dòng.** Dừng lại. Dòng dự kiến không canh thứ ta tưởng nó canh.
 - **Chạy bảng đột biến trước khi 17 dòng xanh.** Đỏ sẵn thì không phân biệt được đỏ do đột biến hay do chưa xong.
+
+### Thực tế thi công
+
+**Bước 1 — bằng chứng đỏ: xong từ lúc push `B2`.** Run
+[35504573024](https://github.com/ricecracker12/30INF067_btl/actions/runs/35504573024) đỏ đúng bốn dòng
+(`Failed: 4, Passed: 14, Total: 18` ở bước `AuthZ matrix (CI GATE)`), các bước còn lại xanh. Run xanh đối chứng ngay
+trước đó là [35504450468](https://github.com/ricecracker12/30INF067_btl/actions/runs/35504450468) (`D4`).
+
+**Bước 2 — bảng đột biến chạy trên nền 17/17 XANH**, mỗi dòng: sửa tạm → `--filter "Category=AuthZ"` → hoàn tác →
+`git status`. **Cả bảy lần `git status` đều sạch.**
+
+| # | Đột biến | Dòng dự kiến | Dòng THỰC SỰ đỏ |
+|---|---|---|---|
+| 1 | Bỏ `post.AuthorId != actorId` trong `PostService.UpdateAsync` | `TC-A03` | ✅ **chỉ** `TC-A03` |
+| 2 | Bỏ cùng điều kiện đó trong `DeleteAsync` | `TC-A03-delete` | ✅ **chỉ** `TC-A03-delete` |
+| 3 | Tầng 3 của `PATCH` trả `PostNotFound` (404) thay vì `Forbidden` | `TC-A03` | ✅ **chỉ** `TC-A03` |
+| 4 | Bỏ kiểm tiền tố `posts/{actorId}/` trong `CreateAsync` | `TC-A03-media` | ✅ **chỉ** `TC-A03-media` |
+| 5 | **Bỏ `[RequirePermission]` trên `POST /posts`** | `TC-A01-posts` | ❌ **KHÔNG dòng nào đỏ** — xem bên dưới |
+| 5′ | `[AllowAnonymous]` trên action `POST /posts` | `TC-A01-posts` | ✅ **chỉ** `TC-A01-posts` |
+| 6 | Bỏ nhánh BR-02 trong `PostReadService.GetAsync` | `READ-01` | ✅ **chỉ** `READ-01` |
+| 7 | `AlwaysStrangers` trả `true` | `READ-01` **không** đỏ; pin `A6` đỏ | ✅ đúng cả hai vế: AuthZ 18/18 xanh, `AlwaysStrangersTests` đỏ **2/2** |
+
+Không dòng nào làm đỏ **nhiều hơn** dự kiến — tức không có hai dòng matrix nào đang canh chung một thứ.
+
+**Dòng 5 của bảng SAI, và đây là phát hiện đáng giá nhất của `B3`.** Bỏ `[RequirePermission]` khỏi `POST /posts` thì
+`TC-A01-posts` **vẫn xanh**: `FallbackPolicy` của `C4` áp cho mọi request mà middleware authorization nhìn thấy — kể cả
+request tới endpoint **không khai `IAuthorizeData` nào** — nên người gọi ẩn danh vẫn nhận 401. Đó cũng chính là thứ dòng
+`DEFAULT-DENY` canh, và là lý do `UseSwagger` phải đứng trước `UseAuthorization` trong `Program.cs`.
+
+Đột biến **thật sự** làm đỏ `TC-A01-posts` là **`[AllowAnonymous]` trên action** — thứ duy nhất khiến authorization
+middleware bỏ qua cả fallback policy. Đã sửa dòng 5 của bảng ở trên cho khớp. Chuyện này đã được dự báo ngay khi viết
+`B2` (mục "Thực tế thi công" của `B2`) và nay được xác nhận bằng máy.
+
+**Bước 3 — bốn test BR-01** ở `Content/PostContentRulesTests` (lớp mới, database riêng theo luật chọn hàm của `B1`):
+
+| Mã | Khẳng định |
+|---|---|
+| `AC-02` | 400 + `errors` có **đúng một** key `body`, cho **cả bốn** cách rỗng (vắng mặt, `null`, `""`, toàn khoảng trắng); `content.posts` không tăng |
+| `AC-03` | 11 ảnh → 400 + đúng một key `mediaKeys`; gửi kèm `body` hợp lệ để loại khả năng đỏ vì `body` |
+| `BR01-05` | Khai 1 MB / object thật 12 MB → 400 `SizeMismatch`, **số dòng `posts` không tăng**, và không dòng `media_attachments` nào mang key đó |
+| `BR01-06` | Bài chỉ có ảnh → 201, `body` là `NULL` trong DB (không phải chuỗi rỗng), `media_count = 2` |
+
+Thêm một ca **đối chứng** không có trong bảng: đúng 10 ảnh → 201. Thiếu nó thì một bản cài đặt chặn từ ảnh thứ nhất
+cũng làm `AC-03` xanh, và không ai đăng được bài nhiều ảnh.
+
+`BR01-05` đã được **thử cho đỏ**: chuyển lời gọi `AddWithMediaAsync` lên TRƯỚC vòng lặp `HEAD` → đỏ đúng nó (kèm một
+test của `D5` cũng khẳng định "không tạo dòng nào"). Người dùng vẫn nhận đúng mã 400 trong bản đột biến — khẳng định "số
+dòng không tăng" là thứ duy nhất nhìn thấy khác biệt, đúng như `Q-B3` nói.
+
+**Chỗ lệch so với các bước trên — đã làm như sau:**
+
+- **`AC-02`/`AC-03` đã CHUYỂN khỏi `CreatePostTests` (D5) sang lớp mới**, không nhân đôi. `D5` từng có một bản rút gọn
+  với ghi chú "bản đầy đủ thuộc B3"; nay bản đầy đủ ra đời nên bản kia bị gỡ, để lại một comment trỏ sang. Hai test
+  khẳng định cùng một điều là hai chỗ lệch được.
+- **Bảng đột biến chạy LẠI toàn bộ trên nền 17/17 xanh**, dù phần lớn các dòng đã được thử rải rác trong `D5`–`D8`.
+  Lý do là cạm bẫy cuối của mục này: lúc làm `D5` thì `TC-A03`/`TC-A03-delete` còn đỏ sẵn, nên "đỏ do đột biến" và "đỏ
+  do chưa xong" lẫn vào nhau. Chạy lại cho bằng chứng sạch: mỗi đột biến làm đỏ **đúng một** dòng, không hơn.
+- **Dòng 7 phải chạy HAI lệnh** (`Category=AuthZ` rồi cả `SocialApp.UnitTests`), vì nó là dòng duy nhất mà kỳ vọng là
+  "matrix KHÔNG đỏ". Chỉ chạy matrix thì kết quả "18/18 xanh" không phân biệt được với "đột biến chưa được áp".
 
 ---
 

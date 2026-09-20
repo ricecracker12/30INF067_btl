@@ -89,9 +89,11 @@ public sealed class CreatePostTests(PostgresFixture postgres, ModulesApiFactory 
     }
 
     /// <summary>
-    /// <c>BR01-06</c> theo tinh thần (bản đầy đủ thuộc B3): bài CHỈ có ảnh, <c>body</c> vắng mặt → 201 và
-    /// <c>body: null</c>. Canh hai thứ cùng lúc: <c>ck_posts_not_empty</c> không chặn nhầm, và <c>media_count</c> được
-    /// gán ĐÚNG ngay ở câu INSERT — gán 0 rồi UPDATE sau thì CHECK nổ ngay tại INSERT.
+    /// Bài CHỈ có ảnh, <c>body</c> vắng mặt → 201 và <c>body: null</c>. <c>ck_posts_not_empty</c> không chặn nhầm, và
+    /// <c>media_count</c> được gán ĐÚNG ngay ở câu INSERT — gán 0 rồi UPDATE sau thì CHECK nổ ngay tại INSERT.
+    ///
+    /// Bản chính thức của <c>BR01-06</c> nay ở <c>PostContentRulesTests</c> (B3). Giữ ca này vì nó khẳng định thêm một
+    /// thứ bản kia không có: <c>position</c> trong PHẢN HỒI của một bài hai ảnh.
     /// </summary>
     [Fact]
     public async Task Bai_chi_co_anh_khong_co_chu_van_tao_duoc_va_body_la_null()
@@ -323,35 +325,9 @@ public sealed class CreatePostTests(PostgresFixture postgres, ModulesApiFactory 
         Assert.Equal(0L, row!["n"]);
     }
 
-    /// <summary>
-    /// BR-01 qua đường HTTP thật: <c>AC-02</c> (không chữ, không ảnh → <c>errors.body</c>) và <c>AC-03</c> (11 ảnh →
-    /// <c>errors.mediaKeys</c>). Bản đầy đủ của hai mã này thuộc B3; ở đây canh chính cái unit test không với tới được —
-    /// hàm thuần của Domain nối đúng vào <c>errors</c> với đúng key.
-    /// </summary>
-    [Fact]
-    public async Task AC_02_va_AC_03_BR01_ra_dung_key_trong_errors()
-    {
-        var client = new ModulesTestClient(factory);
-        var actor = Guid.NewGuid();
-        await OnboardAsync(client, actor);
-
-        using (var trong = await client.CreatePostAsync(
-            actor, new { body = "   ", privacy = "public", mediaKeys = Array.Empty<object>() }))
-        {
-            var (status, _, errors) = await ModulesTestClient.ReadProblemAsync(trong);
-            Assert.Equal((int)HttpStatusCode.BadRequest, status);
-            Assert.Equal(PostContentPolicy.Empty, errors["body"].Single());
-        }
-
-        var muoiMot = Enumerable.Range(0, PostContentPolicy.MaxMediaCount + 1)
-            .Select(_ => client.PutPostObject(actor))
-            .ToArray();
-
-        using var qua = await client.CreatePostAsync(actor, new { body = "Nhiều ảnh quá.", privacy = "public", mediaKeys = muoiMot });
-        var (quaStatus, _, quaErrors) = await ModulesTestClient.ReadProblemAsync(qua);
-        Assert.Equal((int)HttpStatusCode.BadRequest, quaStatus);
-        Assert.Equal(PostContentPolicy.TooManyMedia, quaErrors["mediaKeys"].Single());
-    }
+    // AC-02 và AC-03 từng có một bản rút gọn ở đây (D5). Đã chuyển sang Content/PostContentRulesTests (B3, chốt Q-B3)
+    // khi bản đầy đủ ra đời: hai test khẳng định cùng một điều là hai chỗ lệch được, và bản ở B3 khẳng định nhiều hơn
+    // (bốn cách "rỗng", đúng MỘT key trong errors, số dòng posts không tăng).
 
     /// <summary>
     /// Field lạ → 400 (<c>UnmappedMemberHandling.Disallow</c> ở <c>Program.cs</c>). Quan trọng cho D7: hợp đồng cấm sửa
