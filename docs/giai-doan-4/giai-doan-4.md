@@ -653,6 +653,9 @@ FriendRequestPage     { items: [FriendCard], nextCursor: string | null }        
 
 ### 8.2 Content — thêm vào `content-v1.yaml` (chỉ-thêm)
 
+> **Vào file ở commit của `D7`, không ở cổng mở** (lệch Mục 9.2, chốt 2026-09-22 — lý do ở đó). Đặc tả dưới đây là
+> hình dạng đã chốt; `D7` chép nó vào yaml cùng lúc với controller.
+
 | Method | Path | Auth | Thành công | Lỗi |
 |---|---|---|---|---|
 | GET | `/feed?cursor=&limit=` | Bearer + `post.read.public` | 200 `FeedPage` | 400 cursor sai · 401 · **503** + `Retry-After` |
@@ -701,6 +704,15 @@ sau. Hợp đồng viết trước còn có một lợi ích riêng cho người
 1. Tự rà **Đ-4.1 → Đ-4.16**; sửa cái nào thì ghi ngày và lý do dưới quyết định đó.
 2. Viết `socialgraph-v1.yaml` + phần `/feed` của `content-v1.yaml` → `pnpm gen:api` → **commit cả yaml lẫn `schema.d.ts`**.
    Cổng `API contract` đỏ có chủ đích tới khi `D*` có controller — ghi rõ trong commit, như GĐ2 để matrix đỏ chờ `D5`–`D8`.
+
+   **Lệch Mục 9.2 (chốt 2026-09-22): phần `/feed` của `content-v1.yaml` HOÃN tới commit có controller feed (`D7`).**
+   Bước này viết khi ngầm coi cổng hợp đồng chưa canh `content-v1` — đúng ở GĐ2 (`ContentContractTests` ra đời ở `B4`
+   GĐ2), sai ở GĐ4: nó đã chạy trong CI, nên thêm `GET /feed` khi chưa có action là `Contract_must_be_fully_implemented`
+   đỏ liên tục qua cả khối A, B, C — và PR của từng khối không merge được vào `develop`. `socialgraph-v1.yaml` thì
+   **đã** commit ở cổng mở như kế hoạch: `SocialGraphContractTests` là việc của `B5` nên không có gì đỏ.
+   Cái giá, chấp nhận vì một người làm tuần tự (FE feed vốn đứng sau `D7`): type `FeedPage` chưa sinh được trước `D7`.
+   Hình dạng `/feed` không đổi — vẫn đúng Mục 8.2, `info.version` → `1.0.0-gd4` ở chính commit đó, `pnpm gen:api` cùng
+   commit (luật frontend Mục 7).
 3. Chốt **máy chạy k6 và môi trường đo** (Đ-4.13): máy nào, giới hạn tài nguyên bao nhiêu. Không chốt ở đây thì tới lúc
    cần đo mới đi tìm máy.
 
@@ -1115,6 +1127,10 @@ Keyset theo `accepted_at` / `created_at` + id người kia; một lô `IUserDire
 
 Controller mỏng gọi `FeedService` (C1–C4). Rà như `D9` của GĐ2: từng mã lỗi trong hai hợp đồng đối chiếu với code thật;
 503 có `Retry-After`; không thông điệp nào chứa id hay tên kiểu.
+
+**Cùng commit với controller** (lệch Mục 9.2, chốt 2026-09-22): thêm `GET /feed` + `FeedPage` vào `content-v1.yaml` đúng
+Mục 8.2, `info.version` → `1.0.0-gd4`, chạy `pnpm gen:api`, commit `lib/api/content/schema.d.ts`. `ContentContractTests`
+đỏ nếu thiếu một trong hai vế — đó là cổng canh việc này.
 
 ---
 
