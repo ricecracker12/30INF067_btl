@@ -241,8 +241,12 @@ chuyển trạng thái. Thêm giá trị thứ ba là mở đường cho dòng "
 /// Guid.CompareTo so từng trường như chuỗi hex hiển thị — khớp Postgres. ToByteArray() thì KHÔNG khớp
 /// (ba nhóm đầu little-endian): so mảng byte là chuẩn hóa sai chiều với khoảng một nửa số cặp.
 /// </summary>
-public readonly record struct FriendPair(Guid Min, Guid Max)
+public readonly record struct FriendPair          // KHÔNG positional — xem đoạn dưới khối code
 {
+    private FriendPair(Guid min, Guid max) { Min = min; Max = max; }
+    public Guid Min { get; }
+    public Guid Max { get; }
+
     public static FriendPair Of(Guid a, Guid b)
     {
         if (a == b)
@@ -259,6 +263,11 @@ public readonly record struct FriendPair(Guid Min, Guid Max)
 `a == b` **ném**, không trả gì: tự gửi lời mời là **400** (US-010 AC-03) và phải được `D2` chặn **trước** khi dựng cặp.
 Tới được `FriendPair.Of` với hai id bằng nhau là lỗi lập trình, không phải lỗi người dùng — để nó rơi xuống DB thì
 `ck_friendships_order` nổ thành 500.
+
+**Constructor** `private` **(sửa ngày 2026-09-22, lúc rà `A1`).** Bản đầu viết `record struct FriendPair(Guid Min, Guid Max)`
+dạng positional — tức có constructor public, và `new FriendPair(a, b)` đi vòng qua `Of`. "Chỗ duy nhất chuẩn hóa" khi đó
+chỉ là quy ước, không phải thứ trình biên dịch giữ. Có unit test `Khong_co_constructor_public` canh. `RelationshipState`
+kiểm người ngoài cặp bằng so thẳng hai cột của dòng, không dựng `FriendPair`.
 
 **Bước 3 —** `Friendship.cs` **và** `Follow.cs`**.** Cột lấy đúng Mục 4 của gốc, không thêm không bớt:
 
@@ -1020,3 +1029,7 @@ WHERE con.contype = 'f' AND src.relnamespace <> tgt.relnamespace;
 
 *Ghi khi làm, có ngày tháng: chỗ lệch tài liệu này, lỗi gặp thật, số liệu* `EXPLAIN` *của truy vấn nguồn feed. Nếp của
 khối A GĐ2 — sửa ngay tại mục liên quan phía trên kèm "(sửa ngày …, lúc thi công* `A…`*)", và tóm tắt ở đây.*
+
+**2026-09-22 — rà code trước khi commit.**
+
+- `A1`: `FriendPair` đổi từ record positional sang constructor `private` (Mục 3 Bước 2). Thêm test `Khong_co_constructor_public`.

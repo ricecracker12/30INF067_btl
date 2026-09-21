@@ -799,6 +799,8 @@ bộ dữ liệu, cùng nếp `PostVisibilityTests` của GĐ2 (hai bản của 
 4. `SocialGraphPermissionsTests` ở ArchitectureTests.
 5. `ModuleBoundaryTests` / `PresentationBoundaryTests` / `PersistenceBoundaryTests`: **không** sửa danh sách module —
    chúng đã liệt kê SocialGraph từ GĐ0.
+   Lệch B.3 (nhóm chốt): không có `Skip` nào để gỡ. Chỉ **thêm** `SocialGraph_Domain_namespace_must_not_be_empty` trong
+   commit `A1` (cùng entity đầu tiên), đúng nếp `A7` của GĐ2.
 6. Cổng codegen FE: không sửa (đã tự suy danh sách hợp đồng).
 7. **k6 không vào CI** (cần 1.000 VU và bộ dữ liệu 1M bài). Báo cáo k6 là bằng chứng kiểm tay, dán vào PR — cùng nếp
    Playwright.
@@ -950,6 +952,10 @@ máy đo, chờ `EXPLAIN`), chuyển sang một việc của khối E thay vì n
 `Friendship` (cặp chuẩn hóa, `RequesterId`, `Status`, `AcceptedAt`), `Follow`, `FriendshipStatus` (enum chữ thường khớp
 CHECK), và `FriendPair.Of(a, b)` — **chỗ duy nhất** chuẩn hóa cặp, theo đúng thứ tự `uuid` của Postgres bằng `Guid.CompareTo`,
 **không** so `ToByteArray()` (Mục 4 cạm bẫy 1).
+
+Lệch B.3 (nhóm chốt): B.3 viết `Relationship.From(…)` → `RelationshipResponse`. Domain trả **trạng thái miền**
+`RelationshipState` / `FriendshipView` (`None · Outgoing · Incoming · Friends`); ánh xạ sang DTO `RelationshipResponse`
+là việc của `D0`/`D1` — Domain không tham chiếu Application.
 
 ### A2 — `SocialGraphDbContext` + configuration + options + design-time factory
 
