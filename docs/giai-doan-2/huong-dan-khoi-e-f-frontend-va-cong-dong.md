@@ -1228,6 +1228,102 @@ Vitest **442 → 448** (+5 `buildPatch`, +1 ca StrictMode). `lint` / `typecheck`
 
 **0 failed, 0 flaky.** Ca `skipped` vẫn là `single-flight.spec.ts` — skip có điều kiện từ GĐ1.
 
+### Đóng lớp lỗi StrictMode: cổng lint + bốn ca canh (2026-09-21)
+
+Lượt dọn trên để lại **một ca canh cho một màn**. Còn bốn màn nữa cũng sở hữu `AbortController` mà không ca
+nào đi qua chu kỳ mount → unmount → mount. Ba tầng dưới đây đóng nốt, và **không tầng nào thay được tầng kia**:
+tầng 1 bắt lúc gõ nhưng chỉ biết cú pháp, tầng 2 bắt hành vi nhưng chỉ ở màn có người nhớ viết ca.
+
+**Tầng 1 — cổng ESLint `USE_REF_NEW`.** Một mục mới trong `no-restricted-syntax` của `eslint.config.mjs`, chặn
+`useRef(new …)` ở **mọi** file `.ts`/`.tsx`:
+
+```
+CallExpression[callee.name='useRef'] > NewExpression,
+CallExpression[callee.property.name='useRef'] > NewExpression
+```
+
+Chặn **mọi** `new`, **không** liệt kê danh sách loại tài nguyên (`AbortController | WebSocket | …`). Danh sách
+thì loại chưa có trong đó lọt qua im lặng — đúng kiểu **cổng xanh giả** mà Mục 7 của `frontend-rules.md` đã bỏ
+một lần ở `gen-api.mjs` (đổi 2026-09-19). Cái giá của lựa chọn này là nó cũng bắt những chỗ *đang* đúng; xem
+`seenRef` dưới đây.
+
+`components/ui/**` **không** bị rule này, vì khối cuối của config tắt `no-restricted-syntax` cho kit. Có chủ
+đích: kit sinh bởi CLI và không sửa tay, nên bắt nó đỏ là chặn chính `pnpm exec shadcn add` mà Đ-E12 bắt dùng.
+
+**Đã thử cho đỏ** (luật FE Mục 9): áp lại `useRef(new AbortController())` vào `use-upload-queue.ts` → rule bắt
+đúng dòng đó; khôi phục → xanh; `git status` sạch trước và sau.
+
+**Chỗ duy nhất rule bắt được trong repo:** `use-post-page.ts` có `const seenRef = useRef(new Set<string>())`.
+
+Kiểm rồi mới dám nói: **khuôn này ở ĐÂY chưa hỏng được.** Dự đoán ban đầu là "mount 2 nhận lại set đã đủ
+`postId` → lô vừa về bị gạt sạch → 0 card". **Sai.** Chốt `run !== runRef.current` trong `fetchPage` cắt lượt
+gọi của mount 1 **trước** dòng khử trùng, nên set không kịp có gì để gạt nhầm. Thử cho đỏ đã chứng minh: bỏ
+hẳn dòng `seenRef.current = new Set()` thì ca StrictMode vẫn **xanh**.
+
+Vẫn đổi, vì **cấm là cấm khuôn, không cấm theo từng chỗ có triệu chứng** — chỗ nào đang đúng cũng chỉ đúng nhờ
+một chốt khác, và chốt đó có thể đi mất trong lần sửa sau. Đã đổi sang khởi tạo **lười**:
+
+```ts
+const seenRef = useRef<Set<string> | null>(null)
+const seen = useCallback(() => (seenRef.current ??= new Set<string>()), [])
+```
+
+Không đổi hành vi quan sát được.
+
+**Tầng 2 — bốn ca `<StrictMode>` mới**, mỗi màn sở hữu tài nguyên hủy được đúng một ca:
+
+| Màn | Ca khẳng định | Bắt được gì mà ca thường không bắt |
+|---|---|---|
+| `MeProfile` | hiện `me-profile`, **không** có `role="alert"` | lượt gọi của mount 1 bị hủy phải im lặng, không thành báo lỗi |
+| `PostDetail` | hiện `post-card` | không kẹt ở khung chờ |
+| `UserPosts` | **đúng 1** card | mount 2 dùng lại controller đã hủy → 0 card |
+| `PublicProfile` | hiện `public-profile` | màn này trước đó **không có file test nào** |
+
+Ca StrictMode khẳng định **trạng thái cuối**, **không đếm số request** — dưới StrictMode số request tăng gấp đôi
+một cách hợp lệ.
+
+**Thử cho đỏ cả bốn** (áp `useRef(new AbortController())` vào từng màn, chạy, rồi khôi phục):
+
+| Màn | Ca StrictMode | Ca CŨ cũng đỏ theo |
+|---|---|---|
+| `MeProfile` | đỏ | 2 — `Tải lại` gọi `/me` lần nữa · lỗi 500 rồi `Tải lại` |
+| `PostDetail` | đỏ | 2 — 5xx bấm `Thử lại` · đổi `postId` |
+| `UserPosts` | đỏ | 2 — đổi `userId` · trang đầu hỏng rồi `Thử lại` |
+| `PublicProfile` | đỏ | 0 — **màn này trước đó không có file test nào** |
+
+Cột cuối là thứ đáng đọc kỹ: ba màn đầu **đã** có ca chạy lại effect (bấm `Thử lại`, đổi id), nên lớp lỗi này
+không hoàn toàn trần trụi ở đó. Chỗ trần trụi thật là `PublicProfile` — và chính là chỗ không ai nghĩ tới, vì
+nó không có file test để mà thấy thiếu.
+
+**CỐ Ý KHÔNG LÀM: bọc `<StrictMode>` toàn cục trong `test/setup.ts`.** Một dòng, phủ hết — nhưng đã đếm: 15 file
+dùng `render()` và ít nhất 12 khẳng định đang **đếm số lần** (`expect(seen).toHaveLength(2)`,
+`toHaveBeenCalledTimes(1)`). Bọc toàn cục làm đỏ hết chỗ đó, và tệ hơn việc phải sửa: những ca ấy đang canh đúng
+bất biến *"chỉ gọi một lần"* — khử trùng, single-flight, chống bấm hai lần. Đổi chúng sang "gọi hai lần cũng
+được" là **vứt một lớp canh thật để đổi lấy một lớp canh khác**. Ca StrictMode phải là ca **riêng**, tự khai nó
+đang đo chiều nào.
+
+**Lỗ hổng thật mà cổng lint lôi ra: dòng `seenRef.current = new Set()` KHÔNG có ca nào canh.** Bỏ hẳn dòng
+đó thì cả 22 ca của `user-posts.test.tsx` vẫn xanh. Nhưng nó **load-bearing**: nút `Tải lại` của
+`post-list.tsx` chỉ hiện ở đúng một trạng thái — `error !== null` **và** `items` còn — tức là *trang sau hỏng,
+danh sách cũ vẫn trên màn*. Bấm nó thì `attempt` đổi → `pageKey` đổi → `base` rỗng, mà lô trang đầu vừa lấy
+lại **nằm sẵn** trong set của lượt trước nên bị gạt hết: **màn trắng sau một cú bấm**.
+
+Ca `Thử lại` đã có không thay được: ở đó trang **đầu** hỏng ngay nên chưa `postId` nào vào set. Đã thêm ca
+*"trang sau hỏng rồi bấm Tải lại: danh sách VỀ LẠI"* — bỏ dòng reset thì **đúng một ca** đỏ, khôi phục thì xanh.
+
+Đây là lãi ngoài dự tính của tầng 1: rule không tìm ra lỗi ở `seenRef`, nhưng nó **bắt phải đọc lại** dòng đó,
+và chỗ thiếu ca lộ ra từ lần đọc ấy.
+
+**Lỗi tìm ra khi rà, đã sửa: flake có sẵn ở `user-posts.test.tsx`.** Ca *"bấm Xem thêm hai lần khi lượt đầu còn
+bay"* đỏ **1 trong 3 lượt** khi chạy cả bộ, luôn xanh khi chạy riêng file. Nguyên nhân là `waitFor` mặc định 1s
+trong khi handler có `await delay(60)` cộng thời gian jsdom xử lý dưới tải của 39 file test. **Đo trên cây
+TRƯỚC thay đổi này** (`git stash` rồi chạy 3 lượt: 1 đỏ) nên là nợ cũ, không phải hệ quả của ca StrictMode. Đã
+cho hai `waitFor` phụ thuộc `delay` một `timeout` viết tay 5s — khẳng định y nguyên, chỉ là không còn thua vì
+máy bận.
+
+**Bằng chứng:** Vitest **448 → 453** (+4 ca StrictMode, +1 ca `Tải lại`). `lint` / `typecheck` / `build`
+xanh. Cả bộ chạy **3 lượt liên tiếp không đỏ lượt nào** — trước khi sửa flake là 1 đỏ trong 3.
+
 ---
 
 ## 10. F1 — Deploy staging qua CD tự động

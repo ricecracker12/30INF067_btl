@@ -24,7 +24,7 @@ quyết định mới, có ngày tháng, ghi vào tài liệu gốc trong cùng 
 - Đọc mục tương ứng trong hướng dẫn khối E trước khi làm một việc `E*` — mỗi mục có sẵn phần
   "cạm bẫy đã biết".
 
-## 1. Mười ba điều không bao giờ làm
+## 1. Mười bốn điều không bao giờ làm
 
 | # | Cấm | Vì |
 |---|---|---|
@@ -41,6 +41,7 @@ quyết định mới, có ngày tháng, ghi vào tài liệu gốc trong cùng 
 | 11 | Trả access/refresh token (hay `Set-Cookie` của API) ra trình duyệt từ bất kỳ route BFF nào | Đ-E14 — trình duyệt không bao giờ cầm JWT |
 | 12 | Module server của BFF thiếu `import "server-only"`, hoặc biến cấu hình server mang tiền tố `NEXT_PUBLIC_` | Đ-E14 — `NEXT_PUBLIC_*` bị nhúng vào bundle |
 | 13 | Script inline tự viết không mang nonce, `dangerouslySetInnerHTML` chứa script, thêm `'unsafe-inline'` / `'strict-dynamic'` / domain lạ vào CSP | Đ-E15 — CSP chặn; nới CSP là quyết định mới |
+| 14 | `useRef(new Thing())` — controller, subscription, timer, observer khởi tạo ở tham số của `useRef` | StrictMode mount lại trả về **đúng cái vừa bị hủy**; ESLint chặn. Tạo trong effect, ref chỉ là hộp đựng |
 
 ## 2. Đặt file ở đâu (Đ-E13)
 
@@ -161,6 +162,14 @@ Bốn tầng, phụ thuộc **một chiều**: `app/` → `features/` → `compo
   không chứa ca test nào: `setup.ts` và `server-only.ts` (shim cho alias `server-only`, Đ-E14) — *sửa câu
   này 2026-09-21, trước đó ghi "chỉ chứa `setup.ts`" và đã lệch thực tế từ GĐ1*. `e2e/` chứa spec
   Playwright, `e2e/fixtures/` chứa ảnh thật commit vào repo (Q-E8).
+- **Màn nào sở hữu tài nguyên hủy được thì có ĐÚNG một ca `<StrictMode>`** (thêm 2026-09-21). `render(<X />)`
+  mount một lần, Next dev mount → unmount → mount lại; lớp lỗi chỉ sống ở lần mount thứ hai nên không ca
+  thường nào chạm tới. Ca đó khẳng định **trạng thái cuối đạt được**, **không đếm số request** — dưới
+  StrictMode số request tăng gấp đôi một cách hợp lệ, trộn hai thứ vào một ca là tự làm ca test giòn.
+  Năm ca hiện có: `post-composer`, `me-profile`, `post-detail`, `user-posts`, `public-profile`.
+- **`waitFor` chờ một handler có `delay` thì ghi `timeout` viết tay.** Mặc định 1s đủ khi chạy riêng file
+  và KHÔNG đủ khi chạy cả bộ — ca `Xem thêm` của `user-posts` đỏ ~1/3 lượt vì vậy (đo 2026-09-21). Nới
+  thời gian chờ không làm ca yếu đi; khẳng định vẫn y nguyên.
 - Thêm một luật ESLint hay một cổng CI thì phải **thử cho đỏ một lần** rồi khôi phục — `git status`
   sạch trước và sau.
 

@@ -83,7 +83,12 @@ export function useUserPosts(userId: string | null): PostPageState {
     currentRef.current = current
   })
   const pendingRef = useRef(false)
-  const seenRef = useRef(new Set<string>())
+  // Khử trùng theo `postId` cho CẢ lượt xem. Khởi tạo LƯỜI, không `useRef(new Set<string>())` — cổng
+  // `USE_REF_NEW` của eslint.config.mjs cấm khuôn đó. Ở đây `useRef(new ...)` chưa hỏng được, vì chốt
+  // `run !== runRef.current` cắt lượt gọi của lần mount đầu TRƯỚC khi nó kịp ghi vào set; nhưng cấm là
+  // cấm khuôn, không cấm theo từng chỗ có triệu chứng — chỗ nào đúng cũng chỉ đúng nhờ một chốt khác.
+  const seenRef = useRef<Set<string> | null>(null)
+  const seen = useCallback(() => (seenRef.current ??= new Set<string>()), [])
   // Controller của LƯỢT XEM hiện tại. Trang đầu hủy được từ cleanup của effect; trang sau (`loadMore`) phải
   // dùng chung controller đó, nếu không thì rời trang giữa lúc "Xem thêm" đang bay là một request chạy tiếp
   // vào hư không — và bất đối xứng "trang đầu hủy, trang sau không" là thứ không ai giải thích được sau này.
@@ -109,10 +114,11 @@ export function useUserPosts(userId: string | null): PostPageState {
         )
         if (run !== runRef.current) return
 
-        // Khử trùng theo `postId`. `seenRef` chứ không lọc theo `items` của lần render trước: hai lượt
-        // gọi trùng về sát nhau thì lượt thứ hai vẫn thấy mảng cũ và lô trùng lọt qua.
-        const them = page.items.filter((p) => !seenRef.current.has(p.postId))
-        them.forEach((p) => seenRef.current.add(p.postId))
+        // `seen()` chứ không lọc theo `items` của lần render trước: hai lượt gọi trùng về sát nhau thì
+        // lượt thứ hai vẫn thấy mảng cũ và lô trùng lọt qua.
+        const daThay = seen()
+        const them = page.items.filter((p) => !daThay.has(p.postId))
+        them.forEach((p) => daThay.add(p.postId))
 
         setData((prev) => {
           const base = prev?.key === pageKey ? prev.items : []
@@ -142,7 +148,7 @@ export function useUserPosts(userId: string | null): PostPageState {
         }
       }
     },
-    []
+    [seen]
   )
 
   // Trang đầu: mỗi lần `key` đổi (`userId` khác, hoặc bấm Thử lại). Không `setState` nào ở đây — `seenRef`
@@ -151,6 +157,9 @@ export function useUserPosts(userId: string | null): PostPageState {
     if (userId === null) return
 
     const run = ++runRef.current
+    // BẮT BUỘC, không phải dọn dẹp cho gọn: bấm "Tải lại" sau khi trang đầu đã về thì `attempt` đổi →
+    // `pageKey` đổi → `base` rỗng, mà lô trang đầu vừa lấy lại thì NẰM SẴN trong set cũ nên bị gạt hết.
+    // Bỏ dòng này là màn trắng sau một cú bấm. Ca canh: "Tải lại sau khi trang sau hỏng".
     seenRef.current = new Set()
     pendingRef.current = false
     const controller = new AbortController()
@@ -185,7 +194,7 @@ export function useUserPosts(userId: string | null): PostPageState {
 
   const replaceItem = useCallback(
     (postId: string, next: PostResponse | null) => {
-      if (next === null) seenRef.current.delete(postId)
+      if (next === null) seen().delete(postId)
       setData((prev) =>
         prev === null
           ? prev
@@ -198,7 +207,7 @@ export function useUserPosts(userId: string | null): PostPageState {
             }
       )
     },
-    []
+    [seen]
   )
 
   return {

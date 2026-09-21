@@ -7,6 +7,7 @@ import {
   within,
 } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
+import { StrictMode } from "react"
 import { delay, http, HttpResponse } from "msw"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -165,7 +166,12 @@ describe("UserPosts — cursor keyset (Đ-2.11)", () => {
     fireEvent.click(nut)
     fireEvent.click(nut)
 
-    await waitFor(() => expect(cards()).toHaveLength(2))
+    // `timeout` viết tay: mặc định của `waitFor` là 1s, mà lượt này phải chờ `delay(60)` CỘNG thời gian
+    // jsdom xử lý — chạy CẢ BỘ (39 file, 37 môi trường jsdom) thì 1s không đủ và ca này đỏ khoảng 1 trong
+    // 3 lượt, trong khi chạy riêng file thì luôn xanh. Đo được trên cây TRƯỚC thay đổi này, nên là nợ cũ
+    // chứ không phải hệ quả của ca StrictMode ở cuối file. Nới thời gian chờ KHÔNG làm ca yếu đi: khẳng
+    // định vẫn y nguyên, chỉ là không còn thua vì máy bận.
+    await waitFor(() => expect(cards()).toHaveLength(2), { timeout: 5000 })
     // Hai lượt gọi cho cùng một cursor là hai lô giống hệt — và một lần đốt hạn mức vô ích.
     expect(seen).toHaveLength(2)
   })
@@ -202,8 +208,10 @@ describe("UserPosts — cursor keyset (Đ-2.11)", () => {
       goiThem()
     })
 
-    await waitFor(() =>
-      expect(screen.getByTestId("so-bai")).toHaveTextContent("2")
+    // `timeout` viết tay, cùng lý do với ca trên: lượt này cũng chờ `delay(60)`.
+    await waitFor(
+      () => expect(screen.getByTestId("so-bai")).toHaveTextContent("2"),
+      { timeout: 5000 }
     )
     expect(seen).toHaveLength(2)
   })
@@ -314,6 +322,38 @@ describe("UserPosts — trạng thái rỗng và lỗi", () => {
     )
     // Xóa danh sách đang đúng vì một lô lỗi là phạt người dùng cho việc họ không làm.
     expect(cards()).toHaveLength(1)
+  })
+
+  it("trang sau hỏng rồi bấm Tải lại: danh sách VỀ LẠI, không phải màn trắng", async () => {
+    // Nút "Tải lại" (`post-list.tsx`) CHỈ hiện ở đúng trạng thái này: `error !== null` mà `items` còn.
+    // Đường đi của nó là chỗ duy nhất `seenRef.current = new Set()` trong effect cứu được: `attempt`
+    // đổi → `pageKey` đổi → `base` rỗng, mà lô trang đầu vừa lấy lại thì NẰM SẴN trong set của lượt
+    // trước. Không reset set thì lô đó bị gạt sạch và người dùng nhận một màn trắng sau cú bấm.
+    //
+    // Ca "Thử lại" đã có ở trên KHÔNG thay được ca này: ở đó trang đầu hỏng ngay, nên chưa có `postId`
+    // nào vào set — bỏ dòng reset đi nó vẫn xanh (đã thử).
+    let lan = 0
+    server.use(
+      http.get(POSTS, ({ request }) => {
+        lan += 1
+        const cursor = new URL(request.url).searchParams.get("cursor")
+        if (cursor !== null && lan === 2) return HttpResponse.error()
+        return HttpResponse.json(trang([bai("p1")], CURSOR_TRANG_2))
+      })
+    )
+    const user = userEvent.setup()
+    moManHinh()
+
+    await waitFor(() => expect(cards()).toHaveLength(1))
+    await user.click(nutXemThem()!)
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Tải lại" })).toBeInTheDocument()
+    )
+
+    await user.click(screen.getByRole("button", { name: "Tải lại" }))
+
+    await waitFor(() => expect(cards()).toHaveLength(1))
+    expect(screen.queryByTestId("post-list-empty")).toBeNull()
   })
 })
 
@@ -495,5 +535,40 @@ describe("PostCard — nội dung một bài", () => {
 
     await waitFor(() => expect(cards()).toHaveLength(1))
     expect(within(cards()[0]!).getByText("Bạn bè")).toBeInTheDocument()
+  })
+})
+
+// Ca StrictMode — mỗi màn sở hữu tài nguyên hủy được có ĐÚNG một ca. `render(<X />)` gắn component một
+// lần, còn Next dev bọc `<StrictMode>`: mount → unmount → mount lại. Ca này khẳng định TRẠNG THÁI CUỐI
+// đạt được, KHÔNG đếm số request — dưới StrictMode số request tăng gấp đôi một cách hợp lệ, trộn hai thứ
+// vào một ca là tự làm ca test giòn.
+
+describe("UserPosts — sống được dưới StrictMode", () => {
+  it("mount hai lần: ĐÚNG một card — không rỗng vì khử trùng, không nhân đôi vì nối trang", async () => {
+    // Đã thử cho đỏ: áp lại `pageAbortRef = useRef(new AbortController())` thì ca này đỏ (0 card —
+    // mount 2 dùng lại controller mà cleanup của mount 1 vừa hủy, lượt gọi ném `AbortError` ngay).
+    //
+    // KHÔNG canh được, dù trực giác nói có: `seenRef` sống sót qua lần mount đầu. Chốt
+    // `run !== runRef.current` cắt lượt gọi của mount 1 TRƯỚC dòng khử trùng, nên set không kịp có gì
+    // để gạt nhầm. Dòng `seenRef.current = new Set()` trong effect có ca riêng ở "Tải lại" bên dưới —
+    // bỏ nó thì ca kia đỏ, còn ca này vẫn xanh.
+    phucVuHaiTrang(trang([bai("p1")], null), trang([], null))
+    render(
+      <StrictMode>
+        <UserPosts
+          userId={userId}
+          title="Bài của tôi"
+          emptyMessage="Bạn chưa đăng bài nào."
+          emptyAction={<ComposeFirstPostButton />}
+        />
+      </StrictMode>
+    )
+
+    await waitFor(() => expect(cards()).toHaveLength(1))
+    // Giữ một nhịp: lô của lần mount ĐẦU về muộn cũng không được sinh thêm card.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20))
+    })
+    expect(cards()).toHaveLength(1)
   })
 })

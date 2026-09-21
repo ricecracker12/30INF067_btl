@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
+import { StrictMode } from "react"
 import { http, HttpResponse } from "msw"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -249,5 +250,26 @@ describe("PostDetail — đổi bài", () => {
       expect(screen.getByTestId("post-card")).toBeInTheDocument()
     )
     expect(screen.queryByRole("link", { name: "Xem bài" })).toBeNull()
+  })
+})
+
+// Ca StrictMode — mỗi màn sở hữu tài nguyên hủy được có ĐÚNG một ca. `render(<X />)` gắn component một
+// lần, còn Next dev bọc `<StrictMode>`: mount → unmount → mount lại. Ca này khẳng định TRẠNG THÁI CUỐI
+// đạt được, KHÔNG đếm số request — dưới StrictMode số request tăng gấp đôi một cách hợp lệ, trộn hai thứ
+// vào một ca là tự làm ca test giòn.
+
+describe("PostDetail — sống được dưới StrictMode", () => {
+  it("mount hai lần vẫn hiện bài, không kẹt ở khung chờ", async () => {
+    server.use(http.get(POST, () => HttpResponse.json(bai({ postId: "p1" }))))
+    render(
+      <StrictMode>
+        <PostDetail postId="p1" />
+      </StrictMode>
+    )
+
+    await waitFor(() =>
+      expect(screen.getByTestId("post-card")).toBeInTheDocument()
+    )
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
   })
 })
