@@ -368,6 +368,14 @@ còn biên độ thêm index/cache nếu trượt; và thứ cắt được thì
 > (xem "Đường lõi & thứ tự ưu tiên"). Kế hoạch gốc đã chừa sẵn: *"GĐ3 chèn linh hoạt sau GĐ2"*.
 
 ### GĐ 4 — Social Graph + News Feed: UC-10/11, UC-13, UC-08 (Ngày 9–13) ⚠️ trọng điểm hiệu năng
+
+> 📄 **Tài liệu thi công chi tiết: [`giai-doan-4.md`](./giai-doan-4/giai-doan-4.md)** — 16 quyết định thiết kế
+> (Đ-4.1–Đ-4.16, trạng thái đề xuất, chốt ở cổng mở), DDL schema `socialgraph`, truy vấn feed `LATERAL`, hai tầng cache
+> chỉ lưu `post_id`, môi trường đo k6 riêng, ba chỗ dựng sẵn cho GĐ3 cắm vào, lịch một người làm tuần tự, checklist nghiệm thu.
+>
+> **Ba chỗ lệch mục này, có chủ đích:** feed có thêm **bài của chính mình** và **feed gợi ý** cho người chưa có kết nối
+> (UC-08 luồng A1 mà mục này bỏ sót); dòng DI `AlwaysStrangers` bị **xóa** ở Content chứ không "đổi tại chỗ" (Content không
+> được thấy kiểu của SocialGraph); **một người** làm cả hai lane, tuần tự, ước lượng ~8 ngày làm việc thay vì 4.
 - **Làm gì:** Kết bạn Pending→Accepted (FR-010/011, BR-03), theo dõi 1 chiều (FR-012),
   News Feed fan-out-on-read + cache Redis (FR-009, BR-02/07, ADR-004).
 - **Làm như nào:**
