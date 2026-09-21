@@ -7,6 +7,7 @@ using Microsoft.Extensions.Hosting;
 using SocialApp.Modules.Content.DependencyInjection;
 using SocialApp.Modules.Identity.DependencyInjection;
 using SocialApp.Modules.Profile.DependencyInjection;
+using SocialApp.Modules.SocialGraph.DependencyInjection;
 using SocialApp.SharedKernel.Storage;
 
 namespace SocialApp.IntegrationTests.Harness;
@@ -17,7 +18,7 @@ namespace SocialApp.IntegrationTests.Harness;
 ///
 /// Theo khuôn <see cref="Auth.IdentityApiFactory"/> của GĐ1, khác ở bốn chỗ:
 /// <list type="number">
-/// <item>Database riêng mỗi lớp test, migrate CẢ BA module: test khối D SỬA dữ liệu (luật B1), và tầng 2 đọc
+/// <item>Database riêng mỗi lớp test, migrate CẢ BỐN module: test khối D SỬA dữ liệu (luật B1), và tầng 2 đọc
 /// <c>identity.role_permissions</c> nên Identity phải được seed dù không endpoint nào của khối D thuộc Identity.</item>
 /// <item><see cref="Storage"/> là <see cref="FakeObjectStorage"/> — chép nguyên cách <see cref="AuthZ.AuthZApiFactory"/>
 /// thay <see cref="IObjectStorage"/> (C5). CI không có khóa R2 và sẽ không bao giờ có.</item>
@@ -50,7 +51,7 @@ public sealed class ModulesApiFactory : WebApplicationFactory<Program>
         : throw new InvalidOperationException("Gọi UseFreshDatabaseAsync trước CreateClient.");
 
     /// <summary>
-    /// Thứ tự Identity → Profile → Content CỐ Ý ghi ra dù không có FK chéo schema (Đ-2.2) — cùng thứ tự với
+    /// Thứ tự Identity → Profile → Content → SocialGraph CỐ Ý ghi ra dù không có FK chéo schema (Đ-2.2) — cùng thứ tự với
     /// <c>PostgresFixture.SeededContentDatabaseAsync</c> và với hook <c>--migrate</c> của Program.cs, để log đọc được theo
     /// một thứ tự không đổi. Seeder vai trò/quyền nằm trong <c>MigrateIdentityModuleAsync</c>: quên dòng đó là mọi test có
     /// <c>[RequirePermission]</c> đỏ với triệu chứng trông hệt "handler hỏng".
@@ -62,11 +63,13 @@ public sealed class ModulesApiFactory : WebApplicationFactory<Program>
             .AddIdentityModule(cs)
             .AddProfileModule(cs)
             .AddContentModule(cs)
+            .AddSocialGraphModule(cs)
             .BuildServiceProvider();
 
         await services.MigrateIdentityModuleAsync();   // migrate → seed vai trò/quyền → kiểm tra vai trò hệ thống
         await services.MigrateProfileModuleAsync();
         await services.MigrateContentModuleAsync();
+        await services.MigrateSocialGraphModuleAsync();
         return cs;
     }
 

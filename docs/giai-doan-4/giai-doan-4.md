@@ -962,9 +962,17 @@ là việc của `D0`/`D1` — Domain không tham chiếu Application.
 Chép hình dạng `ContentDbContext`: `HasDefaultSchema("socialgraph")`, bảng lịch sử trong schema của mình, override
 `SaveChanges` đóng dấu `updated_at`. Bốn CHECK và index `idx_friendships_user_max` theo Mục 4.
 
+Lệch B.3 (nhóm chốt): B.3 viết "chép hình dạng `ContentDbContext`" — ngầm hiểu dùng lại `LowercaseEnum`. Bản ở Content
+là `internal` và `ModuleBoundaryTests` chặn import chéo; đưa lên SharedKernel sẽ kéo EF Core vào SharedKernel. **Chép**
+`LowercaseEnum` sang `SocialGraph/Infrastructure/Configurations/` (bản `internal` của riêng module).
+
 ### A3 — Migration đầu tiên + `AddSocialGraphModule` + `MigrateSocialGraphModuleAsync` + nối `Program.cs`
 
 Nghiệm thu: `--migrate` hai lần trên DB sạch, lần hai không đổi gì; `\dn` thấy bốn schema.
+
+Lệch B.3 (nhóm chốt): harness migrate `socialgraph` vào **A3** (hai chỗ: `ModulesApiFactory.CreateMigratedDatabaseAsync`
+và `PostgresFixture.SeededContentDatabaseAsync`), không chờ `B1`. Từ `A5` Content đọc `socialgraph.friendships` —
+thiếu dòng migrate ở harness thì `READ_02_05` nhận 500 `relation does not exist`.
 
 ### A4 — Migration nhỏ của Content: `idx_posts_public_recent`
 
