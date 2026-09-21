@@ -15,6 +15,10 @@
 #
 # LUẬT SỬA FILE NÀY: đổi hợp đồng → sửa file này TRONG CÙNG COMMIT với code và chạy lại `pnpm gen:api`.
 #
+# ĐÓNG BĂNG (2026-09-21, cổng đóng GĐ2 — F5): file này KHÔNG đổi hình dạng trong phạm vi GĐ2. Đổi sau mốc này
+# thuộc cổng mở của giai đoạn cần đổi (GĐ3 thêm bộ đếm/bình luận, GĐ4 feed…), hoặc là hotfix blocking cả nhóm
+# thống nhất. Sửa comment/mô tả không đổi schema thì không tính là đổi hình dạng.
+#
 # QUYẾT ĐỊNH ĐÃ CHỐT chạm tới hợp đồng này (giai-doan-2.md Mục 3):
 #   Đ-2.5   Ảnh đi THẲNG trình duyệt → R2; API không bao giờ nhận byte ảnh. POST /media/uploads chỉ trả URL đã ký.
 #   Đ-2.6   Không thêm mã quyền mới. POST /media/uploads: [Authorize] + kiểm post.create ở controller bằng

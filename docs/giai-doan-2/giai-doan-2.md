@@ -96,6 +96,8 @@ Nhìn danh sách endpoint thì GĐ2 chỉ có "CRUD bài viết". Ba thứ làm 
 | Xóa cứng bài + xóa object theo NĐ 13/2023 | **GĐ8** | Đi cùng quyền tự xóa tài khoản và chính sách ẩn danh PII |
 | Dọn `profiles`/`posts` khi user bị xóa | **GĐ8** | Hệ quả trực tiếp của Đ-2.2 (không FK chéo schema) — ghi vào nợ có địa chỉ, không để vô chủ |
 | Cắt/nén ảnh phía client, thumbnail, EXIF strip | **GĐ7** | UI/UX; GĐ2 chỉ chặn loại và dung lượng |
+| Sửa danh sách ảnh của bài đã đăng | **GĐ7** | Kéo theo một luồng rác nữa (object của ảnh bị gỡ); `PATCH /posts/{id}` gửi `mediaKeys` → 400 (Mục 7.3). *Thêm vào bảng 2026-09-21 ở `F5` — trước đó chỉ nằm trong thân Mục 7.3* |
+| Dọn avatar mồ côi (object cũ khi đổi/gỡ avatar) | **GĐ8** | Worker của Content chỉ quét `posts/`, không được đọc `profile.profiles.avatar_key` (Đ-2.2, Đ-2.3); làm khi Profile có worker riêng hoặc khi xóa tài khoản chạm tới. *Thêm vào bảng 2026-09-21 ở `F5` — trước đó chỉ nằm trong Mục 7.5* |
 | Video, GIF động, SVG | **Ngoài MVP** | SVG bị loại có chủ đích: script trong SVG chạy được nếu phục vụ từ domain R2 |
 | Sửa hồ sơ của người khác (admin) | **Ngoài MVP** | Không có FR nào yêu cầu; nhờ vậy GĐ2 không phải thêm mã quyền mới (Đ-2.6) |
 
@@ -880,42 +882,64 @@ không phải JPEG hợp lệ, và lỗi khi đó trông hệt lỗi CORS.
 
 ## 11. Definition of Done
 
-Theo Mục 3.5 của PTTK, áp cho **từng** UC của giai đoạn:
+Theo Mục 3.5 của PTTK, áp cho **từng** UC của giai đoạn. *Rà ở `F4` ngày 2026-09-21. Chi tiết và lệnh đã chạy nằm ở
+mục "Thực tế thi công" của `F4` trong [huong-dan-khoi-e-f-frontend-va-cong-dong.md](huong-dan-khoi-e-f-frontend-va-cong-dong.md).*
 
-- [ ] Đủ AC (US-004 AC-01..04; FR-005; FR-013)
-- [ ] Có kiểm RBAC (tầng 2) **và** ownership (tầng 3), có dòng trong `AuthZMatrix.cs`
-- [ ] Lỗi theo RFC 7807, `errors` đúng key hợp đồng, không lộ tài nguyên có tồn tại hay không
-- [ ] Đã chạy thử trên **staging** bằng tài khoản thật, qua domain HTTPS
-- [ ] Hợp đồng `.yaml` khớp Swagger runtime (cổng CI xanh), `schema.d.ts` sinh lại trong cùng commit
+- [x] Đủ AC (US-004 AC-01..04; FR-005; FR-013). Integration 320 ca (319 xanh + 1 đỏ nền R2 của máy dev, CI xanh), E2E
+  staging `F3`
+- [x] Có kiểm RBAC (tầng 2) **và** ownership (tầng 3), có dòng trong `AuthZMatrix.cs`. `AuthZ matrix` 18/18 trên CI
+  run 35561152514; bảng đột biến `B3` (bảy đột biến đều bị bắt)
+- [x] Lỗi theo RFC 7807, `errors` đúng key hợp đồng, không lộ tài nguyên có tồn tại hay không (`TC-A03*` 403,
+  `READ-01` 404, 403 của FE không lộ, `E6`)
+- [x] Đã chạy thử trên **staging** bằng tài khoản thật, qua domain HTTPS (`F2`, `F3`, 2026-09-21)
+- [x] Hợp đồng `.yaml` khớp Swagger runtime (`API contract` 6/6 trên CI), `pnpm gen:api` chạy lại thì worktree sạch
 - [ ] Không lộ secret/PII: log **không** chứa presigned URL (nó mang chữ ký, là thông tin nhạy cảm có hạn), không chứa email
+  — **chờ lệnh trên server** (`docker compose logs api | grep -c "X-Amz-Signature"` → 0, và đếm email). Máy dev không
+  thay được: container api dev là bản 2026-09-18, không chạy lát cắt GĐ2
 
 ## 12. Checklist nghiệm thu cuối GĐ2
 
+*Rà ở `F4` ngày 2026-09-21. Dòng chưa tick là dòng **chờ thao tác trên server staging hoặc dashboard R2**, không phải
+dòng bỏ. Lệnh cho từng dòng ở "Thực tế thi công" của `F4`.*
+
 **Dữ liệu và ranh giới**
 
-- [ ] Thấy đủ ba schema `identity`, `profile`, `content`; mỗi schema có `__EFMigrationsHistory` riêng
-- [ ] Không có FK nào đi qua ranh giới schema — chứng minh bằng truy vấn `information_schema.referential_constraints`
-- [ ] `--migrate` chạy hai lần liên tiếp: lần hai không đổi gì, exit 0
-- [ ] ArchUnitNET xanh, và **không** ai nới rule để code chạy được
+- [x] Thấy đủ ba schema `identity`, `profile`, `content`; mỗi schema có `__EFMigrationsHistory` riêng. Log CD run
+  35561152520: `[migrate] Đã áp dụng migration cho schema "identity", "profile", "content" … Thoát 0`; psql trên
+  Postgres dev: ba bảng lịch sử
+- [ ] Không có FK nào đi qua ranh giới schema — chứng minh bằng truy vấn `information_schema.referential_constraints`.
+  Dev: **0** FK chéo (8 FK, đều cùng schema). **Chờ chạy trên Postgres staging**
+- [ ] `--migrate` chạy hai lần liên tiếp: lần hai không đổi gì, exit 0 — **chờ chạy trên server**
+- [x] ArchUnitNET xanh, và **không** ai nới rule để code chạy được. 13/13; lịch sử `tests/SocialApp.ArchitectureTests`
+  từ GĐ2 chỉ **thêm** rule (A1, A4+A7, D0) và gỡ `Skip`, không có dòng nới
 
 **Bảo mật**
 
-- [ ] Sáu dòng matrix mới xanh; thử cho đỏ một lần bằng cách bỏ kiểm ownership rồi khôi phục
-- [ ] Đọc thẳng DB: không có `posts.author_id` nào khác `sub` của người đã tạo bài
-- [ ] Trình duyệt không bao giờ thấy `storage_key` của người khác (Network tab ở F3)
-- [ ] Bucket **không** để public; mở một URL ảnh đã hết hạn → R2 trả 403
+- [x] Sáu dòng matrix mới xanh; thử cho đỏ một lần bằng cách bỏ kiểm ownership rồi khôi phục (`B3`: bỏ
+  `post.AuthorId != actorId` → đỏ đúng `TC-A03` / `TC-A03-delete`)
+- [ ] Đọc thẳng DB: không có `posts.author_id` nào khác `sub` của người đã tạo bài. Dev: 77 bài, 0 `author_id` không
+  có trong `identity.users`, 0 không có hồ sơ; body gửi `authorId` → 400 (`Field_la_trong_body_tra_400`). **Chờ psql
+  trên staging**
+- [x] Trình duyệt không bao giờ thấy `storage_key` của người khác (Network tab ở `F2`: response của `/bff/api/posts/*`
+  không có key nào)
+- [x] Bucket **không** để public; mở một URL ảnh đã hết hạn → R2 trả 403 (`F3` #5: **403 `ExpiredRequest`**; bỏ hẳn
+  chữ ký → `400 InvalidArgument`, không trả object)
 
 **Vận hành**
 
-- [ ] `R2__Endpoint`, `R2__Bucket`, `R2__AccessKey`, `R2__SecretKey` đã có trên staging **trước khi merge**
-- [ ] Worker dọn rác chạy đúng một lượt trên staging, log số object đã xóa
-- [ ] Tắt Redis → worker bỏ lượt và **không** chạy khi không có khóa; api vẫn phục vụ bình thường
+- [x] `R2__Endpoint`, `R2__Bucket`, `R2__AccessKey`, `R2__SecretKey` đã có trên staging **trước khi merge**. Bằng chứng
+  gián tiếp: `F3` `PUT`/`GET` 200 vào đúng bucket `socialmedia-staging`, CSP có host R2
+- [ ] Worker dọn rác chạy đúng một lượt trên staging, log số object đã xóa — **chờ server**: worker mặc định TẮT, phải
+  đặt `Media__Cleanup__Enabled=true`, và lượt đầu chạy **sau 60 phút** (không chạy lúc khởi động)
+- [ ] Tắt Redis → worker bỏ lượt và **không** chạy khi không có khóa; api vẫn phục vụ bình thường — **chờ server**
+  (Integration `Redis_khong_toi_duoc_thi_bo_luot_khong_xoa_gi` xanh ở local)
 
 **Lát cắt dọc**
 
-- [ ] E2E trên staging: đăng nhập → onboarding → đăng bài 2 ảnh → xem lại → sửa → xóa
-- [ ] Ảnh có mặt thật trong bucket `-staging` (ảnh chụp dashboard R2)
-- [ ] Frontend đã bỏ mock (`mocks/` chỉ còn phục vụ Vitest)
+- [x] E2E trên staging: đăng nhập → onboarding → đăng bài 2 ảnh → xem lại → sửa → xóa (`F3`, 2026-09-21)
+- [ ] Ảnh có mặt thật trong bucket `-staging` (ảnh chụp dashboard R2) — **chờ người có quyền Cloudflare**. Đường dẫn
+  object đã biết: `avatars/{userId}/…` và `posts/{userId}/…` (`F3`)
+- [x] Frontend đã bỏ mock (`mocks/` chỉ còn phục vụ Vitest — `F2` bước 1, lệnh bản Q-E7)
 
 ## 13. Sai khác so với kế hoạch gốc và báo cáo v5.0
 

@@ -16,6 +16,10 @@
 #
 # LUẬT SỬA FILE NÀY: đổi hợp đồng → sửa file này TRONG CÙNG COMMIT với code và chạy lại `pnpm gen:api`.
 #
+# ĐÓNG BĂNG (2026-09-21, cổng đóng GĐ2 — F5): file này KHÔNG đổi hình dạng trong phạm vi GĐ2. Đổi sau mốc này
+# thuộc cổng mở của giai đoạn cần đổi (GĐ3 thêm bộ đếm/bình luận, GĐ4 feed…), hoặc là hotfix blocking cả nhóm
+# thống nhất. Sửa comment/mô tả không đổi schema thì không tính là đổi hình dạng.
+#
 # QUYẾT ĐỊNH ĐÃ CHỐT chạm tới hợp đồng này (giai-doan-2.md Mục 3):
 #   Đ-2.4  Hồ sơ tạo bằng bước onboarding của chính người dùng (PUT /users/me/profile là upsert),
 #          KHÔNG tạo lúc đăng ký. GET /users/{id}/profile trả 404 khi chưa onboarding — và đó chính
