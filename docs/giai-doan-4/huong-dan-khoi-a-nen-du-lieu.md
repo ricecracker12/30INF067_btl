@@ -1033,3 +1033,5 @@ khối A GĐ2 — sửa ngay tại mục liên quan phía trên kèm "(sửa ng�
 **2026-09-22 — rà code trước khi commit.**
 
 - `A1`: `FriendPair` đổi từ record positional sang constructor `private` (Mục 3 Bước 2). Thêm test `Khong_co_constructor_public`.
+- `A4`: khẳng định index trong `ContentDbContextSchemaTests` đổi từ kiểm từng từ rời sang **nguyên mệnh đề** `WHERE` như
+  `pg_indexes` chuẩn hóa ra — bản cũ để lọt filter đảo cột. Snapshot Content giữ BOM + LF như HEAD (bản sinh ra mất BOM).

@@ -207,4 +207,32 @@ public sealed class ContentDbContextSchemaTests(PostgresFixture postgres)
         var all = await db.Posts.IgnoreQueryFilters().CountAsync();
         Assert.Equal(2, all);
     }
+
+    /// <summary>
+    /// A4 (GĐ4) — index feed gợi ý: keyset <c>(created_at DESC, post_id DESC)</c> trên bài
+    /// <c>published</c> + <c>public</c>. Filter sai thì truy vấn vẫn đúng kết quả nhưng không dùng index
+    /// — chỉ lộ ở EXPLAIN của C2; test này bắt sớm hơn.
+    /// </summary>
+    [Fact]
+    public async Task Index_public_recent_dung_dinh_nghia_keyset_va_filter()
+    {
+        var (services, _) = await MigratedAsync(postgres);
+
+        await using var scope = services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<ContentDbContext>();
+
+        var indexDef = await db.Database
+            .SqlQuery<string>($"""
+                select indexdef as "Value"
+                from pg_indexes
+                where schemaname = 'content' and indexname = 'idx_posts_public_recent'
+                """)
+            .SingleAsync();
+
+        // Khẳng định NGUYÊN mệnh đề WHERE như pg_indexes chuẩn hóa ra — kiểm từng từ rời thì filter đảo cột
+        // (privacy = 'published' AND status = 'public') vẫn lọt.
+        Assert.Contains("(created_at DESC, post_id DESC)", indexDef);
+        Assert.EndsWith(
+            "WHERE (((status)::text = 'published'::text) AND ((privacy)::text = 'public'::text))", indexDef);
+    }
 }
