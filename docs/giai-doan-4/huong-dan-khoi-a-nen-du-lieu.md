@@ -928,13 +928,13 @@ Tick từng dòng, có bằng chứng. Dòng không áp dụng thì ghi lý do, 
 
 **Schema và migration**
 
-- [ ] `\dn` trên DB dev thấy **bốn** schema: `identity`, `profile`, `content`, `socialgraph`
-- [ ] Mỗi schema có đúng **một** `__EFMigrationsHistory`; **không** có cái nào ở `public`
-- [ ] `--migrate` trên DB sạch: lần 1 exit 0, lần 2 exit 0 và không đổi gì
-- [ ] `dotnet ef migrations add Tmp` cho **SocialGraph và Content** đều ra migration **rỗng** (rồi `migrations remove`)
-- [ ] `InitialContent` không đổi (`git diff` rỗng); `PublicRecentIndex` chỉ có một `CreateIndex`
-- [ ] Ba file migration của `InitialSocialGraph` đã commit; `ProductVersion` trong snapshot là `8.0.10`
-- [ ] **Không có FK nào trong schema** `socialgraph` và không FK nào qua ranh giới schema — cả hai câu ra 0 dòng:
+- [x] `\dn` trên DB dev thấy **bốn** schema: `identity`, `profile`, `content`, `socialgraph`
+- [x] Mỗi schema có đúng **một** `__EFMigrationsHistory`; **không** có cái nào ở `public`
+- [x] `--migrate` trên DB sạch: lần 1 exit 0, lần 2 exit 0 và không đổi gì
+- [x] `dotnet ef migrations add Tmp` cho **SocialGraph và Content** đều ra migration **rỗng** (rồi `migrations remove`) — làm bằng `migrations has-pending-model-changes`, cùng câu trả lời, không tạo file
+- [x] `InitialContent` không đổi (`git diff` rỗng); `PublicRecentIndex` chỉ có một `CreateIndex`
+- [x] Ba file migration của `InitialSocialGraph` đã commit; `ProductVersion` trong snapshot là `8.0.10`
+- [x] **Không có FK nào trong schema** `socialgraph` và không FK nào qua ranh giới schema — cả hai câu ra 0 dòng:
 
 ```sql
 SELECT conname FROM pg_constraint
@@ -949,33 +949,33 @@ WHERE con.contype = 'f' AND src.relnamespace <> tgt.relnamespace;
 
 **Ràng buộc do DB giữ**
 
-- [ ] `ck_friendships_order`, `_requester`, `_accepted` (cả hai chiều), `ck_follows_not_self` chặn thật
-- [ ] Cùng cặp lần hai → `23505` (nguồn của 409 ở `D2`)
-- [ ] Cặp đối nghịch (`00000001-…` / `01000000-…`) lưu được qua `Friendship.Request` — `FriendPair.Of` khớp Postgres
-- [ ] `idx_friendships_user_max` và `idx_posts_public_recent` tồn tại đúng định nghĩa (`pg_indexes`)
+- [x] `ck_friendships_order`, `_requester`, `_accepted` (cả hai chiều), `ck_follows_not_self` chặn thật
+- [x] Cùng cặp lần hai → `23505` (nguồn của 409 ở `D2`)
+- [x] Cặp đối nghịch (`00000001-…` / `01000000-…`) lưu được qua `Friendship.Request` — `FriendPair.Of` khớp Postgres
+- [x] `idx_friendships_user_max` và `idx_posts_public_recent` tồn tại đúng định nghĩa (`pg_indexes`)
 
 **Ranh giới**
 
-- [ ] `grep -rn "Microsoft.EntityFrameworkCore\|Npgsql" src/backend/Modules/SocialGraph/Domain` → 0 kết quả
-- [ ] `grep -rn "SocialApp.Modules\." src/backend/Modules/SocialGraph` không thấy tên module khác; tương tự Content không thấy `SocialGraph`
-- [ ] `dotnet test tests/SocialApp.ArchitectureTests` xanh; `SocialGraph_Domain_namespace_must_not_be_empty` **đã từng thấy đỏ**
-- [ ] `FriendshipReader`, `FeedSourceReader`, các configuration là `internal`
+- [x] `grep -rn "Microsoft.EntityFrameworkCore\|Npgsql" src/backend/Modules/SocialGraph/Domain` → 0 kết quả
+- [x] `grep -rn "SocialApp.Modules\." src/backend/Modules/SocialGraph` không thấy tên module khác; tương tự Content không thấy `SocialGraph`
+- [x] `dotnet test tests/SocialApp.ArchitectureTests` xanh; `SocialGraph_Domain_namespace_must_not_be_empty` **đã từng thấy đỏ**
+- [x] `FriendshipReader`, `FeedSourceReader`, các configuration là `internal`
 
 **BR-02 thật (mốc không lùi được số 2)**
 
-- [ ] Dòng `AlwaysStrangers` không còn trong `ContentModuleExtensions.cs` (`grep AlwaysStrangers src/backend` chỉ còn định nghĩa trong SharedKernel)
-- [ ] Test khởi động: đúng một `IFriendshipReader`, không phải `AlwaysStrangers`; `IFeedSourceReader` resolve được
-- [ ] `READ-01`, `READ_02_05_ma_tran_BR02` xanh **không sửa khẳng định**; `git diff` của hai file test đó chỉ chạm comment
-- [ ] `FriendshipReaderTests`, `FeedSourceReaderTests` xanh; bốn đột biến Mục 7 Bước 10 đã từng đỏ
-- [ ] `AlwaysStrangersTests` (unit) vẫn xanh, không đổi khẳng định
+- [x] Dòng `AlwaysStrangers` không còn trong `ContentModuleExtensions.cs` (`grep AlwaysStrangers src/backend` chỉ còn định nghĩa trong SharedKernel)
+- [x] Test khởi động: đúng một `IFriendshipReader`, không phải `AlwaysStrangers`; `IFeedSourceReader` resolve được
+- [x] `READ-01`, `READ_02_05_ma_tran_BR02` xanh **không sửa khẳng định**; `git diff` của hai file test đó chỉ chạm comment
+- [x] `FriendshipReaderTests`, `FeedSourceReaderTests` xanh; bốn đột biến Mục 7 Bước 10 đã từng đỏ
+- [x] `AlwaysStrangersTests` (unit) vẫn xanh, không đổi khẳng định
 
 **Luật repo**
 
-- [ ] Không có cột nào ngoài Mục 4 gốc; lệch thì Mục 4 đã sửa **trong cùng commit**
-- [ ] Năm chỗ lệch L1–L5 đã ghi ngược vào `giai-doan-4.md` B.3 / Mục 10.5, mỗi cái ở commit của nó
-- [ ] Năm chỗ comment ở Mục 7 Bước 7 đã sửa trong commit `A5`
-- [ ] Không có secret trong diff; không có khóa nào (khối A không chạm Redis, R2, JWT)
-- [ ] Mọi commit có `Test:` và `detect-changes:`; footer sạch bút ký
+- [x] Không có cột nào ngoài Mục 4 gốc; lệch thì Mục 4 đã sửa **trong cùng commit**
+- [x] Năm chỗ lệch L1–L5 đã ghi ngược vào `giai-doan-4.md` B.3 / Mục 10.5, mỗi cái ở commit của nó
+- [x] Năm chỗ comment ở Mục 7 Bước 7 đã sửa trong commit `A5`
+- [x] Không có secret trong diff; không có khóa nào (khối A không chạm Redis, R2, JWT)
+- [x] Mọi commit có `Test:` và `detect-changes:`; footer sạch bút ký
 
 ---
 
@@ -1037,8 +1037,20 @@ khối A GĐ2 — sửa ngay tại mục liên quan phía trên kèm "(sửa ng�
   `pg_indexes` chuẩn hóa ra — bản cũ để lọt filter đảo cột. Snapshot Content giữ BOM + LF như HEAD (bản sinh ra mất BOM).
 - `A5`: ca "vừa bạn vừa theo dõi" của `FeedSourceReaderTests` dùng id cố định (A là `max`) — với `Guid.NewGuid()` đột biến
   "bỏ nhánh `UserMaxId`" chỉ đỏ ở khoảng một nửa số lượt.
-- Đột biến Mục 7 Bước 10 đã chạy: khôi phục `AlwaysStrangers` trong `AddContentModule` → test khởi động đỏ (`Assert.Single`);
-  bỏ vế `UserMaxId == userId` → `FeedSourceReaderTests` đỏ. `git status` sạch trước và sau.
+- Đủ bốn đột biến Mục 7 Bước 10 đều đỏ đúng chỗ bảng ghi: khôi phục `AlwaysStrangers` trong `AddContentModule` → test
+  khởi động (`Assert.Single`); khôi phục nó **và** xóa đăng ký ở SocialGraph → test khởi động (`IsNotType`); bỏ
+  `Status == Accepted` ở `FriendshipReader` → ca `pending`; bỏ vế `UserMaxId == userId` → `FeedSourceReaderTests`. Cộng
+  đột biến namespace `…Domainn` của `A1`. `git status` sạch trước và sau mỗi lượt.
 - `dotnet ef migrations has-pending-model-changes` cho SocialGraph và Content: không còn thay đổi model nào chưa có migration
   (thay cho `migrations add Tmp` + `remove` — cùng câu trả lời, không chạm file).
-- **Còn nợ:** `--migrate` hai lần trên DB sạch + `\dn` + `EXPLAIN` truy vấn bạn bè — chưa chạy, cần DB dev sạch.
+- `--migrate` trên DB sạch — **database riêng** `socialapp_verify_a` tạo trên Postgres dev rồi xóa sau khi kiểm, thay cho
+  `down -v` (cùng câu trả lời, không mất dữ liệu dev): lần 1, 2, 3 đều exit 0, câu log nêu đủ bốn schema. Lịch sử
+  migration và danh sách bảng của bốn schema **giống hệt** trước và sau lần 3. `\dn`: `content`, `identity`, `profile`,
+  `public`, `socialgraph`; mỗi schema đúng một `__EFMigrationsHistory`, không có ở `public`. Năm migration:
+  `InitialIdentity`, `InitialProfile`, `InitialContent`, `PublicRecentIndex`, `InitialSocialGraph`. Hai câu FK của
+  checklist Mục 9 đều ra 0. `pg_indexes` của `idx_friendships_user_max` và `idx_posts_public_recent` đúng định nghĩa.
+- `EXPLAIN (ANALYZE)` truy vấn bạn bè của `FeedSourceReader` trên dữ liệu giả ~109 nghìn dòng `friendships` (5.000 người,
+  80% `accepted`, đã `ANALYZE`), người đọc có 49 cặp ở phía `min` và 22 ở phía `max`: **`BitmapOr`** của
+  `Bitmap Index Scan on "PK_friendships"` + `Bitmap Index Scan on idx_friendships_user_max`, `status` lọc sau
+  (`Rows Removed by Filter: 11`), 44 buffer, **0,25 ms**. Không cần tách `UNION ALL`. Kiểm lại trên bộ dữ liệu tải ở `C5`.
+  Tình cờ: script nạp dữ liệu viết sai (`accepted` mà `accepted_at` null) bị `ck_friendships_accepted` chặn ngay.
