@@ -287,6 +287,17 @@ Theo SEQ-03 của PTTK:
 - Cache trang đầu **không** bị xóa khi *bạn bè* đăng bài: bạn bè thấy bài mới trễ tối đa 30s. Đó là cái giá SEQ-03 đã
   chấp nhận. Chỉ tác giả được xóa cache của chính mình — vì với tác giả thì 30s trông như "đăng bài không lên".
 
+**Sửa ngày 2026-09-22 (Q-C1, Q-C2 của hướng dẫn B+C+D):**
+
+- **Giá trị cache trang đầu** là đúng bốn trường `{ ids, mode, next, fp }`: danh sách `post_id` (≤ `limit`), `mode`,
+  `nextCursor` đã mã hóa, và `fp` — **dấu nguồn**, băm ngắn của hai tập `Friends` + `FollowingOnly` đã sắp xếp. Lúc thử
+  cache (Mục 7.2 bước 4) nguồn hiện tại đã có trong tay (bước 2): `fp` khác → coi như trượt. Lý do: bản cũ chỉ xóa cache khi
+  chính người đó đăng bài, nên người vừa kết bạn xong quay lại trang chủ trong 30s vẫn thấy **feed gợi ý** — lát cắt E2E
+  của `F2` đỏ ngẫu nhiên. Dấu nguồn không thêm truy vấn nào và không bắt SocialGraph biết khóa của Content. `next` lưu sẵn vì
+  bài thứ `limit` có thể đã bị xóa khi trúng cache, lúc đó không còn gì để dựng cursor.
+- **Hai công tắc** bind có điều kiện: có `IConfiguration` (host) thì đọc, `ServiceCollection` trần của test thì mặc định
+  bật — không test nào phải dựng cấu hình chỉ để resolve reader.
+
 ### Đ-4.9 Cache **chỉ lưu `post_id`**; hydrate luôn chạy lúc trả response và là nguồn sự thật cuối
 
 Đây là chỗ ba bẫy chéo giai đoạn gặp nhau:
@@ -312,6 +323,10 @@ Hydrate còn **kiểm lại BR-02** cho từng bài bằng nguồn feed hiện t
 - Truy vấn feed (Đ-4.7) chạy với `CommandTimeout = 5s` riêng. Quá hạn → **503** RFC 7807, `Retry-After: 5`, mã
   `feed.unavailable` (UC-08 luồng E3). Không để rơi thành 500: 500 là "hệ thống hỏng, báo dev", 503 là "đông quá, thử lại".
 - Chỉ **feed** có hành vi này. Các endpoint khác giữ timeout mặc định — không đổi `CommandTimeout` toàn context.
+- `feed.unavailable` là `Error.Code` **nội bộ** — Problem Details của repo cố ý không mang mã lỗi
+  (`{type,title,status,errors,traceId}`). Trên dây chỉ có status 503, `title` và header `Retry-After`; header gắn ở
+  controller vì `Result → Problem` không gắn header nào (sửa ngày 2026-09-22). Hằng 5s ở **một** chỗ, không thành khóa cấu
+  hình; test `FEED-12` chờ đủ 5s (Q-B4).
 - FE: 503 → thẻ "Bảng tin đang quá tải" + nút Thử lại, **không** màn trắng, **không** đồng hồ đếm ngược (luật frontend
   Mục 4 cho 429 áp tương tự: không hứa thời điểm).
 
@@ -584,24 +599,30 @@ GET /feed?cursor=&limit=20
  1. tầng 2 post.read.public
  2. nguồn    ← IFeedSourceReader.GetAsync(me)          cache sg:feed-sources:{me} 60s · Redis lỗi → đọc DB
  3. nguồn rỗng (không bạn, không theo dõi) → mode = suggested → truy vấn idx_posts_public_recent
- 4. không cursor + limit mặc định → thử cache feed:p1:{me} (30s) → trúng: lấy danh sách post_id
+ 4. không cursor + limit mặc định → thử cache feed:p1:{me} (30s) → trúng VÀ fp == dấu nguồn hiện tại: lấy ids, next
  5. trượt → truy vấn LATERAL (Đ-4.7), CommandTimeout 5s → quá hạn: 503 + Retry-After
-            → ghi danh sách post_id (≤ limit+1) vào feed:p1:{me} nếu là trang đầu
+            → nextCursor từ dòng thứ limit trong danh sách GỐC · null nếu ≤ limit dòng
+            → ghi { ids, mode, next, fp } vào feed:p1:{me} nếu là trang đầu
  6. HYDRATE (Đ-4.9) — MỌI lần, kể cả khi trúng cache:
-            nạp bài theo PK (status=published) · kiểm lại BR-02 với nguồn hiện tại
+            trúng cache: nạp bài theo PK (status=published) · trượt: dùng luôn các dòng LATERAL vừa trả
+            kiểm lại BR-02 với nguồn hiện tại (trong bộ nhớ)
             1 lô ảnh (ký URL mới) · 1 lô IUserDirectory · canEdit   (GĐ3 thêm 1 lô myReaction ở đây)
- 7. nextCursor từ post_id thứ limit trong danh sách GỐC (trước khi hydrate lọc) · null nếu ≤ limit dòng
 ← 200 FeedPage { items, nextCursor, mode }
 ```
 
-Số truy vấn DB khi trượt cache: nguồn (0–2) + feed (1) + bài theo PK (1) + ảnh (1) + tác giả (1) + `myReaction` (1) — cố
-định, **không** phụ thuộc số bài hay số nguồn. Đây là thứ `B4` đo bằng một test đếm truy vấn (Mục 10.2).
+Số truy vấn DB khi trượt cache: nguồn (0–2) + feed (1) + ảnh (1) + tác giả (1) — **5** khi cả cache nguồn cũng trượt; GĐ3
+thêm `myReaction` (1) — cố định, **không** phụ thuộc số bài hay số nguồn. Đây là thứ `B4` đo bằng một test đếm truy vấn
+(Mục 10.2). Trúng cache trang đầu thì thay câu feed bằng một câu nạp bài theo PK.
+
+*Sửa ngày 2026-09-22:* bản trước tính cả "bài theo PK" khi trượt cache. Truy vấn LATERAL đã trả nguyên dòng `posts` — nạp
+lại theo PK ngay sau đó là một câu thừa trên đường nóng nhất.
 
 ### 7.3 Hủy kết bạn và hiệu lực lên feed
 
 Hủy kết bạn → `DELETE` → **sau** `COMMIT` xóa `sg:feed-sources` của cả hai → request feed kế tiếp của hai người dùng
-nguồn mới. Trang đầu đã cache của họ (≤ 30s) có thể còn `post_id` của bài `friends` của người kia — hydrate kiểm lại BR-02
-bằng nguồn **mới** và loại ra (Đ-4.9). `GET /posts/{id}` thì đã đúng ngay vì `AreFriendsAsync` không cache (Đ-4.3).
+nguồn mới. Trang đầu đã cache của họ (≤ 30s) mang dấu nguồn **cũ** nên bị coi là trượt (Đ-4.8, sửa 2026-09-22); kể cả khi
+trúng — đổi `privacy` của bài không đổi nguồn — hydrate vẫn kiểm lại BR-02 bằng nguồn hiện tại và loại bài không còn được
+thấy (Đ-4.9). `GET /posts/{id}` thì đã đúng ngay vì `AreFriendsAsync` không cache (Đ-4.3).
 
 Kết quả: **không có cửa sổ nào** bài `friends` của người vừa hủy kết bạn còn hiện ra — chặt hơn "chấp nhận trễ 60s" của
 PTTK Mục 5.6, và không tốn thêm truy vấn nào (kiểm lại chạy trong bộ nhớ trên tập nguồn đã nạp).
@@ -722,16 +743,31 @@ Kế hoạch gốc giao GĐ4 cho **2 backend + 1 frontend trong 4 ngày**. Một
 chỉ bỏ được phần phối hợp — ước lượng thật là **khoảng 8 ngày làm việc**. Ghi thẳng con số này ra để lịch tổng được sửa
 theo, thay vì âm thầm trượt (Mục 13).
 
-| Bước | Việc | Ước lượng | Xong khi |
-|---|---|---|---|
-| 1 | Cổng mở (Mục 9.2) | 0,5 ngày | Hợp đồng + `schema.d.ts` đã commit |
-| 2 | **A1–A5** nền dữ liệu + đổi DI · **B1–B2** harness + matrix đỏ có chủ đích | 1 ngày | `READ-01..05` xanh không sửa khẳng định, `READ-06b` xanh |
-| 3 | **C5** môi trường đo + seed 1M bài | 0,5 ngày | `seed.sql` chạy xong trên môi trường đo |
-| 4 | **D0–D6** endpoint quan hệ · **B3** test quan hệ + đột biến | 1 ngày | `FRD-*`, `FOL-*`, 3 dòng matrix quan hệ xanh |
-| 5 | **C1–C4** nguồn feed, LATERAL, hydrate, cache, degrade · **D7** `GET /feed` · **B4** test feed | 1,5 ngày | `EXPLAIN` trên bộ dữ liệu tải đúng hình dạng Đ-4.7; `FEED-*`, `FEED-Q1` xanh |
-| 6 | **C6** k6 ba lượt + báo cáo sơ bộ | 1 ngày | Báo cáo có số, kể cả khi không đạt — nửa ngày còn lại để sửa theo `EXPLAIN` |
-| 7 | **B5** cổng hợp đồng mới · **E1–E6** toàn bộ lane frontend | 2 ngày | Vitest + Playwright xanh ở local |
-| 8 | **F1–F4** cổng đóng | 0,5 ngày | Mục 11, 12 đã tick hoặc ghi "chờ server" |
+| Bước | Việc | Ước lượng | Xong khi | Hướng dẫn thi công |
+|---|---|---|---|---|
+| 1 | Cổng mở (Mục 9.2) | 0,5 ngày | Hợp đồng + `schema.d.ts` đã commit | Mục 9.2 |
+| 2 | **A1–A5** nền dữ liệu + đổi DI · **B1–B2** harness + matrix đỏ có chủ đích | 1 ngày | `READ-01..05` xanh không sửa khẳng định; năm dòng matrix mới đỏ đúng lý do, `READ-06` xanh | [khối A](huong-dan-khoi-a-nen-du-lieu.md) · [B+C+D](huong-dan-khoi-b-c-d-test-feed-endpoint.md) Phần I |
+| 3 | **C5** môi trường đo + seed 1M bài | 0,5 ngày | `seed.sql` chạy xong trên môi trường đo | [B+C+D](huong-dan-khoi-b-c-d-test-feed-endpoint.md) Phần II |
+| 4 | **D0** nền chung · **C1** cache nguồn feed + `InvalidateAsync` · **D1–D6** endpoint quan hệ · **B3** test quan hệ + nửa bảng đột biến phần quan hệ · **B5** cổng hợp đồng `socialgraph-v1` | 1,2 ngày | `FRD-*`, `FOL-*` xanh; matrix 23/24 (còn `TC-A01-feed` chờ `D7`); cổng `API contract` canh bốn module | [B+C+D](huong-dan-khoi-b-c-d-test-feed-endpoint.md) Phần III |
+| 5 | **C2–C4** LATERAL, hydrate, cache trang đầu, degrade · **D7** `GET /feed` · **B4** test feed + nửa bảng đột biến phần feed | 1,3 ngày | `EXPLAIN` trên bộ dữ liệu tải đúng hình dạng Đ-4.7; `FEED-*`, `FEED-Q1` xanh; matrix 24/24 | [B+C+D](huong-dan-khoi-b-c-d-test-feed-endpoint.md) Phần IV |
+| 6 | **C6** k6 ba lượt + báo cáo sơ bộ | 1 ngày | Báo cáo có số, kể cả khi không đạt — nửa ngày còn lại để sửa theo `EXPLAIN` | [B+C+D](huong-dan-khoi-b-c-d-test-feed-endpoint.md) Phần V |
+| 7 | **E1–E6** toàn bộ lane frontend | 2 ngày | Vitest + Playwright xanh ở local | hướng dẫn khối E (viết khi bắt đầu) |
+| 8 | **F1–F4** cổng đóng | 0,5 ngày | Mục 11, 12 đã tick hoặc ghi "chờ server" | hướng dẫn khối F (viết khi bắt đầu) |
+
+**Lệch bảng bước (chốt 2026-09-22, lúc viết hướng dẫn B+C+D):**
+
+- **`B5` dời từ bước 7 lên bước 4**, ngay sau `D6`. `socialgraph-v1.yaml` đã commit từ cổng mở và bảy endpoint quan hệ xong ở
+  cuối bước 4; để `B5` ở bước 7 là suốt bước 5–6 — đúng lúc `D7` rà RFC 7807 cho cả hai nhóm — không có cổng nào so hợp đồng
+  `socialgraph-v1` với code. Cùng lượng việc, chỉ đổi chỗ; khối E (bước 7) dựng trên hợp đồng CI đã chứng nhận.
+- **`C1` dời từ bước 5 lên bước 4**, ngay sau `D0`. `D2`–`D6` phải gọi `InvalidateAsync` sau `COMMIT` (Đ-4.15); có `C1`
+  trước thì chúng gọi hàm thật ngay từ đầu, thay vì đăng ký tạm một bản rỗng rồi thay ở bước 5 — đúng loại "đăng ký tạm"
+  đã sinh ra bẫy `AlwaysStrangers` (Đ-4.3). `C1` chỉ cần `A5` và Redis thật trong harness (`B1`), cả hai có từ bước 2. Tổng
+  thời lượng bước 4 + 5 không đổi (2,5 ngày).
+- **Bảng đột biến của `B3` tách làm hai nửa**: nửa quan hệ ở bước 4, nửa feed ở bước 5 — năm dòng của bảng cần `FEED-*`.
+- **Hướng dẫn khối B, C, D gộp làm một file**, sắp theo **bước** chứ không theo khối: ở bước 4 và bước 5, việc của ba khối
+  đan vào nhau từng giờ (`FRD-*` viết trước từng `D*`; `D7` là vỏ mỏng của `C1`–`C4`; `B4` cần cả hai). Ba file riêng là
+  ba file trỏ chéo nhau liên tục.
+- Cột "Xong khi" của bước 2 bỏ "`READ-06b` xanh": dòng đó cần `D2`+`D3` (lệch L2 của khối A), xanh ở bước 4.
 
 **Vì sao backend và k6 đứng trước frontend** — ngược với nếp "hai lane song song" của GĐ1–GĐ2: làm một mình thì không có
 song song, và rủi ro lớn nhất của giai đoạn là GOAL-01. Biết p95 ở bước 6 (khoảng ngày thứ 6) còn thời gian sửa; biết ở
@@ -783,17 +819,23 @@ sơ bộ; **đóng băng `socialgraph-v1`** và phần `/feed` của `content-v1
 |---|---|---|
 | `FEED-01` | 25 bài từ bạn bè, `limit=20` (US-008 AC-01) | 20 bài mới trước + `nextCursor`; trang 2 đủ 5, `nextCursor=null` |
 | `FEED-02` | Bài `friends` của người lạ (AC-02) | **không** xuất hiện |
-| `FEED-03` | Bài `friends` của người chỉ-theo-dõi | **không** xuất hiện; bài `public` của họ **có** |
+| `FEED-03` | Bài `friends` của người chỉ-theo-dõi | **không** xuất hiện; bài `public` của họ **có**; `mode = network` |
 | `FEED-04` | Bài `friends` của bạn | xuất hiện |
 | `FEED-05` | Bài `private` của bạn · bài `private` của mình | của bạn: **không** · của mình: **có** (Đ-4.5) |
 | `FEED-06` | Bài `hidden` của bạn (AC-03, INSERT thẳng trạng thái vì GĐ6 chưa có endpoint) | **không** xuất hiện |
 | `FEED-07` | Người chưa có kết nối | `mode = suggested`, bài `public` của người khác, **không** có bài của mình |
+| `FEED-07b` | Người mới đọc feed (gợi ý, đã cache) → có kết nối đầu tiên → đọc lại trong 30s | `mode = network`, có bài của người vừa kết nối (canh dấu nguồn, Đ-4.8) |
 | `FEED-08` | Có một bạn nhưng bạn chưa đăng gì | `mode = network`, `items` rỗng, `nextCursor=null` — **không** trộn gợi ý |
 | `FEED-09` | Hủy kết bạn khi trang đầu đang nằm trong cache | request kế tiếp **không** còn bài `friends` của người kia; trang có thể ngắn hơn `limit`, `nextCursor` vẫn đúng |
-| `FEED-10` | Trúng cache sau 16 phút (đồng hồ giả qua `TimeProvider`) | URL ảnh là URL ký **mới**, còn hạn |
+| `FEED-09b` | Tác giả đổi bài `public` → `friends` khi trang đầu của người **chỉ theo dõi** đang cache | bài **không** còn — lưới duy nhất của bước kiểm lại BR-02 ở hydrate (dấu nguồn không đổi nên cache vẫn trúng) |
+| `FEED-10` | Trúng cache (`FakeObjectStorage` ký mỗi lần một URL khác) | URL ảnh lần 2 **khác** lần 1; giá trị thô trong Redis không chứa URL |
 | `FEED-11` | Redis dừng | 200, cùng nội dung, log cảnh báo |
-| `FEED-12` | Truy vấn feed chậm quá 5s (giả bằng `pg_sleep` trong môi trường test) | 503 + `Retry-After`, mã `feed.unavailable` |
-| `FEED-13` | Hai người xem cùng trang đầu đã cache của **mỗi người** | `canEdit`/`myReaction` của ai đúng người đó (canh Đ-4.9) |
+| `FEED-12` | Truy vấn feed chậm quá 5s (khóa `content.posts` từ kết nối khác) | 503 + `Retry-After: 5` + `title`; `feed.unavailable` không lên dây (Đ-4.10) |
+| `FEED-13` | Hai người xem cùng trang đầu đã cache của **mỗi người** | `canEdit`/`myReaction` của ai đúng người đó; giá trị thô chỉ `{ids, mode, next, fp}` (canh Đ-4.9) |
+
+*Sửa ngày 2026-09-22 (hướng dẫn B+C+D, L2/L3/L5/L9/L11/L15):* thêm `FEED-07b`, `FEED-09b`; `FEED-10` bỏ đồng hồ giả vì
+`R2ObjectStorage` tính hạn bằng `DateTime.UtcNow` và fake trả URL hằng — đồng hồ giả không phân biệt được gì; `FEED-12` bỏ
+`pg_sleep` vì không có chỗ chèn nó vào truy vấn của app mà không thêm hook vào code sản phẩm.
 | `PAGE-04` | Cursor rác | 400 `errors.cursor` |
 
 **Test đếm truy vấn** (`FEED-Q1`): bắt lệnh SQL qua `DbCommandInterceptor` của test; trang đầu trượt cache với 50 nguồn
@@ -955,8 +997,8 @@ Kiểm ngày 2026-09-21 trên nhánh `loveart1210` (sau PR #20):
 | Khối | Nội dung | Số việc | Cần trước | Chặn | Bước (Mục 9.3) |
 |---|---|---|---|---|---|
 | **A. Nền dữ liệu** | Module SocialGraph, schema, migration, đổi DI | 5 | cổng mở | C, D | 2 |
-| **B. Test + cổng CI** | Harness, matrix, test quan hệ và feed, cổng hợp đồng mới | 5 | A (một phần) | F | 2, 4, 5, 7 |
-| **C. Feed + hiệu năng** | Nguồn feed, truy vấn LATERAL, hydrate, cache, degrade, k6 | 6 | A | D7, F | 3, 5, 6 |
+| **B. Test + cổng CI** | Harness, matrix, test quan hệ và feed, cổng hợp đồng mới | 5 | A (một phần) | F | 2, 4, 5 |
+| **C. Feed + hiệu năng** | Nguồn feed, truy vấn LATERAL, hydrate, cache, degrade, k6 | 6 | A | D7, F | 3, 4, 5, 6 |
 | **D. Endpoint** | 6 nhóm endpoint quan hệ + `GET /feed` | 7 | A, C | E (ráp thật), F | 4, 5 |
 | **E. Lane frontend** | Nút quan hệ, màn lời mời / bạn bè, feed trang chủ | 6 | chỉ cần hợp đồng | F | 7 |
 | **F. Cổng đóng** | Staging, E2E, báo cáo k6, đóng băng | 4 | D, E, C6 | GĐ3, GĐ5 | 8 |
