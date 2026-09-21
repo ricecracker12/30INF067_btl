@@ -1,6 +1,12 @@
+using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using SocialApp.Modules.Content.Application.Media;
+using SocialApp.Modules.Content.Application.Posts;
 using SocialApp.Modules.Content.Infrastructure;
+using SocialApp.Modules.Content.Infrastructure.Cleanup;
+using SocialApp.Modules.Content.Infrastructure.Persistence;
 using SocialApp.SharedKernel.Contracts;
 
 namespace SocialApp.Modules.Content.DependencyInjection;
@@ -33,6 +39,43 @@ public static class ContentModuleExtensions
         // Cho tới lúc đó: bài để chế độ "friends" chỉ chính tác giả xem được — đó là hành vi ĐÃ CHỐT của
         // GĐ2, không phải thiếu sót. Singleton vì AlwaysStrangers không giữ trạng thái gì.
         services.AddSingleton<IFriendshipReader, AlwaysStrangers>();
+
+        // C4 (Đ-2.13): worker dọn rác media. Đăng ký LUÔN, kiểm công tắc BÊN TRONG worker — đăng ký có điều kiện thì cấu hình
+        // sai im lặng, còn kiểm bên trong thì log được một dòng "đang tắt" lúc khởi động. Mặc định tắt (Q-C2); staging bật bằng
+        // Media__Cleanup__Enabled=true. BindConfiguration đọc IConfiguration của host lúc resolve — ServiceCollection trần của
+        // test (PostgresFixture) không resolve options này nên không cần IConfiguration.
+        services.AddOptions<MediaCleanupOptions>().BindConfiguration(MediaCleanupOptions.Section);
+        services.AddHostedService<MediaCleanupWorker>();
+
+        // D0. Hai dòng dưới đây phải dựng được bằng `new ServiceCollection()` KHÔNG host: PostgresFixture
+        // (SeededContentDatabaseAsync) và ContentDbContextSchemaTests đều làm vậy. Thứ gì cần IConfiguration/
+        // IHostEnvironment thì nhận qua tham số, hoặc bind lười như MediaCleanupOptions ở ngay trên.
+
+        // Đồng hồ của service khối D (created_at/updated_at/edited_at). TryAdd vì AddProfileModule cũng gọi dòng này —
+        // một đồng hồ cho cả process, module nào chạy trước không quan trọng.
+        services.TryAddSingleton(TimeProvider.System);
+
+        // CHỈ đăng ký validator của module. KHÔNG gọi AddFluentValidationAutoValidation ở đây: đó là cấu hình MVC toàn
+        // cục, host đã gọi một lần — gọi lại là mỗi lỗi validate hiện hai lần trong `errors`.
+        services.AddValidatorsFromAssembly(typeof(ContentModuleExtensions).Assembly, ServiceLifetime.Singleton);
+
+        // D4. Singleton, KHÁC ProfileService (scoped): UploadTicketService không chạm DbContext — nó chỉ ký HMAC cục bộ
+        // bằng IObjectStorage, thứ đã là singleton (R2StorageExtensions). Vòng đời theo thứ nó cầm, không theo thói quen.
+        // Chỉ ĐĂNG KÝ nên dòng này vẫn dựng trần được bằng `new ServiceCollection()`; chỗ trần không resolve nó nên thiếu
+        // IObjectStorage ở đó không sao — cùng lập luận với ProfileService trong AddProfileModule.
+        services.AddSingleton<UploadTicketService>();
+
+        // D5. Scoped vì PostStore giữ ContentDbContext (scoped); PostService theo cùng vòng đời của thứ nó cầm.
+        // PostResponseMapper cũng scoped dù chỉ cầm IObjectStorage (singleton): nó là cộng tác viên của PostService và
+        // D6/D7 sẽ dùng chung cùng một instance trong một request. IObjectStorage và IUserDirectory do HOST và module
+        // Profile đăng ký — AddContentModule vẫn dựng trần được vì bốn lớp test ở Mục 1.3 luật 1 không resolve chúng.
+        services.AddScoped<IPostStore, PostStore>();
+        services.AddScoped<PostResponseMapper>();
+        services.AddScoped<PostService>();
+
+        // D6. Đường ĐỌC tách khỏi đường ghi: hai service không dùng chung phụ thuộc nào ngoài store và mapper.
+        services.AddScoped<PostReadService>();
+
         return services;
     }
 

@@ -168,7 +168,9 @@ describe("VerifyEmail — lỗi tạm thời (bảng E4)", () => {
     expect(alert).toHaveTextContent(
       "Đã xảy ra lỗi không mong muốn. Mã tra cứu: 0af7651916cd43dd8448eb211c80319c"
     )
-    expect(alert).toHaveFocus()
+    // FormAlert chuyển focus trong useEffect — `findByRole` đã trả về TRƯỚC khi effect chạy xong.
+    // Assert đồng bộ ở đây là đua, và nó đỏ ~1/6 lượt khi chạy cả bộ (đủ tải để lộ ra).
+    await waitFor(() => expect(alert).toHaveFocus())
     expect(replace).not.toHaveBeenCalled()
     expect(calls).toBe(1)
 

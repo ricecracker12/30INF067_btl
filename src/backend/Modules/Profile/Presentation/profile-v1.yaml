@@ -1,0 +1,480 @@
+# ---------------------------------------------------------------------------------------------
+# HỢP ĐỒNG API — module Profile, v1 (GĐ2 · UC-02b onboarding, FR-013)
+#
+# Artifact BẮT BUỘC của cổng mở GĐ2 (docs/giai-doan-2/giai-doan-2.md Mục 8, Mục 9 "Cổng mở" bước 3).
+# Lane frontend sinh type TypeScript từ chính file này (`pnpm gen:api` → lib/api/profile/schema.d.ts,
+# tự tìm theo glob — không ai thêm script), nên nó là NGUỒN SỰ THẬT của hợp đồng cho tới cổng đóng.
+#
+# VÌ SAO NẰM Ở ĐÂY: module sở hữu tầng HTTP của chính nó (`Presentation/`). Tên nhóm Swagger
+# `profile-v1` phải khớp ở ĐÚNG BA CHỖ (Mục 8): [ApiExplorerSettings(GroupName)] trên controller,
+# SwaggerDoc trong Program.cs, và tên file này. Lệch một chỗ thì endpoint biến mất khỏi Swagger mà
+# không có lỗi nào báo — ProfileContractTests (B4) canh chuyện đó.
+#
+# CÓ MÁY CANH: ProfileContractTests so file này với /swagger/profile-v1/swagger.json — lệch tập
+# (path × method), tập status code, hoặc required field của request body là CI đỏ. 429/500 là mã do
+# middleware sinh, được trừ khỏi phép so.
+#
+# LUẬT SỬA FILE NÀY: đổi hợp đồng → sửa file này TRONG CÙNG COMMIT với code và chạy lại `pnpm gen:api`.
+#
+# QUYẾT ĐỊNH ĐÃ CHỐT chạm tới hợp đồng này (giai-doan-2.md Mục 3):
+#   Đ-2.4  Hồ sơ tạo bằng bước onboarding của chính người dùng (PUT /users/me/profile là upsert),
+#          KHÔNG tạo lúc đăng ký. GET /users/{id}/profile trả 404 khi chưa onboarding — và đó chính
+#          là tín hiệu FE dùng để chuyển sang /onboarding.
+#   Đ-2.7  storage_key mang tiền tố người dùng: avatar phải nằm dưới avatars/{actorId}/. Key của
+#          người khác → 403; key sai dạng hoặc object chưa có trên R2 → 400.
+#   Đ-2.9  avatarUrl là presigned GET 15 phút, KHÔNG phải avatar_key. Client không bao giờ thấy key
+#          của người khác — đó là lý do PUT /users/me/avatar nhận mediaKey chứ không nhận URL.
+#   Đ-2.6  Không thêm mã quyền mới: mọi endpoint ở đây chỉ cần [Authorize]; route là `me` nên id lấy
+#          từ token, không có tầng 3 ownership.
+# ---------------------------------------------------------------------------------------------
+openapi: 3.0.3
+
+info:
+  title: SocialApp — Profile API
+  version: 1.0.0-gd2
+  description: |
+    Hồ sơ người dùng của GĐ2: xem hồ sơ, onboarding/sửa hồ sơ (upsert), đặt và gỡ avatar.
+
+    ### Mô hình
+
+    | | |
+    |---|---|
+    | Định danh | `userId` **bằng** `identity.users.user_id` — không FK chéo schema (Đ-2.2), chỉ là `uuid` trần |
+    | Tạo hồ sơ | Bằng `PUT /users/me/profile` lần đầu (Đ-2.4). Chưa gọi thì `GET /users/{id}/profile` → **404** |
+    | Avatar | Trình duyệt `PUT` thẳng lên R2 bằng URL do `POST /media/uploads` (`purpose=avatar`, hợp đồng `content-v1`) cấp, rồi gửi `mediaKey` về đây |
+    | `avatarUrl` | Presigned GET **15 phút** (Đ-2.9) — đừng cache lâu hơn; cache của GĐ4 lưu key, không lưu URL |
+
+    ### Lỗi
+
+    Mọi lỗi trả **RFC 7807 Problem Details** (`application/problem+json`) kèm `traceId` — bằng đúng
+    giá trị header `X-Correlation-ID` của chính request đó. 400 validation có `errors` theo **tên trường**
+    của request (`displayName`, `bio`, `mediaKey`) — FE hiện dưới đúng trường đó (luật frontend Mục 6).
+
+    ### Rate limit
+
+    100 req/phút/user (hạn mức chung). Vượt → `429`, không có `Retry-After`.
+
+    ### Ghi chú cho lane frontend
+
+    - Trình duyệt **không** gọi thẳng API: mọi lời gọi đi qua proxy chung `/bff/api/...` của BFF
+      (Đ-E14), không thêm route BFF nào.
+    - `RequestOptions.method` của `lib/api/http.ts` phải mở thêm `PUT`, `DELETE` (E1).
+
+  contact:
+    name: Nhóm 4 — 30INF067
+
+servers:
+  - url: http://localhost:5259/api/v1
+    description: Dev — backend chạy local (`dotnet run`)
+  - url: https://mxh.banhgao.net/api/v1
+    description: Staging — HTTPS thật, đích của cổng đóng
+
+tags:
+  - name: profile
+    description: Xem và onboarding/sửa hồ sơ.
+  - name: avatar
+    description: Đặt và gỡ ảnh đại diện — byte ảnh không đi qua API (Đ-2.5).
+
+paths:
+
+  /users/{userId}/profile:
+    get:
+      tags: [profile]
+      operationId: getProfile
+      summary: Hồ sơ công khai của một người dùng
+      description: |
+        Hồ sơ là dữ liệu **công khai trong MVP** (Mục 6.1): ai đăng nhập cũng xem được, không có tầng 3.
+
+        **404** khi người dùng chưa onboarding — kể cả khi `userId` là một tài khoản có thật. FE dùng 404
+        của `GET /users/me/profile`-tương-đương (gọi với chính `userId` của mình) để quyết định hiện màn
+        `/onboarding` (E2).
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: Hồ sơ của người dùng.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProfileResponse'
+              example:
+                userId: 0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10
+                displayName: An Nguyễn
+                bio: Sinh viên năm 3, thích chụp ảnh phố.
+                avatarUrl: https://<account-id>.r2.cloudflarestorage.com/socialmedia-dev/avatars/0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10/01a0b811f70376b7812581bf3209feca.jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Expires=900&X-Amz-SignedHeaders=host&X-Amz-Signature=…
+                createdAt: '2026-09-20T02:10:22Z'
+                updatedAt: '2026-09-20T02:10:22Z'
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Người dùng chưa có hồ sơ (chưa onboarding), hoặc không tồn tại — cùng một phản hồi.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: https://httpstatuses.io/404
+                title: Không tìm thấy tài nguyên
+                status: 404
+                detail: Người dùng này chưa có hồ sơ.
+                instance: /api/v1/users/0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10/profile
+                traceId: 5e7a9c1b3d5f7092a4c6e8b0d2f4a6c8
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /users/me/profile:
+    put:
+      tags: [profile]
+      operationId: upsertMyProfile
+      summary: Onboarding hoặc sửa hồ sơ của chính mình (upsert)
+      description: |
+        Lần đầu gọi là **tạo** hồ sơ (bước onboarding, Đ-2.4); các lần sau là **sửa**. Cùng một mã 200
+        cho cả hai — FE không cần biết đây là lần đầu hay không.
+
+        Trả nguyên `ProfileResponse` để FE không phải gọi lại `GET` (D2).
+
+        Validation (D2): `displayName` 2–50 ký tự **sau khi trim**, không rỗng; `bio` tối đa 500 ký tự,
+        có thể bỏ trống hoặc `null` để xóa. Body chứa field lạ → 400 (`UnmappedMemberHandling = Disallow`).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpsertProfileRequest'
+            examples:
+              onboarding:
+                summary: Lần đầu — chỉ cần tên
+                value:
+                  displayName: An Nguyễn
+              sua:
+                summary: Sửa cả hai trường
+                value:
+                  displayName: An Nguyễn
+                  bio: Sinh viên năm 3, thích chụp ảnh phố.
+      responses:
+        '200':
+          description: Hồ sơ sau khi tạo/sửa.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProfileResponse'
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /users/me/avatar:
+    put:
+      tags: [avatar]
+      operationId: setMyAvatar
+      summary: Đặt ảnh đại diện từ một object đã tải lên R2
+      description: |
+        Luồng ba bước (SEQ-01 thu gọn cho avatar): `POST /media/uploads` với `purpose=avatar` (hợp đồng
+        `content-v1`) → trình duyệt `PUT` thẳng lên `uploadUrl` với đúng `requiredHeaders` → gọi endpoint
+        này với `mediaKey` nhận được.
+
+        Tầng 3 (D3, Đ-2.7 + Đ-2.8): `mediaKey` phải nằm dưới `avatars/{actorId}/` — của người khác → **403**;
+        sai dạng → **400**; server `HEAD` object trên R2, object chưa có (client chưa `PUT` xong) hay loại
+        không nằm trong allowlist → **400**. Object avatar cũ **không** bị xóa ở đây (Đ-2.10 — dọn trễ).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetAvatarRequest'
+            example:
+              mediaKey: avatars/0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10/01a0b811f70376b7812581bf3209feca.jpg
+      responses:
+        '200':
+          description: Hồ sơ với `avatarUrl` mới (presigned GET 15 phút).
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProfileResponse'
+        '400':
+          description: |
+            `mediaKey` sai dạng, object chưa tồn tại trên R2, hoặc loại ảnh ngoài allowlist. `errors.mediaKey`
+            nêu lý do.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: https://httpstatuses.io/400
+                title: Dữ liệu không hợp lệ
+                status: 400
+                detail: Dữ liệu đầu vào không hợp lệ
+                instance: /api/v1/users/me/avatar
+                traceId: a4c6e8b0d2f4a6c8e0b2d4f6a8c0e2b4
+                errors:
+                  mediaKey:
+                    - Ảnh chưa được tải lên xong. Hãy chờ tải lên hoàn tất rồi thử lại.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    delete:
+      tags: [avatar]
+      operationId: removeMyAvatar
+      summary: Gỡ ảnh đại diện
+      description: |
+        Chỉ gỡ liên kết (`avatar_key = NULL`), **không** xóa object trên R2 trong request (Đ-2.10). Gọi khi
+        đang không có avatar vẫn trả 204 — idempotent.
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Đã gỡ (hoặc vốn không có).
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+
+  securitySchemes:
+
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Access token JWT HS256 của module Identity (hợp đồng `identity-v1`), sống 15 phút. Trình duyệt
+        **không** cầm token — BFF gắn bearer ở server (Đ-E14).
+
+  parameters:
+
+    UserId:
+      name: userId
+      in: path
+      required: true
+      description: UUID v7 của người dùng. Sai dạng → 400.
+      schema:
+        type: string
+        format: uuid
+
+  headers:
+
+    XCorrelationId:
+      description: |
+        Correlation ID của request, bằng đúng `traceId` trong Problem Details khi có lỗi.
+        Client gửi header cùng tên thì server dùng lại giá trị đó.
+      schema:
+        type: string
+      example: 9f2c7b1e4a6d4f0b8c3e5a7d9b1f3c5e
+
+  responses:
+
+    ValidationProblem:
+      description: |
+        Dữ liệu đầu vào không hợp lệ. `errors` là map `tên trường → danh sách thông điệp`.
+
+        Cũng là mã trả về khi body chứa **field lạ** (`UnmappedMemberHandling = Disallow`, AGENTS.md Mục 9)
+        và khi tham số path/query sai dạng (`userId` không phải UUID).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://httpstatuses.io/400
+            title: Dữ liệu không hợp lệ
+            status: 400
+            detail: Dữ liệu đầu vào không hợp lệ
+            instance: /api/v1/users/me/profile
+            traceId: 5e7a9c1b3d5f7092a4c6e8b0d2f4a6c8
+            errors:
+              displayName:
+                - Tên hiển thị phải có từ 2 đến 50 ký tự.
+
+    Unauthorized:
+      description: Thiếu access token, token sai chữ ký, hết hạn, hoặc đã bị thu hồi.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://httpstatuses.io/401
+            title: Chưa xác thực
+            status: 401
+            detail: Yêu cầu access token hợp lệ.
+            instance: /api/v1/users/me/profile
+            traceId: a4c6e8b0d2f4a6c8e0b2d4f6a8c0e2b4
+
+    Forbidden:
+      description: |
+        Tầng 3 từ chối — ở module này có **hai** trường hợp, cùng một phản hồi: `mediaKey` nằm dưới tiền tố
+        của **người khác** (Đ-2.7), hoặc **người gọi chưa có hồ sơ** (chốt Q-D9 — `PUT` phải trả một
+        `ProfileResponse`, mà chưa onboarding thì không có gì để trả; nhất quán với Đ-2.4). Thông điệp cố ý
+        không nêu key hay id nào, và hai trường hợp không phân biệt được từ ngoài.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://httpstatuses.io/403
+            title: Bị từ chối
+            status: 403
+            detail: Bạn không có quyền thực hiện thao tác này.
+            instance: /api/v1/users/me/avatar
+            traceId: c6e8b0d2f4a6c8e0b2d4f6a8c0e2b4d6
+
+    TooManyRequests:
+      description: Vượt hạn mức 100 req/phút/user (ISS-04). Không có `Retry-After`.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://httpstatuses.io/429
+            title: Quá nhiều yêu cầu
+            status: 429
+            detail: Bạn đã gửi quá nhiều yêu cầu. Vui lòng thử lại sau ít phút.
+            instance: /api/v1/users/me/profile
+            traceId: e0b2d4f6a8c0e2b4d6f8a0c2e4b6d8f0
+
+    InternalError:
+      description: |
+        Lỗi không mong muốn. **Không bao giờ có `detail`** — `GlobalExceptionHandler` giấu chi tiết
+        nội bộ, chỉ `traceId` đi ra ngoài để đối chiếu với log.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://httpstatuses.io/500
+            title: Đã xảy ra lỗi không mong muốn
+            status: 500
+            instance: /api/v1/users/me/profile
+            traceId: b6d8f0a2c4e6b8d0f2a4c6e8b0d2f4a6
+
+  schemas:
+
+    ProblemDetails:
+      type: object
+      description: |
+        RFC 7807 Problem Details — dạng lỗi duy nhất của toàn dự án. Sinh bởi
+        `SocialApp.SharedKernel.Errors.GlobalExceptionHandler`; `traceId` và `type` gắn thống nhất
+        trong `AddSharedKernel`.
+      properties:
+        type:
+          type: string
+          format: uri
+          description: Mặc định `https://httpstatuses.io/{status}`.
+        title:
+          type: string
+          description: Nhãn ngắn, ổn định theo loại lỗi. **Không** chứa dữ liệu người dùng.
+        status:
+          type: integer
+          format: int32
+        detail:
+          type: string
+          nullable: true
+          description: Thông điệp cho người đọc. Vắng mặt ở lỗi 500.
+        instance:
+          type: string
+          description: Path của request gây lỗi.
+        traceId:
+          type: string
+          description: Bằng header `X-Correlation-ID` của chính request đó — dùng để tra log.
+        errors:
+          type: object
+          nullable: true
+          description: Chỉ có ở lỗi validation (400). Map `tên trường → danh sách thông điệp`.
+          additionalProperties:
+            type: array
+            items:
+              type: string
+      required: [title, status, traceId]
+
+    ProfileResponse:
+      type: object
+      description: Hồ sơ trả về từ mọi endpoint của module — một hình dạng, không có bản rút gọn.
+      properties:
+        userId:
+          type: string
+          format: uuid
+          description: Bằng `identity.users.user_id`.
+        displayName:
+          type: string
+          minLength: 2
+          maxLength: 50
+        bio:
+          type: string
+          nullable: true
+          maxLength: 500
+        avatarUrl:
+          type: string
+          format: uri
+          nullable: true
+          description: |
+            Presigned GET **15 phút** (Đ-2.9), `null` khi chưa đặt avatar. Không bao giờ là `avatar_key`.
+            Đừng lưu lâu hơn hạn — GĐ4 cache lưu key rồi ký lại lúc đọc.
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required: [userId, displayName, createdAt, updatedAt]
+
+    UpsertProfileRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        displayName:
+          type: string
+          minLength: 2
+          maxLength: 50
+          description: Trim trước khi kiểm độ dài. Không được toàn khoảng trắng.
+        bio:
+          type: string
+          nullable: true
+          maxLength: 500
+          description: Bỏ trống hoặc `null` để xóa bio.
+      required: [displayName]
+
+    SetAvatarRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        mediaKey:
+          type: string
+          maxLength: 200
+          pattern: '^avatars/[0-9a-f-]{36}/[0-9a-f]{32}\.(jpg|png|webp)$'
+          description: |
+            Key do `POST /media/uploads` (`purpose=avatar`) cấp — dạng `avatars/{userId}/{uuid7}.{ext}`
+            (Đ-2.7). Phải là của **chính** người gọi, nếu không → 403.
+      required: [mediaKey]

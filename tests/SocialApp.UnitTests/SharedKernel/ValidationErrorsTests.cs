@@ -26,6 +26,46 @@ public sealed class ValidationErrorsTests
         Assert.Equal(["Email là bắt buộc."], Assert.Single(errors, e => e.Key == "email").Value);
     }
 
+    /// <summary>
+    /// <b>D6</b> — key theo TÊN THUỘC TÍNH C# hạ về camelCase của hợp đồng.
+    ///
+    /// Model <c>[FromQuery]</c> cho key PascalCase ở CẢ HAI nhánh hỏng: model binding (<c>?limit=abc</c>) và
+    /// FluentValidation (<c>?limit=51</c>) — <c>ValidatorOptions.Global.PropertyNameResolver</c> của host không với tới
+    /// đường query. Không hạ ở đây thì <c>GET /users/{userId}/posts</c> trả <c>errors.Limit</c> trong khi hợp đồng và
+    /// type sinh cho FE ghi <c>errors.limit</c>, và FE hiện lỗi dưới… không ô nào.
+    /// </summary>
+    [Theory]
+    [InlineData("Limit", "limit")]
+    [InlineData("Cursor", "cursor")]
+    [InlineData("MediaKeys", "mediaKeys")]
+    public void Key_PascalCase_ha_ve_camelCase_cua_hop_dong(string key, string expected)
+    {
+        var modelState = new ModelStateDictionary();
+        modelState.AddModelError(key, "Giá trị không hợp lệ.");
+
+        Assert.Equal([expected], ValidationErrors.From(modelState).Keys);
+    }
+
+    /// <summary>
+    /// Key vốn đã đúng hợp đồng thì phép hạ camelCase là ĐỒNG NHẤT — canh gác chống hồi quy cho mọi endpoint đã có:
+    /// body qua FluentValidation, tham số route, và <see cref="ValidationErrors.BodyKey"/>.
+    /// </summary>
+    [Theory]
+    [InlineData("email")]
+    [InlineData("password")]
+    [InlineData("body")]
+    [InlineData("mediaKeys")]
+    [InlineData("postId")]
+    [InlineData("userId")]
+    [InlineData("displayName")]
+    public void Key_da_dung_hop_dong_thi_khong_doi(string key)
+    {
+        var modelState = new ModelStateDictionary();
+        modelState.AddModelError(key, "Giá trị không hợp lệ.");
+
+        Assert.Equal([key], ValidationErrors.From(modelState).Keys);
+    }
+
     /// <summary>Kể cả khi thông điệp gốc lọt vào (AllowInputFormatterExceptionMessages bị bật lại): key $… không bao giờ giữ thông điệp.</summary>
     [Fact]
     public void Duong_dan_JSON_doi_thanh_ten_truong_va_thong_diep_goc_bi_thay()

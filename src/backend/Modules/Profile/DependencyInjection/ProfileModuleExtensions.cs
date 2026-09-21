@@ -1,6 +1,10 @@
+using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using SocialApp.Modules.Profile.Application.Profiles;
 using SocialApp.Modules.Profile.Infrastructure;
+using SocialApp.Modules.Profile.Infrastructure.Persistence;
 using SocialApp.SharedKernel.Contracts;
 
 namespace SocialApp.Modules.Profile.DependencyInjection;
@@ -35,6 +39,28 @@ public static class ProfileModuleExtensions
         // lúc build — thiếu thì nổ lúc resolve service của request đầu tiên. StartupConfigurationTests có
         // một khẳng định canh đúng chuyện đó.
         services.AddScoped<IUserDirectory, UserDirectory>();
+
+        // D0. Ba dòng dưới đây phải dựng được bằng `new ServiceCollection()` KHÔNG host: PostgresFixture
+        // (SeededContentDatabaseAsync), ProfileDbContextSchemaTests và UserDirectoryTests đều làm vậy. Thứ gì cần
+        // IConfiguration/IHostEnvironment thì nhận qua tham số như AddIdentityEmail, đừng đọc ở đây.
+
+        // Đồng hồ của service khối D (created_at/updated_at). TryAdd: host và test có thể đã đăng ký rồi, và ba module
+        // cùng gọi dòng này thì chỉ cái đầu tiên có tác dụng — đúng ý, một đồng hồ cho cả process.
+        services.TryAddSingleton(TimeProvider.System);
+
+        // CHỈ đăng ký validator của module. KHÔNG gọi AddFluentValidationAutoValidation ở đây: đó là cấu hình MVC toàn
+        // cục, host đã gọi một lần — gọi lại là mỗi lỗi validate hiện hai lần trong `errors`.
+        // Singleton như Identity: validator của khối D là hàm thuần trên DTO, không giữ trạng thái, không chạm DbContext.
+        services.AddValidatorsFromAssembly(typeof(ProfileModuleExtensions).Assembly, ServiceLifetime.Singleton);
+
+        // D1. Scoped vì ProfileStore giữ ProfileDbContext (scoped); ProfileService theo cùng vòng đời của thứ nó cầm.
+        // ProfileService còn cần IObjectStorage để ký avatarUrl (Đ-2.9) — HOST đăng ký cái đó (Program.cs, R2StorageExtensions),
+        // không phải module này: khóa R2 là cấu hình của host, và AddProfileModule phải dựng được bằng `new ServiceCollection()`
+        // trần (bốn lớp test ở Mục 1.3 luật 1 làm vậy). Hai dòng dưới chỉ ĐĂNG KÝ nên chúng vẫn trần được; chỗ trần không
+        // resolve ProfileService nên thiếu IObjectStorage ở đó không sao.
+        services.AddScoped<IProfileStore, ProfileStore>();
+        services.AddScoped<ProfileService>();
+
         return services;
     }
 

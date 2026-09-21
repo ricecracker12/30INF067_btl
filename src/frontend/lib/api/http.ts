@@ -3,7 +3,7 @@ import { BFF_URL } from "./config"
 import { NetworkError, toApiError } from "./problem"
 
 export type RequestOptions = {
-  method?: "GET" | "POST"
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"
   body?: unknown
   signal?: AbortSignal
 }

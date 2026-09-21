@@ -1,4 +1,8 @@
 using System.Net;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Text.Json;
+using SocialApp.IntegrationTests.Harness;
 
 namespace SocialApp.IntegrationTests.AuthZ;
 
@@ -57,7 +61,138 @@ public static class AuthZMatrix
         // hệ quả — khung matrix không mang cookie). Dòng dưới chỉ canh tầng 1.
         new("TC-A01-logout", "POST /auth/logout không kèm JWT", "GĐ1",
             Caller.Anonymous, HttpMethod.Post, "/api/v1/auth/logout", HttpStatusCode.Unauthorized),
+
+        // --- GĐ2 (B2). Mục 6.3. Kỳ vọng viết tay theo Mục 6.1 + hợp đồng, không lấy từ output. ---
+        //
+        // TC-A03 trả 403 còn READ-01 trả 404 là CỐ Ý, không phải mâu thuẫn (quy ước 3b, Mục 6.1): thao tác GHI cần
+        // ownership trả 403; ĐỌC nội dung có mức hiển thị trả 404 — "không tồn tại" và "không được thấy" phải là cùng
+        // một phản hồi, vì 403 ở đây tự nó tố cáo bài có tồn tại. Thấy "lệch" và muốn thống nhất về một mã thì đọc lại
+        // Mục 6.1 trước, đừng sửa bảng.
+
+        new("TC-A03", "A sửa bài của B — PATCH tài nguyên của người khác", "GĐ2",
+            Caller.User, HttpMethod.Patch, "/api/v1/posts/{id của B}", HttpStatusCode.Forbidden,
+            ArrangePath: async a => $"/api/v1/posts/{await TaoBaiCuaNguoiKhacAsync(a, PrivacyCongKhai)}",
+            Body: new { body = "Sửa trộm bài của người khác." }),
+
+        new("TC-A03-delete", "A xóa bài của B — DELETE tài nguyên của người khác", "GĐ2",
+            Caller.User, HttpMethod.Delete, "/api/v1/posts/{id của B}", HttpStatusCode.Forbidden,
+            ArrangePath: async a => $"/api/v1/posts/{await TaoBaiCuaNguoiKhacAsync(a, PrivacyCongKhai)}"),
+
+        // Đ-2.7. Q-B2 là cả lý do dòng này có ArrangePath dù path không phụ thuộc dữ liệu nào: hàm arrange tạo HỒ SƠ cho
+        // chính người gọi, để 403 nhận được không thể là "chưa onboarding" (Đ-2.4). Không có bước đó thì bỏ hẳn kiểm
+        // tiền tố khóa trong D5 mà dòng này VẪN xanh — đúng định nghĩa của lưới giả.
+        new("TC-A03-media", "A đăng bài gắn ảnh nằm dưới tiền tố khóa của B", "GĐ2",
+            Caller.User, HttpMethod.Post, "/api/v1/posts", HttpStatusCode.Forbidden,
+            ArrangePath: async a =>
+            {
+                await TaoHoSoAsync(a.Client, a.CallerUserId);
+                return "/api/v1/posts";
+            },
+            Body: new
+            {
+                body = "Ảnh này không phải của tôi.",
+                privacy = PrivacyCongKhai,
+                mediaKeys = new[]
+                {
+                    // Khóa của NGƯỜI KHÁC: Guid cố định, viết thường, đúng pattern `MediaKeyDeclaration.mediaKey` của
+                    // content-v1.yaml. Cố định được vì người gọi luôn là một Guid ngẫu nhiên mới — hai id không thể
+                    // trùng nhau, và một hằng số đọc được ở đây hơn một giá trị phải lần ngược mới biết là của ai.
+                    new
+                    {
+                        mediaKey = $"posts/{KhoaCuaNguoiKhac:D}/0123456789abcdef0123456789abcdef.jpg",
+                        contentType = "image/jpeg",
+                        sizeBytes = 1024,
+                    },
+                },
+            }),
+
+        new("TC-A01-posts", "Đăng bài không kèm JWT", "GĐ2",
+            Caller.Anonymous, HttpMethod.Post, "/api/v1/posts", HttpStatusCode.Unauthorized,
+            Body: new { body = "Không có token.", privacy = PrivacyCongKhai, mediaKeys = Array.Empty<object>() }),
+
+        new("TC-A01-profile", "Sửa hồ sơ không kèm JWT", "GĐ2",
+            Caller.Anonymous, HttpMethod.Put, "/api/v1/users/me/profile", HttpStatusCode.Unauthorized,
+            Body: new { displayName = "Không có token" }),
+
+        // BR-02 lúc đọc (Đ-2.9, Mục 7.4): bài `private` của người khác → 404, KHÔNG 403. Xem ghi chú quy ước 3b ở trên.
+        new("READ-01", "A đọc bài private của B", "GĐ2",
+            Caller.User, HttpMethod.Get, "/api/v1/posts/{id của B}", HttpStatusCode.NotFound,
+            ArrangePath: async a => $"/api/v1/posts/{await TaoBaiCuaNguoiKhacAsync(a, PrivacyRiengTu)}"),
     ];
+
+    /// <summary>
+    /// Giá trị <c>privacy</c> viết bằng chuỗi hợp đồng, KHÔNG đọc <c>PostPrivacy</c> của module Content — cùng nếp với
+    /// vai trò và tên claim ở đầu file: test dùng chung nguồn với code thì code sai kiểu gì test cũng sai theo.
+    ///
+    /// <c>TC-A03</c>/<c>TC-A03-delete</c> dùng <c>public</c> còn <c>READ-01</c> dùng <c>private</c>, và đó là cả điểm
+    /// của hai hằng số này: để <c>private</c> cho <c>TC-A03</c> thì vẫn ra 403 nhưng ta không còn biết vì ownership hay
+    /// vì BR-02.
+    /// </summary>
+    private const string PrivacyCongKhai = "public";
+
+    /// <summary>Xem <see cref="PrivacyCongKhai"/>.</summary>
+    private const string PrivacyRiengTu = "private";
+
+    /// <summary>Chủ sở hữu giả định của khóa ảnh trong <c>TC-A03-media</c> — xem ghi chú tại chỗ dùng.</summary>
+    private static readonly Guid KhoaCuaNguoiKhac = new("0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10");
+
+    /// <summary>
+    /// Dựng "bài của user B" QUA API THẬT (B.4: không INSERT thẳng DB — INSERT thẳng thì test không đi qua đúng đường
+    /// mà người dùng đi, và bỏ lọt mọi lỗi nằm ở tầng controller/service). B là người dùng mới tinh mỗi lần gọi, nên
+    /// không dòng nào thấy dữ liệu của dòng nào.
+    ///
+    /// Hồ sơ TRƯỚC, bài SAU: <c>POST /posts</c> kiểm "người gọi đã có hồ sơ" ở tầng 3 (Đ-2.4). Bỏ bước đó thì B nhận
+    /// 403 ngay lúc dựng dữ liệu, hàm này ném, và dòng matrix đỏ với thông báo không liên quan gì tới ownership.
+    /// </summary>
+    private static async Task<Guid> TaoBaiCuaNguoiKhacAsync(AuthZArrange arrange, string privacy)
+    {
+        var b = Guid.NewGuid();
+        await TaoHoSoAsync(arrange.Client, b);
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/posts")
+        {
+            Content = JsonContent.Create(new { body = "Bài của người khác.", privacy, mediaKeys = Array.Empty<object>() }),
+        };
+        request.Headers.Authorization = Bearer(b);
+        using var response = await arrange.Client.SendAsync(request);
+        await NemNeuKhongPhaiAsync(response, HttpStatusCode.Created, $"POST /api/v1/posts cho B ({privacy})");
+
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return document.RootElement.GetProperty("postId").GetGuid();
+    }
+
+    /// <summary>
+    /// Onboarding một người dùng bất kỳ (Đ-2.4). Dùng cho cả B (chủ bài) lẫn A (người gọi của <c>TC-A03-media</c>).
+    /// <c>displayName</c> phải 2–50 ký tự sau <c>Trim</c>, nếu không thì 400 và dòng matrix đỏ ở chỗ không liên quan.
+    /// </summary>
+    private static async Task TaoHoSoAsync(HttpClient client, Guid userId)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Put, "/api/v1/users/me/profile")
+        {
+            Content = JsonContent.Create(new { displayName = "Người dùng matrix" }),
+        };
+        request.Headers.Authorization = Bearer(userId);
+        using var response = await client.SendAsync(request);
+        await NemNeuKhongPhaiAsync(response, HttpStatusCode.OK, $"PUT /api/v1/users/me/profile cho {userId:D}");
+    }
+
+    private static AuthenticationHeaderValue Bearer(Guid userId) =>
+        new("Bearer", TestJwt.Create("USER", userId));
+
+    /// <summary>
+    /// Dựng dữ liệu hỏng thì ném NGAY với status + body, đừng trả <c>Guid.Empty</c> rồi để dòng matrix đỏ ở chỗ khác:
+    /// "403 thay vì 404" và "arrange nhận 404 vì endpoint chưa có" là hai chuyện hoàn toàn khác nhau, mà đọc log thì
+    /// giống hệt nhau nếu hàm này im lặng.
+    /// </summary>
+    private static async Task NemNeuKhongPhaiAsync(HttpResponseMessage response, HttpStatusCode expected, string what)
+    {
+        if (response.StatusCode == expected)
+            return;
+
+        throw new InvalidOperationException(
+            $"ArrangePath hỏng — {what}: mong đợi {(int)expected}, nhận {(int)response.StatusCode}. "
+          + $"Body: {await response.Content.ReadAsStringAsync()}");
+    }
 
     /// <summary>
     /// Chỉ đưa Id vào MemberData, không đưa cả record: xUnit 2 không serialize được record chứa delegate

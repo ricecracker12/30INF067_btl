@@ -51,7 +51,7 @@ describe("LoginForm — lỗi cấp form (Đ-E6)", () => {
 
     const alert = await screen.findByRole("alert")
     expect(alert).toHaveTextContent(/^Email hoặc mật khẩu không đúng\.$/)
-    expect(alert).toHaveFocus()
+    await waitFor(() => expect(alert).toHaveFocus())
     expect(tokenStore.getSession().status).not.toBe("authenticated")
     expect(seen).toEqual(["/bff/auth/login"])
     expect(screen.getByLabelText("Mật khẩu")).toHaveValue("MatKhau123")

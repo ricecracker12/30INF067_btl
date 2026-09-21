@@ -13,15 +13,18 @@ using Serilog;
 using Serilog.Formatting.Compact;
 using SocialApp.Api.Controllers;
 using SocialApp.Modules.Content.DependencyInjection;
+using SocialApp.Modules.Content.Presentation;
 using SocialApp.Modules.Identity.DependencyInjection;
 using SocialApp.Modules.Identity.Presentation;
 using SocialApp.Modules.Profile.DependencyInjection;
+using SocialApp.Modules.Profile.Presentation;
 using SocialApp.SharedKernel.Authentication;
 using SocialApp.SharedKernel.Authorization;
 using SocialApp.SharedKernel.Configuration;
 using SocialApp.SharedKernel.DependencyInjection;
 using SocialApp.SharedKernel.Http;
 using SocialApp.SharedKernel.Redis;
+using SocialApp.SharedKernel.Storage;
 
 // Service `migrate` (one-shot, chạy ở bước deploy) gọi với cờ --migrate: apply EF migration cho
 // mọi module context, nạp dữ liệu nền + kiểm tra vai trò hệ thống, rồi thoát 0 (lỗi thì thoát khác 0).
@@ -48,9 +51,17 @@ builder.Services.AddSharedKernel();
 builder.Services
     .AddControllers()
     .AddApplicationPart(typeof(IdentityApiGroup).Assembly)
+    .AddApplicationPart(typeof(ProfileApiGroup).Assembly)
+    .AddApplicationPart(typeof(ContentApiGroup).Assembly)
     .AddJsonOptions(o =>
     {
-        o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+        // CamelCase là BẮT BUỘC, không phải trang trí (Q-D4 → Q-D2, chốt 2026-09-19): hợp đồng ghi
+        // `privacy: public | friends | private` và `purpose: post | avatar`, còn converter trần ghi ra
+        // "Public"/"Post". Cổng hợp đồng KHÔNG so schema của response nên CI vẫn xanh trong khi FE — type sinh
+        // từ yaml — nhận một giá trị không có trong union lúc chạy. An toàn với Identity: không enum nào của
+        // Identity đi qua HTTP (MeResponse.Status/Role là string; `grep -rn "enum " Modules/Identity` → 0 lúc đổi).
+        // Chiều ĐỌC vào vẫn không phân biệt hoa thường ("PUBLIC" được nhận) — nới hơn hợp đồng, chấp nhận.
+        o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
         o.JsonSerializerOptions.UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow;
     });
 
@@ -72,6 +83,8 @@ var apiGroups = new[]
 {
     (Name: PingController.ApiGroup, Title: "Platform"),
     (Name: IdentityApiGroup.Name, Title: IdentityApiGroup.Title),
+    (Name: ProfileApiGroup.Name, Title: ProfileApiGroup.Title),
+    (Name: ContentApiGroup.Name, Title: ContentApiGroup.Title),
 };
 
 builder.Services.AddEndpointsApiExplorer();
@@ -225,6 +238,33 @@ string[] RequireCorsOrigins()
     return origins;
 }
 
+// --- Lưu trữ đối tượng R2 (Đ-2.14, C1) — cùng tinh thần RequireConnectionString, nhưng CHỈ chết ngoài Development ---
+// Kiểm SAU CORS: StartupConfigurationTests dựng Staging thiếu từng nhóm cấu hình và khẳng định thông báo nêu đúng nhóm đó;
+// đặt R2 trước là test của email/CORS đỏ vì thông báo R2. Development thiếu khóa thì KHÔNG chết (Q-C1, chốt 2026-09-19):
+// ApiFactory — smoke + cổng hợp đồng API — chạy Development và cố ý không có khóa R2; chết ở đây là cổng hợp đồng đỏ vì
+// lý do không liên quan hợp đồng. Thay vào đó IObjectStorage là UnconfiguredObjectStorage: dùng mới ném, nêu đúng biến.
+// KHÔNG đọc từ deploy/.env ở Development (Đ-2.14): file đó mang khóa STAGING; dev dùng user-secrets (Mục 9.0).
+var r2 = RequireR2Options();
+
+R2Options RequireR2Options()
+{
+    var bound = builder.Configuration.GetSection(R2Options.Section).Get<R2Options>() ?? new R2Options();
+
+    // Endpoint sai dạng kiểm ở MỌI môi trường khi có giá trị (như Cors:AllowedOrigins): SDK ghép thêm bucket lần nữa và
+    // mọi lời gọi 404 với triệu chứng không nói gì về nguyên nhân.
+    if (bound.EndpointProblem() is { } problem)
+        throw new InvalidOperationException(
+            $"{problem} ở môi trường '{builder.Environment.EnvironmentName}'. Sửa biến môi trường R2__Endpoint rồi chạy lại.");
+
+    var missing = bound.MissingKeys();
+    if (missing.Count > 0 && !builder.Environment.IsDevelopment())
+        throw new InvalidOperationException(
+            R2Options.DescribeMissing(missing, builder.Environment.EnvironmentName)
+          + " App từ chối khởi động thay vì chạy tiếp với cấu hình thiếu.");
+
+    return bound;
+}
+
 // --- IP thật của client khi đứng sau proxy tin cậy (BFF Next.js, reverse proxy) ---
 // Rate limit phân vùng theo RemoteIpAddress (policy "auth" 10 req/phút/IP, và fallback của hạn mức chung). Sau BFF, mọi
 // request đều mang IP của BFF → cả hệ thống ăn CHUNG một hạn mức, hỏng câm. Chỉ đọc X-Forwarded-For khi kết nối đến từ proxy
@@ -279,6 +319,10 @@ builder.Services.AddSingleton(Microsoft.Extensions.Options.Options.Create(jwt));
 // và health check dùng lại nó. Redis chết thì app vẫn khởi động và bên đọc fail-open.
 builder.Services.AddSharedKernelRedis(redis);
 builder.Services.AddSharedKernelTokenRevocation();
+
+// MỘT chỗ đăng ký lưu trữ đối tượng cho cả app (Đ-2.14): Profile (avatar), Content (ảnh bài), GĐ5 (media tin nhắn) dùng chung
+// IObjectStorage; không module nào gọi AWS SDK. r2 đã qua RequireR2Options ở trên — ngoài Development chắc chắn đủ.
+builder.Services.AddSharedKernelR2(r2, builder.Environment.EnvironmentName);
 
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)

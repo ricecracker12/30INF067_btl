@@ -5,9 +5,20 @@ import { BFF_URL } from "@/lib/api/config"
 import type * as T from "@/lib/api/types"
 
 import {
+  MEDIA_SCENARIO,
   me,
+  mediaKeyDaDung,
+  post,
+  postIdKhongDocDuoc,
+  postIdKhongSuaDuoc,
+  postPage,
   problem,
+  profile,
+  r2Host,
   registerResponse,
+  uploadTicket,
+  userId,
+  userIdChuaCoHoSo,
   validationProblem,
   verifyEmailResponse,
 } from "./fixtures"
@@ -169,6 +180,175 @@ export const handlers = [
     }
     return HttpResponse.json(me)
   }),
+
+  // --- GĐ2 (E1): mười endpoint của Profile + Content, tất cả qua proxy chung `/bff/api/*`.
+  // Không route BFF riêng nào — mock giả đúng bề mặt trình duyệt thấy (Mục 1.2 luật 2).
+
+  http.get(url(`${BFF_ROUTES.api}/users/:userId/profile`), ({ params }) => {
+    if (params.userId === userIdChuaCoHoSo) {
+      return problemResponse(
+        404,
+        "Không tìm thấy tài nguyên",
+        "Người dùng này chưa có hồ sơ."
+      )
+    }
+    return HttpResponse.json(profile)
+  }),
+
+  http.put(url(`${BFF_ROUTES.api}/users/me/profile`), async ({ request }) => {
+    const body = (await request.json()) as T.UpsertProfileRequest
+    if (body.displayName.trim().length < 2) {
+      // Câu thật của UpsertProfileRequestValidator (D2).
+      return validationResponse({
+        displayName: ["Tên hiển thị phải có từ 2 đến 50 ký tự."],
+      })
+    }
+    return HttpResponse.json({
+      ...profile,
+      displayName: body.displayName,
+      bio: body.bio ?? null,
+    } satisfies T.ProfileResponse)
+  }),
+
+  http.put(url(`${BFF_ROUTES.api}/users/me/avatar`), async ({ request }) => {
+    const body = (await request.json()) as T.SetAvatarRequest
+    // Đ-2.7: key phải nằm dưới tiền tố của CHÍNH người gọi — của người khác là 403.
+    if (!body.mediaKey.startsWith(`avatars/${userId}/`)) {
+      return problemResponse(
+        403,
+        "Bị từ chối",
+        "Bạn không có quyền thực hiện thao tác này."
+      )
+    }
+    return HttpResponse.json({
+      ...profile,
+      // Presigned GET 15 phút (Đ-2.9) — URL mới mỗi lần đặt avatar, không phải `avatar_key`.
+      avatarUrl: `${r2Host}/socialmedia-dev/avatars/moi.jpg?X-Amz-Signature=gia`,
+    } satisfies T.ProfileResponse)
+  }),
+
+  http.delete(
+    url(`${BFF_ROUTES.api}/users/me/avatar`),
+    () => new HttpResponse(null, { status: 204 })
+  ),
+
+  http.post(url(`${BFF_ROUTES.api}/media/uploads`), async ({ request }) => {
+    const body = (await request.json()) as T.CreateUploadsRequest
+    if (body.files.length === 0 || body.files.length > 10) {
+      return validationResponse({
+        files: ["Mỗi bài tối đa 10 ảnh."],
+      })
+    }
+    // Tiền tố theo `purpose` (Đ-2.7): `avatars/` cho avatar, `posts/` cho bài. Không phải trang trí —
+    // `PUT /users/me/avatar` giả ở trên từ chối 403 mọi key không nằm dưới `avatars/{userId}/`, đúng như
+    // server, nên mock nào trả sai tiền tố sẽ làm E3 hỏng ở bước 3 chứ không phải bước 1.
+    const prefix = body.purpose === "avatar" ? "avatars" : "posts"
+    // Một ticket cho MỖI file, CÙNG THỨ TỰ với `files` gửi lên — E4 ghép ticket với file theo index.
+    return HttpResponse.json(
+      body.files.map((f, i) => ({
+        ...uploadTicket,
+        // Kịch bản theo dữ liệu nhập (E8 bước 2): một dung lượng cụ thể lấy về `mediaKey` mà `POST /posts`
+        // coi là đã gắn vào bài khác. Server thật không nhìn `sizeBytes` để chọn key; ở đây nó chỉ là cái
+        // móc để dựng nhánh 409 mà KHÔNG phải cho một `server.use` trả 409 cho mọi request.
+        // CHỈ cho `purpose: "post"`: `mediaKeyDaDung` mang tiền tố `posts/`, mà `PUT /users/me/avatar` từ
+        // chối mọi key không nằm dưới `avatars/{userId}/` (Đ-2.7). Áp cho cả avatar thì một file đúng 4.242
+        // byte sẽ làm test avatar đỏ với câu "Ảnh này không thuộc về bạn" — nghi phạm sai hoàn toàn.
+        mediaKey:
+          body.purpose === "post" &&
+          f.sizeBytes === MEDIA_SCENARIO.sizeBytesKeyDaDung
+            ? mediaKeyDaDung
+            : `${prefix}/${userId}/anh-${i}.jpg`,
+        uploadUrl: `${r2Host}/socialmedia-dev/${prefix}/anh-${i}.jpg?X-Amz-Signature=gia`,
+        requiredHeaders: {
+          "Content-Type": f.contentType,
+          "Content-Length": String(f.sizeBytes),
+        },
+      })) satisfies T.UploadTicket[],
+      { status: 201 }
+    )
+  }),
+
+  /**
+   * Bước 2 của luồng ba bước: `PUT` THẲNG lên R2, ngoài origin của app (Đ-2.5). Mặc định 200 như R2 thật.
+   * Nhánh hỏng dựng bằng `server.use(...)` trong từng test — hai nhánh khác hẳn nhau: `HttpResponse.error()`
+   * (mạng/CORS/CSP, ca ISS-02) và một status ≠ 2xx (R2 từ chối chữ ký).
+   */
+  http.put(`${r2Host}/*`, () => new HttpResponse(null, { status: 200 })),
+
+  http.post(url(`${BFF_ROUTES.api}/posts`), async ({ request }) => {
+    const body = (await request.json()) as T.CreatePostRequest
+    // BR-03: một ảnh chỉ gắn được vào MỘT bài. 409, không phải 400 — ảnh đó không dùng lại được, người
+    // dùng phải chọn lại ảnh khác.
+    if ((body.mediaKeys ?? []).some((m) => m.mediaKey === mediaKeyDaDung)) {
+      return problemResponse(
+        409,
+        "Xung đột",
+        "Ảnh đã được dùng trong một bài khác."
+      )
+    }
+    // BR-01: body rỗng thì phải có ít nhất một ảnh.
+    if (!body.body?.trim() && (body.mediaKeys ?? []).length === 0) {
+      return validationResponse({
+        body: ["Bài đăng phải có nội dung hoặc ít nhất một ảnh."],
+      })
+    }
+    return HttpResponse.json(
+      {
+        ...post,
+        body: body.body ?? null,
+        privacy: body.privacy,
+      } satisfies T.PostResponse,
+      { status: 201 }
+    )
+  }),
+
+  http.get(url(`${BFF_ROUTES.api}/posts/:postId`), ({ params }) => {
+    if (params.postId === postIdKhongDocDuoc) {
+      return problemResponse(
+        404,
+        "Không tìm thấy tài nguyên",
+        "Không tìm thấy bài viết."
+      )
+    }
+    return HttpResponse.json(post)
+  }),
+
+  http.patch(
+    url(`${BFF_ROUTES.api}/posts/:postId`),
+    async ({ params, request }) => {
+      if (params.postId === postIdKhongSuaDuoc) {
+        return problemResponse(
+          403,
+          "Bị từ chối",
+          "Bạn không có quyền thực hiện thao tác này."
+        )
+      }
+      const body = (await request.json()) as T.UpdatePostRequest
+      if (Object.keys(body).length === 0) {
+        return validationResponse({ body: ["Không có gì để sửa."] })
+      }
+      return HttpResponse.json({
+        ...post,
+        ...body,
+        editedAt: "2026-09-20T03:00:00Z",
+      } satisfies T.PostResponse)
+    }
+  ),
+
+  http.delete(url(`${BFF_ROUTES.api}/posts/:postId`), ({ params }) => {
+    if (params.postId === postIdKhongSuaDuoc) {
+      return problemResponse(
+        403,
+        "Bị từ chối",
+        "Bạn không có quyền thực hiện thao tác này."
+      )
+    }
+    return new HttpResponse(null, { status: 204 })
+  }),
+
+  http.get(url(`${BFF_ROUTES.api}/users/:userId/posts`), () =>
+    HttpResponse.json(postPage)
+  ),
 
   ...upstreamHandlers,
 ]

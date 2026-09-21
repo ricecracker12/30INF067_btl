@@ -1,5 +1,6 @@
 import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
+import { StrictMode } from "react"
 import { http, HttpResponse } from "msw"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -110,5 +111,24 @@ describe("MeProfile (E6 bước 4)", () => {
     await new Promise((r) => setTimeout(r, 20))
     view.unmount()
     await waitFor(() => expect(aborted).toBe(true))
+  })
+})
+
+// Ca StrictMode — mỗi màn sở hữu tài nguyên hủy được có ĐÚNG một ca. `render(<X />)` gắn component một
+// lần, còn Next dev bọc `<StrictMode>`: mount → unmount → mount lại. Ca này khẳng định TRẠNG THÁI CUỐI
+// đạt được, KHÔNG đếm số request — dưới StrictMode số request tăng gấp đôi một cách hợp lệ, trộn hai thứ
+// vào một ca là tự làm ca test giòn.
+
+describe("MeProfile — sống được dưới StrictMode", () => {
+  it("mount hai lần vẫn hiện hồ sơ, không kẹt ở khung chờ", async () => {
+    render(
+      <StrictMode>
+        <MeProfile />
+      </StrictMode>
+    )
+
+    expect(await screen.findByTestId("me-profile")).toBeInTheDocument()
+    // Lượt gọi của lần mount đầu bị `abort()` — nhánh `AbortError` phải im lặng, không thành báo lỗi.
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
   })
 })
