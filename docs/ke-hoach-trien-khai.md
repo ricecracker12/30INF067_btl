@@ -381,6 +381,17 @@ còn biên độ thêm index/cache nếu trượt; và thứ cắt được thì
     thành thông báo thử lại, không phải màn hình trắng.
   - **Cổng mở:** chốt hình dạng **cursor** trước khi code — frontend bám chặt nhất vào nó; đổi giữa
     chừng là viết lại toàn bộ phần cuộn vô hạn.
+  - **Hai bẫy chéo giai đoạn GĐ2 để lại** *(ghi 2026-09-21 ở cổng đóng GĐ2, `F5`; chép vào tài liệu GĐ4 khi mở giai đoạn)*:
+    - Cache feed lưu **`storage_key`**, **không** lưu URL ảnh đã ký. URL presigned GET chỉ sống 15 phút (Đ-2.9). Cache
+      mà lưu URL thì sau 15 phút trả về URL đã hết hạn: ảnh vỡ, còn log không có lỗi nào (R2 trả 403 thẳng cho
+      trình duyệt). Ký URL **lúc trả response**, sau khi đọc cache.
+    - Mức riêng tư `friends`: `IFriendshipReader` đổi **đúng một dòng đăng ký DI**
+      (`services.AddSingleton<IFriendshipReader, AlwaysStrangers>()` trong `Content/DependencyInjection/ContentModuleExtensions.cs`)
+      sang hiện thực thật của SocialGraph. **Không** chạm logic của Content: `PostVisibility` đã hỏi `AreFriendsAsync`
+      từ GĐ2. Đổi xong thì chạy lại `READ-01` (matrix) và các test của `PostVisibility`: bài `friends` của **người lạ**
+      phải vẫn 404, còn của **bạn** thì phải thấy.
+  - **Hợp đồng GĐ2 đã đóng băng** (2026-09-21): `profile-v1.yaml`, `content-v1.yaml`. Feed cần thêm field nào vào
+    `PostResponse` thì đổi ở cổng mở GĐ4, không sửa lặng.
 - **Kiểm tra:** AC US-010 (AC-01 accept → hai bên là bạn; AC-02 gửi trùng → 409; AC-03 tự gửi → 400;
   AC-04 người thứ 3 accept → 403). AC US-008 (AC-01 20 bài mới nhất + cursor; AC-02 bài "bạn bè" của
   người lạ KHÔNG hiện; AC-03 bài Hidden không hiện). **k6 load test feed @1.000 CCU → p95 ≤ 500ms**

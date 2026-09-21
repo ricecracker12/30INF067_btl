@@ -1379,13 +1379,20 @@ merge, và người merge không có cách nào biết trước nếu PR không 
 
 ### Các bước
 
-1. **Xác nhận `mocks/` chỉ phục vụ Vitest:** `grep -rn "@/mocks" app features components lib` → không dòng nào.
-   `ls src/frontend/public/` → không có `mockServiceWorker.js`.
+1. **Xác nhận `mocks/` chỉ phục vụ Vitest** — dùng **lệnh đã sửa ở Q-E7**, không phải lệnh cũ:
+
+   ```
+   grep -rn "@/mocks" app features components lib --include="*.ts" --include="*.tsx" | grep -v "\.test\."
+   ```
+
+   → không dòng nào. `ls src/frontend/public/` → không có `mockServiceWorker.js`.
+   *(Sửa 2026-09-21 khi thi công `F2`: bước này vẫn ghi lệnh cũ `grep -rn "@/mocks" app features components lib`
+   dù Q-E7 đã sửa — lệnh cũ ra **46 dòng**, tất cả là file `.test.*`.)*
 2. **Kiểm tab Network trên `https://mxh.banhgao.net`** trong một lượt đăng bài có ảnh. Bốn điều phải đúng:
 
    | Kiểm | Kỳ vọng |
    |---|---|
-   | Danh sách origin được gọi | **Chỉ** `https://mxh.banhgao.net` (`/bff/*`) và host R2 (`PUT`, `GET` ảnh) |
+   | Danh sách origin được gọi | **Chỉ** `https://mxh.banhgao.net` (`/bff/*`) và host R2 (`PUT`, `GET` ảnh) — cộng hai script Cloudflare tự chèn (`static.cloudflareinsights.com`, `/cdn-cgi/*`), đã chấp nhận ở Đ-E15 ngày 2026-09-21 |
    | Header `Authorization` | **Không** xuất hiện trong bất kỳ request nào của trình duyệt |
    | Web Storage (Local + Session) | Trống; Cookies chỉ có `__Host-sid` |
    | Response của `/bff/api/posts/*` | **Không** chứa `mediaKey`/`storage_key` — chỉ `url` đã ký |
@@ -1398,6 +1405,42 @@ merge, và người merge không có cách nào biết trước nếu PR không 
 |---|---|---|
 | Kiểm bằng `curl` cho nhanh | `curl` không bao giờ thấy CORS, CSP, Web Storage | Mục này **chỉ** nghiệm thu trên trình duyệt |
 | Kiểm ở tab đã mở sẵn từ trước khi deploy | Bundle cũ trong cache | Tải lại cứng (Ctrl+Shift+R), hoặc cửa sổ ẩn danh |
+| Chỉ lọc `/bff/*` + host R2 rồi tick "chỉ hai origin" | Bỏ sót script Cloudflare tự chèn vào trang (xem Thực tế thi công) | Liệt kê **mọi** origin trong tab Network, không lọc trước |
+
+### Thực tế thi công
+
+**Chạy 2026-09-21, Chrome 153.0.8010.50, trên `https://mxh.banhgao.net`**, hai lượt, kết quả trùng nhau. Mỗi lượt
+dùng một hồ sơ trình duyệt mới (tương đương cửa sổ ẩn danh, không bundle cũ): đăng nhập bằng tài khoản staging của
+nhóm → đăng bài **2 ảnh** (`e2e/fixtures/`, riêng tư "Chỉ mình tôi") → xem trên `/me` và `/posts/{id}` → xóa bài.
+Không kiểm bằng mắt từng dòng mà bằng một script Playwright (`channel: "chrome"`) ghi **mọi** request và body
+response. Tab Network thấy đúng những thứ đó. Script không commit (Mục 15: `F1`–`F3` không sinh commit code).
+
+| Kiểm | Kết quả |
+|---|---|
+| Bước 1 — `grep` bản Q-E7 · `public/` | 0 dòng · không có `mockServiceWorker.js` ✅ |
+| Origin **app** gọi | `https://mxh.banhgao.net` (`/bff/*` và trang, chunk RSC) + host R2: **2 `PUT` → 200, URL có `X-Amz-Signature`**, 7 `GET` ảnh → 200, cả 2 ảnh hiện (`naturalWidth > 0`) ✅ |
+| Header `Authorization` | 0 request ✅ |
+| JWT trong body response (fetch/xhr/document) | 0 ✅ |
+| `mediaKey`/`storageKey`/`storage_key` trong response | Chỉ `POST /bff/api/media/uploads`: key **của chính người gọi**, vừa được cấp, theo thiết kế (Q-D1: client gửi lại key đó ở `POST /posts`). Response của `/bff/api/posts/*` và `/bff/api/users/*/posts` **không** có key nào ✅ |
+| Web Storage | Local 0, Session 0 ✅ |
+| `Set-Cookie` từ `/bff/*` | Chỉ `POST /bff/auth/login` → `__Host-sid` (`HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`). Không cookie refresh của API ✅ |
+| CSP | 0 vi phạm trong console — `PUT` và `GET` lên R2 đều qua ✅ |
+
+**Lệch kỳ vọng "chỉ hai origin" — do Cloudflare, không do code app.** ✅ **Nhóm chốt 2026-09-21: chấp nhận (đường b),
+đã ghi vào Đ-E15** trong [huong-dan-khoi-e-frontend.md](../giai-doan-1/huong-dan-khoi-e-frontend.md). Với ngoại lệ
+đó, F2 **đạt**.
+
+- Cloudflare (proxy trước VPS) **tự chèn** hai script vào HTML: Web Analytics (`static.cloudflareinsights.com/beacon.min.js`,
+  gửi `POST /cdn-cgi/rum`) và bộ dò bot JS Detections (`/cdn-cgi/challenge-platform/.../main.js`, gửi `POST`
+  tới `/cdn-cgi/challenge-platform/...`), kèm cookie `cf_clearance` (`HttpOnly`, `Secure`). Cả hai **chạy được
+  dưới CSP** mà không có vi phạm nào. Lý do: Cloudflare chép nonce từ header CSP sang thẻ `<script>` nó chèn, và
+  CSP không có `'strict-dynamic'` nên một script mang nonce được tải từ **bất kỳ host nào**.
+- Hệ quả bảo mật: trình duyệt không cầm token nào (ba dòng đầu bảng trên đều sạch), nên script bên thứ ba không
+  có gì của phiên để lấy. Tuy vậy, đây là JS lạ chạy trong origin của app, **đi vòng qua** tinh thần của Đ-E15:
+  thêm domain vào CSP phải là quyết định mới, còn ở đây domain lọt vào mà không cần sửa CSP.
+- Hai đường đã cân nhắc: (a) tắt *Web Analytics automatic setup* và *JS Detections* của zone trên dashboard Cloudflare;
+  (b) chấp nhận và ghi vào Đ-E15. Nhóm chọn **(b)**. Dòng "Tab Network staging: chỉ `/bff/*` + host R2" ở Mục 16
+  tick được khi đọc kèm ngoại lệ này.
 
 ---
 
@@ -1448,6 +1491,38 @@ Vẫn đỏ sau bốn bước → **kích hoạt phương án ứng phó ISS-02 
 volume VPS, giữ nguyên bảng metadata để chuyển lại R2 sau. Nhờ có interface, đây là thay **một class**, không phải
 viết lại luồng. Đừng để sang GĐ4.
 
+### Thực tế thi công
+
+**Chạy 2026-09-21 (06:37–06:39Z), Chrome 153.0.8010.50, trên `https://mxh.banhgao.net`, tài khoản MỚI.** Chạy bằng
+script Playwright (`channel: "chrome"`, hồ sơ trình duyệt mới), không commit (Mục 15). **ISS-02 đóng: cả ba lượt
+`PUT` từ trình duyệt lên R2 staging đều 200**, không có vi phạm CSP hay lỗi CORS nào trong console.
+
+| Bước | Kết quả |
+|---|---|
+| Đăng ký qua UI | `POST /bff/auth/register` → **201**. Mail thật qua Resend về hộp thư gmail của nhóm (địa chỉ có `+f3-…`) |
+| Xác minh | Link trong mail thật. Lượt mở link của script thấy "đã được sử dụng": link **đã bị mở trước đó** (người nhận bấm, hoặc Gmail quét link). Bằng chứng tài khoản đã xác minh là bước đăng nhập kế tiếp thành công |
+| Đăng nhập → onboarding | Bị đưa về `/onboarding` (chưa có hồ sơ). Đặt tên → vào app |
+| Avatar | `PUT` → **200** lên `socialmedia-staging/avatars/{userId}/….jpg`, `GET` → 200, ảnh hiện |
+| Đăng bài 2 ảnh | Hai `PUT` → **200** lên `socialmedia-staging/posts/{userId}/….jpg` và `….png`. Bài hiện **2/2 ảnh** (`naturalWidth > 0`) |
+| Sửa | Đổi riêng tư → nhãn "đã chỉnh sửa" hiện |
+| Xóa | Về `/me`. Mở lại URL cũ → "Không tìm thấy bài viết." |
+| Web Storage cuối lượt | 0 mục |
+
+**Năm bằng chứng:**
+
+| # | Kết quả |
+|---|---|
+| 1 | `PUT` avatar: **200**. Query `X-Amz-Algorithm=AWS4-HMAC-SHA256`, `X-Amz-Expires=600`, `X-Amz-SignedHeaders=content-length;content-type;host`, `X-Amz-Signature` (đã che). Request mang `Content-Type: image/jpeg`, `Origin: https://mxh.banhgao.net`. Response có `Access-Control-Allow-Origin: https://mxh.banhgao.net`, `Access-Control-Expose-Headers: etag`, `ETag`. Hai `PUT` của bài: y hệt, cùng 200 |
+| 2 | Object nằm đúng tiền tố: `avatars/{userId}/` và `posts/{userId}/` trong bucket `socialmedia-staging` (đọc từ đường dẫn `PUT` và `GET` 200). **Ảnh chụp dashboard R2 do người có quyền Cloudflare bổ sung vào PR** |
+| 3 | Ảnh chụp trang `/posts/{id}`: hai ảnh hiển thị thật, không placeholder |
+| 4 | `GET` ảnh: **200** từ host R2, `X-Amz-Expires=900` (Đ-2.9: 15 phút), `X-Amz-SignedHeaders=host`, `Content-Type: image/jpeg` |
+| 5 | URL presigned GET của avatar, ký lúc 06:38:17Z, hết hạn 06:53:17Z, gọi lại lúc 06:54:17Z → R2 trả **403 `ExpiredRequest`** ("Request has expired"). Avatar **không bị gỡ**, object vẫn còn, nên 403 này là do hết hạn chứ không phải do object bị dọn |
+
+**Hai tín hiệu nhiễu, đã kiểm và không phải lỗi:** Playwright báo `net::ERR_ABORTED` cho `POST /bff/auth/login` và
+`DELETE /bff/api/posts/{id}`. Chạy thêm một lượt dò: cả hai đều **đã nhận response 204** trước khi bị ghi là hủy.
+Đây là cách Chrome báo một response 204 trùng lúc trang điều hướng, không phải request bị cắt. Các `GET` bị
+`ERR_ABORTED` còn lại là prefetch/RSC bị điều hướng ngắt.
+
 ---
 
 ## 13. F4 — Checklist nghiệm thu + Definition of Done
@@ -1474,6 +1549,58 @@ Chú ý hai mục dễ tick ẩu:
 - *"Log **không** chứa presigned URL"* — kiểm bằng `docker compose logs api | grep -c "X-Amz-Signature"` → **0**.
   Cổng CI chỉ grep bundle trình duyệt, không grep log runtime.
 
+### Thực tế thi công
+
+**Rà 2026-09-21: 13 dòng tick, 7 dòng chờ server staging hoặc dashboard R2** (Mục 11 + Mục 12 của `giai-doan-2.md`,
+bằng chứng ghi ngay tại từng dòng). Dòng chờ **không** tick bằng suy luận: phiên thi công không có quyền SSH vào VPS, và
+bảy dòng đó đều là loại mục này cấm tick từ CI xanh hay từ máy dev.
+
+**Đã chạy:**
+
+| Kiểm | Kết quả |
+|---|---|
+| `dotnet test` | Unit **218/218**, Architecture **13/13**, Integration **319/320**. Ca đỏ duy nhất là `StartupConfigurationTests.Development_boots_without_r2_config…`: đỏ nền của máy dev vì `user-secrets` có khóa R2; CI xanh |
+| CI run 35561152514 (`develop`, `3621c10`) | `API contract` 6/6, `AuthZ matrix` 18/18 |
+| CD run 35561152520 | `[migrate] Đã áp dụng migration cho schema "identity", "profile", "content" … Thoát 0`; bốn container `healthy` |
+| `pnpm gen:api` | exit 0, `git status --porcelain` rỗng |
+| psql trên Postgres **dev** (cùng bộ migration) | Ba `__EFMigrationsHistory`; **0** FK chéo schema (8 FK, đều cùng schema); 77 bài, 0 `author_id` lạ, 0 tác giả không hồ sơ |
+| Bucket không public | URL hết hạn → **403 `ExpiredRequest`** (`F3` #5); bỏ hẳn chữ ký → **400 `InvalidArgument`** |
+
+**Máy dev không thay được server ở dòng log.** Container `socialapp-dev-api-1` là bản build 2026-09-18, không chạy lát
+cắt GĐ2 (E2E dev chạy API bằng `dotnet run`), nên đếm `X-Amz-Signature` = 0 trong log của nó **không** là bằng chứng.
+
+**Lệnh cho bảy dòng còn chờ** — chạy trong `~/app/deploy` trên VPS, `C="docker compose -f docker-compose.staging.apache.yml"`:
+
+```bash
+# Mục 11 dòng 6 — log api: 0 presigned URL, 0 email
+$C logs api | grep -c "X-Amz-Signature"
+$C logs api | grep -c -E "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[a-z]{2,}"
+
+# Mục 12 — FK chéo schema (phải ra 0) và posts.author_id (hai số sau phải là 0)
+$C exec postgres psql -U socialapp -d socialapp -At -c "
+  select count(*) from information_schema.referential_constraints rc
+  join information_schema.table_constraints a on a.constraint_name=rc.constraint_name and a.constraint_schema=rc.constraint_schema
+  join information_schema.table_constraints b on b.constraint_name=rc.unique_constraint_name and b.constraint_schema=rc.unique_constraint_schema
+  where a.table_schema<>b.table_schema;"
+$C exec postgres psql -U socialapp -d socialapp -At -c "
+  select count(*), count(*) filter (where u.user_id is null), count(*) filter (where pr.user_id is null)
+  from content.posts p left join identity.users u on u.user_id=p.author_id left join profile.profiles pr on pr.user_id=p.author_id;"
+
+# Mục 12 — migrate lần hai: exit 0, không áp migration nào mới
+$C run --rm migrate; echo "exit=$?"
+
+# Mục 12 — worker: đặt Media__Cleanup__Enabled=true trong .env, khởi động lại api, chờ > 60 phút (lượt đầu SAU một chu kỳ)
+$C up -d api && sleep 3700 && $C logs api | grep "Dọn rác media"
+# → "Dọn rác media: N object của bài xóa mềm, M object mồ côi, thu hồi B byte"
+
+# Mục 12 — tắt Redis: worker bỏ lượt, api vẫn phục vụ. DỪNG REDIS LÀ ĐĂNG XUẤT MỌI PHIÊN BFF trên staging — báo nhóm trước
+$C stop redis && sleep 3700 && $C logs api | grep "bỏ lượt dọn rác"; curl -fsS https://mxh.banhgao.net/health/live
+$C start redis
+```
+
+Dòng thứ bảy là **ảnh chụp dashboard R2** bucket `socialmedia-staging`. Object của lượt `F3` nằm dưới `avatars/{userId}/`,
+dưới `posts/{userId}/` là hai ảnh của bài đã xóa (worker còn chưa dọn: bài xóa mềm được giữ 7 ngày).
+
 ---
 
 ## 14. F5 — Đóng băng hợp đồng + bàn giao
@@ -1498,6 +1625,33 @@ Chú ý hai mục dễ tick ẩu:
    | 3 | CI xanh cả năm nhóm | Link CI run của PR |
 
 5. **GĐ4 được phép bắt đầu.**
+
+### Thực tế thi công
+
+**2026-09-21.**
+
+- **Đóng băng:** hai file hợp đồng có thêm khối `ĐÓNG BĂNG (2026-09-21 …)` ở phần chú thích đầu file, theo nếp của
+  `identity-v1.yaml`. Chỉ thêm comment, schema không đổi: `pnpm gen:api` → `git status` rỗng; `Category=Contract`
+  6/6. README Mục 1 ghi trạng thái. **Thông báo nhóm do người trong đội gửi**, kèm link PR.
+- **Hoãn có địa chỉ:** bảng Mục 2 của `giai-doan-2.md` đã có sẵn chín dòng của bước 2. Thêm **hai dòng** mà trước đó
+  chỉ nằm trong thân tài liệu, không có trong bảng: sửa danh sách ảnh của bài (GĐ7, từ Mục 7.3) và dọn avatar mồ
+  côi (GĐ8, từ Mục 7.5). Nợ chỉ nằm ở thân tài liệu thì người mở GĐ7/GĐ8 không đọc tới, tức là nợ vô chủ.
+- **Hai bẫy cho GĐ4:** GĐ4 chưa có tài liệu riêng nên ghi vào mục GĐ4 của `ke-hoach-trien-khai.md`, kèm lời nhắc
+  "chép vào tài liệu GĐ4 khi mở giai đoạn". Bẫy `IFriendshipReader` ghi theo code thật: dòng DI nằm **trong**
+  `ContentModuleExtensions.cs`, nên "không chạm module Content" nghĩa là không chạm **logic** của Content.
+  `AlwaysStrangersTests` **không** đỏ khi đổi DI (nó kiểm chính class null-object), nên cái canh là `READ-01` và
+  test của `PostVisibility`.
+- **Ba điều kiện B.11 — thỏa cả ba:**
+
+  | # | Bằng chứng |
+  |---|---|
+  | 1 | `F3`: `PUT` từ Chrome thật lên `socialmedia-staging` → 200; bài hiện 2/2 ảnh |
+  | 2 | `AuthZ matrix` 18/18 trên CI run 35561152514; bảng đột biến `B3` (bỏ `post.AuthorId != actorId` → đỏ `TC-A03` / `TC-A03-delete`) |
+  | 3 | CI run 35561152514 (`develop`, `3621c10`): `Test (unit + integration)`, `AuthZ matrix`, `API contract`, `API types khop hop dong`, `Bundle production sach…` (grep có `R2__` và `X-Amz-Signature`, rủi ro R2-01) — xanh cả năm |
+
+- **GĐ4 được phép bắt đầu.** Ba điều kiện B.11 là điều kiện **mở GĐ4**. Bảy dòng còn chờ của `F4` là kiểm tận
+  nơi trên server, không chặn GĐ4, nhưng phải tick trước PR phát hành `develop` → `main` (luật PR Mục 6: "Migration
+  EF đã chạy trên staging … schema khớp").
 
 ---
 
@@ -1547,14 +1701,14 @@ hay `truncated` **không phải** kết quả sạch — chạy lại).
 
 **Khối F**
 
-- [ ] `R2__*` + biến host R2 của FE đã có trên `deploy/.env` của server **trước khi merge**
+- [x] `R2__*` + biến host R2 của FE đã có trên `deploy/.env` của server **trước khi merge** (gián tiếp: `F3` ghi vào đúng `socialmedia-staging`, CSP có host R2)
 - [ ] `migrate` xanh cho cả ba schema; chạy lần hai không đổi gì
-- [ ] `/health/ready` 200; hai file `swagger.json` mới 200; header CSP trên staging **có host R2**
-- [ ] Tab Network staging: chỉ `/bff/*` + host R2; không `Authorization`; không `storage_key` của ai
+- [x] `/health/ready` 200; hai file `swagger.json` mới 200; header CSP trên staging **có host R2** (2026-09-21)
+- [x] Tab Network staging: chỉ `/bff/*` + host R2; không `Authorization`; không `storage_key` của ai (`F2`; cộng script Cloudflare, chấp nhận ở Đ-E15)
 - [ ] Năm bằng chứng của `F3` đã dán vào PR, chữ ký đã che
 - [ ] Mục 12 tick hết hoặc ghi lý do hoãn kèm địa chỉ; Mục 11 tick đủ sáu
 - [ ] `docker compose logs api | grep -c "X-Amz-Signature"` = **0**
-- [ ] Hai hợp đồng tuyên bố đóng băng; phần hoãn có địa chỉ đã liệt kê; hai bẫy chéo giai đoạn đã ghi cho GĐ4
+- [x] Hai hợp đồng tuyên bố đóng băng; phần hoãn có địa chỉ đã liệt kê; hai bẫy chéo giai đoạn đã ghi cho GĐ4 (`F5`)
 - [ ] Mô tả PR **sạch bút ký** (luật PR Mục 7); không giá trị secret nào trong mô tả
 
 ---

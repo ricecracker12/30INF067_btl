@@ -448,6 +448,19 @@ có `proxy.ts`, nhưng không có logic đăng nhập trong đó)*
   `script-src` không làm E2E đỏ (Vitest bắt). Thẻ script trong DOM sau hydrate bị trình duyệt giấu giá trị `nonce`: kiểm
   nonce phải đọc HTML gốc của response.
 - **Giá phải trả:** mọi trang render ở server mỗi request (trước là `○` tĩnh) — trang của app nhẹ, container Next chạy sẵn.
+- **Chấp nhận script Cloudflare tự chèn trên staging (chốt 2026-09-21, nhóm chốt, lúc thi công GĐ2 `F2`).** Cloudflare
+  đứng trước VPS và tự chèn hai script vào HTML: Web Analytics (`static.cloudflareinsights.com/beacon.min.js`, gửi về
+  `/cdn-cgi/rum`) và JS Detections (`/cdn-cgi/challenge-platform/…`). Kèm theo là cookie `cf_clearance`. Cloudflare
+  **chép nonce** của trang sang thẻ nó chèn. Chính sách không có `'strict-dynamic'`, nên một script mang nonce được
+  tải từ bất kỳ host nào: cả hai chạy mà không có vi phạm CSP nào, và **không cần sửa `csp.ts`**.
+  - *Vì sao chấp nhận:* nhờ Đ-E14, trình duyệt không cầm token nào. Lượt kiểm `F2` cũng xác nhận 0 `Authorization`,
+    0 JWT trong response, Web Storage trống. Hai script đều do chính nhà cung cấp proxy phục vụ, nên muốn cắt thì
+    phải đổi cấu hình zone, không đổi code.
+  - *Giới hạn:* đây là ngoại lệ **cho script Cloudflare tự chèn**, không phải lệnh mở cho bên thứ ba. App tự nạp
+    script bên thứ ba thì vẫn là quyết định mới, như dòng "Lệch mẫu của Next" ở trên. Kiểm tab Network phải liệt kê
+    **mọi** origin, không lọc trước, và nhận diện hai origin này theo tên chứ không bỏ qua theo thói quen.
+  - *Nếu sau này đổi ý:* tắt *Web Analytics automatic setup* và *Bot Fight Mode / JS Detections* của zone trên
+    dashboard Cloudflare, chạy lại bước 2 của `F2` (hướng dẫn khối E+F GĐ2 Mục 11) để thấy đúng hai origin.
 
 **Bằng chứng (2026-09-17).**
 
