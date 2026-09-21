@@ -31,8 +31,9 @@ public sealed class ReadPostTests(PostgresFixture postgres, ModulesApiFactory fa
     }
 
     /// <summary>
-    /// <c>READ-02..05</c> — ma trận BR-02 qua đường HTTP thật. Ở GĐ2 <c>AlwaysStrangers</c> luôn trả <c>false</c> nên
-    /// <c>friends</c> hành xử giống <c>private</c> với người lạ: đó là hành vi ĐÃ CHỐT (Đ-2.9), không phải thiếu sót.
+    /// <c>READ-02..05</c> — ma trận BR-02 qua đường HTTP thật. Người đọc là người lạ ngẫu nhiên —
+    /// <c>AreFriendsAsync</c> trả <c>false</c> vì chưa kết bạn, không vì null-object. Ca "là bạn thật" là
+    /// <c>READ-06</c>/<c>READ-06b</c> (B2), cần API kết bạn.
     ///
     /// Bảng đầy đủ mười hai tổ hợp ở <c>PostVisibilityTests</c> (unit); ở đây canh chính cái tầng unit không với tới —
     /// hàm thuần thật sự được nối vào đường đọc, và trượt BR-02 ra đúng <b>404</b> chứ không phải 403.

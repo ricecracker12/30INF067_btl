@@ -1035,3 +1035,10 @@ khối A GĐ2 — sửa ngay tại mục liên quan phía trên kèm "(sửa ng�
 - `A1`: `FriendPair` đổi từ record positional sang constructor `private` (Mục 3 Bước 2). Thêm test `Khong_co_constructor_public`.
 - `A4`: khẳng định index trong `ContentDbContextSchemaTests` đổi từ kiểm từng từ rời sang **nguyên mệnh đề** `WHERE` như
   `pg_indexes` chuẩn hóa ra — bản cũ để lọt filter đảo cột. Snapshot Content giữ BOM + LF như HEAD (bản sinh ra mất BOM).
+- `A5`: ca "vừa bạn vừa theo dõi" của `FeedSourceReaderTests` dùng id cố định (A là `max`) — với `Guid.NewGuid()` đột biến
+  "bỏ nhánh `UserMaxId`" chỉ đỏ ở khoảng một nửa số lượt.
+- Đột biến Mục 7 Bước 10 đã chạy: khôi phục `AlwaysStrangers` trong `AddContentModule` → test khởi động đỏ (`Assert.Single`);
+  bỏ vế `UserMaxId == userId` → `FeedSourceReaderTests` đỏ. `git status` sạch trước và sau.
+- `dotnet ef migrations has-pending-model-changes` cho SocialGraph và Content: không còn thay đổi model nào chưa có migration
+  (thay cho `migrations add Tmp` + `remove` — cùng câu trả lời, không chạm file).
+- **Còn nợ:** `--migrate` hai lần trên DB sạch + `\dn` + `EXPLAIN` truy vấn bạn bè — chưa chạy, cần DB dev sạch.

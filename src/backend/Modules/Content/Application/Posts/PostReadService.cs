@@ -22,9 +22,9 @@ public sealed class PostReadService(
     /// và bài không được xem. Trả 403 cho ca cuối là để status code tự tố cáo bài có tồn tại — chính thứ BR-02 dựng ra
     /// để giấu. Đây là dòng <c>READ-01</c> của AuthZ matrix.
     ///
-    /// <c>AreFriendsAsync</c> gọi CÓ ĐIỀU KIỆN — chỉ khi <c>privacy == Friends</c> và người đọc không phải tác giả. Ở
-    /// GĐ2 nó là <c>AlwaysStrangers</c> nên miễn phí, nhưng GĐ4 là một lượt đi DB (hoặc cache): gọi vô điều kiện ở đây
-    /// là mỗi lần đọc một bài công khai cũng tốn một lượt tra quan hệ bạn bè.
+    /// <c>AreFriendsAsync</c> gọi CÓ ĐIỀU KIỆN — chỉ khi <c>privacy == Friends</c> và người đọc không phải tác giả.
+    /// Một lượt tra PK cặp chuẩn hóa, không cache (Đ-4.3): gọi vô điều kiện ở đây là mỗi lần đọc một bài công khai
+    /// cũng tốn một lượt tra quan hệ bạn bè.
     /// </summary>
     public async Task<Result<PostResponse>> GetAsync(Guid postId, Guid actorId, CancellationToken ct)
     {

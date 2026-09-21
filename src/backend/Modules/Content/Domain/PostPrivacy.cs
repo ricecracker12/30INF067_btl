@@ -19,7 +19,7 @@ public enum PostPrivacy
     /// <summary>Ai đăng nhập cũng đọc được.</summary>
     Public,
 
-    /// <summary>Chỉ bạn bè của tác giả (GĐ3 mới có quan hệ thật; GĐ2 dùng <c>AlwaysStrangers</c>, Đ-2.3).</summary>
+    /// <summary>Chỉ bạn bè của tác giả — <c>IFriendshipReader</c> thật ở SocialGraph (Đ-4.3).</summary>
     Friends,
 
     /// <summary>Chỉ chính tác giả.</summary>

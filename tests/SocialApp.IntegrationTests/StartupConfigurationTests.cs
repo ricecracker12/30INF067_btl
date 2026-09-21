@@ -343,18 +343,18 @@ public sealed class StartupConfigurationTests
     }
 
     /// <summary>
-    /// A6: hai contract chéo module phải resolve được từ container CỦA HOST.
+    /// A6 + Đ-4.3: hai contract chéo module phải resolve được từ container CỦA HOST.
     ///
     /// Vì sao cần một khẳng định riêng: từ A6, module Content chỉ chạy được khi host đã gọi
-    /// <c>AddProfileModule</c> (IUserDirectory đăng ký ở đó, còn người dùng nó nằm ở Content). Không có gì
-    /// bắt lỗi lúc build — quên một dòng DI thì app khởi động BÌNH THƯỜNG rồi nổ lúc resolve service của
-    /// request đầu tiên, tức lỗi hiện ra ở khối D dưới dạng 500 chứ không ở đây.
+    /// <c>AddProfileModule</c> (IUserDirectory đăng ký ở đó, còn người dùng nó nằm ở Content). Từ GĐ4,
+    /// <c>IFriendshipReader</c> đăng ký ở <c>AddSocialGraphModule</c> — thiếu thì request đọc bài nổ lúc resolve.
+    /// Không có gì bắt lỗi lúc build.
     ///
-    /// IUserDirectory là scoped (dùng ProfileDbContext) nên phải mở scope; resolve thẳng từ
+    /// IUserDirectory / IFriendshipReader / IFeedSourceReader là scoped nên phải mở scope; resolve thẳng từ
     /// <c>factory.Services</c> sẽ ném vì lý do KHÁC hẳn và test sẽ nói dối.
     /// </summary>
     [Fact]
-    public void Host_resolve_duoc_hai_contract_cheo_module_cua_A6()
+    public void Host_resolve_duoc_hai_contract_cheo_module_cua_A6_va_GD4()
     {
         using var factory = new ApiFactory();
 
@@ -362,8 +362,10 @@ public sealed class StartupConfigurationTests
 
         Assert.NotNull(scope.ServiceProvider.GetRequiredService<IUserDirectory>());
 
-        // GĐ2 cố ý là null-object (Đ-2.9): khẳng định luôn cả KIỂU, để GĐ4 đổi dòng DI thì test này đỏ và
-        // người đổi biết có một khẳng định ở đây cần cập nhật theo.
-        Assert.IsType<AlwaysStrangers>(scope.ServiceProvider.GetRequiredService<IFriendshipReader>());
+        // Đ-4.3: đúng một đăng ký (hai lần thì thứ tự Add*Module quyết định BR-02 im lặng) và không phải AlwaysStrangers.
+        var readers = scope.ServiceProvider.GetServices<IFriendshipReader>().ToList();
+        Assert.Single(readers);
+        Assert.IsNotType<AlwaysStrangers>(readers[0]);
+        Assert.NotNull(scope.ServiceProvider.GetRequiredService<IFeedSourceReader>());
     }
 }

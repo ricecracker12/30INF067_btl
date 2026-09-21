@@ -983,8 +983,12 @@ Một index (Mục 4). Migration thứ hai của `ContentDbContext`; GĐ3 thêm 
 Hiện thực hai contract ở `SocialGraph.Infrastructure`; xóa dòng `AlwaysStrangers` ở Content (Đ-4.3); test khởi động; đổi
 test pin của GĐ2. Cache của `FeedSourceReader` là việc của `C1`.
 
+Lệch B.3 (nhóm chốt): `READ-06b` **không** xanh ở khối A. Matrix dựng cảnh qua API thật — "A và B là bạn" cần
+`POST /friends/requests` + accept (`D2`+`D3`). Khối A chứng minh BR-02 thật bằng `FriendshipReaderTests` (qua DI của
+module, Postgres thật) + test khởi động. `READ-06`/`READ-06b` vào matrix ở `B2` (đỏ có chủ đích), xanh khi `D3` xong.
+
 **Kết quả khối A:** `READ-01..05` xanh không sửa khẳng định; ArchUnitNET xanh với type thật trong SocialGraph;
-`READ-06b` xanh.
+BR-02 thật chứng minh bằng `FriendshipReaderTests` + test khởi động. `READ-06b` vào `B2`/`D3` (L2).
 
 ---
 

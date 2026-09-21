@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using SocialApp.Modules.SocialGraph.Infrastructure;
+using SocialApp.SharedKernel.Contracts;
 
 namespace SocialApp.Modules.SocialGraph.DependencyInjection;
 
@@ -24,6 +25,12 @@ public static class SocialGraphModuleExtensions
         // Cấu hình Npgsql + bảng lịch sử migration nằm ở SocialGraphDbContextOptions — dùng chung với
         // design-time factory để hai đường không lệch nhau.
         services.AddDbContext<SocialGraphDbContext>(options => options.UseSocialGraphNpgsql(connectionString));
+
+        // Đ-4.3: hiện thực THẬT của BR-02. Dòng AlwaysStrangers ở AddContentModule đã bị XÓA — không phải bị đè.
+        // Đăng ký hai lần thì cái sau thắng im lặng, và thứ tự hai dòng Add*Module trong Program.cs quyết định
+        // BR-02 thật hay giả. Scoped vì đọc qua SocialGraphDbContext.
+        services.AddScoped<IFriendshipReader, FriendshipReader>();
+        services.AddScoped<IFeedSourceReader, FeedSourceReader>();
 
         return services;
     }
