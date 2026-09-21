@@ -406,6 +406,14 @@ còn biên độ thêm index/cache nếu trượt; và thứ cắt được thì
   (NFR-PERF-01) — mốc kiểm chứng GOAL-01, chạy lại cuối GĐ8 sau tối ưu index.
 
 ### GĐ 3 — Tương tác: bình luận 3 cấp + cảm xúc: UC-06, UC-07 (Ngày 13–15)
+
+> 📄 **Tài liệu thi công chi tiết: [`giai-doan-3.md`](./giai-doan-3/giai-doan-3.md)** — 14 quyết định thiết kế
+> (Đ-3.1–Đ-3.14, trạng thái đề xuất, chốt ở cổng mở), migration chỉ-thêm của `comments`, khuôn giao dịch bộ đếm, hợp
+> đồng 8 endpoint mới trong `content-v1`, kế hoạch 3 người theo ngày, checklist nghiệm thu.
+>
+> **Hai chỗ lệch mục này, có chủ đích:** bài không được xem trả **404** chứ không 403 cho cả đọc/viết bình luận lẫn thả
+> cảm xúc (Đ-3.3, quy ước 3b của GĐ1); `PUT /reactions` tách thành `PUT`/`DELETE …/{đối tượng}/reactions/me` (Đ-3.7).
+> **Chốt 2026-09-21:** GĐ3 làm **sau** GĐ4 (giữ thứ tự gốc), **một người** làm cả hai lane, ước lượng ~6 ngày làm việc.
 - **Làm gì:** Bình luận ≤1000 ký tự, trả lời tối đa 3 cấp, xóa giữ nhánh (FR-007, BR-08);
   thả/đổi/gỡ 1 cảm xúc/đối tượng + cập nhật bộ đếm (FR-008, BR-05).
 - **Làm như nào:**
