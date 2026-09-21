@@ -640,6 +640,17 @@ FriendRequestPage     { items: [FriendCard], nextCursor: string | null }        
 - Cursor của `FriendPage` dùng cùng bộ mã hóa keyset của GĐ2 (`thời điểm|id của người kia`), mờ với client.
 - `GET /relationships/{userId}` với chính mình → 400 (không có quan hệ nào với chính mình để hỏi).
 
+**Chốt lúc viết hợp đồng (2026-09-22, cổng mở).** Bảng trên để ngỏ năm chỗ; `socialgraph-v1.yaml` chốt như sau:
+
+- `POST /friends/requests` và `PUT /follows/{userId}` có thêm **403**: cả hai mang `friend.request` (`[RequirePermission]`),
+  thiếu quyền là 403 — cùng cách `content-v1` ghi 403 cho `POST /posts`.
+- `direction` của `GET /friends/requests` mặc định `incoming`; giá trị lạ → 400 `errors.direction`.
+- `limit` của hai danh sách: mặc định 20, tối đa 50 (AGENTS.md Mục 9, cùng `content-v1`).
+- Tự gửi lời mời / tự theo dõi → 400 `errors.userId`, thông điệp *"Không thể gửi lời mời kết bạn cho chính mình."* /
+  *"Không thể theo dõi chính mình."*
+- `GET /relationships/{userId}` với `userId` không tồn tại → **200** `none` / `false`, không 404: endpoint đọc quan hệ
+  không phải chỗ để dò ai có tài khoản.
+
 ### 8.2 Content — thêm vào `content-v1.yaml` (chỉ-thêm)
 
 | Method | Path | Auth | Thành công | Lỗi |
