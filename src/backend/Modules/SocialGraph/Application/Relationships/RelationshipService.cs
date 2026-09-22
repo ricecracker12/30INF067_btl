@@ -109,4 +109,48 @@ public sealed class RelationshipService(
         var following = await _store.IsFollowingAsync(actorId, userId, ct);
         return new RelationshipResponse(userId, FriendshipView.Friends, following);
     }
+
+    /// <summary>
+    /// <c>DELETE /friends/requests/{userId}</c> — hủy lời mình gửi, hoặc từ chối lời nhận được (FR-011).
+    /// Một endpoint, chiều nào cũng xóa. Không mã quyền: <c>[Authorize]</c> đã xong ở controller (Đ-4.12).
+    ///
+    /// <list type="number">
+    /// <item>Khác mình → 400, <b>trước</b> DB. <see cref="FriendPair.Of"/> ném nếu lọt.</item>
+    /// <item>Không tra hồ sơ: hợp đồng không có 404. Không có lời mời vẫn 204.</item>
+    /// <item><c>DELETE</c> cặp + <c>pending</c>. Quan hệ <c>accepted</c> không khớp vế trạng thái.</item>
+    /// <item><c>changed &gt; 0</c> mới xóa cache nguồn cả hai phía, sau <c>COMMIT</c>. Không có event (Đ-4.15 chỉ
+    /// <c>FriendRequestSent</c> / <c>FriendRequestAccepted</c>).</item>
+    /// </list>
+    /// </summary>
+    public async Task<Result> DeclineOrCancelAsync(Guid actorId, Guid userId, CancellationToken ct)
+    {
+        if (actorId == userId)
+            return SocialGraphErrors.SelfDecline;
+
+        var pair = FriendPair.Of(actorId, userId);
+        if (await _store.DeletePendingAsync(pair, ct))
+            await _feedSources.InvalidateAsync(actorId, userId, ct);
+
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// <c>DELETE /friends/{userId}</c> — hủy kết bạn (FR-011). <c>[Authorize]</c> trần (Đ-4.12): người bị gỡ quyền
+    /// kết bạn vẫn hủy được. Lời mời <c>pending</c> và dòng <c>follows</c> không bị đụng (Đ-4.5).
+    ///
+    /// Khác mình → 400 trước DB. 0 dòng vẫn 204. Chỉ xóa cache nguồn cả hai phía khi có dòng <c>accepted</c> bị xóa,
+    /// sau <c>COMMIT</c> — request feed kế tiếp của hai người dùng nguồn mới (Mục 7.3).
+    /// </summary>
+    public async Task<Result> UnfriendAsync(Guid actorId, Guid userId, CancellationToken ct)
+    {
+        if (actorId == userId)
+            return SocialGraphErrors.SelfUnfriend;
+
+        var pair = FriendPair.Of(actorId, userId);
+        if (await _store.DeleteAcceptedAsync(pair, ct))
+            await _feedSources.InvalidateAsync(actorId, userId, ct);
+
+        return Result.Success();
+    }
+
 }

@@ -30,6 +30,20 @@ public static class SocialGraphErrors
         Error.Validation("userId", "Không thể chấp nhận lời mời kết bạn với chính mình.");
 
     /// <summary>
+    /// 400 của <c>DELETE /friends/requests/{userId}</c> khi <c>userId</c> là chính người gọi.
+    /// Kiểm <b>trước</b> DB: <c>FriendPair.Of</c> ném nếu lọt. Yaml không có example riêng — cùng key
+    /// <c>userId</c> với các lỗi tự-thao-tác kia.
+    /// </summary>
+    public static Error SelfDecline =>
+        Error.Validation("userId", "Không thể hủy lời mời kết bạn với chính mình.");
+
+    /// <summary>
+    /// 400 của <c>DELETE /friends/{userId}</c> khi <c>userId</c> là chính người gọi. Kiểm trước DB.
+    /// </summary>
+    public static Error SelfUnfriend =>
+        Error.Validation("userId", "Không thể hủy kết bạn với chính mình.");
+
+    /// <summary>
     /// 400 của <c>PUT /follows/{userId}</c> khi <c>userId</c> là chính người gọi. Kiểm trước DB.
     /// </summary>
     public static Error SelfFollow =>

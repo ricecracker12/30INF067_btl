@@ -318,6 +318,43 @@ public sealed class ModulesTestClient
     }
 
     /// <summary>
+    /// <c>DELETE /friends/requests/{userId}</c> — hủy lời đã gửi hoặc từ chối lời nhận được (D4).
+    /// <paramref name="userId"/> nhận <c>object</c> để test gửi được id sai dạng.
+    /// Không có tầng 2 nên không có tham số <c>role</c>: mọi người đã đăng nhập đều gọi được (Đ-4.12).
+    /// </summary>
+    public Task<HttpResponseMessage> DeclineOrCancelAsync(Guid actorId, object userId)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/friends/requests/{userId}");
+        request.Headers.Authorization = Bearer(actorId);
+        return Http.SendAsync(request);
+    }
+
+    /// <summary>Như <see cref="DeclineOrCancelAsync"/> nhưng khẳng định 204.</summary>
+    public async Task DeclineOrCancelOkAsync(Guid actorId, Guid userId)
+    {
+        using var response = await DeclineOrCancelAsync(actorId, userId);
+        Assert.Equal(System.Net.HttpStatusCode.NoContent, response.StatusCode);
+    }
+
+    /// <summary>
+    /// <c>DELETE /friends/{userId}</c> — hủy kết bạn (D4). <paramref name="userId"/> nhận <c>object</c>
+    /// để test gửi được id sai dạng.
+    /// </summary>
+    public Task<HttpResponseMessage> UnfriendAsync(Guid actorId, object userId)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/friends/{userId}");
+        request.Headers.Authorization = Bearer(actorId);
+        return Http.SendAsync(request);
+    }
+
+    /// <summary>Như <see cref="UnfriendAsync"/> nhưng khẳng định 204.</summary>
+    public async Task UnfriendOkAsync(Guid actorId, Guid userId)
+    {
+        using var response = await UnfriendAsync(actorId, userId);
+        Assert.Equal(System.Net.HttpStatusCode.NoContent, response.StatusCode);
+    }
+
+    /// <summary>
     /// Sửa dữ liệu trực tiếp — dùng để dựng cảnh SQL của D1 (bốn trạng thái quan hệ) khi endpoint ghi chưa có.
     /// Tham số vị trí <c>$1, $2…</c>. Trả số dòng bị ảnh hưởng. Chép khuôn <c>AuthTestClient.ExecuteSqlAsync</c>.
     /// </summary>

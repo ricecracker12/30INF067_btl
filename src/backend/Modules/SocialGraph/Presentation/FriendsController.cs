@@ -10,8 +10,7 @@ using SocialApp.SharedKernel.Http;
 namespace SocialApp.Modules.SocialGraph.Presentation;
 
 /// <summary>
-/// Tầng HTTP của lời mời kết bạn và danh sách bạn (UC-10, UC-11). D2–D3 có gửi + chấp nhận;
-/// D4–D5 thêm xóa / danh sách trên cùng controller.
+/// Tầng HTTP của lời mời kết bạn và danh sách bạn (UC-10, UC-11). D2–D4: gửi, chấp nhận, hủy.
 /// Cùng nhóm Swagger <see cref="SocialGraphApiGroup"/> với <c>RelationshipsController</c> —
 /// nhóm bám theo MODULE, không theo controller.
 ///
@@ -70,4 +69,36 @@ public sealed class FriendsController(RelationshipService relationships) : Contr
         var result = await relationships.AcceptRequestAsync(User.GetUserId(), userId, ct);
         return result.ToActionResult(this);
     }
+
+    /// <summary>
+    /// Hủy lời mình đã gửi, hoặc từ chối lời nhận được (FR-011). <c>[Authorize]</c> trần — không
+    /// <c>[RequirePermission]</c> (Đ-4.12). 0 dòng vẫn 204. Quan hệ <c>accepted</c> không bị xóa ở đây.
+    ///
+    /// Route không ràng buộc <c>:guid</c>: id sai dạng → 400 <c>errors.userId</c>, khớp yaml.
+    /// <c>actorId</c> từ token, không từ route.
+    /// </summary>
+    [HttpDelete("friends/requests/{userId}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest, "application/problem+json")]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized, "application/problem+json")]
+    public async Task<IActionResult> DeclineOrCancel(Guid userId, CancellationToken ct)
+    {
+        var result = await relationships.DeclineOrCancelAsync(User.GetUserId(), userId, ct);
+        return result.ToActionResult(this);
+    }
+
+    /// <summary>
+    /// Hủy kết bạn (FR-011). <c>[Authorize]</c> trần (Đ-4.12). Lời mời <c>pending</c> không bị xóa ở đây.
+    /// 0 dòng vẫn 204. <c>actorId</c> từ token, không từ route.
+    /// </summary>
+    [HttpDelete("friends/{userId}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest, "application/problem+json")]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized, "application/problem+json")]
+    public async Task<IActionResult> Unfriend(Guid userId, CancellationToken ct)
+    {
+        var result = await relationships.UnfriendAsync(User.GetUserId(), userId, ct);
+        return result.ToActionResult(this);
+    }
+
 }

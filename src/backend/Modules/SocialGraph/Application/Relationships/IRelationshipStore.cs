@@ -42,4 +42,20 @@ public interface IRelationshipStore
     /// <b>403</b> cùng một phản hồi cho mọi lý do (không có lời mời, tự chấp nhận, đã là bạn, người thứ ba).
     /// </returns>
     Task<bool> AcceptIncomingAsync(FriendPair pair, Guid requesterId, DateTimeOffset now, CancellationToken ct);
+
+    /// <summary>
+    /// D4 — xóa lời mời <c>pending</c> của cặp, theo chiều nào cũng được (người gửi hủy hoặc người nhận từ chối).
+    /// Vế <c>status = pending</c> bắt buộc: thiếu nó thì endpoint này xóa luôn tình bạn đã <c>accepted</c>.
+    /// Không <c>SELECT</c> trước. <c>ExecuteDeleteAsync</c> không cần <c>updated_at</c> — dòng không còn.
+    /// </summary>
+    /// <returns><c>true</c> khi có dòng bị xóa; <c>false</c> khi 0 dòng. Service vẫn trả 204, và chỉ khi <c>true</c> mới xóa cache.</returns>
+    Task<bool> DeletePendingAsync(FriendPair pair, CancellationToken ct);
+
+    /// <summary>
+    /// D4 — xóa quan hệ <c>accepted</c> của cặp. Vế trạng thái bắt buộc: thiếu nó thì hủy kết bạn xóa luôn lời mời đang chờ.
+    /// Không <c>SELECT</c> trước.
+    /// </summary>
+    /// <returns><c>true</c> khi có dòng bị xóa; <c>false</c> khi 0 dòng. Service vẫn trả 204, và chỉ khi <c>true</c> mới xóa cache.</returns>
+    Task<bool> DeleteAcceptedAsync(FriendPair pair, CancellationToken ct);
+
 }

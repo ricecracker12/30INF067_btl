@@ -1381,5 +1381,20 @@ Mỗi dòng: sửa tạm → chạy lọc → thấy **đúng** test dự kiến
   (401 anti-enumeration) nên matrix đủ sớm hơn kế hoạch "D3 + D7". Architecture 14/14.
   `FriendshipReaderTests` + `SocialGraphHarnessTests` 6/6.
 
+### D4 — 2026-09-22
+
+- Repo `30INF067_btl`, index 1 commit sau HEAD. Impact trước sửa: `RelationshipService` / `SocialGraphErrors` UNKNOWN
+  (grep: controller + DI, thêm phương thức); `IRelationshipStore` LOW (d=1: `RelationshipStore`);
+  `FriendsController` / `RelationshipStore` LOW. `ModulesTestClient` CRITICAL (111 caller) — chỉ thêm
+  `DeclineOrCancelAsync` / `DeclineOrCancelOkAsync` / `UnfriendAsync` / `UnfriendOkAsync`, không đổi chữ ký cũ.
+- `ExecuteDeleteAsync` nằm ở **store**, kèm vế `Status == Pending` / `Status == Accepted`. 0 dòng vẫn 204;
+  `changed > 0` mới `InvalidateAsync` cả hai phía, sau COMMIT. Không event — Đ-4.15 chỉ `FriendRequestSent` /
+  `FriendRequestAccepted`. Không tra hồ sơ: yaml không có 404. Chính mình → 400 `errors.userId` trước
+  `FriendPair.Of` (yaml không có example riêng, cùng nếp `SelfAccept`).
+- `DeleteFriendshipTests` **13/13** trên Redis thật: hủy và từ chối đều xóa `pending`; `DELETE /friends` không đụng
+  lời mời đang chờ; `DELETE /friends/requests` không đụng quan hệ `accepted`; dòng `follows` còn sau hủy kết bạn;
+  khóa `sg:feed-sources` chỉ mất khi có dòng bị xóa. `SendFriendRequestTests` + `AcceptFriendRequestTests` +
+  `SocialGraphHarnessTests` **24/24** không đổi. Ba lớp ranh giới kiến trúc **10/10**. `FRD-07..09` chờ commit `B3`.
+
 *Ghi tiếp khi làm: `EXPLAIN` của LATERAL và gợi ý trên dữ liệu tải (`C2`), dạng
 exception timeout thật (`C4`/`FEED-12`), hằng số `FEED-Q1` so với Mục 7.2, kết quả từng dòng đột biến, năm mục tự rà B.9.*

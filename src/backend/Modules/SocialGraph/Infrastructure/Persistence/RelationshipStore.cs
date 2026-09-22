@@ -75,4 +75,27 @@ public sealed class RelationshipStore(SocialGraphDbContext db) : IRelationshipSt
 
         return changed == 1;
     }
+
+    /// <summary>Một câu. Không vế <c>RequesterId</c>: hủy và từ chối dùng chung endpoint, chiều nào cũng xóa.</summary>
+    public async Task<bool> DeletePendingAsync(FriendPair pair, CancellationToken ct)
+    {
+        var changed = await db.Friendships
+            .Where(f => f.UserMinId == pair.Min && f.UserMaxId == pair.Max
+                     && f.Status == FriendshipStatus.Pending)
+            .ExecuteDeleteAsync(ct);
+
+        return changed > 0;
+    }
+
+    /// <summary>Một câu. Lời mời <c>pending</c> không khớp vế trạng thái nên không bị đụng.</summary>
+    public async Task<bool> DeleteAcceptedAsync(FriendPair pair, CancellationToken ct)
+    {
+        var changed = await db.Friendships
+            .Where(f => f.UserMinId == pair.Min && f.UserMaxId == pair.Max
+                     && f.Status == FriendshipStatus.Accepted)
+            .ExecuteDeleteAsync(ct);
+
+        return changed > 0;
+    }
+
 }
