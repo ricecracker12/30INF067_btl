@@ -1476,6 +1476,14 @@ Tự rà thay review chéo (một người làm), trên `e120090..a062107`. Mỗ
 - Seed: theo dõi trùng hết bạn → `FollowingOnly` rỗng. Chi tiết ở mục `C5` phía trên.
 - Sáu chỗ gọi `InvalidateAsync` nhận token của request: client ngắt sau `COMMIT` là bỏ xóa cache. Đổi sang
   `CancellationToken.None`; `RelationshipServicePostCommitTests` 6 ca, trả service về bản cũ → 6/6 đỏ.
+- **Hai chỗ chỉ sửa được bằng cách viết lại lịch sử — chưa làm, chờ chốt** (mười ba commit `B1`–`B5` đã push lên
+  `loveart1210`, chưa merge vào `develop`):
+  1. `D1` `ca2a9d5`, `D2` `a7a4aff`, `D3` `ff5ab81` có trailer `Co-authored-by: Cursor …` — trái `commit-rules.md`
+     Mục 6 (footer sạch bút ký), nên checklist 17.5 dòng cuối **chưa tick được**.
+  2. Dòng `Test:` của `D4` `eb2d9a5`, `D5` `297a063`, `D6` `5c43188`, `B3` `64cebec` chỉ ghi số của bộ lọc, thiếu tổng
+     trước → sau (Mục 5.5). Số đã đếm lại bằng `--list-tests` ở từng commit, để đây làm bằng chứng:
+     `D4` Integration **390 → 403**; `D5` Integration **403 → 417**, Unit **227 → 238**; `D6` Integration
+     **417 → 428**; `B3` Integration **428 → 442**.
 - Không ca nào canh `D3` xóa cache nguồn — bỏ dòng `InvalidateAsync` trong `AcceptRequestAsync` thì `FRD-*`, AuthZ và
   cả lớp `AcceptFriendRequestTests` vẫn xanh. Thêm `Chap_nhan_xoa_cache_nguon_ca_hai_phia_0_dong_thi_khong` (lớp chuyển
   sang Redis thật, khuôn `DeleteFriendshipTests`) + một dòng Mục 17.4. Thử đỏ: bỏ dòng đó → **chỉ** ca mới đỏ (57 ca
