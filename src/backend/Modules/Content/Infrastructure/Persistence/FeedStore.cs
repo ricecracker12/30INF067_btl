@@ -121,14 +121,23 @@ public sealed class FeedStore(ContentDbContext db) : IFeedStore
     /// <summary>
     /// Hai dạng Npgsql có thể ném khi hết <c>CommandTimeout</c>: <see cref="NpgsqlException"/> bọc
     /// <see cref="TimeoutException"/> (hết giờ phía client), hoặc <c>57014 query_canceled</c> (Npgsql gửi lệnh hủy lên server
-    /// và server báo đã hủy) — trần hoặc bọc trong <see cref="NpgsqlException"/>. Client tự ngắt thì Npgsql ném
-    /// <see cref="OperationCanceledException"/>, không khớp đây — và người gọi còn chặn thêm bằng token.
+    /// và server báo đã hủy). Đi dọc CẢ chuỗi <c>InnerException</c>, không chỉ tầng ngoài: <c>FEED-12</c> cho thấy dạng thật là
+    /// <see cref="InvalidOperationException"/> ("…likely due to a transient failure", do <c>NpgsqlExecutionStrategy</c> mặc
+    /// định của EF bọc lỗi tạm thời) → <see cref="NpgsqlException"/> → <see cref="TimeoutException"/>. Chỉ soi tầng ngoài là
+    /// timeout rơi thành 500. Client tự ngắt thì Npgsql ném <see cref="OperationCanceledException"/>, không khớp đây — và
+    /// người gọi còn chặn thêm bằng token.
     /// </summary>
-    private static bool IsTimeout(Exception ex) =>
-        ex is NpgsqlException npgsql
-        && (npgsql.InnerException is TimeoutException
-            || IsQueryCanceled(npgsql)
-            || (npgsql.InnerException is { } inner && IsQueryCanceled(inner)));
+    private static bool IsTimeout(Exception ex)
+    {
+        for (var current = ex; current is not null; current = current.InnerException)
+        {
+            if (current is NpgsqlException npgsql
+                && (npgsql.InnerException is TimeoutException || IsQueryCanceled(npgsql)))
+                return true;
+        }
+
+        return false;
+    }
 
     private static bool IsQueryCanceled(Exception ex) =>
         ex is PostgresException { SqlState: PostgresErrorCodes.QueryCanceled };

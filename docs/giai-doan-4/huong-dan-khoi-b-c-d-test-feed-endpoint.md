@@ -947,7 +947,8 @@ finally { db.Database.SetCommandTimeout(previous); }   // DbContext scoped: khô
 
 `IsTimeout` phải nhận **cả hai** dạng Npgsql có thể ném khi hết `CommandTimeout`: `NpgsqlException { InnerException:
 TimeoutException }` và `PostgresException { SqlState: "57014" }` (query_canceled — Npgsql gửi lệnh hủy lên server). Loại nào
-thật sự xảy ra thì `FEED-12` trả lời; ghi vào "Thực tế thi công". `OperationCanceledException` do **client ngắt** thì
+thật sự xảy ra thì `FEED-12` trả lời; ghi vào "Thực tế thi công". *(Đã trả lời 2026-09-23: EF bọc cả hai trong
+`InvalidOperationException` của execution strategy — đi dọc chuỗi `InnerException`, đừng chỉ soi tầng ngoài.)* `OperationCanceledException` do **client ngắt** thì
 **không** phải 503. `FeedQueryTimeoutException` khai ở `Application` (luật 7) — Application không bắt được kiểu Npgsql.
 
 **Bước 5 — lỗi**: `ContentErrors.FeedUnavailable = new("feed.unavailable", "<câu example của yaml /feed 503>", 503)`.
@@ -1582,7 +1583,11 @@ Tự rà thay review chéo (một người làm), trên `e120090..a062107`. Mỗ
 - `ContentErrors.FeedUnavailable` đặt `Title` riêng ("Bảng tin đang quá tải"): `ProblemTitles.For(503)` rơi vào nhánh
   `>= 500` → "Đã xảy ra lỗi không mong muốn", sai nghĩa với 503.
 - Timeout: `FeedStore` đặt `CommandTimeout` 5s rồi trả lại trong `finally`; `IsTimeout` nhận `NpgsqlException` bọc
-  `TimeoutException` và `57014` trần hoặc bọc. Dạng nào thật sự xảy ra — ghi ở `FEED-12` (B4).
+  `TimeoutException` và `57014` trần hoặc bọc. **Sửa 2026-09-23 (lỗi lộ ra ở `FEED-12`):** dạng thật là
+  `InvalidOperationException` ("An exception has been raised that is likely due to a transient failure", do
+  `NpgsqlExecutionStrategy` mặc định của EF bọc lỗi tạm thời) → `NpgsqlException` ("Exception while reading from stream") →
+  `TimeoutException` ("Timeout during reading attempt"). Bản đầu chỉ soi tầng ngoài nên timeout rơi thành **500**;
+  `IsTimeout` giờ đi dọc cả chuỗi `InnerException`. Không thấy `57014` — Npgsql hết giờ phía client trước.
 - Thử đỏ (đã khôi phục): bỏ xóa khóa sau đăng bài → `FeedPageCacheTests.Dang_sua_xoa_…` đỏ; `next` tính từ danh sách đã
   lọc → `FeedServiceTests.Truot_cache_kiem_lai_va_next_tu_danh_sach_goc` đỏ.
 
