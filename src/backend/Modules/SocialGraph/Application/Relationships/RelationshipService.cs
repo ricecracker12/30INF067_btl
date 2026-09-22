@@ -28,6 +28,13 @@ public sealed class RelationshipService(
     private readonly IObjectStorage _storage = storage;
 
     /// <summary>
+    /// Token cho việc xóa cache SAU <c>COMMIT</c>: không hủy được. Client ngắt kết nối lúc này thì thay đổi đã nằm trong
+    /// DB — truyền token của request vào là bỏ qua xóa cache, hai người đọc nguồn cũ thêm 60s. Cùng lý do
+    /// <see cref="IFeedSourceCache"/> nuốt lỗi Redis thay vì ném.
+    /// </summary>
+    private static readonly CancellationToken PostCommit = CancellationToken.None;
+
+    /// <summary>
     /// <c>GET /relationships/{userId}</c> — trạng thái nút trên hồ sơ (Đ-4.16).
     ///
     /// Chính mình → 400 <see cref="SocialGraphErrors.SelfRelationship"/>, <b>trước</b> DB
@@ -74,7 +81,7 @@ public sealed class RelationshipService(
         if (!await _store.AddRequestAsync(friendship, ct))
             return SocialGraphErrors.RelationshipExists;
 
-        await _feedSources.InvalidateAsync(actorId, request.UserId, ct);
+        await _feedSources.InvalidateAsync(actorId, request.UserId, PostCommit);
         _events.FriendRequestSent(actorId, request.UserId);
 
         var following = await _store.IsFollowingAsync(actorId, request.UserId, ct);
@@ -106,7 +113,7 @@ public sealed class RelationshipService(
         if (!await _store.AcceptIncomingAsync(pair, userId, _clock.GetUtcNow(), ct))
             return Result<RelationshipResponse>.Forbidden();
 
-        await _feedSources.InvalidateAsync(actorId, userId, ct);
+        await _feedSources.InvalidateAsync(actorId, userId, PostCommit);
         _events.FriendRequestAccepted(userId, actorId);
 
         var following = await _store.IsFollowingAsync(actorId, userId, ct);
@@ -132,7 +139,7 @@ public sealed class RelationshipService(
 
         var pair = FriendPair.Of(actorId, userId);
         if (await _store.DeletePendingAsync(pair, ct))
-            await _feedSources.InvalidateAsync(actorId, userId, ct);
+            await _feedSources.InvalidateAsync(actorId, userId, PostCommit);
 
         return Result.Success();
     }
@@ -151,7 +158,7 @@ public sealed class RelationshipService(
 
         var pair = FriendPair.Of(actorId, userId);
         if (await _store.DeleteAcceptedAsync(pair, ct))
-            await _feedSources.InvalidateAsync(actorId, userId, ct);
+            await _feedSources.InvalidateAsync(actorId, userId, PostCommit);
 
         return Result.Success();
     }
@@ -203,7 +210,7 @@ public sealed class RelationshipService(
             return SocialGraphErrors.UserNotFound;
 
         if (await _store.AddFollowAsync(actorId, userId, _clock.GetUtcNow(), ct))
-            await _feedSources.InvalidateAsync(actorId, ct: ct);
+            await _feedSources.InvalidateAsync(actorId, ct: PostCommit);
 
         return Result.Success();
     }
@@ -218,7 +225,7 @@ public sealed class RelationshipService(
     public async Task<Result> UnfollowAsync(Guid actorId, Guid userId, CancellationToken ct)
     {
         if (await _store.DeleteFollowAsync(actorId, userId, ct))
-            await _feedSources.InvalidateAsync(actorId, ct: ct);
+            await _feedSources.InvalidateAsync(actorId, ct: PostCommit);
 
         return Result.Success();
     }
