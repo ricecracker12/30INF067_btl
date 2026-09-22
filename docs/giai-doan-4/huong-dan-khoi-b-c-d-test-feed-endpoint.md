@@ -1206,13 +1206,13 @@ Tick từng dòng, có bằng chứng. Dòng không áp dụng thì ghi lý do, 
 - [x] Bảy endpoint quan hệ + `GET /feed` hiện trên Swagger đúng nhóm
 - [x] `content-v1.yaml`: chỉ thêm, `1.0.0-gd4`, `schema.d.ts` cùng commit `D7`
 - [x] Bảng rà mã lỗi hai nhóm (`D7` Bước 4) trong thân commit #17
-- [ ] 403 của accept không phân biệt lý do; 503 có `Retry-After: 5`
+- [x] 403 của accept không phân biệt lý do; 503 có `Retry-After: 5`
 
 ### 17.3 Feed và hiệu năng
 
 - [x] `EXPLAIN` LATERAL + gợi ý trên bộ dữ liệu tải dán vào "Thực tế thi công", đúng hình dạng Đ-4.7
 - [x] `EXPLAIN` trước/sau Đ-4.11 trong thân commit #14
-- [ ] `FEED-01..13`, `FEED-07b`, `FEED-09b`, `PAGE-04`, `FEED-Q1` xanh; ca cache khẳng định trúng cache trước
+- [x] `FEED-01..13`, `FEED-07b`, `FEED-09b`, `PAGE-04`, `FEED-Q1` xanh; ca cache khẳng định trúng cache trước
 - [ ] Giá trị thô `feed:p1:*` đúng bốn trường; môi trường đo: `redis-cli --scan --pattern 'feed:*'` + `GET` vài khóa không
       thấy `X-Amz-Signature` (Mục 12 gốc)
 - [ ] Báo cáo k6 ba lượt ở `docs/giai-doan-4/bao-cao-k6-so-bo.md`; lượt (3) lỗi < 1%
@@ -1608,5 +1608,36 @@ Tự rà thay review chéo (một người làm), trên `e120090..a062107`. Mỗ
 - Bảng rà RFC 7807 hai nhóm (mọi mã trừ 429/500 — mã middleware, cổng hợp đồng đã trừ) nằm trong thân commit D7. Không
   mã nào thiếu test; hai mã của `/feed` (`400 errors.cursor`, `503`) canh bằng `PAGE-04`, `FEED-12` ở commit B4.
 
-*Ghi tiếp khi làm: dạng exception timeout thật (`C4`/`FEED-12`), hằng số `FEED-Q1` so với Mục 7.2, nửa feed của bảng đột
-biến (bước 5), năm mục tự rà B.9.*
+### B4 — 2026-09-23
+
+- Không đổi hành vi sản phẩm — trừ lỗi `IsTimeout` mà `FEED-12` lộ ra, đã tách thành commit `fix(gd4-c)` `310c5a6` đứng
+  trước (Mục C4 phía trên). Ba lớp đúng bảng Mục 14: `FeedTests` 11 ca (harness mặc định, Redis chết), `FeedCacheTests` 5 ca
+  (`UseRedis` + `DistinctGetUrls`; chờ kết nối Redis của app trước ca đầu, không thì lượt đọc đầu không ghi khóa),
+  `FeedQueryCountTests` 1 ca.
+- `FEED-12`: dạng exception thật ở mục C4. Chờ đủ 5s (Q-B4); người đọc có một bạn → nhánh LATERAL.
+- `FEED-Q1`: **5 câu** ở 50 nguồn và 200 nguồn — khớp Mục 7.2 (nguồn 2 + feed 1 + ảnh 1 + tác giả 1), không phải sửa số
+  nào. Quan hệ INSERT bằng SQL, chuẩn hóa bằng `least`/`greatest` của Postgres (L4).
+- `FEED-09` cuộn tới hết bằng `nextCursor` (21 bài `public` qua hai trang, không lặp, không có bài `friends`); `FEED-09b`
+  chứng minh trúng cache bằng giá trị khóa **y nguyên** trước và sau (trượt thì `FeedService` ghi lại khóa với `ids` mới).
+- `FEED-11` khẳng định log cảnh báo fail-open của **cả hai** tầng cache (nguồn feed và trang đầu).
+- `AssertRawValueHoldsOnlyIds` (trong `FeedCacheTests`) là helper cho GĐ3 gọi lại khi thêm `myReaction`.
+
+Nửa feed của Mục 17.4 (bước 5), mỗi dòng sửa tạm → chạy mọi lớp `Content.Feed*` (34 ca) → khôi phục từ bản sao:
+
+| Đột biến | Kết quả |
+| --- | --- |
+| Không gọi `InvalidateAsync` sau hủy kết bạn | Đỏ đúng `FEED-09` — chỉ ca đó. |
+| Xóa cache nguồn **trước** `COMMIT` | **Không tái hiện** (34/34 xanh) — test tuần tự, không có request đọc chen giữa xóa và `COMMIT`. Đúng dự kiến của bảng; B.9 tự rà mục 2 canh. |
+| Bỏ kiểm lại BR-02 (bước 6 của `FeedService`) | Đỏ đúng `FEED-09b` — chỉ ca đó. |
+| Bỏ so dấu nguồn (Q-C1) | Đỏ đúng `FEED-07b` — chỉ ca đó. |
+| Cache trang đầu lưu `PostResponse` (thêm trường `items` vào giá trị Redis, trả thẳng khi trúng) | Đỏ `FEED-10` (URL lần 2 bằng lần 1), `FEED-13` (giá trị thô có trường thứ năm), kèm `FEED-09b` và `FeedPageCacheTests.Gia_tri_tho_dung_bon_truong`. |
+| Bỏ `status = 'published'` trong LATERAL | **`FEED-06` vẫn xanh** — bước kiểm lại trong bộ nhớ (`FeedVisibility.CanSee` đòi `Published`) lọc hộ bài `hidden`. Đỏ 3 ca đối chiếu của `FeedStoreTests`. Lệch cột "test phải đỏ": lưới của dòng này là `FeedStoreTests`, không phải `FEED-06`; hai lớp phòng thủ che nhau là đúng thiết kế (Đ-4.9), nên bản SQL phải có test riêng. |
+| Bỏ nhánh `lvl = 3` | Đỏ `FEED-05` (vế "của mình"), kèm `FEED-13` và 3 ca `FeedStoreTests`. |
+| Điều kiện `suggested` thành `Friends.Count == 0` | Đỏ `FEED-03` (vế `mode`), kèm `FEED-09` và `FeedEndpointTests.Co_mot_ket_noi_thi_mode_network`. |
+| Hydrate tác giả từng bài (`foreach` gọi `IUserDirectory`) | Đỏ đúng `FEED-Q1`. |
+| Trượt cache vẫn nạp lại bài theo PK (bỏ L14) | Đỏ đúng `FEED-Q1` (6 ≠ 5). |
+| Không khôi phục `CommandTimeout` sau truy vấn feed | Không ca nào đỏ — đúng dự kiến (đối chứng có chủ đích); B.9 tự rà. |
+| Khôi phục `AlwaysStrangers` ở `AddContentModule` | Đỏ test khởi động `Host_resolve_duoc_hai_contract_cheo_module_…`. **`FEED-04` vẫn xanh** — feed đi `IFeedSourceReader`, không dùng `IFriendshipReader`, nên dòng này của bảng không có lưới ở feed; `READ-06b` cũng xanh như B3 đã ghi (đăng ký của SocialGraph đứng sau thắng). |
+
+*Còn lại trước PR: năm mục tự rà B.9; dòng `redis-cli --scan --pattern 'feed:*'` của Mục 17.3 chạy trên môi trường đo
+cùng `C6`.*
