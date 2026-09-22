@@ -10,7 +10,7 @@ using SocialApp.SharedKernel.Http;
 namespace SocialApp.Modules.SocialGraph.Presentation;
 
 /// <summary>
-/// Tầng HTTP của lời mời kết bạn và danh sách bạn (UC-10, UC-11). D2–D4: gửi, chấp nhận, hủy.
+/// Tầng HTTP của lời mời kết bạn và danh sách bạn (UC-10, UC-11). D2–D5: gửi, chấp nhận, hủy, danh sách.
 /// Cùng nhóm Swagger <see cref="SocialGraphApiGroup"/> với <c>RelationshipsController</c> —
 /// nhóm bám theo MODULE, không theo controller.
 ///
@@ -101,4 +101,39 @@ public sealed class FriendsController(RelationshipService relationships) : Contr
         return result.ToActionResult(this);
     }
 
+    /// <summary>
+    /// Bạn của chính người gọi, mới kết bạn trước. <c>[Authorize]</c> trần (Đ-4.12).
+    /// <paramref name="query"/> là <c>[FromQuery]</c> để FluentValidation bắt cursor rác và limit ngoài <c>1..50</c>.
+    /// </summary>
+    [HttpGet("friends")]
+    [ProducesResponseType<FriendPage>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest, "application/problem+json")]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized, "application/problem+json")]
+    public async Task<ActionResult<FriendPage>> List([FromQuery] ListFriendsQuery query, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+
+        var page = await relationships.ListFriendsAsync(
+            User.GetUserId(), query.Cursor, query.EffectiveLimit, ct);
+        return Ok(page);
+    }
+
+    /// <summary>
+    /// Lời mời <c>pending</c> của chính người gọi. Không gửi <c>direction</c> thì là incoming.
+    /// Giá trị lạ thành 400 <c>errors.direction</c> ở validator — không bind enum.
+    /// </summary>
+    [HttpGet("friends/requests")]
+    [ProducesResponseType<FriendRequestPage>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest, "application/problem+json")]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized, "application/problem+json")]
+    public async Task<ActionResult<FriendRequestPage>> ListRequests(
+        [FromQuery] ListFriendRequestsQuery query, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+
+        var incoming = query.Direction is not ListFriendRequestsQuery.Outgoing;
+        var page = await relationships.ListRequestsAsync(
+            User.GetUserId(), incoming, query.Cursor, query.EffectiveLimit, ct);
+        return Ok(page);
+    }
 }

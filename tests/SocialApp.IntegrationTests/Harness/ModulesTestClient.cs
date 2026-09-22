@@ -355,6 +355,41 @@ public sealed class ModulesTestClient
     }
 
     /// <summary>
+    /// <c>GET /friends</c> với tư cách <paramref name="actorId"/> (D5). <paramref name="query"/> là phần query
+    /// string kể cả <c>?</c> — rỗng là trang đầu, limit mặc định.
+    /// </summary>
+    public Task<HttpResponseMessage> ListFriendsAsync(Guid actorId, string query = "")
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, $"/api/v1/friends{query}");
+        request.Headers.Authorization = Bearer(actorId);
+        return Http.SendAsync(request);
+    }
+
+    /// <summary>Như <see cref="ListFriendsAsync"/> nhưng đọc luôn body 200.</summary>
+    public async Task<FriendPage> ListFriendsOkAsync(Guid actorId, string query = "")
+    {
+        using var response = await ListFriendsAsync(actorId, query);
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<FriendPage>(Json))!;
+    }
+
+    /// <summary><c>GET /friends/requests</c> với tư cách <paramref name="actorId"/> (D5).</summary>
+    public Task<HttpResponseMessage> ListRequestsAsync(Guid actorId, string query = "")
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, $"/api/v1/friends/requests{query}");
+        request.Headers.Authorization = Bearer(actorId);
+        return Http.SendAsync(request);
+    }
+
+    /// <summary>Như <see cref="ListRequestsAsync"/> nhưng đọc luôn body 200.</summary>
+    public async Task<FriendRequestPage> ListRequestsOkAsync(Guid actorId, string query = "")
+    {
+        using var response = await ListRequestsAsync(actorId, query);
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<FriendRequestPage>(Json))!;
+    }
+
+    /// <summary>
     /// Sửa dữ liệu trực tiếp — dùng để dựng cảnh SQL của D1 (bốn trạng thái quan hệ) khi endpoint ghi chưa có.
     /// Tham số vị trí <c>$1, $2…</c>. Trả số dòng bị ảnh hưởng. Chép khuôn <c>AuthTestClient.ExecuteSqlAsync</c>.
     /// </summary>

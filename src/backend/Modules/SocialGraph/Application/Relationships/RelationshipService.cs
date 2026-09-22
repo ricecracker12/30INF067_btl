@@ -1,6 +1,7 @@
 using SocialApp.Modules.SocialGraph.Domain;
 using SocialApp.SharedKernel.Contracts;
 using SocialApp.SharedKernel.Results;
+using SocialApp.SharedKernel.Storage;
 
 namespace SocialApp.Modules.SocialGraph.Application.Relationships;
 
@@ -16,13 +17,15 @@ public sealed class RelationshipService(
     IUserDirectory directory,
     IFeedSourceCache feedSources,
     SocialGraphEvents events,
-    TimeProvider clock)
+    TimeProvider clock,
+    IObjectStorage storage)
 {
     private readonly IRelationshipStore _store = store;
     private readonly IUserDirectory _directory = directory;
     private readonly IFeedSourceCache _feedSources = feedSources;
     private readonly SocialGraphEvents _events = events;
     private readonly TimeProvider _clock = clock;
+    private readonly IObjectStorage _storage = storage;
 
     /// <summary>
     /// <c>GET /relationships/{userId}</c> — trạng thái nút trên hồ sơ (Đ-4.16).
@@ -153,4 +156,62 @@ public sealed class RelationshipService(
         return Result.Success();
     }
 
+    /// <summary>
+    /// <c>GET /friends</c> — bạn của chính người gọi, mới kết bạn trước. Không 404: chưa có bạn là trang rỗng.
+    /// </summary>
+    public async Task<FriendPage> ListFriendsAsync(
+        Guid actorId, string? rawCursor, int limit, CancellationToken ct)
+    {
+        FriendCursor? cursor = FriendCursor.TryDecode(rawCursor, out var decoded) ? decoded : null;
+        var rows = await _store.ListFriendsAsync(actorId, cursor, limit + 1, ct);
+        var (items, next) = await ToCardsAsync(rows, limit, ct);
+        return new FriendPage(items, next);
+    }
+
+    /// <summary>
+    /// <c>GET /friends/requests</c>. <paramref name="incoming"/> đã được validator chặn giá trị lạ.
+    /// Không gửi <c>direction</c> thì controller truyền <c>true</c> (mặc định incoming).
+    /// </summary>
+    public async Task<FriendRequestPage> ListRequestsAsync(
+        Guid actorId, bool incoming, string? rawCursor, int limit, CancellationToken ct)
+    {
+        FriendCursor? cursor = FriendCursor.TryDecode(rawCursor, out var decoded) ? decoded : null;
+        var rows = await _store.ListRequestsAsync(actorId, incoming, cursor, limit + 1, ct);
+        var (items, next) = await ToCardsAsync(rows, limit, ct);
+        return new FriendRequestPage(items, next);
+    }
+
+    /// <summary>
+    /// Một <see cref="IUserDirectory.GetManyAsync"/> cho cửa sổ <paramref name="limit"/> dòng gốc.
+    /// Thiếu hồ sơ thì thẻ vắng mặt. <c>nextCursor</c> lấy từ dòng thứ <paramref name="limit"/> của danh sách
+    /// gốc, trước khi lọc — không phải thẻ cuối còn lại (Đ-4.9). Hết dữ liệu khi không có dòng thừa.
+    /// </summary>
+    private async Task<(IReadOnlyList<FriendCard> Items, string? NextCursor)> ToCardsAsync(
+        IReadOnlyList<FriendListRow> rows, int limit, CancellationToken ct)
+    {
+        var window = rows.Count > limit ? rows.Take(limit).ToList() : rows;
+        if (window.Count == 0)
+            return ([], null);
+
+        var cards = await _directory.GetManyAsync(window.Select(r => r.OtherUserId).ToArray(), ct);
+
+        var items = new List<FriendCard>(window.Count);
+        foreach (var row in window)
+        {
+            if (!cards.TryGetValue(row.OtherUserId, out var card))
+                continue;
+
+            items.Add(new FriendCard(
+                new FriendUser(
+                    card.UserId,
+                    card.DisplayName,
+                    card.AvatarKey is { } key ? _storage.CreatePresignedGet(key) : null),
+                row.Since));
+        }
+
+        var next = rows.Count > limit
+            ? new FriendCursor(window[^1].Since, window[^1].OtherUserId).Encode()
+            : null;
+        return (items, next);
+    }
 }

@@ -58,4 +58,18 @@ public interface IRelationshipStore
     /// <returns><c>true</c> khi có dòng bị xóa; <c>false</c> khi 0 dòng. Service vẫn trả 204, và chỉ khi <c>true</c> mới xóa cache.</returns>
     Task<bool> DeleteAcceptedAsync(FriendPair pair, CancellationToken ct);
 
+    /// <summary>
+    /// D5 — một trang bạn <c>accepted</c> của <paramref name="me"/>, <c>accepted_at DESC</c> rồi id người kia DESC.
+    /// <paramref name="take"/> là <c>limit + 1</c>. Keyset theo <paramref name="cursor"/>; <c>null</c> là trang đầu.
+    /// </summary>
+    Task<IReadOnlyList<FriendListRow>> ListFriendsAsync(
+        Guid me, FriendCursor? cursor, int take, CancellationToken ct);
+
+    /// <summary>
+    /// D5 — một trang lời mời <c>pending</c> của <paramref name="me"/>. <paramref name="incoming"/>: người kia gửi
+    /// (<c>requester_id ≠ me</c>); ngược lại là lời mình gửi. Sắp <c>created_at DESC</c>, hòa thì id người kia DESC.
+    /// </summary>
+    Task<IReadOnlyList<FriendListRow>> ListRequestsAsync(
+        Guid me, bool incoming, FriendCursor? cursor, int take, CancellationToken ct);
+
 }

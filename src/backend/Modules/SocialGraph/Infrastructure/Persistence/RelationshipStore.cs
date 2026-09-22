@@ -98,4 +98,68 @@ public sealed class RelationshipStore(SocialGraphDbContext db) : IRelationshipSt
         return changed > 0;
     }
 
+    /// <summary>
+    /// Chiếu <c>other</c> trong SQL (không chuẩn hóa lại bằng <c>CompareTo</c> — dòng đã là cặp chuẩn hóa).
+    /// <c>accepted_at</c> nullable trên entity; CHECK buộc nó khác null khi <c>accepted</c>. Map sau <c>ToList</c>
+    /// vì <c>DateTimeOffset?</c> không gán được vào <see cref="FriendListRow"/> trong biểu thức EF.
+    /// </summary>
+    public async Task<IReadOnlyList<FriendListRow>> ListFriendsAsync(
+        Guid me, FriendCursor? cursor, int take, CancellationToken ct)
+    {
+        var query = db.Friendships.AsNoTracking()
+            .Where(f => f.Status == FriendshipStatus.Accepted
+                     && (f.UserMinId == me || f.UserMaxId == me));
+
+        if (cursor is { } at)
+        {
+            query = query.Where(f =>
+                f.AcceptedAt < at.Since
+                || (f.AcceptedAt == at.Since
+                    && (f.UserMinId == me ? f.UserMaxId : f.UserMinId).CompareTo(at.OtherUserId) < 0));
+        }
+
+        var rows = await query
+            .OrderByDescending(f => f.AcceptedAt)
+            .ThenByDescending(f => f.UserMinId == me ? f.UserMaxId : f.UserMinId)
+            .Take(take)
+            .Select(f => new
+            {
+                OtherUserId = f.UserMinId == me ? f.UserMaxId : f.UserMinId,
+                Since = f.AcceptedAt,
+            })
+            .ToListAsync(ct);
+
+        return rows.Select(r => new FriendListRow(
+            r.OtherUserId,
+            r.Since ?? throw new InvalidOperationException("Quan hệ accepted thiếu accepted_at."))).ToList();
+    }
+
+    public async Task<IReadOnlyList<FriendListRow>> ListRequestsAsync(
+        Guid me, bool incoming, FriendCursor? cursor, int take, CancellationToken ct)
+    {
+        var query = db.Friendships.AsNoTracking()
+            .Where(f => f.Status == FriendshipStatus.Pending
+                     && (f.UserMinId == me || f.UserMaxId == me));
+
+        query = incoming
+            ? query.Where(f => f.RequesterId != me)
+            : query.Where(f => f.RequesterId == me);
+
+        if (cursor is { } at)
+        {
+            query = query.Where(f =>
+                f.CreatedAt < at.Since
+                || (f.CreatedAt == at.Since
+                    && (f.UserMinId == me ? f.UserMaxId : f.UserMinId).CompareTo(at.OtherUserId) < 0));
+        }
+
+        return await query
+            .OrderByDescending(f => f.CreatedAt)
+            .ThenByDescending(f => f.UserMinId == me ? f.UserMaxId : f.UserMinId)
+            .Take(take)
+            .Select(f => new FriendListRow(
+                f.UserMinId == me ? f.UserMaxId : f.UserMinId,
+                f.CreatedAt))
+            .ToListAsync(ct);
+    }
 }

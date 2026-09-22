@@ -1396,5 +1396,16 @@ Mỗi dòng: sửa tạm → chạy lọc → thấy **đúng** test dự kiến
   khóa `sg:feed-sources` chỉ mất khi có dòng bị xóa. `SendFriendRequestTests` + `AcceptFriendRequestTests` +
   `SocialGraphHarnessTests` **24/24** không đổi. Ba lớp ranh giới kiến trúc **10/10**. `FRD-07..09` chờ commit `B3`.
 
+### D5 — 2026-09-22
+
+- Repo `30INF067_btl`, index 1 commit sau HEAD. Impact trước sửa: `RelationshipService` UNKNOWN (grep: không có
+  `new`, chỉ DI + controller); `IRelationshipStore` LOW; `FriendsController` LOW. `ModulesTestClient` CRITICAL —
+  chỉ thêm `ListFriendsAsync` / `ListFriendsOkAsync` / `ListRequestsAsync` / `ListRequestsOkAsync`.
+- `FriendCursor` chép `PostCursor` trong SocialGraph (L13), không import Content. `direction` bind `string?`.
+  `nextCursor` từ dòng thứ `limit` của danh sách gốc, trước khi bỏ thẻ mất hồ sơ. Một `GetManyAsync` cho cửa sổ
+  đó; avatar ký bằng `CreatePresignedGet`.
+- `ListFriendsTests` **14/14**. `FriendCursorTests` **11/11**. Ba lớp ranh giới kiến trúc **10/10**.
+  `?direction=` (chuỗi rỗng) model binding thành null nên là incoming — không phải 400.
+
 *Ghi tiếp khi làm: `EXPLAIN` của LATERAL và gợi ý trên dữ liệu tải (`C2`), dạng
 exception timeout thật (`C4`/`FEED-12`), hằng số `FEED-Q1` so với Mục 7.2, kết quả từng dòng đột biến, năm mục tự rà B.9.*
