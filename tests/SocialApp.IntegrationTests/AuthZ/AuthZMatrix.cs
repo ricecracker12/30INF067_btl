@@ -118,6 +118,52 @@ public static class AuthZMatrix
         new("READ-01", "A đọc bài private của B", "GĐ2",
             Caller.User, HttpMethod.Get, "/api/v1/posts/{id của B}", HttpStatusCode.NotFound,
             ArrangePath: async a => $"/api/v1/posts/{await TaoBaiCuaNguoiKhacAsync(a, PrivacyRiengTu)}"),
+
+        // --- GĐ4 (B2). Mục 6.3. Kỳ vọng viết tay theo Mục 6.3 + hợp đồng, không lấy từ output. ---
+        // Năm dòng đỏ có chủ đích chờ D2/D3/D7; READ-06 xanh ngay vì A5 đã bật FriendshipReader thật (L8).
+
+        // US-010 AC-04. C có hồ sơ (dù accept không đòi) để 403 chỉ còn MỘT lý do — nếp TC-A03-media / Q-B2.
+        new("TC-A03-friend-accept", "C chấp nhận lời mời mà A gửi cho B", "GĐ4",
+            Caller.User, HttpMethod.Post, "/api/v1/friends/requests/{A}/accept", HttpStatusCode.Forbidden,
+            ArrangePath: async a =>
+            {
+                var (nguoiGui, nguoiNhan) = (Guid.NewGuid(), Guid.NewGuid());
+                await TaoHoSoAsync(a.Client, nguoiGui);
+                await TaoHoSoAsync(a.Client, nguoiNhan);
+                await TaoHoSoAsync(a.Client, a.CallerUserId);
+                await GuiLoiMoiAsync(a.Client, nguoiGui, nguoiNhan);
+                return $"/api/v1/friends/requests/{nguoiGui:D}/accept";
+            }),
+
+        // Dòng hay bị quên nhất (Mục 6.3): UPDATE thiếu vế requester_id = @other vẫn qua mọi happy path.
+        // Lời mời do CHÍNH người gọi gửi — chỉ làm được nhờ CallerUserId (Q-B2).
+        new("TC-A03-friend-self-accept", "A tự chấp nhận lời mời chính A gửi cho B", "GĐ4",
+            Caller.User, HttpMethod.Post, "/api/v1/friends/requests/{B}/accept", HttpStatusCode.Forbidden,
+            ArrangePath: async a =>
+            {
+                var b = Guid.NewGuid();
+                await TaoHoSoAsync(a.Client, a.CallerUserId);
+                await TaoHoSoAsync(a.Client, b);
+                await GuiLoiMoiAsync(a.Client, a.CallerUserId, b);
+                return $"/api/v1/friends/requests/{b:D}/accept";
+            }),
+
+        // BR-02 thật (A5): người lạ đọc bài friends → 404. Xanh ngay sau B2 (L8).
+        new("READ-06", "Người lạ đọc bài friends của B", "GĐ4",
+            Caller.User, HttpMethod.Get, "/api/v1/posts/{id bài friends của B}", HttpStatusCode.NotFound,
+            ArrangePath: async a => $"/api/v1/posts/{await TaoBaiCuaNguoiKhacAsync(a, PrivacyBanBe)}"),
+
+        // Đối chứng của READ-06 (nếp RBAC-02b): bạn của B phải thấy. Đỏ ở ArrangePath tới D3 — dựng bạn qua API thật.
+        new("READ-06b", "Bạn của B đọc bài friends của B", "GĐ4",
+            Caller.User, HttpMethod.Get, "/api/v1/posts/{id bài friends của B}", HttpStatusCode.OK,
+            ArrangePath: async a => $"/api/v1/posts/{await TaoBaiBanBeCuaBanAsync(a)}"),
+
+        new("TC-A01-feed", "GET /feed không kèm JWT", "GĐ4",
+            Caller.Anonymous, HttpMethod.Get, "/api/v1/feed", HttpStatusCode.Unauthorized),
+
+        new("TC-A01-friends", "Gửi lời mời không kèm JWT", "GĐ4",
+            Caller.Anonymous, HttpMethod.Post, "/api/v1/friends/requests", HttpStatusCode.Unauthorized,
+            Body: new { userId = Guid.NewGuid() }),
     ];
 
     /// <summary>
@@ -132,6 +178,9 @@ public static class AuthZMatrix
 
     /// <summary>Xem <see cref="PrivacyCongKhai"/>.</summary>
     private const string PrivacyRiengTu = "private";
+
+    /// <summary>Mức <c>friends</c> của hợp đồng — dùng cho READ-06 / READ-06b (GĐ4).</summary>
+    private const string PrivacyBanBe = "friends";
 
     /// <summary>Chủ sở hữu giả định của khóa ảnh trong <c>TC-A03-media</c> — xem ghi chú tại chỗ dùng.</summary>
     private static readonly Guid KhoaCuaNguoiKhac = new("0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10");
@@ -174,6 +223,61 @@ public static class AuthZMatrix
         request.Headers.Authorization = Bearer(userId);
         using var response = await client.SendAsync(request);
         await NemNeuKhongPhaiAsync(response, HttpStatusCode.OK, $"PUT /api/v1/users/me/profile cho {userId:D}");
+    }
+
+    /// <summary>
+    /// B2 (GĐ4): gửi lời mời kết bạn qua API thật. Endpoint chưa có → ném 404 ngay (đỏ có chủ đích tới D2).
+    /// </summary>
+    private static async Task GuiLoiMoiAsync(HttpClient client, Guid tu, Guid den)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/friends/requests")
+        {
+            Content = JsonContent.Create(new { userId = den }),
+        };
+        request.Headers.Authorization = Bearer(tu);
+        using var response = await client.SendAsync(request);
+        await NemNeuKhongPhaiAsync(response, HttpStatusCode.Created, $"POST /friends/requests {tu:D} → {den:D}");
+    }
+
+    /// <summary>
+    /// B2 (GĐ4): chấp nhận lời mời. Endpoint chưa có → ném 404 ngay (đỏ có chủ đích tới D3).
+    /// </summary>
+    private static async Task ChapNhanAsync(HttpClient client, Guid nguoiNhan, Guid nguoiGui)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/friends/requests/{nguoiGui:D}/accept");
+        request.Headers.Authorization = Bearer(nguoiNhan);
+        using var response = await client.SendAsync(request);
+        await NemNeuKhongPhaiAsync(response, HttpStatusCode.OK, $"POST /friends/requests/{nguoiGui:D}/accept bởi {nguoiNhan:D}");
+    }
+
+    /// <summary>
+    /// B2 (GĐ4): B có hồ sơ + bài <c>friends</c>; người gọi có hồ sơ, gửi lời mời; B chấp nhận; trả id bài.
+    /// Không INSERT thẳng friendships — bỏ lọt D3 ghi sai trạng thái (cạm bẫy B2).
+    /// </summary>
+    private static async Task<Guid> TaoBaiBanBeCuaBanAsync(AuthZArrange a)
+    {
+        var b = Guid.NewGuid();
+        await TaoHoSoAsync(a.Client, a.CallerUserId);
+        await TaoHoSoAsync(a.Client, b);
+
+        using var createPost = new HttpRequestMessage(HttpMethod.Post, "/api/v1/posts")
+        {
+            Content = JsonContent.Create(new
+            {
+                body = "Bài friends của bạn.",
+                privacy = PrivacyBanBe,
+                mediaKeys = Array.Empty<object>(),
+            }),
+        };
+        createPost.Headers.Authorization = Bearer(b);
+        using var created = await a.Client.SendAsync(createPost);
+        await NemNeuKhongPhaiAsync(created, HttpStatusCode.Created, $"POST /api/v1/posts friends cho B");
+
+        await GuiLoiMoiAsync(a.Client, a.CallerUserId, b);
+        await ChapNhanAsync(a.Client, b, a.CallerUserId);
+
+        using var document = JsonDocument.Parse(await created.Content.ReadAsStringAsync());
+        return document.RootElement.GetProperty("postId").GetGuid();
     }
 
     private static AuthenticationHeaderValue Bearer(Guid userId) =>
