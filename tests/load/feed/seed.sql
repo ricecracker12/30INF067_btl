@@ -68,13 +68,16 @@ CROSS JOIN LATERAL (
 ON CONFLICT DO NOTHING;
 
 -- Follows: trung bình 20/người, không tự theo dõi (CHECK ck_follows_not_self).
+-- Offset 251..270 nằm NGOÀI vùng bạn (bạn xa nhất ±250 trên vòng): theo dõi một người đã là bạn thì
+-- FeedSourceReader loại khỏi FollowingOnly, và nhánh "bài public của người chỉ theo dõi" (Đ-4.5) không bao giờ
+-- chạy trong EXPLAIN của C2 lẫn k6 của C6. Bản đầu dùng 1..20 — trọn trong vùng bạn, FollowingOnly rỗng cả 10.000 người.
 INSERT INTO socialgraph.follows (follower_id, followee_id, created_at)
 SELECT
     a.user_id,
     p.user_id,
     now()
 FROM public.perf_users a
-CROSS JOIN generate_series(1, 20) AS g(off)
+CROSS JOIN generate_series(251, 270) AS g(off)
 JOIN public.perf_users p
   ON p.n = ((a.n - 1 + g.off) % 10000) + 1
 WHERE p.n <> a.n

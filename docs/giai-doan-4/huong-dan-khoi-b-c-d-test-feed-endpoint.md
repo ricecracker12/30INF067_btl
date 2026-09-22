@@ -1316,6 +1316,11 @@ Mỗi dòng: sửa tạm → chạy lọc → thấy **đúng** test dự kiến
 - Lệch lúc thi công: LATERAL `random()` không tham chiếu `gs` → một giá trị cho cả bảng; sửa bằng `SELECT gs AS _row,
   random()…`. README dùng `docker exec`/`docker cp` vì host Windows thường không có `psql`.
 - `users.csv` xuất local (gitignore). `PERF_JWT_KEY` chỉ trong `tests/load/feed/.env`.
+- **Sửa 2026-09-23 (rà bước 2–4):** bản đầu theo dõi offset `1..20` — nằm trọn trong vùng bạn `1..50`/`1..250`, nên
+  mọi dòng `follows` trùng một bạn và `FeedSourceReader` loại hết khỏi `FollowingOnly`: nhánh "bài `public` của người
+  chỉ theo dõi" (Đ-4.5) không bao giờ vào `EXPLAIN` của `C2` hay k6 của `C6`. Đổi sang `251..270`, seed lại (**~42 s**):
+  theo dõi trùng bạn **0** (trước 200.000/200.000), 10.000/10.000 người có `FollowingOnly` khác rỗng. README thêm câu
+  đối chiếu. `users.csv` xuất lại vì id sinh mới.
 
 ### D0 — 2026-09-22
 

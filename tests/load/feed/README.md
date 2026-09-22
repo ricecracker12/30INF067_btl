@@ -80,6 +80,13 @@ SELECT round(avg(c)::numeric, 1) FROM (
 SELECT round(avg(c)::numeric, 1) FROM (
   SELECT count(*) AS c FROM socialgraph.follows GROUP BY follower_id
 ) t;                                              -- 20
+-- Theo dõi không trùng bạn: trùng thì FeedSourceReader loại khỏi FollowingOnly và nhánh
+-- "bài public của người chỉ theo dõi" (Đ-4.5) không bao giờ được đo.
+SELECT count(*) FROM socialgraph.follows fo
+JOIN socialgraph.friendships f
+  ON f.status = 'accepted'
+ AND f.user_min_id = LEAST(fo.follower_id, fo.followee_id)
+ AND f.user_max_id = GREATEST(fo.follower_id, fo.followee_id);  -- 0
 ```
 
 ### Xuất `users.csv` (gitignore — cho C6)
@@ -138,6 +145,7 @@ docker compose -f tests/load/feed/docker-compose.perf.yml --env-file tests/load/
 | avg bạn / follows | 120,0 / 20,0 |
 | privacy % public/friends/private · hidden | 70,0 / 20,0 / 10,0 · ~10.048 (≈1%) |
 | Hai chốt chặn | đã thử đỏ (sai DB `postgres`; `identity.users` có dòng) |
+| Seed lại 2026-09-23 (theo dõi offset `251..270`) | **~42 s** · theo dõi trùng bạn **0** (bản đầu: 200.000/200.000) · người có `FollowingOnly` khác rỗng **10.000** |
 
 ## Ghi chú
 
