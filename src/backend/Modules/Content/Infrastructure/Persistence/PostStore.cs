@@ -119,6 +119,23 @@ public sealed class PostStore(ContentDbContext db) : IPostStore
     }
 
     /// <summary>
+    /// Đường trúng cache của feed (C4). <c>Status == Published</c> tường minh cùng lý do Đ-4.11 — query filter chỉ loại
+    /// <c>deleted</c>, còn bài <c>hidden</c> (GĐ6) cũng không được lên feed. Tra theo PK nên không cần index một phần.
+    /// </summary>
+    public async Task<IReadOnlyList<Post>> FindManyPublishedAsync(IReadOnlyCollection<Guid> postIds, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(postIds);
+
+        if (postIds.Count == 0)
+            return [];
+
+        return await db.Posts
+            .AsNoTracking()
+            .Where(p => postIds.Contains(p.PostId) && p.Status == PostStatus.Published)
+            .ToListAsync(ct);
+    }
+
+    /// <summary>
     /// KHÔNG <c>AsNoTracking</c> — đây là bản để sửa; <see cref="SaveAsync"/> dựa vào ChangeTracker để biết cột nào đổi.
     /// Query filter vẫn áp: bài đã xóa mềm trả <c>null</c>.
     /// </summary>

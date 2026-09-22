@@ -6,7 +6,7 @@ namespace SocialApp.Modules.Content.Application.Posts;
 /// Bảng <c>content.posts</c> + <c>content.media_attachments</c> cho các luồng của khối D. Hiện thực EF nằm ở
 /// <c>Infrastructure/Persistence</c> — <c>Application</c> không chạm EF (<c>PersistenceBoundaryTests</c> canh bằng máy).
 ///
-/// Sáu phương thức sau D7. Không khai trước thứ chưa có người gọi — cùng nếp <c>IProfileStore</c>.
+/// Sáu phương thức sau D7 (GĐ2), bảy từ C4 (GĐ4). Không khai trước thứ chưa có người gọi — cùng nếp <c>IProfileStore</c>.
 /// </summary>
 public interface IPostStore
 {
@@ -54,6 +54,14 @@ public interface IPostStore
     /// <returns>Gom theo <c>postId</c>. Bài không có ảnh thì <b>vắng mặt</b> trong dictionary, không phải danh sách rỗng.</returns>
     Task<IReadOnlyDictionary<Guid, IReadOnlyList<MediaAttachment>>> MediaOfAsync(
         IReadOnlyCollection<Guid> postIds, CancellationToken ct);
+
+    /// <summary>
+    /// C4 (GĐ4): nạp nhiều bài theo khóa chính trong MỘT câu, chỉ <c>published</c> — cho đường TRÚNG cache trang đầu của
+    /// feed, nơi cache chỉ giữ id (Đ-4.9) và dòng bài phải đọc tươi (bộ đếm, <c>privacy</c> vừa đổi, bài vừa xóa/ẩn).
+    /// Trả <b>không</b> theo thứ tự nào — người gọi sắp lại theo thứ tự id của mình. Id không còn (đã xóa, <c>hidden</c>)
+    /// thì vắng mặt.
+    /// </summary>
+    Task<IReadOnlyList<Post>> FindManyPublishedAsync(IReadOnlyCollection<Guid> postIds, CancellationToken ct);
 
     /// <summary>
     /// Một bài để SỬA — bản <b>tracked</b>, khác <see cref="FindAsync"/> (no-tracking, đường đọc). Hai hàm chứ không

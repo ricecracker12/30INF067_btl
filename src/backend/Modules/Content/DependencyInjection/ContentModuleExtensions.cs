@@ -1,5 +1,6 @@
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using SocialApp.Modules.Content.Application.Feed;
@@ -7,6 +8,7 @@ using SocialApp.Modules.Content.Application.Media;
 using SocialApp.Modules.Content.Application.Posts;
 using SocialApp.Modules.Content.Infrastructure;
 using SocialApp.Modules.Content.Infrastructure.Cleanup;
+using SocialApp.Modules.Content.Infrastructure.Feed;
 using SocialApp.Modules.Content.Infrastructure.Persistence;
 
 namespace SocialApp.Modules.Content.DependencyInjection;
@@ -76,6 +78,16 @@ public static class ContentModuleExtensions
 
         // C2 (GĐ4). Scoped vì FeedStore giữ ContentDbContext.
         services.AddScoped<IFeedStore, FeedStore>();
+
+        // C4 (GĐ4, Đ-4.8, Q-C2): công tắc bind có điều kiện — có IConfiguration (host) thì đọc Feed:PageCache:Enabled,
+        // ServiceCollection trần thì mặc định bật. Cùng khuôn FeedSourceCacheOptions của SocialGraph. Singleton vì chỉ cầm
+        // RedisConnection (singleton, HOST đăng ký bằng AddSharedKernelRedis). Chỗ dựng trần nào resolve PostService,
+        // FeedService hay IFeedPageCache thì thêm AddSharedKernelRedis (cổng 1 = fail-open) — cùng luật L12 của C1.
+        services.AddOptions<FeedPageCacheOptions>()
+            .Configure<IServiceProvider>((o, sp) =>
+                sp.GetService<IConfiguration>()?.GetSection(FeedPageCacheOptions.Section).Bind(o));
+        services.AddSingleton<IFeedPageCache, RedisFeedPageCache>();
+        services.AddScoped<FeedService>();
 
         return services;
     }

@@ -1127,7 +1127,8 @@ Tách phần "danh sách `Post` → `PostResponse`" hiện đang nằm trong `Po
 
 ### C4 — Cache trang đầu + degrade + 503 (Đ-4.8, Đ-4.10)
 
-Khóa `feed:p1:{userId}` chỉ chứa `post_id` + `mode`; tác giả đăng / sửa / xóa bài thì Content xóa khóa của tác giả.
+Khóa `feed:p1:{userId}` chỉ chứa `ids` + `mode` + `next` + dấu nguồn `fp` (Đ-4.8 sửa 2026-09-22); tác giả đăng / sửa /
+xóa bài thì Content xóa khóa của tác giả.
 `CommandTimeout` 5s riêng cho truy vấn feed; timeout → `Result` 503 + header `Retry-After`. Hai công tắc cấu hình.
 
 ### C5 — Môi trường đo + bộ dữ liệu tải (Đ-4.13)

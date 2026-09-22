@@ -1564,5 +1564,27 @@ Tự rà thay review chéo (một người làm), trên `e120090..a062107`. Mỗ
 - Lệch Bước 2: `IPostStore.FindManyPublishedAsync` dời sang `C4` — nó chỉ có người gọi ở đường trúng cache của
   `FeedService`, và `IPostStore` giữ luật "không khai trước thứ chưa có người gọi".
 
+### C4 — 2026-09-23
+
+- Impact trước sửa: `PostService.CreateAsync` / `UpdateAsync` / `DeleteAsync` LOW (d=1 `PostsController`); `IPostStore`
+  LOW — grep: một hiện thực (`PostStore`), không fake nào trong test; `AddContentModule` UNKNOWN như C2 (4 chỗ gọi, chỉ thêm
+  đăng ký). Không HIGH/CRITICAL.
+- `FeedService` đúng bảy bước Mục 7.2 (bản đã sửa L14): trượt cache thì dùng luôn các dòng LATERAL, chỉ đường trúng mới
+  `FindManyPublishedAsync` (dời từ C3). Kiểm lại chạy cả khi trượt. Trúng đòi `fp` **và** `mode` khớp — `mode` suy từ nguồn
+  nên thừa, giữ để một giá trị cache lạ không trả trang gợi ý cho người đã có kết nối.
+- `FeedFingerprint`: SHA-256 cắt 16 byte, base64 (24 ký tự) của hai mảng đã sắp, **gắn nhãn riêng** `f:`/`o:` — bạn
+  chuyển sang chỉ theo dõi (hủy kết bạn khi vẫn theo dõi) không đổi hợp hai tập mà vẫn phải đổi dấu.
+- `RedisFeedPageCache` serialize qua kiểu `Payload` riêng (bốn trường), không serialize thẳng `CachedFeedPage` — thêm thuộc
+  tính vào record Application không được lặng lẽ thêm trường vào Redis. Công tắc kiểm **bên trong** cache (tắt → đọc
+  `null`, không ghi); `InvalidateAsync` vẫn xóa khi tắt.
+- `PostService` xóa khóa của tác giả sau khi lưu, token `CancellationToken.None` — cùng bài học `53f0370` của
+  `RelationshipService`.
+- `ContentErrors.FeedUnavailable` đặt `Title` riêng ("Bảng tin đang quá tải"): `ProblemTitles.For(503)` rơi vào nhánh
+  `>= 500` → "Đã xảy ra lỗi không mong muốn", sai nghĩa với 503.
+- Timeout: `FeedStore` đặt `CommandTimeout` 5s rồi trả lại trong `finally`; `IsTimeout` nhận `NpgsqlException` bọc
+  `TimeoutException` và `57014` trần hoặc bọc. Dạng nào thật sự xảy ra — ghi ở `FEED-12` (B4).
+- Thử đỏ (đã khôi phục): bỏ xóa khóa sau đăng bài → `FeedPageCacheTests.Dang_sua_xoa_…` đỏ; `next` tính từ danh sách đã
+  lọc → `FeedServiceTests.Truot_cache_kiem_lai_va_next_tu_danh_sach_goc` đỏ.
+
 *Ghi tiếp khi làm: dạng exception timeout thật (`C4`/`FEED-12`), hằng số `FEED-Q1` so với Mục 7.2, nửa feed của bảng đột
 biến (bước 5), năm mục tự rà B.9.*

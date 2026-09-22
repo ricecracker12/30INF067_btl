@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using SocialApp.Modules.Content.Application.Feed;
 using SocialApp.Modules.Content.Application.Posts;
 using SocialApp.Modules.Content.Domain;
@@ -25,9 +26,16 @@ namespace SocialApp.Modules.Content.Infrastructure.Persistence;
 /// <c>idx_posts_author_created</c> / <c>idx_posts_public_recent</c>. Literal lệch <c>LowercaseEnum</c> thì
 /// <c>FeedStoreTests</c> đỏ (không bài nào khớp).</item>
 /// </list>
+///
+/// <b>Timeout 5s CHỈ cho hai truy vấn này</b> (Đ-4.10): quá hạn → <see cref="FeedQueryTimeoutException"/> → 503. Đặt trên
+/// <c>DbContext</c> rồi TRẢ LẠI trong <c>finally</c> — context là scoped theo request, không trả lại thì hydrate và mọi câu
+/// sau trong cùng request mang theo 5s (cạm bẫy 4 của C4).
 /// </summary>
 public sealed class FeedStore(ContentDbContext db) : IFeedStore
 {
+    /// <summary>Đ-4.10 — một hằng ở MỘT chỗ, không thành khóa cấu hình (Q-B4). Test <c>FEED-12</c> ghi số 5 bằng tay.</summary>
+    internal const int QueryTimeoutSeconds = 5;
+
     public async Task<IReadOnlyList<Post>> NetworkPageAsync(
         Guid me, FeedSources sources, PostCursor? cursor, int take, CancellationToken ct)
     {
@@ -40,7 +48,7 @@ public sealed class FeedStore(ContentDbContext db) : IFeedStore
         Guid? cursorId = cursor?.PostId;
 
         // lvl: 1 = chỉ theo dõi · 2 = bạn bè · 3 = chính mình (Đ-4.7 nguyên văn).
-        return await db.Posts
+        return await WithFeedTimeoutAsync(() => db.Posts
             .FromSql($"""
                 WITH src(author_id, lvl) AS (
                     SELECT unnest({followingOnly}::uuid[]), 1
@@ -65,7 +73,7 @@ public sealed class FeedStore(ContentDbContext db) : IFeedStore
             .AsNoTracking()
             .OrderByDescending(p => p.CreatedAt)
             .ThenByDescending(p => p.PostId)
-            .ToListAsync(ct);
+            .ToListAsync(ct), ct);
     }
 
     public async Task<IReadOnlyList<Post>> SuggestedPageAsync(
@@ -75,7 +83,7 @@ public sealed class FeedStore(ContentDbContext db) : IFeedStore
         Guid? cursorId = cursor?.PostId;
 
         // Hai vế đầu của WHERE khớp NGUYÊN VĂN điều kiện của idx_posts_public_recent — lệch một chữ là planner bỏ index.
-        return await db.Posts
+        return await WithFeedTimeoutAsync(() => db.Posts
             .FromSql($"""
                 SELECT p.*
                 FROM content.posts p
@@ -89,6 +97,39 @@ public sealed class FeedStore(ContentDbContext db) : IFeedStore
             .AsNoTracking()
             .OrderByDescending(p => p.CreatedAt)
             .ThenByDescending(p => p.PostId)
-            .ToListAsync(ct);
+            .ToListAsync(ct), ct);
     }
+
+    private async Task<IReadOnlyList<Post>> WithFeedTimeoutAsync(Func<Task<List<Post>>> query, CancellationToken ct)
+    {
+        var previous = db.Database.GetCommandTimeout();
+        db.Database.SetCommandTimeout(TimeSpan.FromSeconds(QueryTimeoutSeconds));
+        try
+        {
+            return await query();
+        }
+        catch (Exception ex) when (IsTimeout(ex) && !ct.IsCancellationRequested)
+        {
+            throw new FeedQueryTimeoutException(ex);
+        }
+        finally
+        {
+            db.Database.SetCommandTimeout(previous);
+        }
+    }
+
+    /// <summary>
+    /// Hai dạng Npgsql có thể ném khi hết <c>CommandTimeout</c>: <see cref="NpgsqlException"/> bọc
+    /// <see cref="TimeoutException"/> (hết giờ phía client), hoặc <c>57014 query_canceled</c> (Npgsql gửi lệnh hủy lên server
+    /// và server báo đã hủy) — trần hoặc bọc trong <see cref="NpgsqlException"/>. Client tự ngắt thì Npgsql ném
+    /// <see cref="OperationCanceledException"/>, không khớp đây — và người gọi còn chặn thêm bằng token.
+    /// </summary>
+    private static bool IsTimeout(Exception ex) =>
+        ex is NpgsqlException npgsql
+        && (npgsql.InnerException is TimeoutException
+            || IsQueryCanceled(npgsql)
+            || (npgsql.InnerException is { } inner && IsQueryCanceled(inner)));
+
+    private static bool IsQueryCanceled(Exception ex) =>
+        ex is PostgresException { SqlState: PostgresErrorCodes.QueryCanceled };
 }
