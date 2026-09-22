@@ -19,12 +19,10 @@ public sealed class RelationshipService(
     TimeProvider clock)
 {
     private readonly IRelationshipStore _store = store;
-#pragma warning disable IDE0052 // D1 đọc store; D2–D6 đọc các trường này lần đầu.
     private readonly IUserDirectory _directory = directory;
     private readonly IFeedSourceCache _feedSources = feedSources;
     private readonly SocialGraphEvents _events = events;
     private readonly TimeProvider _clock = clock;
-#pragma warning restore IDE0052
 
     /// <summary>
     /// <c>GET /relationships/{userId}</c> — trạng thái nút trên hồ sơ (Đ-4.16).
@@ -44,5 +42,39 @@ public sealed class RelationshipService(
         var following = await _store.IsFollowingAsync(actorId, userId, ct);
 
         return new RelationshipResponse(userId, RelationshipState.Of(friendship, actorId), following);
+    }
+
+    /// <summary>
+    /// <c>POST /friends/requests</c> — FR-010. Thứ tự kiểm là một phần của hợp đồng (Đ-4.14, yaml):
+    /// <list type="number">
+    /// <item>Tầng 2 — quyền <c>friend.request</c>: đã xong ở controller.</item>
+    /// <item>Khác mình → 400, <b>trước</b> DB. <see cref="FriendPair.Of"/> ném nếu lọt; CHECK DB thành 500.</item>
+    /// <item>Người được mời có hồ sơ (Đ-2.4) → 404. Tra <see cref="IUserDirectory"/>, không SELECT friendships.</item>
+    /// <item>INSERT trần; PK <c>PK_friendships</c> → 409. Không SELECT trước: hai đường tới 409 làm
+    /// <c>FRD-06</c> mất tính tất định.</item>
+    /// <item>Sau <c>COMMIT</c>: xóa cache nguồn cả hai phía, rồi <see cref="SocialGraphEvents.FriendRequestSent"/>.</item>
+    /// </list>
+    /// </summary>
+    public async Task<Result<RelationshipResponse>> SendRequestAsync(
+        Guid actorId, CreateFriendRequest request, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (actorId == request.UserId)
+            return SocialGraphErrors.SelfRequest;
+
+        var cards = await _directory.GetManyAsync([request.UserId], ct);
+        if (!cards.ContainsKey(request.UserId))
+            return SocialGraphErrors.UserNotFound;
+
+        var friendship = Friendship.Request(actorId, request.UserId, _clock.GetUtcNow());
+        if (!await _store.AddRequestAsync(friendship, ct))
+            return SocialGraphErrors.RelationshipExists;
+
+        await _feedSources.InvalidateAsync(actorId, request.UserId, ct);
+        _events.FriendRequestSent(actorId, request.UserId);
+
+        var following = await _store.IsFollowingAsync(actorId, request.UserId, ct);
+        return new RelationshipResponse(request.UserId, FriendshipView.Outgoing, following);
     }
 }

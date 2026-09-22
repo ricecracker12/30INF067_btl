@@ -262,6 +262,32 @@ public sealed class ModulesTestClient
     }
 
     /// <summary>
+    /// <c>POST /friends/requests</c> với tư cách <paramref name="actorId"/> (D2). Nhận
+    /// <paramref name="body"/> dạng ẩn danh vì test phải gửi được <c>userId</c> vắng mặt, rỗng, và
+    /// field lạ — những thứ DTO đã gõ kiểu thì không phát ra nổi.
+    ///
+    /// <paramref name="role"/> mở ra để kiểm tầng 2: <c>"GUEST"</c> không có <c>friend.request</c>.
+    /// </summary>
+    public Task<HttpResponseMessage> SendFriendRequestAsync(
+        Guid actorId, object body, string role = "USER")
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/friends/requests")
+        {
+            Content = JsonContent.Create(body),
+        };
+        request.Headers.Authorization = Bearer(actorId, role);
+        return Http.SendAsync(request);
+    }
+
+    /// <summary>Như <see cref="SendFriendRequestAsync"/> nhưng đọc luôn body 201.</summary>
+    public async Task<RelationshipResponse> SendFriendRequestOkAsync(Guid actorId, Guid userId)
+    {
+        using var response = await SendFriendRequestAsync(actorId, new { userId });
+        Assert.Equal(System.Net.HttpStatusCode.Created, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<RelationshipResponse>(Json))!;
+    }
+
+    /// <summary>
     /// Sửa dữ liệu trực tiếp — dùng để dựng cảnh SQL của D1 (bốn trạng thái quan hệ) khi endpoint ghi chưa có.
     /// Tham số vị trí <c>$1, $2…</c>. Trả số dòng bị ảnh hưởng. Chép khuôn <c>AuthTestClient.ExecuteSqlAsync</c>.
     /// </summary>

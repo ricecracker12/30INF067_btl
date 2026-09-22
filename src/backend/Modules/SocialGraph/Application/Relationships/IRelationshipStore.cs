@@ -21,4 +21,14 @@ public interface IRelationshipStore
     /// hướng — một dòng hoặc không. Độc lập với <see cref="FindFriendshipAsync"/> (Đ-4.5).
     /// </summary>
     Task<bool> IsFollowingAsync(Guid followerId, Guid followeeId, CancellationToken ct);
+
+    /// <summary>
+    /// INSERT lời mời pending. Không <c>SELECT</c> trước: PK cặp trả lời "đã có quan hệ" (Đ-4.14).
+    /// </summary>
+    /// <returns>
+    /// <c>true</c> khi ghi xong; <c>false</c> khi đụng PK <c>PK_friendships</c> (23505) — đã có lời mời theo bất kỳ
+    /// chiều nào hoặc đã là bạn. Service dịch thành <b>409</b>. Mọi lỗi DB khác PHẢI ném ra ngoài thành 500: nuốt
+    /// chúng thành <c>false</c> là báo "đã có quan hệ" khi sự thật là hạ tầng hỏng.
+    /// </returns>
+    Task<bool> AddRequestAsync(Friendship friendship, CancellationToken ct);
 }

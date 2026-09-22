@@ -1356,5 +1356,14 @@ Mỗi dòng: sửa tạm → chạy lọc → thấy **đúng** test dự kiến
 - `PresentationBoundaryTests` + `PersistenceBoundaryTests` + `ModuleBoundaryTests` + `PermissionCodeUsageTests`
   + `SocialGraphPermissionsTests`: **14/14**.
 
+### D2 — 2026-09-22
+
+- Repo `30INF067_btl`. Impact trước sửa: `RelationshipService` UNKNOWN (grep: `RelationshipsController` + DI);
+  `IRelationshipStore` LOW. Không HIGH/CRITICAL. Thêm `SendRequestAsync` / `AddRequestAsync`, không đổi `GetAsync`.
+- 23505 bắt ở **store** (nếp `PostStore`, `PersistenceBoundaryTests`), không ở service — lệch mô tả rút gọn Mục 7 D2,
+  khớp `SocialGraphErrors.RelationshipExists`. Tên PK kiểm trong migration `InitialSocialGraph`: `PK_friendships`.
+- `SendFriendRequestTests` **11/11** + `TC-A01-friends` xanh (401 khi có route). Tự gửi 400 không dòng; không hồ sơ
+  404; cùng cặp / chiều ngược / đã là bạn → 409 đúng một dòng. `TC-A03-friend-*` / `READ-06b` vẫn đỏ chờ D3.
+
 *Ghi tiếp khi làm: `EXPLAIN` của LATERAL và gợi ý trên dữ liệu tải (`C2`), dạng
 exception timeout thật (`C4`/`FEED-12`), hằng số `FEED-Q1` so với Mục 7.2, kết quả từng dòng đột biến, năm mục tự rà B.9.*
