@@ -42,7 +42,7 @@ public sealed class RelationshipService(
     /// không gọi <see cref="IUserDirectory"/>, không 404 — endpoint đọc quan hệ không phải máy dò tài khoản
     /// (Mục 8.1).
     /// </summary>
-    public async Task<Result<RelationshipResponse>> GetAsync(Guid userId, Guid actorId, CancellationToken ct)
+    public async Task<Result<RelationshipResponse>> GetAsync(Guid actorId, Guid userId, CancellationToken ct)
     {
         if (actorId == userId)
             return SocialGraphErrors.SelfRelationship;

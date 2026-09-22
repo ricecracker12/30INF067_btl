@@ -38,7 +38,7 @@ public sealed class RelationshipsController(RelationshipService relationships) :
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized, "application/problem+json")]
     public async Task<ActionResult<RelationshipResponse>> Get(Guid userId, CancellationToken ct)
     {
-        var result = await relationships.GetAsync(userId, User.GetUserId(), ct);
+        var result = await relationships.GetAsync(User.GetUserId(), userId, ct);
         return result.ToActionResult(this);
     }
 }
