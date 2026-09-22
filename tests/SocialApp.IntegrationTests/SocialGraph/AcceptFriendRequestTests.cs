@@ -1,8 +1,11 @@
 using System.Net;
 using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
 using SocialApp.IntegrationTests.Harness;
 using SocialApp.Modules.SocialGraph.Domain;
+using SocialApp.SharedKernel.Contracts;
 using SocialApp.SharedKernel.Errors;
+using SocialApp.SharedKernel.Redis;
 
 namespace SocialApp.IntegrationTests.SocialGraph;
 
@@ -12,10 +15,15 @@ namespace SocialApp.IntegrationTests.SocialGraph;
 /// của B3 — <c>GET /friends</c> còn là D5.
 /// </summary>
 [Collection(PostgresCollection.Name)]
-public sealed class AcceptFriendRequestTests(PostgresFixture postgres, ModulesApiFactory factory)
-    : IClassFixture<ModulesApiFactory>, IAsyncLifetime
+public sealed class AcceptFriendRequestTests(PostgresFixture postgres, RedisFixture redis, ModulesApiFactory factory)
+    : IClassFixture<RedisFixture>, IClassFixture<ModulesApiFactory>, IAsyncLifetime
 {
-    public Task InitializeAsync() => factory.UseFreshDatabaseAsync(postgres);
+    public async Task InitializeAsync()
+    {
+        // Trước CreateClient: không gọi thì Redis là cổng 1, InvalidateAsync fail-open, ca cache xanh vì lý do sai.
+        factory.UseRedis(redis.ConnectionString);
+        await factory.UseFreshDatabaseAsync(postgres);
+    }
 
     public Task DisposeAsync() => Task.CompletedTask;
 
@@ -252,6 +260,54 @@ public sealed class AcceptFriendRequestTests(PostgresFixture postgres, ModulesAp
         if (root.TryGetProperty("errors", out var errors) && errors.ValueKind == JsonValueKind.Object)
             Assert.Empty(errors.EnumerateObject());
     }
+
+    /// <summary>
+    /// Chấp nhận là thao tác duy nhất của bước 4 làm đổi <c>Friends</c> của nguồn feed (Đ-4.8). 0 dòng (403) để khóa
+    /// <c>sg:feed-sources</c> nguyên; chấp nhận thành công xóa khóa của CẢ HAI, và lần đọc kế tiếp thấy bạn mới — không
+    /// phải bản cache rỗng còn sống 60s.
+    /// </summary>
+    [Fact]
+    public async Task Chap_nhan_xoa_cache_nguon_ca_hai_phia_0_dong_thi_khong()
+    {
+        var client = new ModulesTestClient(factory);
+        var a = Guid.NewGuid();
+        var b = Guid.NewGuid();
+        await OnboardAsync(client, b);
+        await client.SendFriendRequestOkAsync(a, b);
+        await WarmSourcesAsync(a, b);
+
+        using (var self = await client.AcceptAsync(a, b))
+            Assert.Equal(HttpStatusCode.Forbidden, self.StatusCode);
+        Assert.True(await KeyExistsAsync(a));
+        Assert.True(await KeyExistsAsync(b));
+
+        using (var accepted = await client.AcceptAsync(b, a))
+            Assert.Equal(HttpStatusCode.OK, accepted.StatusCode);
+        Assert.False(await KeyExistsAsync(a));
+        Assert.False(await KeyExistsAsync(b));
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        var reader = scope.ServiceProvider.GetRequiredService<IFeedSourceReader>();
+        Assert.Contains(b, (await reader.GetAsync(a)).Friends);
+        Assert.Contains(a, (await reader.GetAsync(b)).Friends);
+    }
+
+    /// <summary>Nạp khóa nguồn của hai người (đang rỗng: lời mời pending không phải bạn). Chép khuôn <c>DeleteFriendshipTests</c>.</summary>
+    private async Task WarmSourcesAsync(Guid a, Guid b)
+    {
+        await using var scope = factory.Services.CreateAsyncScope();
+        var connection = await scope.ServiceProvider.GetRequiredService<RedisConnection>().GetAsync();
+        Assert.True(connection.IsConnected, "Redis của app chưa nối — xóa cache fail-open và ca này xanh vì lý do sai");
+
+        var reader = scope.ServiceProvider.GetRequiredService<IFeedSourceReader>();
+        Assert.Empty((await reader.GetAsync(a)).Friends);
+        Assert.Empty((await reader.GetAsync(b)).Friends);
+        Assert.True(await KeyExistsAsync(a));
+        Assert.True(await KeyExistsAsync(b));
+    }
+
+    private Task<bool> KeyExistsAsync(Guid userId) =>
+        redis.Database.KeyExistsAsync($"sg:feed-sources:{userId:D}");
 
     private static async Task AssertStillPendingAsync(
         ModulesTestClient client, Guid a, Guid b, Guid requester)

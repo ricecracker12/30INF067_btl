@@ -1229,6 +1229,7 @@ Mỗi dòng: sửa tạm → chạy lọc → thấy **đúng** test dự kiến
 | Bỏ kiểm "khác mình" trước DB ở `D2` / `D6`                               | `FRD-03` / `FOL-03` (500 từ CHECK)                   | 4    | CHECK làm việc của validator               |
 | Bỏ `ON CONFLICT DO NOTHING`                                              | `FOL-02`                                             | 4    | Idempotent bị phá                          |
 | `DELETE /friends/{id}` thiếu vế `Status == Accepted`                     | ca D4 "hủy kết bạn không đụng lời mời đang chờ"      | 4    | Hai endpoint xóa nhầm nhau                 |
+| Không gọi `InvalidateAsync` sau chấp nhận (thêm 2026-09-23)              | ca D3 `Chap_nhan_xoa_cache_nguon_…` — **chỉ** ca đó  | 4    | Kết bạn xong, nguồn feed rỗng cũ sống 60s  |
 | Không gọi `InvalidateAsync` sau hủy kết bạn                              | `FEED-09`                                            | 5    | Nguồn cũ 60s                               |
 | Xóa cache nguồn **trước** `COMMIT`                                       | `FEED-09` — có thể không tái hiện ổn định            | 5    | Đ-4.15; B.9 tự rà mục 2 canh               |
 | Bỏ kiểm lại BR-02 (bước 6 của `FeedService`)                             | `FEED-09b`                                           | 5    | Lộ bài vừa đổi sang `friends`               |
@@ -1465,6 +1466,19 @@ Nửa quan hệ của Mục 17.4 (bước 4), mỗi dòng sửa tạm → lọc 
     khác mang trait thì cổng không thấy lớp bị quên.
 - `SocialGraphPermissionsTests` đã thử đỏ ở D0 — không thử lại.
 - `pnpm gen:api` sinh lại bốn yaml, `git status --porcelain -- src/frontend` rỗng. Không sửa `ci.yml`.
+
+### Rà bước 2–4 — 2026-09-23
+
+Tự rà thay review chéo (một người làm), trên `e120090..a062107`. Mỗi chỗ sửa một commit riêng:
+
+- `.gitignore` bị ghi bằng codepage ANSI ở `C5` — chú thích tiếng Việt thành `?`. Khôi phục UTF-8 từ `e120090`.
+- Seed: theo dõi trùng hết bạn → `FollowingOnly` rỗng. Chi tiết ở mục `C5` phía trên.
+- Sáu chỗ gọi `InvalidateAsync` nhận token của request: client ngắt sau `COMMIT` là bỏ xóa cache. Đổi sang
+  `CancellationToken.None`; `RelationshipServicePostCommitTests` 6 ca, trả service về bản cũ → 6/6 đỏ.
+- Không ca nào canh `D3` xóa cache nguồn — bỏ dòng `InvalidateAsync` trong `AcceptRequestAsync` thì `FRD-*`, AuthZ và
+  cả lớp `AcceptFriendRequestTests` vẫn xanh. Thêm `Chap_nhan_xoa_cache_nguon_ca_hai_phia_0_dong_thi_khong` (lớp chuyển
+  sang Redis thật, khuôn `DeleteFriendshipTests`) + một dòng Mục 17.4. Thử đỏ: bỏ dòng đó → **chỉ** ca mới đỏ (57 ca
+  lọc `AcceptFriendRequestTests|FriendRequestTests|Category=AuthZ` còn lại xanh).
 
 *Ghi tiếp khi làm: `EXPLAIN` của LATERAL và gợi ý trên dữ liệu tải (`C2`), dạng
 exception timeout thật (`C4`/`FEED-12`), hằng số `FEED-Q1` so với Mục 7.2, nửa feed của bảng đột biến (bước 5), năm mục tự rà B.9.*
