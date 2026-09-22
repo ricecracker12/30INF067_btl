@@ -40,7 +40,7 @@ Mười tám đầu việc: năm của B, sáu của C, bảy của D. Mục ti�
 | Mã     | Đầu việc                                                                                              | Mục tiêu — việc này tồn tại để làm gì                                                                                                                                                                                                 | Kết quả mong đợi — thứ kiểm chứng được                                                                                                                                                                                                                                   |
 | ------ | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **B1** | Harness: Redis thật cho `ModulesApiFactory`, URL ký khác nhau ở `FakeObjectStorage`, bộ đếm lệnh SQL, đo giờ | Cho test công cụ để thấy ba loại lỗi harness hiện mù: cache không chạy (Redis cổng 1), cache lưu URL đã ký (fake trả URL hằng), N+1 (không ai đếm lệnh). Thiếu `B1` thì `FEED-09/10/13`, `FEED-Q1` xanh vì lý do sai               | `ModulesApiFactory.UseRedis(...)`; `FakeObjectStorage.DistinctGetUrls` (tắt mặc định); `SqlCommandCounter` **đã từng đếm ra > 0** trên truy vấn biết trước; thời gian bộ integration trước/sau trong thân commit; toàn bộ test cũ xanh không sửa khẳng định                |
-| **B2** | Sáu dòng AuthZ matrix (năm dòng Mục 6.3 + `READ-06b`), viết **trước** endpoint                          | Mỗi thao tác GĐ4 chạm quan hệ có chủ có một dòng chạy qua đủ ba tầng; có **bằng chứng đỏ thật** trước khi code làm nó xanh                                                                                                              | `AuthZMatrix.cs` 23 dòng (24 test), chỉ file đó đổi; ngay sau commit năm dòng đỏ đúng lý do, `READ-06` xanh; link CI run đỏ đã lưu; sau `D3` + `D7`: 24/24                                                                                                                  |
+| **B2** | Sáu dòng AuthZ matrix (năm dòng Mục 6.3 + `READ-06b`), viết **trước** endpoint                          | Mỗi thao tác GĐ4 chạm quan hệ có chủ có một dòng chạy qua đủ ba tầng; có **bằng chứng đỏ thật** trước khi code làm nó xanh                                                                                                              | `AuthZMatrix.cs` 23 dòng (24 test); ngay sau commit: 3 dòng đỏ `ArrangePath 404`, `READ-06` + hai `TC-A01-*` xanh (401 anti-enumeration — lệch bảng cũ); link CI run đỏ đã lưu; sau `D3` + `D7`: 24/24                                                                                                                  |
 | **B3** | Test quan hệ `FRD-01..10`, `FOL-01..04` + bảng đột biến                                               | BR-03, FR-010/011/012 và race A↔B đúng qua HTTP trên Postgres thật; mỗi luật quan trọng **đã từng làm test đỏ** — thứ thay chỗ người review chéo (REV-01)                                                                               | Hai lớp test xanh, mười bốn ca mang mã Mục 10.1; `FRD-06` mười cặp song song, 0 lần 500; bảng đột biến Mục 17.4 tick đủ (nửa quan hệ ở bước 4, nửa feed ở bước 5)                                                                                                          |
 | **B4** | Test feed `FEED-01..13`, `FEED-07b`, `FEED-09b`, `PAGE-04` + đếm truy vấn `FEED-Q1`                                | Ma trận quyền của feed, feed gợi ý, luật cache, degrade/503 thành cổng; lưới N+1 ở đúng endpoint trọng điểm hiệu năng                                                                                                                   | Ba lớp test xanh; mọi ca cache **khẳng định đã trúng cache** trước khi khẳng định nội dung; giá trị thô `feed:p1:*` không chứa URL, `canEdit`; `FEED-Q1`: số lệnh ở 50 nguồn = 200 nguồn = hằng số viết tay theo Mục 7.2                                                      |
 | **B5** | Cổng hợp đồng `socialgraph-v1` + thử cho đỏ                                                           | Hợp đồng và controller không lệch được mà CI im lặng — cổng `API contract` hiện chỉ canh ba module                                                                                                                                      | Dòng `Content Include` trong csproj test; `SocialGraphContractTests` có trong `--list-tests --filter Category=Contract`; ba kiểu thử đỏ đã làm và khôi phục; codegen FE không sửa gì mà worktree sạch                                                                        |
@@ -398,10 +398,12 @@ tồn tại.
 | `TC-A03-friend-self-accept` | `User` (A)         | `POST /friends/requests/{B}/accept`     | 403     | Đỏ: như trên                                                | `D3`     |
 | `READ-06`                   | `User` (người lạ)  | `GET /posts/{id bài friends của B}`     | 404     | **Xanh** (L8)                                               | đã xanh  |
 | `READ-06b`                  | `User` (bạn của B) | `GET /posts/{id bài friends của B}`     | 200     | Đỏ: `ArrangePath hỏng`                                      | `D3`     |
-| `TC-A01-feed`               | `Anonymous`        | `GET /feed`                             | 401     | Đỏ: 404 (route chưa có — `FallbackPolicy` chỉ áp endpoint đã khớp) | `D7` |
-| `TC-A01-friends`            | `Anonymous`        | `POST /friends/requests` (có body)      | 401     | Đỏ: 404                                                     | `D2`     |
+| `TC-A01-feed`               | `Anonymous`        | `GET /feed`                             | 401     | **Xanh** ngay (sửa ngày 2026-09-22, lúc thi công `B2`): route chưa khớp + ẩn danh → 401 anti-enumeration, không 404 | giữ 401 khi `D7` có route |
+| `TC-A01-friends`            | `Anonymous`        | `POST /friends/requests` (có body)      | 401     | **Xanh** ngay — cùng lý do với `TC-A01-feed`                | giữ 401 khi `D2` có route |
 
 Bảng này vào thân commit `B2`. Một dòng đỏ **khác lý do** (ví dụ 500) là harness hỏng, không phải "đỏ có chủ đích".
+**Sửa ngày 2026-09-22, lúc thi công `B2`:** hai dòng `TC-A01-*` không đỏ được trước endpoint — app cố ý 401 route lạ
+(AGENTS.md Mục 9). Bằng chứng đỏ có chủ đích còn ba dòng `ArrangePath 404` + `READ-06` xanh.
 
 ### Các bước
 
@@ -1193,7 +1195,7 @@ Tick từng dòng, có bằng chứng. Dòng không áp dụng thì ghi lý do, 
 - [x] Mặc định của `ModulesApiFactory` và `FakeObjectStorage` không đổi — test GĐ1–GĐ2 xanh, không sửa khẳng định
 - [x] `SqlCommandCounterTests` chứng minh bộ đếm ra > 0
 - [x] Giờ bộ integration trước/sau trong commit #1; < ~3 phút hoặc đã tách collection
-- [ ] `AuthZMatrix.cs` 23 dòng, 24/24 trên CI; commit #2 chỉ chạm file đó; link CI đỏ đã lưu
+- [x] `AuthZMatrix.cs` 23 dòng; commit #2 chỉ chạm file đó; link CI đỏ đã lưu (24/24 sau `D3`+`D7`)
 - [ ] `SocialGraphContractTests` trong `--list-tests --filter Category=Contract`; ba kiểu thử đỏ đã làm
 - [ ] `pnpm gen:api` → worktree sạch; không sửa `ci.yml`; CI xanh cả năm nhóm trên commit cuối
 
@@ -1294,5 +1296,16 @@ Mỗi dòng: sửa tạm → chạy lọc → thấy **đúng** test dự kiến
   không sửa.
 - Lệch L1/L2/L4: nhắc lại trong thân commit — migrate socialgraph đã ở A3; `DistinctGetUrls`; đếm bằng ActivitySource.
 
-*Ghi tiếp khi làm: link CI đỏ (`B2`), thời gian seed (`C5`), `EXPLAIN` của LATERAL và gợi ý trên dữ liệu tải (`C2`), dạng
+### B2 — 2026-09-22 (local trước push)
+
+- `AuthZMatrix.cs` 23 dòng / 24 test. Chạy `Category=AuthZ`: **21 pass / 3 fail**.
+  - Đỏ đúng lý do: `TC-A03-friend-accept`, `TC-A03-friend-self-accept`, `READ-06b` — đều
+    `ArrangePath hỏng — POST /friends/requests … 404`.
+  - Xanh: `READ-06` (L8); `TC-A01-feed`, `TC-A01-friends` (401 anti-enumeration trên route chưa khớp — lệch bảng
+    hướng dẫn cũ giả định 404).
+- Link CI run đỏ: https://github.com/ricecracker12/30INF067_btl/actions/runs/35695741504
+  (`build-test` / AuthZ matrix GATE — 3 fail: `READ-06b`, `TC-A03-friend-accept`, `TC-A03-friend-self-accept`,
+  đều `ArrangePath hỏng — POST /friends/requests … 404`).
+
+*Ghi tiếp khi làm: thời gian seed (`C5`), `EXPLAIN` của LATERAL và gợi ý trên dữ liệu tải (`C2`), dạng
 exception timeout thật (`C4`/`FEED-12`), hằng số `FEED-Q1` so với Mục 7.2, kết quả từng dòng đột biến, năm mục tự rà B.9.*

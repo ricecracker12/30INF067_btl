@@ -1072,6 +1072,11 @@ Giữ luật chọn hàm của GĐ2 (`CreateDatabaseAsync` cho test sửa dữ l
 
 Thêm dòng trước khi có endpoint → đỏ có chủ đích → `D*` làm xanh (nếp `B2`/`B3` của GĐ1, GĐ2).
 
+Lệch lúc thi công B2 (2026-09-22): `TC-A01-feed` và `TC-A01-friends` **xanh ngay** với 401 — FallbackPolicy /
+anti-enumeration trả 401 cho route chưa khớp khi ẩn danh (AGENTS.md Mục 9), không 404 như bảng hướng dẫn B+C+D giả định.
+Ba dòng còn lại (`TC-A03-friend-accept`, `TC-A03-friend-self-accept`, `READ-06b`) đỏ đúng `ArrangePath … 404`; `READ-06`
+xanh (L8).
+
 ### B3 — Test quan hệ `FRD-*`, `FOL-*` + bảng đột biến
 
 | Đột biến | Test phải đỏ |
