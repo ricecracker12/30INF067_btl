@@ -1196,7 +1196,7 @@ Tick từng dòng, có bằng chứng. Dòng không áp dụng thì ghi lý do, 
 - [x] `SqlCommandCounterTests` chứng minh bộ đếm ra > 0
 - [x] Giờ bộ integration trước/sau trong commit #1; < ~3 phút hoặc đã tách collection
 - [x] `AuthZMatrix.cs` 23 dòng; commit #2 chỉ chạm file đó; link CI đỏ đã lưu (24/24 sau `D3`+`D7`)
-- [ ] `SocialGraphContractTests` trong `--list-tests --filter Category=Contract`; ba kiểu thử đỏ đã làm
+- [x] `SocialGraphContractTests` trong `--list-tests --filter Category=Contract`; ba kiểu thử đỏ đã làm
 - [ ] `pnpm gen:api` → worktree sạch; không sửa `ci.yml`; CI xanh cả năm nhóm trên commit cuối
 
 ### 17.2 Endpoint
@@ -1442,6 +1442,24 @@ Nửa quan hệ của Mục 17.4 (bước 4), mỗi dòng sửa tạm → lọc 
 | Bỏ kiểm "khác mình" trước DB ở D2 và D6 | Đỏ `FRD-03` và `FOL-03`, nhưng là **404** chứ không phải 500 từ CHECK: người gọi chưa có hồ sơ nên bước tra hồ sơ (ngay sau) trả 404 trước khi tới `FriendPair` / `ck_follows_not_self`. Lưới vẫn bắt (không còn 400). |
 | Bỏ `ON CONFLICT DO NOTHING` | Đỏ `FOL-02` (500 thay vì 204). `FOL-01` vẫn xanh. |
 | `DELETE /friends` thiếu `Status == Accepted` | Đỏ `Huy_ket_ban_khi_chi_co_loi_moi_khong_xoa_loi_moi` (dòng pending mất). `Huy_ket_ban_tra_204` và `FRD-09` vẫn xanh. |
+
+### B5 — 2026-09-22
+
+- Repo `30INF067_btl`, index 1 commit sau HEAD. Không sửa hành vi sản phẩm. Impact trước lần gắn
+  `[ProducesResponseType(418)]` tạm lên `FriendsController.SendRequest`: risk UNKNOWN (MVC gọi action, không có cạnh
+  gọi) — grep chỉ thấy đúng định nghĩa. Không HIGH/CRITICAL. Đã hoàn tác; controller không còn 418.
+- `--list-tests --filter Category=Contract`: **6 → 8**, tăng đúng 2 `[Fact]` của `ContractTestsBase`. Sau khôi phục:
+  **8/8** xanh, có cả hai fact của `SocialGraphContractTests`.
+- Thử đỏ rồi khôi phục:
+  - 418 trên `POST /friends/requests` → đỏ `Runtime_must_not_expose_anything_outside_the_contract`, thông điệp
+    `POST /friends/requests: 418`.
+  - Comment `Content Include` của `socialgraph-v1.yaml` (và xóa bản copy cũ trong output — `PreserveNewest` không gỡ
+    file đã chép) → đỏ cả hai fact, câu `Không thấy file hợp đồng ở …\Contracts\socialgraph-v1.yaml`.
+  - Gỡ `[Trait("Category","Contract")]` → `--list-tests` mất `SocialGraphContractTests` trong khi cổng
+    `Category=Contract` + `TreatNoTestsAsError` vẫn xanh **6/6**. `TreatNoTestsAsError` không bịt được lỗ này: còn lớp
+    khác mang trait thì cổng không thấy lớp bị quên.
+- `SocialGraphPermissionsTests` đã thử đỏ ở D0 — không thử lại.
+- `pnpm gen:api` sinh lại bốn yaml, `git status --porcelain -- src/frontend` rỗng. Không sửa `ci.yml`.
 
 *Ghi tiếp khi làm: `EXPLAIN` của LATERAL và gợi ý trên dữ liệu tải (`C2`), dạng
 exception timeout thật (`C4`/`FEED-12`), hằng số `FEED-Q1` so với Mục 7.2, nửa feed của bảng đột biến (bước 5), năm mục tự rà B.9.*

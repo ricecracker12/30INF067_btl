@@ -46,6 +46,9 @@
     <Content Include="..\..\src\backend\Modules\Content\Presentation\content-v1.yaml"
              Link="Contracts\content-v1.yaml"
              CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\src\backend\Modules\SocialGraph\Presentation\socialgraph-v1.yaml"
+             Link="Contracts\socialgraph-v1.yaml"
+             CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
