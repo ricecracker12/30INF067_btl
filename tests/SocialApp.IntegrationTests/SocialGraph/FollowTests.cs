@@ -49,12 +49,17 @@ public sealed class FollowTests(PostgresFixture postgres, ModulesApiFactory fact
         Assert.Equal(1L, await FollowCountAsync(client, a, b));
     }
 
-    /// <summary>Tự theo dõi → 400, không 500.</summary>
+    /// <summary>
+    /// Tự theo dõi → 400, không 500.
+    /// A CÓ hồ sơ: không có thì bỏ kiểm "khác mình" vẫn dừng ở bước tra hồ sơ (404), và ca này không bao giờ đi tới
+    /// CHECK <c>ck_follows_not_self</c> — đường 500 mà nó tồn tại để canh (Mục 17.4).
+    /// </summary>
     [Fact]
     public async Task FOL_03_tu_theo_doi_tra_400_khong_500()
     {
         var client = new ModulesTestClient(factory);
         var a = Guid.NewGuid();
+        await OnboardAsync(client, a);
 
         using var response = await client.FollowAsync(a, a);
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);

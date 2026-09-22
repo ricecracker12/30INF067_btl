@@ -58,12 +58,17 @@ public sealed class FriendRequestTests(PostgresFixture postgres, ModulesApiFacto
         Assert.Equal(1L, await FriendshipCountAsync(client, a, b));
     }
 
-    /// <summary>AC-03: tự gửi → 400 <c>errors.userId</c>, không dòng, không 500.</summary>
+    /// <summary>
+    /// AC-03: tự gửi → 400 <c>errors.userId</c>, không dòng, không 500.
+    /// A CÓ hồ sơ: không có thì bỏ kiểm "khác mình" vẫn dừng ở bước tra hồ sơ (404), và ca này không bao giờ đi tới
+    /// <c>FriendPair.Of</c> / CHECK — đường 500 mà nó tồn tại để canh (Mục 17.4).
+    /// </summary>
     [Fact]
     public async Task FRD_03_tu_gui_tra_400_khong_dong_khong_500()
     {
         var client = new ModulesTestClient(factory);
         var a = Guid.NewGuid();
+        await OnboardAsync(client, a);
 
         using var response = await client.SendFriendRequestAsync(a, new { userId = a });
         var (status, _, errors) = await ModulesTestClient.ReadProblemAsync(response);

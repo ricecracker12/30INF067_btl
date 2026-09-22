@@ -1446,7 +1446,7 @@ Nửa quan hệ của Mục 17.4 (bước 4), mỗi dòng sửa tạm → lọc 
 | Khôi phục `AlwaysStrangers` trong `AddContentModule` | Test khởi động đỏ: hai đăng ký `[AlwaysStrangers, FriendshipReader]`. `READ-06b` **vẫn xanh** — `AddSocialGraphModule` đăng ký sau nên cái sau thắng. `FEED-04` chưa có (bước 5). |
 | `AreFriendsAsync` luôn `true` | Đỏ đúng `READ-06` (200 thay vì 404) và `READ_02_05(friends, false)`. Năm ca còn lại của ma trận BR-02 và `READ-06b` vẫn xanh. |
 | Không bắt `23505` | Đỏ `FRD-02` (500 thay vì 409) và `FRD-06` (`[201, 500]` thay vì `[201, 409]`). |
-| Bỏ kiểm "khác mình" trước DB ở D2 và D6 | Đỏ `FRD-03` và `FOL-03`, nhưng là **404** chứ không phải 500 từ CHECK: người gọi chưa có hồ sơ nên bước tra hồ sơ (ngay sau) trả 404 trước khi tới `FriendPair` / `ck_follows_not_self`. Lưới vẫn bắt (không còn 400). |
+| Bỏ kiểm "khác mình" trước DB ở D2 và D6 | Đỏ `FRD-03` và `FOL-03`, nhưng là **404** chứ không phải 500 từ CHECK: người gọi chưa có hồ sơ nên bước tra hồ sơ (ngay sau) trả 404 trước khi tới `FriendPair` / `ck_follows_not_self`. Lưới vẫn bắt (không còn 400). **Sửa 2026-09-23:** hai ca tạo hồ sơ cho A; thử lại → cả hai đỏ **500** (`FriendPair.Of` / CHECK), đúng cột dự kiến. |
 | Bỏ `ON CONFLICT DO NOTHING` | Đỏ `FOL-02` (500 thay vì 204). `FOL-01` vẫn xanh. |
 | `DELETE /friends` thiếu `Status == Accepted` | Đỏ `Huy_ket_ban_khi_chi_co_loi_moi_khong_xoa_loi_moi` (dòng pending mất). `Huy_ket_ban_tra_204` và `FRD-09` vẫn xanh. |
 
