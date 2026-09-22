@@ -66,4 +66,29 @@ public sealed class FakeObjectStorageTests
         Assert.DoesNotContain("X-Amz-Signature", url);
         Assert.DoesNotContain("r2.cloudflarestorage.com", url);
     }
+
+    /// <summary>
+    /// B1 (GĐ4, L2): tắt mặc định thì hai lần ký bằng nhau (AvatarTests/UpsertProfileTests so nguyên chuỗi); bật thì
+    /// khác nhau nhưng cùng tiền tố — FEED-10 phân biệt hydrate ký lại với cache trả URL cũ.
+    /// </summary>
+    [Fact]
+    public void DistinctGetUrls_tat_hai_lan_bang_nhau_bat_thi_khac_cung_tien_to()
+    {
+        var fake = new FakeObjectStorage();
+        const string key = "posts/u/a.jpg";
+
+        Assert.False(fake.DistinctGetUrls);
+        var a = fake.CreatePresignedGet(key);
+        var b = fake.CreatePresignedGet(key);
+        Assert.Equal(a, b);
+        Assert.Equal($"https://fake.invalid/get/{key}", a);
+
+        fake.DistinctGetUrls = true;
+        var c = fake.CreatePresignedGet(key);
+        var d = fake.CreatePresignedGet(key);
+        Assert.NotEqual(c, d);
+        Assert.StartsWith($"https://fake.invalid/get/{key}?sig=", c);
+        Assert.StartsWith($"https://fake.invalid/get/{key}?sig=", d);
+        Assert.Equal(4, fake.PresignGetCalls);
+    }
 }

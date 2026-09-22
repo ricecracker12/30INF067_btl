@@ -1063,9 +1063,10 @@ BR-02 thật chứng minh bằng `FriendshipReaderTests` + test khởi động. 
 
 ### B1 — Harness
 
-`PostgresFixture` migrate thêm schema `socialgraph`; helper dựng cảnh bằng API thật: "A và B là bạn", "A theo dõi C",
-"B đăng bài ở ba mức riêng tư". Giữ luật chọn hàm của GĐ2 (`CreateDatabaseAsync` cho test sửa dữ liệu). Đo thời gian bộ
-integration trước và sau; vượt ~3 phút thì tách collection.
+`PostgresFixture` migrate thêm schema `socialgraph` (đã xong ở A3 — lệch L1). B1 còn: `ModulesApiFactory.UseRedis`,
+`FakeObjectStorage.DistinctGetUrls` (tắt mặc định, L2), `SqlCommandCounter` qua ActivitySource `"Npgsql"` (L4), đo giờ.
+Giữ luật chọn hàm của GĐ2 (`CreateDatabaseAsync` cho test sửa dữ liệu). Đo thời gian bộ integration trước và sau; vượt
+~3 phút thì tách collection. **Thi công 2026-09-22:** trước 1 m 24 s → sau 1 m 21 s — chưa tách.
 
 ### B2 — Năm dòng AuthZ matrix + `READ-06b`, viết cho đỏ trước
 

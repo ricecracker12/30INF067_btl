@@ -28,11 +28,13 @@ namespace SocialApp.IntegrationTests.Harness;
 /// không có FK sang <c>identity.users</c> (Đ-2.2), tầng 1 chỉ cần chữ ký hợp lệ và tầng 2 chỉ cần claim <c>role</c>. Đây là
 /// điểm khác GĐ1 có chủ đích: ở đó <c>/me</c> đọc bảng <c>users</c> nên <c>sub</c> phải là người có thật.</item>
 /// </list>
-/// Redis không tới được như <see cref="ApiFactory"/> — bên đọc thu hồi token fail-open nên tầng 1 vẫn chạy.
+/// Redis mặc định không tới được như <see cref="ApiFactory"/> — bên đọc thu hồi token fail-open nên tầng 1 vẫn chạy.
+/// B1 (GĐ4): test cache feed gọi <see cref="UseRedis"/> với Redis thật; không gọi thì Redis vẫn cổng 1.
 /// </summary>
 public sealed class ModulesApiFactory : WebApplicationFactory<Program>
 {
     private Task<string>? _database;
+    private string _redis = ApiFactory.UnreachableRedis;   // mặc định GIỮ NGUYÊN: mọi lớp cũ vẫn chạy không Redis
 
     /// <summary>
     /// C5: lưu trữ đối tượng giả. Test dựng sẵn object bằng <c>Storage.Put(...)</c> rồi gọi API thật. MỘT instance cho cả
@@ -45,6 +47,12 @@ public sealed class ModulesApiFactory : WebApplicationFactory<Program>
     /// factory (IClassFixture) sống cả lớp → gọi lại trả đúng database đã tạo, không tạo thêm.
     /// </summary>
     public Task UseFreshDatabaseAsync(PostgresFixture postgres) => _database ??= CreateMigratedDatabaseAsync(postgres);
+
+    /// <summary>
+    /// B1 (GĐ4): Redis THẬT cho test cache feed. Gọi ở InitializeAsync, trước CreateClient đầu tiên — cùng luật với
+    /// UseFreshDatabaseAsync. Không gọi thì Redis là cổng 1: cache fail-open, và test cache xanh vì lý do sai.
+    /// </summary>
+    public void UseRedis(string connectionString) => _redis = connectionString;
 
     public string ConnectionString => _database is { IsCompletedSuccessfully: true } db
         ? db.Result
@@ -77,7 +85,7 @@ public sealed class ModulesApiFactory : WebApplicationFactory<Program>
     {
         builder.UseEnvironment(Environments.Development);
         builder.UseSetting("ConnectionStrings:Postgres", ConnectionString);
-        builder.UseSetting("ConnectionStrings:Redis", ApiFactory.UnreachableRedis);
+        builder.UseSetting("ConnectionStrings:Redis", _redis);
         TestJwt.Configure(builder);
 
         builder.ConfigureTestServices(services =>

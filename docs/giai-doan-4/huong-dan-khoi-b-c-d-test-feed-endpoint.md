@@ -1190,9 +1190,9 @@ Tick từng dòng, có bằng chứng. Dòng không áp dụng thì ghi lý do, 
 
 ### 17.1 Hạ tầng test và cổng
 
-- [ ] Mặc định của `ModulesApiFactory` và `FakeObjectStorage` không đổi — test GĐ1–GĐ2 xanh, không sửa khẳng định
-- [ ] `SqlCommandCounterTests` chứng minh bộ đếm ra > 0
-- [ ] Giờ bộ integration trước/sau trong commit #1; < ~3 phút hoặc đã tách collection
+- [x] Mặc định của `ModulesApiFactory` và `FakeObjectStorage` không đổi — test GĐ1–GĐ2 xanh, không sửa khẳng định
+- [x] `SqlCommandCounterTests` chứng minh bộ đếm ra > 0
+- [x] Giờ bộ integration trước/sau trong commit #1; < ~3 phút hoặc đã tách collection
 - [ ] `AuthZMatrix.cs` 23 dòng, 24/24 trên CI; commit #2 chỉ chạm file đó; link CI đỏ đã lưu
 - [ ] `SocialGraphContractTests` trong `--list-tests --filter Category=Contract`; ba kiểu thử đỏ đã làm
 - [ ] `pnpm gen:api` → worktree sạch; không sửa `ci.yml`; CI xanh cả năm nhóm trên commit cuối
@@ -1281,7 +1281,18 @@ Mỗi dòng: sửa tạm → chạy lọc → thấy **đúng** test dự kiến
 
 ## Thực tế thi công
 
-*Ghi khi làm, có ngày tháng: số test và giờ trước/sau (`B1`), link CI đỏ (`B2`), thời gian seed (`C5`), `EXPLAIN` của
-LATERAL và gợi ý trên dữ liệu tải (`C2`), dạng exception timeout thật (`C4`/`FEED-12`), hằng số `FEED-Q1` so với Mục 7.2,
-kết quả từng dòng đột biến, năm mục tự rà B.9, và chỗ lệch tài liệu này. Sửa ngay tại mục liên quan phía trên kèm "(sửa ngày
-…, lúc thi công `…`)", và tóm tắt ở đây.*
+### B1 — 2026-09-22
+
+- Impact trước sửa: `ModulesApiFactory` risk UNKNOWN (xUnit fixture, không có cạnh gọi) — xác nhận bằng text search mọi
+  lớp `IClassFixture<ModulesApiFactory>` giữ mặc định Redis cổng 1. `CreatePresignedGet` / `FakeObjectStorage` risk
+  **CRITICAL** (Avatar/UpsertProfile so nguyên chuỗi URL) — giữ `DistinctGetUrls` tắt mặc định; không sửa khẳng định.
+- Tag Activity Npgsql 8 trên máy thật: nguồn `"Npgsql"`, tag `db.name` + `db.statement` — `SqlCommandCounterTests` đếm
+  > 0 và thấy câu chứa `content.posts` khi gọi `GET /users/{id}/posts`. Không cần fallback `DiagnosticListener`.
+- Bộ integration `Category!=AuthZ&Category!=Contract` (lần hai ấm): **trước 1 m 24 s (314 pass + 1 đỏ R2 nền) → sau
+  1 m 21 s (316 pass + 1 đỏ R2 nền)**. Dưới ~3 phút — chưa tách collection.
+- Đỏ nền đã biết: `StartupConfigurationTests.Development_boots_without_r2_…` vì user-secrets có khóa R2 (CI xanh) —
+  không sửa.
+- Lệch L1/L2/L4: nhắc lại trong thân commit — migrate socialgraph đã ở A3; `DistinctGetUrls`; đếm bằng ActivitySource.
+
+*Ghi tiếp khi làm: link CI đỏ (`B2`), thời gian seed (`C5`), `EXPLAIN` của LATERAL và gợi ý trên dữ liệu tải (`C2`), dạng
+exception timeout thật (`C4`/`FEED-12`), hằng số `FEED-Q1` so với Mục 7.2, kết quả từng dòng đột biến, năm mục tự rà B.9.*
