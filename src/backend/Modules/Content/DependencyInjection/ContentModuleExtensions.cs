@@ -2,6 +2,7 @@ using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using SocialApp.Modules.Content.Application.Feed;
 using SocialApp.Modules.Content.Application.Media;
 using SocialApp.Modules.Content.Application.Posts;
 using SocialApp.Modules.Content.Infrastructure;
@@ -69,6 +70,9 @@ public static class ContentModuleExtensions
 
         // D6. Đường ĐỌC tách khỏi đường ghi: hai service không dùng chung phụ thuộc nào ngoài store và mapper.
         services.AddScoped<PostReadService>();
+
+        // C2 (GĐ4). Scoped vì FeedStore giữ ContentDbContext.
+        services.AddScoped<IFeedStore, FeedStore>();
 
         return services;
     }

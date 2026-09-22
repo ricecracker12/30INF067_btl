@@ -1209,8 +1209,8 @@ Tick từng dòng, có bằng chứng. Dòng không áp dụng thì ghi lý do, 
 
 ### 17.3 Feed và hiệu năng
 
-- [ ] `EXPLAIN` LATERAL + gợi ý trên bộ dữ liệu tải dán vào "Thực tế thi công", đúng hình dạng Đ-4.7
-- [ ] `EXPLAIN` trước/sau Đ-4.11 trong thân commit #14
+- [x] `EXPLAIN` LATERAL + gợi ý trên bộ dữ liệu tải dán vào "Thực tế thi công", đúng hình dạng Đ-4.7
+- [x] `EXPLAIN` trước/sau Đ-4.11 trong thân commit #14
 - [ ] `FEED-01..13`, `FEED-07b`, `FEED-09b`, `PAGE-04`, `FEED-Q1` xanh; ca cache khẳng định trúng cache trước
 - [ ] Giá trị thô `feed:p1:*` đúng bốn trường; môi trường đo: `redis-cli --scan --pattern 'feed:*'` + `GET` vài khóa không
       thấy `X-Amz-Signature` (Mục 12 gốc)
@@ -1491,5 +1491,64 @@ Tự rà thay review chéo (một người làm), trên `e120090..a062107`. Mỗ
   sang Redis thật, khuôn `DeleteFriendshipTests`) + một dòng Mục 17.4. Thử đỏ: bỏ dòng đó → **chỉ** ca mới đỏ (57 ca
   lọc `AcceptFriendRequestTests|FriendRequestTests|Category=AuthZ` còn lại xanh).
 
-*Ghi tiếp khi làm: `EXPLAIN` của LATERAL và gợi ý trên dữ liệu tải (`C2`), dạng
-exception timeout thật (`C4`/`FEED-12`), hằng số `FEED-Q1` so với Mục 7.2, nửa feed của bảng đột biến (bước 5), năm mục tự rà B.9.*
+### C2 — 2026-09-23
+
+- Impact trước sửa: `ListByAuthorAsync` LOW (d=1 `PostReadService.ListByUserAsync` → `PostsController.ListByUser`);
+  `AddContentModule` UNKNOWN (`receiverTyping: 4`) — grep đúng 4 chỗ gọi cùng chữ ký `(cs)`: `Program.cs`,
+  `ModulesApiFactory`, `PostgresFixture`, `ContentDbContextSchemaTests`. Chỉ thêm một đăng ký. Không HIGH/CRITICAL.
+- SQL của Đ-4.7 **nguyên văn** (kể cả CTE) qua `FromSql`: global query filter bọc nó thành subquery và Npgsql cho bọc câu
+  mở bằng `WITH` (đã thử — ghi lại vì tưởng phải đổi CTE thành subquery). Literal `'published'`/`'public'`/`'friends'`
+  viết thẳng: nội suy là tham số, planner không chứng minh được điều kiện index một phần từ tham số.
+- Lệch thứ tự Phần IV: `FEED-01..08` **chưa** viết trước `C2` — chúng cần `FeedPage` và route (`D7`) mới compile. Lưới
+  trong lúc chờ là `FeedStoreTests` (đối chiếu SQL ↔ `FeedVisibility` trên 36 bài 4 tác giả × 3 mức × 3 trạng thái).
+  Thử đỏ: bỏ `p.status = 'published'` trong LATERAL → 3/5 ca đỏ; đã khôi phục.
+- `FeedVisibility` có thêm `CanSeeSuggested` — hướng dẫn chỉ ghi `CanSee(…, sources)`, mà ở chế độ gợi ý nguồn rỗng theo
+  định nghĩa: kiểm lại (C4 bước 6) bằng `CanSee` là loại sạch bài người lạ.
+- `EXPLAIN (ANALYZE, BUFFERS)` trên `socialapp_perf` (1M bài), người nhiều bạn nhất: **500 bạn + 20 chỉ theo dõi + chính
+  mình = 521 nguồn**. Câu đúng dạng EF gửi (CTE bọc trong `WHERE status <> 'deleted'` + `ORDER BY` ngoài), tham số thay
+  bằng hằng — Npgsql không auto-prepare nên mỗi lần chạy là custom plan với giá trị thật. Mảng id rút gọn thành `{…}`.
+  Lần hai (ấm):
+
+  (1) LATERAL, trang đầu — **9,8 ms**; lần lạnh đầu tiên 237 ms (1.532 buffer đọc đĩa):
+
+  ```
+  Subquery Scan on p (actual time=9.771..9.777 rows=21 loops=1)
+    Filter: ((p.status)::text <> 'deleted'::text)
+    ->  Limit (rows=21)
+          ->  Sort (rows=21)   Sort Key: created_at DESC, post_id DESC   Sort Method: top-N heapsort  Memory: 29kB
+                ->  Nested Loop (actual time=0.024..7.560 rows=10941 loops=1)
+                      Buffers: shared hit=13812
+                      ->  Append (rows=521 loops=1)        -- 20 chỉ theo dõi + 500 bạn + 1 chính mình
+                      ->  Limit (rows=21 loops=521)
+                            ->  Index Scan using idx_posts_author_created on posts p_1 (rows=21 loops=521)
+                                  Index Cond: (author_id = (unnest('{…}'::uuid[])))
+                                  Filter: (((1) = 3) OR ((privacy)::text = 'public'::text) OR (((1) = 2) AND ((privacy)::text = 'friends'::text)))
+  Execution Time: 9.830 ms
+  ```
+
+  (2) LATERAL, trang có cursor — **15,5 ms** (lần một 9,1 ms), cursor thành `Index Cond` dạng `ROW(created_at, post_id) < ROW(…)`:
+
+  ```
+  ->  Index Scan using idx_posts_author_created on posts p_1 (rows=21 loops=521)
+        Index Cond: ((author_id = (unnest('{…}'::uuid[]))) AND (ROW(created_at, post_id) < ROW('2026-09-22 14:48:51.55545+00'::timestamptz, 'c8e2a996-…'::uuid)))
+  ```
+
+  (3) Gợi ý, trang đầu — **0,08 ms**; (4) có cursor — **0,09 ms**; không `Sort`:
+
+  ```
+  Subquery Scan on p (rows=21)
+    ->  Limit (rows=21)
+          ->  Index Scan using idx_posts_public_recent on posts p_1 (rows=21 loops=1)
+                Index Cond: (ROW(created_at, post_id) < ROW(…))          -- chỉ ở (4)
+                Filter: (author_id <> '01ae50c7-…'::uuid)
+                Buffers: shared hit=24
+  ```
+
+  Đúng hình dạng Đ-4.7: `Sort` duy nhất là top-N trên 10.941 = 521 × 21 dòng (`số nguồn × take`), không trên toàn bộ bài;
+  EF bọc ngoài không thêm `Sort` thứ hai. Chi phí tăng theo số nguồn (521 lần dò index) — đúng "giới hạn đã biết" của Đ-4.7.
+- Đ-4.11, cùng máy, tác giả 100 bài, người đọc là người lạ: **trước** `Parallel Seq Scan on posts` + `Sort` (29,3 ms,
+  16.697 buffer, 333.308 dòng bị lọc mỗi worker); **sau** `Index Scan using idx_posts_author_created` (0,18 ms, 32 buffer).
+  Chi tiết trong thân commit.
+
+*Ghi tiếp khi làm: dạng exception timeout thật (`C4`/`FEED-12`), hằng số `FEED-Q1` so với Mục 7.2, nửa feed của bảng đột
+biến (bước 5), năm mục tự rà B.9.*
