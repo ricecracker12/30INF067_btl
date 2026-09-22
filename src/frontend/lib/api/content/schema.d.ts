@@ -142,6 +142,39 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/feed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Bảng tin của người gọi, mới nhất trước, phân trang keyset (GĐ4, SEQ-03)
+         * @description Tầng 2: `post.read.public`. Người gọi lấy từ token — không tham số nào mang id người dùng.
+         *
+         *     **Nguồn** (Đ-4.5): bạn bè thấy `public` + `friends`, người đang theo dõi (không phải bạn) thấy `public`, bài của
+         *     chính mình thấy mọi mức. Chỉ bài đã đăng. Có dù chỉ một kết nối → `mode: network`, kể cả khi `items` rỗng — không
+         *     trộn bài người lạ. Chưa có kết nối nào → `mode: suggested`: bài `public` mới nhất toàn hệ thống, **trừ** bài của
+         *     mình (Đ-4.6).
+         *
+         *     **Trang ngắn là hợp lệ** (Đ-4.9): mọi response kiểm lại quyền xem với quan hệ hiện tại, nên `items` có thể ít hơn
+         *     `limit`. Hết dữ liệu **khi và chỉ khi** `nextCursor` là `null`.
+         *
+         *     Cursor opaque, cùng bộ mã hóa với `/users/{userId}/posts`. Cursor rác → **400** `errors.cursor` (PAGE-04).
+         *
+         *     **503** khi hệ thống quá tải (truy vấn feed vượt thời hạn, Đ-4.10), kèm header `Retry-After` (giây). Thử lại sau;
+         *     FE không hiện đồng hồ đếm ngược.
+         */
+        get: operations["getFeed"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -302,6 +335,18 @@ export interface components {
             /** @description Opaque. `null` khi hết dữ liệu — không phải chuỗi rỗng (Đ-2.11). */
             nextCursor: string | null;
         };
+        /**
+         * @description `network` — có ít nhất một kết nối (bạn hoặc đang theo dõi), kể cả khi feed rỗng. `suggested` — chưa có kết nối
+         *     nào, `items` là bài công khai mới nhất của người khác (Đ-4.6); FE hiện nhãn "Gợi ý cho bạn".
+         * @enum {string}
+         */
+        FeedMode: "network" | "suggested";
+        FeedPage: {
+            items: components["schemas"]["PostResponse"][];
+            /** @description `items` có thể ít hơn `limit`. Hết dữ liệu khi và chỉ khi `nextCursor` là `null`. */
+            nextCursor: string | null;
+            mode: components["schemas"]["FeedMode"];
+        };
     };
     responses: {
         /**
@@ -407,6 +452,34 @@ export interface components {
                  *       "detail": "Bạn đã gửi quá nhiều yêu cầu. Vui lòng thử lại sau ít phút.",
                  *       "instance": "/api/v1/posts",
                  *       "traceId": "e0b2d4f6a8c0e2b4d6f8a0c2e4b6d8f0"
+                 *     }
+                 */
+                "application/problem+json": components["schemas"]["ProblemDetails"];
+            };
+        };
+        /**
+         * @description Hệ thống đang quá tải — truy vấn feed vượt thời hạn (Đ-4.10). Không phải lỗi hệ thống (500): thử lại sau số giây
+         *     trong `Retry-After`.
+         */
+        ServiceUnavailable: {
+            headers: {
+                /**
+                 * @description Số giây nên chờ trước khi thử lại.
+                 * @example 5
+                 */
+                "Retry-After"?: number;
+                "X-Correlation-ID": components["headers"]["XCorrelationId"];
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "type": "https://httpstatuses.io/503",
+                 *       "title": "Bảng tin đang quá tải",
+                 *       "status": 503,
+                 *       "detail": "Bảng tin đang có quá nhiều người truy cập. Vui lòng thử lại.",
+                 *       "instance": "/api/v1/feed",
+                 *       "traceId": "f8a0c2e4b6d8f0a2c4e6b8d0f2a4c6e8"
                  *     }
                  */
                 "application/problem+json": components["schemas"]["ProblemDetails"];
@@ -771,6 +844,61 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalError"];
+        };
+    };
+    getFeed: {
+        parameters: {
+            query?: {
+                /** @description `nextCursor` của trang trước. Bỏ trống để lấy trang đầu. */
+                cursor?: string;
+                /** @description Số bài mỗi trang, mặc định 20, tối đa 50 (AGENTS.md Mục 9). Ngoài `1..50` → 400 `errors.limit`. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Một trang bảng tin. */
+            200: {
+                headers: {
+                    "X-Correlation-ID": components["headers"]["XCorrelationId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "postId": "0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10",
+                     *           "author": {
+                     *             "userId": "0192f3c0-1b2d-7e4f-8a6c-9d0e1f2a3b4c",
+                     *             "displayName": "Nguyễn Văn An",
+                     *             "avatarUrl": null
+                     *           },
+                     *           "body": "Chiều nay trời đẹp quá.",
+                     *           "privacy": "friends",
+                     *           "media": [],
+                     *           "commentCount": 0,
+                     *           "reactionCounts": {},
+                     *           "createdAt": "2026-09-23T08:15:00Z",
+                     *           "editedAt": null,
+                     *           "canEdit": false
+                     *         }
+                     *       ],
+                     *       "nextCursor": "MjAyNi0wOS0yM1QwODoxNTowMC4wMDAwMDAwKzAwOjAwfDAxOTJmM2MxLThhNGUtN2MzMS05ZjJhLTZiNWQ0ZTNjMmExMA",
+                     *       "mode": "network"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["FeedPage"];
+                };
+            };
+            400: components["responses"]["ValidationProblem"];
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["ServiceUnavailable"];
         };
     };
 }

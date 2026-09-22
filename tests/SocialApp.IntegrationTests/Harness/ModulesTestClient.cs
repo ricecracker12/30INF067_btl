@@ -5,6 +5,7 @@ using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Npgsql;
 using SocialApp.SharedKernel.Storage;
+using SocialApp.Modules.Content.Application.Feed;
 using SocialApp.Modules.Content.Application.Posts;
 using SocialApp.Modules.Profile.Application.Profiles;
 using SocialApp.Modules.SocialGraph.Application.Relationships;
@@ -419,6 +420,25 @@ public sealed class ModulesTestClient
         var request = new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/follows/{userId}");
         request.Headers.Authorization = Bearer(actorId);
         return Http.SendAsync(request);
+    }
+
+    /// <summary>
+    /// <c>GET /feed</c> với tư cách <paramref name="actorId"/> (D7, GĐ4). <paramref name="query"/> là phần query string kể cả
+    /// <c>?</c> — rỗng là trang đầu với limit mặc định, tức trang DUY NHẤT được cache (Đ-4.8).
+    /// </summary>
+    public Task<HttpResponseMessage> GetFeedAsync(Guid actorId, string query = "")
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, $"/api/v1/feed{query}");
+        request.Headers.Authorization = Bearer(actorId);
+        return Http.SendAsync(request);
+    }
+
+    /// <summary>Như <see cref="GetFeedAsync"/> nhưng đọc luôn body 200.</summary>
+    public async Task<FeedPage> GetFeedOkAsync(Guid actorId, string query = "")
+    {
+        using var response = await GetFeedAsync(actorId, query);
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<FeedPage>(Json))!;
     }
 
     /// <summary>

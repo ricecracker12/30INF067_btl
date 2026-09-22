@@ -1202,9 +1202,9 @@ Tick từng dòng, có bằng chứng. Dòng không áp dụng thì ghi lý do, 
 
 ### 17.2 Endpoint
 
-- [ ] Bảy endpoint quan hệ + `GET /feed` hiện trên Swagger đúng nhóm
-- [ ] `content-v1.yaml`: chỉ thêm, `1.0.0-gd4`, `schema.d.ts` cùng commit `D7`
-- [ ] Bảng rà mã lỗi hai nhóm (`D7` Bước 4) trong thân commit #17
+- [x] Bảy endpoint quan hệ + `GET /feed` hiện trên Swagger đúng nhóm
+- [x] `content-v1.yaml`: chỉ thêm, `1.0.0-gd4`, `schema.d.ts` cùng commit `D7`
+- [x] Bảng rà mã lỗi hai nhóm (`D7` Bước 4) trong thân commit #17
 - [ ] 403 của accept không phân biệt lý do; 503 có `Retry-After: 5`
 
 ### 17.3 Feed và hiệu năng
@@ -1585,6 +1585,23 @@ Tự rà thay review chéo (một người làm), trên `e120090..a062107`. Mỗ
   `TimeoutException` và `57014` trần hoặc bọc. Dạng nào thật sự xảy ra — ghi ở `FEED-12` (B4).
 - Thử đỏ (đã khôi phục): bỏ xóa khóa sau đăng bài → `FeedPageCacheTests.Dang_sua_xoa_…` đỏ; `next` tính từ danh sách đã
   lọc → `FeedServiceTests.Truot_cache_kiem_lai_va_next_tu_danh_sach_goc` đỏ.
+
+### D7 — 2026-09-23
+
+- Impact trước sửa: `content-v1.yaml` không phải symbol — người dùng là `ContentContractTests` và `pnpm gen:api`.
+  `ModulesTestClient` CRITICAL (100+ caller) — chỉ thêm `GetFeedAsync` / `GetFeedOkAsync`, không đổi chữ ký cũ.
+  `FeedController`, `FeedQuery` là file mới.
+- `content-v1.yaml` chỉ-thêm: `git diff` có đúng **một** dòng `-` (`version: 1.0.0-gd2`). Thêm path `/feed`, response
+  `ServiceUnavailable` (header `Retry-After` + `X-Correlation-ID`), schema `FeedMode`, `FeedPage` (mô tả `nextCursor`
+  nguyên văn Mục 8.2), tag `feed`, và một đoạn "MỞ LẠI Ở GĐ4" trong comment đầu file. `nextCursor` của ví dụ 200 giải mã
+  được thật (đã kiểm).
+- `pnpm gen:api` → chỉ `lib/api/content/schema.d.ts` đổi; `pnpm typecheck` xanh. Alias `FeedPage` trong `lib/api/types.ts`
+  là việc của `E1` (Mục 19).
+- Thử đỏ cổng hợp đồng: bỏ `[ProducesResponseType(503)]` khỏi `FeedController` → `Contract_must_be_fully_implemented`
+  đỏ `GET /feed: 503`; đã khôi phục. `TC-A01-feed` vẫn 401 khi route đã có — matrix giữ 24/24.
+- `FeedQueryValidator` dùng CÙNG hai câu của `ListUserPostsQueryValidator` — một loại lỗi, một cách nói.
+- Bảng rà RFC 7807 hai nhóm (mọi mã trừ 429/500 — mã middleware, cổng hợp đồng đã trừ) nằm trong thân commit D7. Không
+  mã nào thiếu test; hai mã của `/feed` (`400 errors.cursor`, `503`) canh bằng `PAGE-04`, `FEED-12` ở commit B4.
 
 *Ghi tiếp khi làm: dạng exception timeout thật (`C4`/`FEED-12`), hằng số `FEED-Q1` so với Mục 7.2, nửa feed của bảng đột
 biến (bước 5), năm mục tự rà B.9.*
