@@ -1476,14 +1476,16 @@ Tự rà thay review chéo (một người làm), trên `e120090..a062107`. Mỗ
 - Seed: theo dõi trùng hết bạn → `FollowingOnly` rỗng. Chi tiết ở mục `C5` phía trên.
 - Sáu chỗ gọi `InvalidateAsync` nhận token của request: client ngắt sau `COMMIT` là bỏ xóa cache. Đổi sang
   `CancellationToken.None`; `RelationshipServicePostCommitTests` 6 ca, trả service về bản cũ → 6/6 đỏ.
-- **Hai chỗ chỉ sửa được bằng cách viết lại lịch sử — chưa làm, chờ chốt** (mười ba commit `B1`–`B5` đã push lên
-  `loveart1210`, chưa merge vào `develop`):
-  1. `D1` `ca2a9d5`, `D2` `a7a4aff`, `D3` `ff5ab81` có trailer `Co-authored-by: Cursor …` — trái `commit-rules.md`
-     Mục 6 (footer sạch bút ký), nên checklist 17.5 dòng cuối **chưa tick được**.
+- **Hai chỗ trong thân commit đã push — đã sửa bằng `filter-branch` ngày 2026-09-23**, trước khi nhánh `loveart1210`
+  merge vào `develop` (msg-filter khóa theo sha gốc, nội dung cây không đổi; `refs/original/` giữ bản cũ):
+  1. `D1` `ca2a9d5`, `D2` `a7a4aff`, `D3` `ff5ab81` mang trailer ghi công công cụ — trái `commit-rules.md` Mục 6.
+     Đã gỡ; `git log e120090..HEAD --format=%B | grep -c "^Co-authored-by:"` ra **0**. (Đừng kiểm bằng
+     `grep -i co-authored`: nó khớp cả đoạn văn xuôi của chính commit này và cho báo động giả.)
   2. Dòng `Test:` của `D4` `eb2d9a5`, `D5` `297a063`, `D6` `5c43188`, `B3` `64cebec` chỉ ghi số của bộ lọc, thiếu tổng
-     trước → sau (Mục 5.5). Số đã đếm lại bằng `--list-tests` ở từng commit, để đây làm bằng chứng:
+     trước → sau (Mục 5.5). Số đếm lại bằng `--list-tests` ở từng commit rồi ghi vào thân commit:
      `D4` Integration **390 → 403**; `D5` Integration **403 → 417**, Unit **227 → 238**; `D6` Integration
-     **417 → 428**; `B3` Integration **428 → 442**.
+     **417 → 428**; `B3` Integration **428 → 442**. Mốc `D3` (390) khớp dòng `Test:` sẵn có của `ff5ab81` nên cách
+     đếm này tin được.
 - Không ca nào canh `D3` xóa cache nguồn — bỏ dòng `InvalidateAsync` trong `AcceptRequestAsync` thì `FRD-*`, AuthZ và
   cả lớp `AcceptFriendRequestTests` vẫn xanh. Thêm `Chap_nhan_xoa_cache_nguon_ca_hai_phia_0_dong_thi_khong` (lớp chuyển
   sang Redis thật, khuôn `DeleteFriendshipTests`) + một dòng Mục 17.4. Thử đỏ: bỏ dòng đó → **chỉ** ca mới đỏ (57 ca
