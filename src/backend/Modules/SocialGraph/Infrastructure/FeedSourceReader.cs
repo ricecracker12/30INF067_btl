@@ -18,6 +18,7 @@ internal sealed class FeedSourceReader(
     SocialGraphDbContext db,
     RedisConnection redis,
     IOptions<FeedSourceCacheOptions> options,
+    FailOpenLogThrottle failOpenLog,
     ILogger<FeedSourceReader> logger) : IFeedSourceReader
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
@@ -104,8 +105,14 @@ internal sealed class FeedSourceReader(
         }
     }
 
-    private void LogFailOpen(Exception? ex) =>
-        logger.LogWarning(ex, "Redis không sẵn sàng — bỏ qua cache nguồn feed (fail-open, Đ-4.8)");
+    private void LogFailOpen(Exception? ex)
+    {
+        if (failOpenLog.ShouldLog("feed-sources-read", out var suppressed))
+            logger.LogWarning(
+                ex,
+                "Redis không sẵn sàng — bỏ qua cache nguồn feed (fail-open, Đ-4.8); {Suppressed} lần cùng loại trước đó không ghi log",
+                suppressed);
+    }
 
     /// <summary>Ghi mảng, đọc mảng, dựng set — <c>HashSet&lt;Guid&gt;</c> không round-trip như mong đợi.</summary>
     private sealed record CachedPayload(

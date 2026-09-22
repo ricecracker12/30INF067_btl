@@ -9,7 +9,8 @@ namespace SocialApp.Modules.SocialGraph.Infrastructure;
 /// Xóa khóa <c>sg:feed-sources:*</c> sau <c>COMMIT</c> (Đ-4.15). Cùng hàm <see cref="Key"/> với
 /// <see cref="FeedSourceReader"/> — hai chỗ gõ chuỗi khóa khác format là xóa không bao giờ trúng.
 /// </summary>
-internal sealed class FeedSourceCache(RedisConnection redis, ILogger<FeedSourceCache> logger) : IFeedSourceCache
+internal sealed class FeedSourceCache(
+    RedisConnection redis, FailOpenLogThrottle failOpenLog, ILogger<FeedSourceCache> logger) : IFeedSourceCache
 {
     internal const int TtlSeconds = 60;
 
@@ -40,6 +41,12 @@ internal sealed class FeedSourceCache(RedisConnection redis, ILogger<FeedSourceC
         }
     }
 
-    private void LogFailOpen(Exception? ex) =>
-        logger.LogWarning(ex, "Redis không sẵn sàng — bỏ qua xóa cache nguồn feed (fail-open, Đ-4.8)");
+    private void LogFailOpen(Exception? ex)
+    {
+        if (failOpenLog.ShouldLog("feed-sources-invalidate", out var suppressed))
+            logger.LogWarning(
+                ex,
+                "Redis không sẵn sàng — bỏ qua xóa cache nguồn feed (fail-open, Đ-4.8); {Suppressed} lần cùng loại trước đó không ghi log",
+                suppressed);
+    }
 }

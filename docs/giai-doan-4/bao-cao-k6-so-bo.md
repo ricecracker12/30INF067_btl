@@ -9,15 +9,15 @@
 **Đạt sơ bộ.** Lượt (2), con số kết luận (cache trang đầu **tắt**), cho **p95 = 40,6 ms**, p99 = 62,1 ms, **0 % lỗi** trên
 251.440 request, tức khoảng 1/12 ngưỡng 500 ms. Lượt (3) (Redis dừng ở phút 4) giữ **0 % lỗi**, p95 = 308 ms.
 
-Hai việc phải chuyển đi, dù ngưỡng đã đạt (Mục 8):
+Hai vấn đề lộ ra ở lượt (3), dù ngưỡng đã đạt; cách xử lý và số trước/sau ở Mục 5:
 
 1. **Redis dừng thì kết nối DB chạm trần.** Pool Npgsql mặc định 100 bằng đúng `max_connections` 100 của Postgres, nên app
    chiếm hết 100 chỗ. Chính app không lỗi, nhưng `psql`, `migrate` hay một instance thứ hai bị từ chối (`too many clients
    already`). Đây là PERF-03. Đã đo lại với `Maximum Pool Size=80` (Mục 5): đỉnh 81, p95 269 ms, 0 % lỗi, không kém
    pool 100. Đề xuất đặt 80 cho staging/production.
 2. **Redis dừng thì log bị ngập.** Mỗi request ghi 3 dòng Warning fail-open (thu hồi token, cache nguồn, cache trang
-   đầu): khoảng 436.000 dòng trong 4 phút. Đồng thời api chạm trần 2 CPU; đây nhiều khả năng là phần lớn chênh p95 giữa
-   lượt (2) và lượt (3).
+   đầu): khoảng 436.000 dòng trong 4 phút, đúng lúc api chạm trần 2 CPU. **Đã sửa**: mỗi loại tối đa một dòng mỗi 30s, kèm
+   số lần bỏ qua. Lượt (3) đo lại: 27 dòng Warning, p95 308/264 → **201 ms**, trung bình 90/80 → 60 ms.
 
 ## 1. Máy và cấu hình
 
@@ -79,7 +79,12 @@ VU thứ *i* là người dùng thứ `10·(i−1)` trong `users.csv`. 1.000 VU 
   request một lần mỗi loại) và 25 lần `/health/ready` trả 503 (health check Redis). Readiness báo đúng; Docker đánh dấu
   api `unhealthy` cho tới khi Redis lên lại.
 
-## 5. Đo lại lượt (3) với `Maximum Pool Size=80` (PERF-03)
+## 5. Đo lại lượt (3) — trước và sau hai sửa
+
+Mỗi dòng dưới đây là một lượt (3) đầy đủ: cache bật, Redis dừng ở phút 4, 1.000 VU. Chỉ đổi đúng một thứ so với dòng
+trước.
+
+### 5.1 Pool 80 tường minh trong compose đo (PERF-03)
 
 PERF-03 (giai-doan-4.md Mục 14) chốt biện pháp: đặt `Maximum Pool Size` tường minh, nhỏ hơn `max_connections` và chừa
 chỗ cho `migrate`/backup. Đo lại lượt (3), chỉ đổi pool thành 80 (chừa 20):
@@ -93,6 +98,23 @@ chỗ cho `migrate`/backup. Đo lại lượt (3), chỉ đổi pool thành 80 (
 Pool 80 không làm p95 tệ đi: 269 ms nằm giữa hai lần đo với pool 100 (264 và 308 ms), tức chênh lệch nằm trong nhiễu của
 lượt degrade. Trong log api không có dòng nào về pool hay timeout. Postgres còn 19 chỗ cho `migrate`, backup và `psql`.
 Trước khi Redis dừng, mọi lượt chỉ dùng 28–64 kết nối: trần 80 chỉ có tác dụng khi hệ thống degrade.
+
+### 5.2 Giới hạn tần suất log fail-open (commit `fix(gd4-c)` sau `84e4f1a`)
+
+`FailOpenLogThrottle` (SharedKernel, singleton theo host) cho mỗi loại cảnh báo tối đa một dòng mỗi 30s. Dòng kế tiếp mang
+`{Suppressed}` = số lần đã bỏ qua. Áp cho bốn chỗ: thu hồi token, đọc nguồn feed, xóa nguồn feed, cache trang đầu. Đo lại
+với image build từ code đã sửa, **pool để 100** như hai lần đo đầu, để chỉ đổi đúng phần log:
+
+| Lượt (3) | Log | Pool | Request | p50 | p95 | p99 | Lỗi | Dòng Warning | Kết nối DB đỉnh |
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| lần 1–2 (Mục 4) | mỗi request | 100 | 241.400 / 240.017 | 16,4 / 17,3 ms | 264 / 308 ms | 382 / 456 ms | 0 % | ≈ 436.000 | chạm trần 100 |
+| **lần 4 (06:46)** | **≤ 1 dòng/30s/loại** | 100 | 244.718 | 17,8 ms | **201,3 ms** | 389,4 ms | **0 %** | **27** | **84** |
+
+- Trung bình giảm 90/80 → 60 ms, p90 252 → 157 ms. p99 gần như không đổi (389 ms): đuôi còn lại do Postgres gánh thêm hai
+  câu nguồn feed mỗi request (CPU Postgres khoảng 490 %) và api chạm trần 2 nhân, không phải do log.
+- Dòng log vẫn đủ thông tin, ví dụ `Suppressed: 18356` cho mỗi loại mỗi 30s (khoảng 610 request/s bị fail-open).
+- Kết nối DB không còn chạm trần (84): request xong nhanh hơn thì giữ kết nối ngắn hơn. Nhưng 84 vẫn chỉ cách trần 16,
+  nên trần pool vẫn cần (Mục 5.1 và 5.3).
 
 ## 6. Truy vấn chậm nhất
 
@@ -117,5 +139,5 @@ Trong lúc chạy smoke có cache: `redis-cli --scan --pattern 'feed:*'` trả 5
 | Việc | Vì sao | Chuyển cho |
 | --- | --- | --- |
 | Đặt `Maximum Pool Size=80` trong chuỗi kết nối staging/production (`deploy/.env`), nhỏ hơn `max_connections` 100 và chừa 20 chỗ cho `migrate`/backup/`psql` (Mục 5) | PERF-03: không đặt thì pool 100 = `max_connections` 100, khi Redis dừng không còn chỗ cho `migrate`, `psql`, instance thứ hai | Người giữ `deploy/.env` trước F1; kiểm lại ở GĐ8 |
-| Giới hạn tần suất log fail-open (ví dụ một dòng mỗi N giây cho mỗi loại, kèm số lần bị bỏ qua) ở `RedisTokenRevocationStore`, `FeedSourceReader`/`FeedSourceCache`, `RedisFeedPageCache` | Redis dừng thì mỗi request 3 dòng Warning: ngập log và tốn CPU api đúng lúc hệ thống đang degrade | GĐ8 (đụng SharedKernel, không thuộc phạm vi GĐ4) |
+| ~~Giới hạn tần suất log fail-open~~ — **đã làm** trong GĐ4 (Mục 5.2) | Redis dừng thì mỗi request 3 dòng Warning: ngập log và tốn CPU api đúng lúc hệ thống đang degrade | — |
 | Đo lại trên hạ tầng giống VPS: Postgres chung 2 OCPU với api, k6 ở máy khác | Mục 1: Postgres ở đây có nhiều nhân hơn thật, và k6 chung VM | GĐ8, bản chính thức |

@@ -1651,8 +1651,10 @@ Nửa feed của Mục 17.4 (bước 5), mỗi dòng sửa tạm → chạy mọ
   Nhưng lượt (3) chạy hai lần đều cho kết nối DB chạm `max_connections` 100 sau khi Redis dừng (`too many clients
   already` cho `psql`), tức PERF-03. Đo lại với pool 80: đỉnh 81, p95 269 ms, 0 % lỗi. Đề xuất đặt pool 80 cho
   staging/production. **Không** sửa `deploy/.env` trong commit này — việc của người giữ file đó trước F1.
-- Lượt (3) còn lộ ra chuyện log bị ngập: 3 dòng Warning fail-open mỗi request, khoảng 440.000 dòng trong 4 phút. Chuyển
-  sang GĐ8 (đụng SharedKernel).
+- Lượt (3) còn lộ ra chuyện log bị ngập: 3 dòng Warning fail-open mỗi request, khoảng 440.000 dòng trong 4 phút.
+  **Sửa 2026-09-23 ngay trong GĐ4** (nhóm chốt làm luôn, không chờ GĐ8): `FailOpenLogThrottle` trong SharedKernel, singleton
+  theo host — không `static`, vì `FEED-11`, `RV04`, `FeedSourceCacheTests` mỗi ca dựng host mới và cần thấy dòng đầu tiên.
+  Đo lại lượt (3): 27 dòng Warning, p95 308/264 → 201 ms, 0 % lỗi (báo cáo k6 Mục 5.2).
 - Không sửa code sản phẩm theo `EXPLAIN` — không có gì chậm để sửa. Theo Mục 16, C6 vì thế là commit `docs`.
 
 *Còn lại trước PR: năm mục tự rà B.9.*

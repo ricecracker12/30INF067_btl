@@ -19,6 +19,7 @@ namespace SocialApp.Modules.Content.Infrastructure.Feed;
 internal sealed class RedisFeedPageCache(
     RedisConnection redis,
     IOptions<FeedPageCacheOptions> options,
+    FailOpenLogThrottle failOpenLog,
     ILogger<RedisFeedPageCache> logger) : IFeedPageCache
 {
     internal const int TtlSeconds = 30;
@@ -124,8 +125,14 @@ internal sealed class RedisFeedPageCache(
         }
     }
 
-    private void LogFailOpen(Exception? ex) =>
-        logger.LogWarning(ex, "Redis không sẵn sàng — bỏ qua cache trang đầu feed (fail-open, Đ-4.8)");
+    private void LogFailOpen(Exception? ex)
+    {
+        if (failOpenLog.ShouldLog("feed-page", out var suppressed))
+            logger.LogWarning(
+                ex,
+                "Redis không sẵn sàng — bỏ qua cache trang đầu feed (fail-open, Đ-4.8); {Suppressed} lần cùng loại trước đó không ghi log",
+                suppressed);
+    }
 
     private sealed record Payload(
         [property: JsonPropertyName("ids")] Guid[] Ids,
