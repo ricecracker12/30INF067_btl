@@ -1,8 +1,12 @@
+using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using SocialApp.Modules.SocialGraph.Application;
+using SocialApp.Modules.SocialGraph.Application.Relationships;
 using SocialApp.Modules.SocialGraph.Infrastructure;
+using SocialApp.Modules.SocialGraph.Infrastructure.Persistence;
 using SocialApp.SharedKernel.Contracts;
 
 namespace SocialApp.Modules.SocialGraph.DependencyInjection;
@@ -42,6 +46,28 @@ public static class SocialGraphModuleExtensions
             .Configure<IServiceProvider>((o, sp) =>
                 sp.GetService<IConfiguration>()?.GetSection(FeedSourceCacheOptions.Section).Bind(o));
         services.AddSingleton<IFeedSourceCache, FeedSourceCache>();
+
+        // D0. Các dòng dưới đây phải dựng được bằng `new ServiceCollection()` KHÔNG host: PostgresFixture,
+        // SocialGraphDbContextSchemaTests, FriendshipReaderTests, FeedSourceReaderTests đều làm vậy. Thứ gì
+        // cần IConfiguration/IHostEnvironment thì nhận qua tham số, đừng đọc ở đây. Resolve
+        // IFeedSourceReader / IFeedSourceCache thì cần RedisConnection — đó là việc của L12, không của hàm này.
+
+        // Đồng hồ của service khối D (created_at/updated_at/accepted_at). TryAdd vì AddProfileModule /
+        // AddContentModule cũng gọi dòng này — một đồng hồ cho cả process.
+        services.TryAddSingleton(TimeProvider.System);
+
+        // CHỈ đăng ký validator của module. KHÔNG gọi AddFluentValidationAutoValidation ở đây: đó là cấu hình
+        // MVC toàn cục, host đã gọi một lần — gọi lại là mỗi lỗi validate hiện hai lần trong `errors`.
+        services.AddValidatorsFromAssembly(typeof(SocialGraphModuleExtensions).Assembly, ServiceLifetime.Singleton);
+
+        // Event Đ-4.15: chỉ log, không giữ trạng thái, không chạm DbContext — Singleton.
+        services.AddSingleton<SocialGraphEvents>();
+
+        // Scoped vì RelationshipStore sẽ giữ SocialGraphDbContext (scoped); RelationshipService theo cùng
+        // vòng đời của thứ nó cầm. IUserDirectory do HOST + AddProfileModule đăng ký — chỗ trần không
+        // resolve RelationshipService nên thiếu IUserDirectory ở đó không sao.
+        services.AddScoped<IRelationshipStore, RelationshipStore>();
+        services.AddScoped<RelationshipService>();
 
         return services;
     }

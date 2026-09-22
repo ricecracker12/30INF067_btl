@@ -1317,6 +1317,22 @@ Mỗi dòng: sửa tạm → chạy lọc → thấy **đúng** test dự kiến
   random()…`. README dùng `docker exec`/`docker cp` vì host Windows thường không có `psql`.
 - `users.csv` xuất local (gitignore). `PERF_JWT_KEY` chỉ trong `tests/load/feed/.env`.
 
+### D0 — 2026-09-22
+
+- Impact trước sửa: repo `30INF067_btl`, index 6 commit sau HEAD. `AddSocialGraphModule` risk UNKNOWN
+  (`receiverTyping: 6`) — grep xác nhận đúng 6 chỗ gọi, cùng chữ ký `(cs)`: `Program.cs`, `ModulesApiFactory`,
+  `PostgresFixture`, `SocialGraphDbContextSchemaTests`, `FriendshipReaderTests`, `FeedSourceReaderTests`. Thêm
+  đăng ký DI, không đổi chữ ký; không HIGH/CRITICAL.
+- Thử đỏ `SocialGraphPermissionsTests`: đổi `FriendRequest` thành `"friend.reques"` → đỏ đúng thông điệp
+  `…không có trong PermissionCodes…: friend.reques` → khôi phục, 2/2 xanh.
+- `GET /swagger/socialgraph-v1/swagger.json` 200 (`SocialGraphHarnessTests`, `ApiFactory`, `paths` còn rỗng).
+- `PresentationBoundaryTests` + `ModuleBoundaryTests` + `PersistenceBoundaryTests` + `PermissionCodeUsageTests` xanh
+  (14). `FriendshipReaderTests` + schema tests xanh sau thêm validator/`TimeProvider`/store/service.
+- Lệch thứ tự kế hoạch (C1 đã lên trước): `RelationshipService` nhận `IFeedSourceCache` ngay trong commit này —
+  C1 đã đăng ký DI, không đăng ký bản rỗng (`AlwaysStrangers`).
+- `SelfRelationship`: yaml `GET /relationships` 400 không có `example` riêng — câu "Không thể xem quan hệ với chính
+  mình." đặt ở D0, cùng key `userId`.
+
 ### C1 — 2026-09-22
 
 - Repo `30INF067_btl`, index `7700827` = HEAD. `FeedSourceReader` / `AddSocialGraphModule` / `RelationshipService`
@@ -1326,8 +1342,6 @@ Mỗi dòng: sửa tạm → chạy lọc → thấy **đúng** test dự kiến
 - `AddSocialGraphModule` `receiverTyping: 6` — grep đúng 6 chỗ gọi, cùng chữ ký `(cs)`. Thêm options + `IFeedSourceCache`,
   không đổi chữ ký. `FeedSourceReaderTests` thêm Redis cổng 1 (L12) + `AddLogging` vì reader giờ inject `ILogger`.
 - `ServiceCollection` trần không chạy `RedisConnectionStarter` — `FeedSourceCacheTests` `await GetAsync()` trước ca đầu.
-- `IFeedSourceCache` đăng ký DI ở C1. Constructor `RelationshipService` thuộc D0 (chưa commit) — không nhét nền D0 vào
-  commit này.
 
 *Ghi tiếp khi làm: `EXPLAIN` của LATERAL và gợi ý trên dữ liệu tải (`C2`), dạng
 exception timeout thật (`C4`/`FEED-12`), hằng số `FEED-Q1` so với Mục 7.2, kết quả từng dòng đột biến, năm mục tự rà B.9.*

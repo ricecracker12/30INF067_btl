@@ -862,6 +862,7 @@ bộ dữ liệu, cùng nếp `PostVisibilityTests` của GĐ2 (hai bản của 
    GATE)` tự chạy nó. Thử cho đỏ: thêm một mã trả về vào controller mà không sửa yaml.
 3. `AuthZMatrix.cs`: năm dòng Mục 6.3 + `READ-06b`.
 4. `SocialGraphPermissionsTests` ở ArchitectureTests.
+   Lệch B.4/B.5/B.6 (nhóm chốt): viết trong `D0` cùng hằng `SocialGraphPermissions` (nếp `Q-D5` GĐ2); `B5` chỉ thử đỏ.
 5. `ModuleBoundaryTests` / `PresentationBoundaryTests` / `PersistenceBoundaryTests`: **không** sửa danh sách module —
    chúng đã liệt kê SocialGraph từ GĐ0.
    Lệch B.3 (nhóm chốt): không có `Skip` nào để gỡ. Chỉ **thêm** `SocialGraph_Domain_namespace_must_not_be_empty` trong
@@ -1095,7 +1096,8 @@ Mục 10.2. `FEED-10` dùng `TimeProvider` giả (đã đăng ký `TryAddSinglet
 
 ### B5 — Cổng hợp đồng `socialgraph-v1` + thử cho đỏ
 
-Mục 10.5 điểm 1–5. Thử cho đỏ từng cổng mới một lần; `git status` sạch trước và sau (luật frontend Mục 9).
+Mục 10.5 điểm 1, 2 + thử đỏ. Lệch B.4/B.5/B.6 (nhóm chốt): điểm 3 là `B2`; điểm 5 đã xong ở `A1`; điểm 4
+(`SocialGraphPermissionsTests`) viết trong `D0`, `B5` chỉ thử đỏ.
 
 ---
 
@@ -1151,6 +1153,10 @@ DB đỉnh, `EXPLAIN` của truy vấn chậm nhất, việc chuyển sang GĐ8 
 
 `SocialGraphApiGroup`; controller khai `[ApiExplorerSettings(GroupName = …)]` từ file đầu tiên; `SocialGraphPermissions`;
 `SocialGraphErrors` ở một chỗ (nếp `ContentErrors`); validator đăng ký trong `AddSocialGraphModule`.
+`SocialGraphPermissionsTests` đi **cùng commit này** (nếp `Q-D5` GĐ2).
+
+Lệch B.4/B.5/B.6 (nhóm chốt): Mục 10.5 điểm 4 viết trong `D0`, không để tới `B5` — để `D2`–`D6` gõ mã quyền mà không
+ai canh thì Admin vẫn qua. `B5` chỉ thử đỏ lại.
 
 ### D1 — `GET /relationships/{userId}`
 

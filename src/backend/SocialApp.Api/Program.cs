@@ -19,6 +19,7 @@ using SocialApp.Modules.Identity.Presentation;
 using SocialApp.Modules.Profile.DependencyInjection;
 using SocialApp.Modules.Profile.Presentation;
 using SocialApp.Modules.SocialGraph.DependencyInjection;
+using SocialApp.Modules.SocialGraph.Presentation;
 using SocialApp.SharedKernel.Authentication;
 using SocialApp.SharedKernel.Authorization;
 using SocialApp.SharedKernel.Configuration;
@@ -54,6 +55,7 @@ builder.Services
     .AddApplicationPart(typeof(IdentityApiGroup).Assembly)
     .AddApplicationPart(typeof(ProfileApiGroup).Assembly)
     .AddApplicationPart(typeof(ContentApiGroup).Assembly)
+    .AddApplicationPart(typeof(SocialGraphApiGroup).Assembly)
     .AddJsonOptions(o =>
     {
         // CamelCase là BẮT BUỘC, không phải trang trí (Q-D4 → Q-D2, chốt 2026-09-19): hợp đồng ghi
@@ -86,6 +88,7 @@ var apiGroups = new[]
     (Name: IdentityApiGroup.Name, Title: IdentityApiGroup.Title),
     (Name: ProfileApiGroup.Name, Title: ProfileApiGroup.Title),
     (Name: ContentApiGroup.Name, Title: ContentApiGroup.Title),
+    (Name: SocialGraphApiGroup.Name, Title: SocialGraphApiGroup.Title),
 };
 
 builder.Services.AddEndpointsApiExplorer();
