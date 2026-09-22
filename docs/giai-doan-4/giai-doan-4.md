@@ -1108,6 +1108,9 @@ Mục 10.5 điểm 1–5. Thử cho đỏ từng cổng mới một lần; `git 
 Khóa `sg:feed-sources:{userId}`, TTL 60s, fail-open. Xóa khóa của **cả hai** người **sau** `COMMIT` ở mọi thao tác đổi quan
 hệ (Đ-4.15) — một hàm `InvalidateAsync(a, b)` gọi từ một chỗ trong service, không rải khắp controller.
 
+Lệch B.4/B.5/B.6 (nhóm chốt, L12): `FeedSourceReaderTests` thêm `AddSharedKernelRedis(ApiFactory.UnreachableRedis)` —
+`FeedSourceReader` giờ cần `RedisConnection`; cổng 1 là đường fail-open. Q-C2 (bind công tắc có điều kiện) đã ghi ở Đ-4.8.
+
 ### C2 — Truy vấn LATERAL + feed gợi ý (Đ-4.6, Đ-4.7)
 
 `IFeedStore` ở `Content.Application`, hiện thực `FromSql` ở `Content.Infrastructure`. `EXPLAIN (ANALYZE, BUFFERS)` trên bộ

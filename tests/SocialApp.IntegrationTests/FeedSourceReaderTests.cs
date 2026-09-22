@@ -4,12 +4,14 @@ using SocialApp.Modules.SocialGraph.DependencyInjection;
 using SocialApp.Modules.SocialGraph.Domain;
 using SocialApp.Modules.SocialGraph.Infrastructure;
 using SocialApp.SharedKernel.Contracts;
+using SocialApp.SharedKernel.Redis;
 using Xunit;
 
 namespace SocialApp.IntegrationTests;
 
 /// <summary>
-/// A5 — <see cref="IFeedSourceReader"/> chưa cache qua DI của <c>AddSocialGraphModule</c>.
+/// A5 + L12 (C1) — <see cref="IFeedSourceReader"/> qua DI của <c>AddSocialGraphModule</c>. Redis cổng 1
+/// (không tới được) là đường fail-open: test này canh luật nguồn trên DB, không canh cache.
 /// </summary>
 [Collection(PostgresCollection.Name)]
 public sealed class FeedSourceReaderTests(PostgresFixture postgres)
@@ -20,6 +22,8 @@ public sealed class FeedSourceReaderTests(PostgresFixture postgres)
     {
         var services = new ServiceCollection()
             .AddSocialGraphModule(await postgres.CreateDatabaseAsync())
+            .AddSharedKernelRedis(ApiFactory.UnreachableRedis)
+            .AddLogging()
             .BuildServiceProvider();
 
         await services.MigrateSocialGraphModuleAsync();

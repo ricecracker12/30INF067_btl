@@ -1317,5 +1317,17 @@ Mỗi dòng: sửa tạm → chạy lọc → thấy **đúng** test dự kiến
   random()…`. README dùng `docker exec`/`docker cp` vì host Windows thường không có `psql`.
 - `users.csv` xuất local (gitignore). `PERF_JWT_KEY` chỉ trong `tests/load/feed/.env`.
 
+### C1 — 2026-09-22
+
+- Repo `30INF067_btl`, index `7700827` = HEAD. `FeedSourceReader` / `AddSocialGraphModule` / `RelationshipService`
+  risk UNKNOWN (DI). `IFeedSourceReader` impact HIGH vì 16 import namespace `SharedKernel.Contracts` — **không đổi
+  chữ ký** interface; grep `IFeedSourceReader` trong `src/`: chỉ đăng ký DI + chính file hiện thực. Không HIGH/CRITICAL
+  trên symbol đang sửa.
+- `AddSocialGraphModule` `receiverTyping: 6` — grep đúng 6 chỗ gọi, cùng chữ ký `(cs)`. Thêm options + `IFeedSourceCache`,
+  không đổi chữ ký. `FeedSourceReaderTests` thêm Redis cổng 1 (L12) + `AddLogging` vì reader giờ inject `ILogger`.
+- `ServiceCollection` trần không chạy `RedisConnectionStarter` — `FeedSourceCacheTests` `await GetAsync()` trước ca đầu.
+- `IFeedSourceCache` đăng ký DI ở C1. Constructor `RelationshipService` thuộc D0 (chưa commit) — không nhét nền D0 vào
+  commit này.
+
 *Ghi tiếp khi làm: `EXPLAIN` của LATERAL và gợi ý trên dữ liệu tải (`C2`), dạng
 exception timeout thật (`C4`/`FEED-12`), hằng số `FEED-Q1` so với Mục 7.2, kết quả từng dòng đột biến, năm mục tự rà B.9.*

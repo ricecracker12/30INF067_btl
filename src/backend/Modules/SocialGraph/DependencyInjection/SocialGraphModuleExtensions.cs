@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using SocialApp.Modules.SocialGraph.Application;
 using SocialApp.Modules.SocialGraph.Infrastructure;
 using SocialApp.SharedKernel.Contracts;
 
@@ -31,6 +33,15 @@ public static class SocialGraphModuleExtensions
         // BR-02 thật hay giả. Scoped vì đọc qua SocialGraphDbContext.
         services.AddScoped<IFriendshipReader, FriendshipReader>();
         services.AddScoped<IFeedSourceReader, FeedSourceReader>();
+
+        // C1 (Đ-4.8, Q-C2): bind có điều kiện — có IConfiguration (host) thì đọc Feed:SourceCache:Enabled,
+        // ServiceCollection trần không có thì mặc định bật. BindConfiguration đòi IConfiguration và làm
+        // FeedSourceReaderTests ném lúc resolve. RedisConnection do HOST đăng ký (AddSharedKernelRedis);
+        // test trần resolve reader thì thêm dòng đó (L12: cổng 1 = fail-open).
+        services.AddOptions<FeedSourceCacheOptions>()
+            .Configure<IServiceProvider>((o, sp) =>
+                sp.GetService<IConfiguration>()?.GetSection(FeedSourceCacheOptions.Section).Bind(o));
+        services.AddSingleton<IFeedSourceCache, FeedSourceCache>();
 
         return services;
     }
