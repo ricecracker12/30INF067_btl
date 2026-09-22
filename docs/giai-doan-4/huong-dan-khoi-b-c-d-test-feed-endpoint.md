@@ -40,7 +40,7 @@ Mười tám đầu việc: năm của B, sáu của C, bảy của D. Mục ti�
 | Mã     | Đầu việc                                                                                              | Mục tiêu — việc này tồn tại để làm gì                                                                                                                                                                                                 | Kết quả mong đợi — thứ kiểm chứng được                                                                                                                                                                                                                                   |
 | ------ | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **B1** | Harness: Redis thật cho `ModulesApiFactory`, URL ký khác nhau ở `FakeObjectStorage`, bộ đếm lệnh SQL, đo giờ | Cho test công cụ để thấy ba loại lỗi harness hiện mù: cache không chạy (Redis cổng 1), cache lưu URL đã ký (fake trả URL hằng), N+1 (không ai đếm lệnh). Thiếu `B1` thì `FEED-09/10/13`, `FEED-Q1` xanh vì lý do sai               | `ModulesApiFactory.UseRedis(...)`; `FakeObjectStorage.DistinctGetUrls` (tắt mặc định); `SqlCommandCounter` **đã từng đếm ra > 0** trên truy vấn biết trước; thời gian bộ integration trước/sau trong thân commit; toàn bộ test cũ xanh không sửa khẳng định                |
-| **B2** | Sáu dòng AuthZ matrix (năm dòng Mục 6.3 + `READ-06b`), viết **trước** endpoint                          | Mỗi thao tác GĐ4 chạm quan hệ có chủ có một dòng chạy qua đủ ba tầng; có **bằng chứng đỏ thật** trước khi code làm nó xanh                                                                                                              | `AuthZMatrix.cs` 23 dòng (24 test); ngay sau commit: 3 dòng đỏ `ArrangePath 404`, `READ-06` + hai `TC-A01-*` xanh (401 anti-enumeration — lệch bảng cũ); link CI run đỏ đã lưu; sau `D3` + `D7`: 24/24                                                                                                                  |
+| **B2** | Sáu dòng AuthZ matrix (năm dòng Mục 6.3 + `READ-06b`), viết **trước** endpoint                          | Mỗi thao tác GĐ4 chạm quan hệ có chủ có một dòng chạy qua đủ ba tầng; có **bằng chứng đỏ thật** trước khi code làm nó xanh                                                                                                              | `AuthZMatrix.cs` 23 dòng (24 test); ngay sau commit: 3 dòng đỏ `ArrangePath 404`, `READ-06` + hai `TC-A01-*` xanh (401 anti-enumeration — lệch bảng cũ); link CI run đỏ đã lưu; sau `D3`: 24/24                                                                                                                          |
 | **B3** | Test quan hệ `FRD-01..10`, `FOL-01..04` + bảng đột biến                                               | BR-03, FR-010/011/012 và race A↔B đúng qua HTTP trên Postgres thật; mỗi luật quan trọng **đã từng làm test đỏ** — thứ thay chỗ người review chéo (REV-01)                                                                               | Hai lớp test xanh, mười bốn ca mang mã Mục 10.1; `FRD-06` mười cặp song song, 0 lần 500; bảng đột biến Mục 17.4 tick đủ (nửa quan hệ ở bước 4, nửa feed ở bước 5)                                                                                                          |
 | **B4** | Test feed `FEED-01..13`, `FEED-07b`, `FEED-09b`, `PAGE-04` + đếm truy vấn `FEED-Q1`                                | Ma trận quyền của feed, feed gợi ý, luật cache, degrade/503 thành cổng; lưới N+1 ở đúng endpoint trọng điểm hiệu năng                                                                                                                   | Ba lớp test xanh; mọi ca cache **khẳng định đã trúng cache** trước khi khẳng định nội dung; giá trị thô `feed:p1:*` không chứa URL, `canEdit`; `FEED-Q1`: số lệnh ở 50 nguồn = 200 nguồn = hằng số viết tay theo Mục 7.2                                                      |
 | **B5** | Cổng hợp đồng `socialgraph-v1` + thử cho đỏ                                                           | Hợp đồng và controller không lệch được mà CI im lặng — cổng `API contract` hiện chỉ canh ba module                                                                                                                                      | Dòng `Content Include` trong csproj test; `SocialGraphContractTests` có trong `--list-tests --filter Category=Contract`; ba kiểu thử đỏ đã làm và khôi phục; codegen FE không sửa gì mà worktree sạch                                                                        |
@@ -87,7 +87,7 @@ Mười tám đầu việc: năm của B, sáu của C, bảy của D. Mục ti�
  BƯỚC 5
    C2 (+EXPLAIN trên dữ liệu tải) ─→ C3 ─→ C4 ─→ D7 ─→ B4 (+ nửa feed của bảng đột biến)
     ▲FEED-01..08 viết trước, đỏ          ▲FEED-09..13, Q1 viết trước
-                                                   → matrix 24/24
+                                                   → matrix giữ 24/24
 
  BƯỚC 6
    C6 — ba lượt k6; nửa ngày sau để sửa theo EXPLAIN
@@ -122,8 +122,8 @@ Mười tám đầu việc: năm của B, sáu của C, bảy của D. Mục ti�
 | -------- | --------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
 | Bước 2   | `B1` xanh; link CI run đỏ của `B2`                                                      | Khối A đang ăn sang bước 3 — ghi lịch ngay                     |
 | Bước 3   | `seed.sql` chạy xong, `SELECT count(*) FROM content.posts` ≈ 1.000.000                   | `C2` sẽ viết mù — dừng, đừng qua bước 5 khi chưa có dữ liệu    |
-| Bước 4   | `FRD/FOL` xanh; matrix 23/24; `B5` đã thử đỏ                                            | Cắt theo 0.7 ngay, không đợi                                  |
-| Bước 5   | `EXPLAIN` đúng hình dạng Đ-4.7; `FEED-*`, `FEED-Q1` xanh; matrix 24/24                  | Đã tiêu ~4,5/8 ngày (STAFF-01) — cắt ngay                      |
+| Bước 4   | `FRD/FOL` xanh; matrix 24/24 (từ `D3`); `B5` đã thử đỏ                                  | Cắt theo 0.7 ngay, không đợi                                  |
+| Bước 5   | `EXPLAIN` đúng hình dạng Đ-4.7; `FEED-*`, `FEED-Q1` xanh; matrix giữ 24/24              | Đã tiêu ~4,5/8 ngày (STAFF-01) — cắt ngay                      |
 | Bước 6   | Báo cáo k6 có số, kể cả khi không đạt                                                   | Không có báo cáo = GĐ4 chưa xong, bất kể con số (B.11)          |
 
 ### 0.7 Phần cắt được nếu trễ
@@ -388,7 +388,8 @@ public sealed class SqlCommandCounter : IDisposable
 **Mục tiêu.** Mỗi thao tác GĐ4 chạm quan hệ có chủ có một dòng chạy qua đủ ba tầng; có bằng chứng đỏ **trước** khi endpoint
 tồn tại.
 
-**Xong khi.** `AuthZMatrix.cs` 23 dòng (24 test); link CI run đỏ đã lưu; sau `D3` + `D7`: 24/24.
+**Xong khi.** `AuthZMatrix.cs` 23 dòng (24 test); link CI run đỏ đã lưu; sau `D3`: 24/24 (sửa 2026-09-23 — trước
+ghi "sau `D3` + `D7`", nhưng `TC-A01-feed` đã xanh 401 từ `B2`).
 
 ### Sáu dòng — kỳ vọng chép từ Mục 6.3, không lấy từ output
 
@@ -970,7 +971,7 @@ set/get round-trip, giá trị thô đúng bốn trường, Redis chết → `nu
 **Mục tiêu.** Feed thành endpoint thật; hợp đồng `content-v1` mở lại theo luật chỉ-thêm; mọi mã lỗi của hai nhóm khớp code.
 
 **Xong khi.** Cổng `API contract` xanh cho cả bốn module **trong commit này** (yaml + controller cùng lúc); `schema.d.ts`
-sinh lại cùng commit; bảng rà mã lỗi trong thân commit; `TC-A01-feed` xanh → matrix 24/24.
+sinh lại cùng commit; bảng rà mã lỗi trong thân commit; `TC-A01-feed` **giữ** 401 khi đã có route → matrix giữ 24/24.
 
 ### Các bước
 
@@ -1195,7 +1196,7 @@ Tick từng dòng, có bằng chứng. Dòng không áp dụng thì ghi lý do, 
 - [x] Mặc định của `ModulesApiFactory` và `FakeObjectStorage` không đổi — test GĐ1–GĐ2 xanh, không sửa khẳng định
 - [x] `SqlCommandCounterTests` chứng minh bộ đếm ra > 0
 - [x] Giờ bộ integration trước/sau trong commit #1; < ~3 phút hoặc đã tách collection
-- [x] `AuthZMatrix.cs` 23 dòng; commit #2 chỉ chạm file đó; link CI đỏ đã lưu (24/24 sau `D3`+`D7`)
+- [x] `AuthZMatrix.cs` 23 dòng; commit #2 chỉ chạm file đó; link CI đỏ đã lưu (24/24 sau `D3`)
 - [x] `SocialGraphContractTests` trong `--list-tests --filter Category=Contract`; ba kiểu thử đỏ đã làm
 - [ ] `pnpm gen:api` → worktree sạch; không sửa `ci.yml`; CI xanh cả năm nhóm trên commit cuối
 
