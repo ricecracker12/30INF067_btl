@@ -1213,9 +1213,9 @@ Tick từng dòng, có bằng chứng. Dòng không áp dụng thì ghi lý do, 
 - [x] `EXPLAIN` LATERAL + gợi ý trên bộ dữ liệu tải dán vào "Thực tế thi công", đúng hình dạng Đ-4.7
 - [x] `EXPLAIN` trước/sau Đ-4.11 trong thân commit #14
 - [x] `FEED-01..13`, `FEED-07b`, `FEED-09b`, `PAGE-04`, `FEED-Q1` xanh; ca cache khẳng định trúng cache trước
-- [ ] Giá trị thô `feed:p1:*` đúng bốn trường; môi trường đo: `redis-cli --scan --pattern 'feed:*'` + `GET` vài khóa không
+- [x] Giá trị thô `feed:p1:*` đúng bốn trường; môi trường đo: `redis-cli --scan --pattern 'feed:*'` + `GET` vài khóa không
       thấy `X-Amz-Signature` (Mục 12 gốc)
-- [ ] Báo cáo k6 ba lượt ở `docs/giai-doan-4/bao-cao-k6-so-bo.md`; lượt (3) lỗi < 1%
+- [x] Báo cáo k6 ba lượt ở `docs/giai-doan-4/bao-cao-k6-so-bo.md`; lượt (3) lỗi < 1%
 
 ### 17.4 Bảng đột biến
 
@@ -1639,5 +1639,20 @@ Nửa feed của Mục 17.4 (bước 5), mỗi dòng sửa tạm → chạy mọ
 | Không khôi phục `CommandTimeout` sau truy vấn feed | Không ca nào đỏ — đúng dự kiến (đối chứng có chủ đích); B.9 tự rà. |
 | Khôi phục `AlwaysStrangers` ở `AddContentModule` | Đỏ test khởi động `Host_resolve_duoc_hai_contract_cheo_module_…`. **`FEED-04` vẫn xanh** — feed đi `IFeedSourceReader`, không dùng `IFriendshipReader`, nên dòng này của bảng không có lưới ở feed; `READ-06b` cũng xanh như B3 đã ghi (đăng ký của SocialGraph đứng sau thắng). |
 
-*Còn lại trước PR: năm mục tự rà B.9; dòng `redis-cli --scan --pattern 'feed:*'` của Mục 17.3 chạy trên môi trường đo
-cùng `C6`.*
+### C6 — 2026-09-23
+
+- Kết quả đầy đủ: [bao-cao-k6-so-bo.md](bao-cao-k6-so-bo.md). **Đạt sơ bộ:** lượt (2), cache trang đầu tắt, cho
+  **p95 40,6 ms**, 0 % lỗi @ 1.000 VU; lượt (3), Redis dừng, 0 % lỗi.
+- Máy không cài k6: chạy image ghim `grafana/k6:2.3.0` **trong** mạng compose `socialapp-perf_default`. `--env-file`
+  chuyển `PERF_JWT_KEY` mà không in ra. README thêm mục 6 "Chạy k6".
+- Compose đo thêm hai núm: `FEED_PAGE_CACHE` → `Feed__PageCache__Enabled` (lượt 2) và `PERF_POOL_MAX` → `Maximum Pool
+  Size` (PERF-03). Mặc định giữ nguyên hành vi cũ.
+- Bước 4 (không đạt thì làm gì) **không kích hoạt**: không câu SQL nào quá 200 ms (log câu chậm đã kiểm là hoạt động).
+  Nhưng lượt (3) chạy hai lần đều cho kết nối DB chạm `max_connections` 100 sau khi Redis dừng (`too many clients
+  already` cho `psql`), tức PERF-03. Đo lại với pool 80: đỉnh 81, p95 269 ms, 0 % lỗi. Đề xuất đặt pool 80 cho
+  staging/production. **Không** sửa `deploy/.env` trong commit này — việc của người giữ file đó trước F1.
+- Lượt (3) còn lộ ra chuyện log bị ngập: 3 dòng Warning fail-open mỗi request, khoảng 440.000 dòng trong 4 phút. Chuyển
+  sang GĐ8 (đụng SharedKernel).
+- Không sửa code sản phẩm theo `EXPLAIN` — không có gì chậm để sửa. Theo Mục 16, C6 vì thế là commit `docs`.
+
+*Còn lại trước PR: năm mục tự rà B.9.*

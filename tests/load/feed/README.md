@@ -127,7 +127,35 @@ INSERT INTO identity.users (
 -- Xóa dòng probe hoặc down -v rồi dựng lại trước khi đo.
 ```
 
-## 6. Xóa sạch
+## 6. Chạy k6 (C6)
+
+Kịch bản: `feed.js` — 1.000 VU (2 phút lên, 5 phút giữ, 1 phút xuống), mỗi VU một người dùng, token HS256 tự ký trong
+`setup()` bằng `PERF_JWT_KEY`. Không cần cài k6: chạy image **ghim** `grafana/k6:2.3.0` **trong mạng compose** (gọi thẳng
+`http://api:8080`, không qua BFF). `--env-file` chuyển `PERF_JWT_KEY` vào container mà không in ra màn hình.
+
+```bash
+# Git Bash: MSYS_NO_PATHCONV=1 để đường dẫn /scripts không bị đổi thành đường Windows
+export MSYS_NO_PATHCONV=1
+# Tự kiểm trước (5 VU × 30s): mọi request 200, không 401 (claim sai), không 429 (nghỉ quá ngắn)
+docker run --rm --network socialapp-perf_default --env-file tests/load/feed/.env \
+  -e BASE_URL=http://api:8080 -e USERS_CSV=/scripts/users.csv -e SMOKE=1 \
+  -v "$(pwd -W)/tests/load/feed:/scripts:ro" grafana/k6:2.3.0 run /scripts/feed.js
+# Lượt thật: bỏ -e SMOKE=1, thêm --summary-export /out/runN.json và một volume /out
+```
+
+Ba lượt, mỗi lượt dựng lại api và `FLUSHALL` Redis (cache sạch):
+
+| Lượt | Cách dựng api | Ghi chú |
+| --- | --- | --- |
+| (1) | `up -d --force-recreate --no-deps api` | mọi cache bật |
+| (2) | `FEED_PAGE_CACHE=false docker compose … up -d --force-recreate --no-deps api` | cache trang đầu tắt — con số kết luận |
+| (3) | như (1), `docker stop socialapp-perf-redis-1` ở phút thứ 4 | degrade |
+
+Trong lúc chạy: `SELECT count(*) FROM pg_stat_activity WHERE datname = 'socialapp_perf'` mỗi 10s (kết nối đỉnh). Câu
+chậm: `ALTER SYSTEM SET log_min_duration_statement = 200; SELECT pg_reload_conf();` rồi đọc `docker logs` của postgres.
+Kết quả và báo cáo: `docs/giai-doan-4/bao-cao-k6-so-bo.md`.
+
+## 7. Xóa sạch
 
 ```bash
 docker compose -f tests/load/feed/docker-compose.perf.yml --env-file tests/load/feed/.env down -v

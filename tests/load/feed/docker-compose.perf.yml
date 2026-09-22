@@ -42,9 +42,12 @@ services:
       Serilog__MinimumLevel__Default: Warning
       Serilog__MinimumLevel__Override__Microsoft.AspNetCore: Warning
       Serilog__MinimumLevel__Override__Microsoft.EntityFrameworkCore: Warning
-      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=socialapp_perf;Username=socialapp;Password=${POSTGRES_PASSWORD:?Đặt POSTGRES_PASSWORD trong tests/load/feed/.env}"
+      # PERF_POOL_MAX: Maximum Pool Size của Npgsql (mặc định thư viện 100 = đúng max_connections của postgres:16) — C6, PERF-03.
+      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=socialapp_perf;Username=socialapp;Password=${POSTGRES_PASSWORD:?Đặt POSTGRES_PASSWORD trong tests/load/feed/.env};Maximum Pool Size=${PERF_POOL_MAX:-100}"
       ConnectionStrings__Redis: "redis:6379"
       Jwt__SigningKey: "${PERF_JWT_KEY:?Đặt PERF_JWT_KEY trong tests/load/feed/.env (openssl rand -base64 48)}"
+      # C6 lượt (2): FEED_PAGE_CACHE=false → con số lạnh, không phụ thuộc tỷ lệ trúng cache trang đầu (Đ-4.8, Đ-4.13).
+      Feed__PageCache__Enabled: "${FEED_PAGE_CACHE:-true}"
     ports: ["18080:8080"]
     depends_on:
       postgres: { condition: service_healthy }
