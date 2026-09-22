@@ -1550,5 +1550,19 @@ Tự rà thay review chéo (một người làm), trên `e120090..a062107`. Mỗ
   16.697 buffer, 333.308 dòng bị lọc mỗi worker); **sau** `Index Scan using idx_posts_author_created` (0,18 ms, 32 buffer).
   Chi tiết trong thân commit.
 
+### C3 — 2026-09-23
+
+- Impact trước sửa: `PostReadService`, `PostResponseMapper` risk UNKNOWN (DI) — grep: `PostReadService` chỉ
+  `PostsController` + DI; `PostResponseMapper` chỉ `PostService`, `PostReadService`, DI và `PostResponseMapperTests` (dựng
+  bằng `new`, không đổi chữ ký). `ListByUserAsync` LOW (d=1 `PostsController.ListByUser`). Không HIGH/CRITICAL.
+- `PostHydrator.HydrateAsync(IReadOnlyList<Post>, Guid actorId, CancellationToken)` — đúng chữ ký Mục 18. Tách nguyên văn
+  (ảnh rồi tác giả). `GetAsync` (một bài) giữ nguyên `mapper.ToResponse`: chuyển sang hydrator không đổi số câu nhưng
+  cũng không được gì.
+- Số câu của `GET /users/{id}/posts` đo bằng `SqlCommandCounter` (test tạm, đã xóa) trước và sau: người lạ **4**
+  (quan hệ → bài → ảnh → tác giả), tác giả **3** — hai bản giống hệt từng câu và thứ tự. Đó là điều kiện để `C3` là
+  `refactor`.
+- Lệch Bước 2: `IPostStore.FindManyPublishedAsync` dời sang `C4` — nó chỉ có người gọi ở đường trúng cache của
+  `FeedService`, và `IPostStore` giữ luật "không khai trước thứ chưa có người gọi".
+
 *Ghi tiếp khi làm: dạng exception timeout thật (`C4`/`FEED-12`), hằng số `FEED-Q1` so với Mục 7.2, nửa feed của bảng đột
 biến (bước 5), năm mục tự rà B.9.*

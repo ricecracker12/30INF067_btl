@@ -13,7 +13,8 @@ public sealed class PostReadService(
     IPostStore posts,
     IUserDirectory directory,
     IFriendshipReader friends,
-    PostResponseMapper mapper)
+    PostResponseMapper mapper,
+    PostHydrator hydrator)
 {
     /// <summary>
     /// <c>GET /posts/{postId}</c> — BR-02 tại thời điểm đọc (Mục 7.4).
@@ -56,9 +57,9 @@ public sealed class PostReadService(
     /// đều là <c>items: []</c>. Module này không có bảng <c>users</c> để phân biệt (Đ-2.2), và kể cả có thì phân biệt
     /// cũng là biến endpoint thành máy dò "id này có tồn tại không".
     ///
-    /// <b>Ba câu truy vấn cho cả trang, không phụ thuộc số bài</b> (Đ-2.3): một câu lấy bài, một câu lấy ảnh của cả
-    /// trang, một câu lấy tác giả. Ở endpoint này tác giả luôn là MỘT người, nhưng vẫn gọi bản lô để GĐ4 chép nguyên
-    /// hàm này cho feed mà không phải sửa hình dạng.
+    /// <b>Ba câu truy vấn cho cả trang, không phụ thuộc số bài</b> (Đ-2.3): một câu lấy bài, rồi <see cref="PostHydrator"/>
+    /// (C3, GĐ4) — một câu lấy ảnh của cả trang, một câu lấy tác giả. Feed dùng CHÍNH hydrator đó, nên trường mới của GĐ3
+    /// vào hai danh sách cùng lúc.
     /// </summary>
     public async Task<PostPage> ListByUserAsync(
         Guid userId, Guid actorId, string? rawCursor, int limit, CancellationToken ct)
@@ -77,17 +78,12 @@ public sealed class PostReadService(
         if (items.Count == 0)
             return new PostPage([], null);
 
-        var media = await posts.MediaOfAsync([.. items.Select(p => p.PostId)], ct);
-        var cards = await directory.GetManyAsync([.. items.Select(p => p.AuthorId).Distinct()], ct);
-
         // Cursor dựng từ bài CUỐI của trang trả về, KHÔNG phải từ dòng thừa thứ limit+1: dòng thừa không đi vào phản
         // hồi, nên neo vào nó là bỏ qua đúng một bài ở trang sau.
         var next = rows.Count > limit
             ? new PostCursor(items[^1].CreatedAt, items[^1].PostId).Encode()
             : null;   // hết dữ liệu → null, KHÔNG phải "" (Đ-2.11)
 
-        return new PostPage(
-            mapper.ToResponses(items, media, cards, actorId),
-            next);
+        return new PostPage(await hydrator.HydrateAsync(items, actorId, ct), next);
     }
 }

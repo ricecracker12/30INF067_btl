@@ -65,6 +65,8 @@ public sealed class PostResponseMapper(IObjectStorage storage, ILogger<PostRespo
     /// <paramref name="cards"/> là kết quả của ĐÚNG MỘT lời gọi <c>IUserDirectory.GetManyAsync</c> cho cả trang (Đ-2.3).
     /// Gọi <see cref="ToResponse"/> trong vòng lặp với một lời gọi directory mỗi bài là mở lại N+1 đúng ở endpoint trọng
     /// điểm hiệu năng của GĐ4.
+    ///
+    /// Từ C3 (GĐ4) chỉ <see cref="PostHydrator"/> gọi hàm này — danh sách mới thì gọi hydrator, đừng gọi thẳng đây.
     /// </summary>
     public IReadOnlyList<PostResponse> ToResponses(
         IReadOnlyList<Post> posts,

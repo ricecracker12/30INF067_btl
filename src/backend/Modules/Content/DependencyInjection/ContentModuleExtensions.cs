@@ -71,6 +71,9 @@ public static class ContentModuleExtensions
         // D6. Đường ĐỌC tách khỏi đường ghi: hai service không dùng chung phụ thuộc nào ngoài store và mapper.
         services.AddScoped<PostReadService>();
 
+        // C3 (GĐ4). Scoped theo thứ nó cầm (IPostStore). Một chỗ dựng PostResponse cho mọi danh sách — GĐ3 cắm myReaction ở đây.
+        services.AddScoped<PostHydrator>();
+
         // C2 (GĐ4). Scoped vì FeedStore giữ ContentDbContext.
         services.AddScoped<IFeedStore, FeedStore>();
 
