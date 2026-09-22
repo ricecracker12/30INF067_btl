@@ -1365,5 +1365,21 @@ Mỗi dòng: sửa tạm → chạy lọc → thấy **đúng** test dự kiến
 - `SendFriendRequestTests` **11/11** + `TC-A01-friends` xanh (401 khi có route). Tự gửi 400 không dòng; không hồ sơ
   404; cùng cặp / chiều ngược / đã là bạn → 409 đúng một dòng. `TC-A03-friend-*` / `READ-06b` vẫn đỏ chờ D3.
 
+### D3 — 2026-09-22
+
+- Repo `30INF067_btl`. Impact trước sửa: `RelationshipService` UNKNOWN (grep: `FriendsController.SendRequest` + DI);
+  `IRelationshipStore` LOW (d=1: `RelationshipStore`); `FriendRequestAccepted` UNKNOWN (chưa có caller). Không
+  HIGH/CRITICAL trên symbol đổi hành vi. `ModulesTestClient` CRITICAL (111 caller) — chỉ thêm `AcceptAsync` /
+  `AcceptOkAsync` / `MakeFriendsAsync`, không đổi chữ ký cũ.
+- `ExecuteUpdateAsync` nằm ở **store** (cùng lệch D2: Application không chạm EF). Vế `RequesterId == userId` giữ
+  nguyên — `TC-A03-friend-self-accept` canh. `accepted_at` + `updated_at` gán cùng câu vì `Execute*` bỏ qua
+  `SaveChanges`.
+- Không tra hồ sơ: yaml không có 404; `TC-A03-friend-accept` không xanh vì lý do sai. `userId` chính mình → 400
+  `errors.userId` trước `FriendPair.Of` (tránh 500). 0 dòng → 403 cùng câu yaml, không nêu lý do.
+- `AcceptFriendRequestTests` **12/12**. `SendFriendRequestTests` 11/11 không đổi. AuthZ **24/24** — ba dòng đỏ
+  của B2 (`TC-A03-friend-accept`, `TC-A03-friend-self-accept`, `READ-06b`) xanh; `TC-A01-feed` đã xanh từ B2
+  (401 anti-enumeration) nên matrix đủ sớm hơn kế hoạch "D3 + D7". Architecture 14/14.
+  `FriendshipReaderTests` + `SocialGraphHarnessTests` 6/6.
+
 *Ghi tiếp khi làm: `EXPLAIN` của LATERAL và gợi ý trên dữ liệu tải (`C2`), dạng
 exception timeout thật (`C4`/`FEED-12`), hằng số `FEED-Q1` so với Mục 7.2, kết quả từng dòng đột biến, năm mục tự rà B.9.*

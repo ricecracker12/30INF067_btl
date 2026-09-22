@@ -56,4 +56,23 @@ public sealed class RelationshipStore(SocialGraphDbContext db) : IRelationshipSt
             return false;
         }
     }
+
+    /// <summary>
+    /// Một câu, không cửa sổ race. Vế <c>RequesterId == requesterId</c> là lưới
+    /// <c>TC-A03-friend-self-accept</c>: thiếu nó thì người gửi tự biến lời mời của mình thành tình bạn.
+    /// </summary>
+    public async Task<bool> AcceptIncomingAsync(
+        FriendPair pair, Guid requesterId, DateTimeOffset now, CancellationToken ct)
+    {
+        var changed = await db.Friendships
+            .Where(f => f.UserMinId == pair.Min && f.UserMaxId == pair.Max
+                     && f.Status == FriendshipStatus.Pending
+                     && f.RequesterId == requesterId)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(f => f.Status, FriendshipStatus.Accepted)
+                .SetProperty(f => f.AcceptedAt, now)
+                .SetProperty(f => f.UpdatedAt, now), ct);
+
+        return changed == 1;
+    }
 }

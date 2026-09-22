@@ -10,8 +10,8 @@ using SocialApp.SharedKernel.Http;
 namespace SocialApp.Modules.SocialGraph.Presentation;
 
 /// <summary>
-/// Tầng HTTP của lời mời kết bạn và danh sách bạn (UC-10, UC-11). D2 chỉ có
-/// <c>POST /friends/requests</c>; D3–D5 thêm accept / xóa / danh sách trên cùng controller.
+/// Tầng HTTP của lời mời kết bạn và danh sách bạn (UC-10, UC-11). D2–D3 có gửi + chấp nhận;
+/// D4–D5 thêm xóa / danh sách trên cùng controller.
 /// Cùng nhóm Swagger <see cref="SocialGraphApiGroup"/> với <c>RelationshipsController</c> —
 /// nhóm bám theo MODULE, không theo controller.
 ///
@@ -50,5 +50,24 @@ public sealed class FriendsController(RelationshipService relationships) : Contr
         return result.IsSuccess
             ? StatusCode(StatusCodes.Status201Created, result.Value)
             : result.ToActionResult(this);
+    }
+
+    /// <summary>
+    /// Chấp nhận lời mời mà <paramref name="userId"/> gửi tới người gọi (FR-011, Đ-4.14).
+    /// Tầng 3 là một câu <c>UPDATE</c> ở store — 0 dòng thành 403, không 404.
+    ///
+    /// Route không ràng buộc <c>:guid</c>: id sai dạng → 400 <c>errors.userId</c>, khớp yaml.
+    /// <c>actorId</c> từ token, không từ route.
+    /// </summary>
+    [HttpPost("friends/requests/{userId}/accept")]
+    [RequirePermission(SocialGraphPermissions.FriendRespond)]
+    [ProducesResponseType<RelationshipResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest, "application/problem+json")]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized, "application/problem+json")]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden, "application/problem+json")]
+    public async Task<ActionResult<RelationshipResponse>> Accept(Guid userId, CancellationToken ct)
+    {
+        var result = await relationships.AcceptRequestAsync(User.GetUserId(), userId, ct);
+        return result.ToActionResult(this);
     }
 }

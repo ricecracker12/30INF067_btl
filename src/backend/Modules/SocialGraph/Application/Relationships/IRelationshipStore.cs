@@ -31,4 +31,15 @@ public interface IRelationshipStore
     /// chúng thành <c>false</c> là báo "đã có quan hệ" khi sự thật là hạ tầng hỏng.
     /// </returns>
     Task<bool> AddRequestAsync(Friendship friendship, CancellationToken ct);
+
+    /// <summary>
+    /// D3 — một câu <c>UPDATE</c> có điều kiện (Đ-4.14): cặp chuẩn hóa, <c>pending</c>,
+    /// <c>requester_id = requesterId</c> (lời mời phải ĐẾN từ người kia). Không <c>SELECT</c> trước.
+    /// Tự gán <c>accepted_at</c> + <c>updated_at</c>: <c>ExecuteUpdateAsync</c> bỏ qua <c>SaveChanges</c>.
+    /// </summary>
+    /// <returns>
+    /// <c>true</c> khi đúng một dòng đổi thành <c>accepted</c>; <c>false</c> khi 0 dòng — service dịch thành
+    /// <b>403</b> cùng một phản hồi cho mọi lý do (không có lời mời, tự chấp nhận, đã là bạn, người thứ ba).
+    /// </returns>
+    Task<bool> AcceptIncomingAsync(FriendPair pair, Guid requesterId, DateTimeOffset now, CancellationToken ct);
 }

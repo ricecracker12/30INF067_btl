@@ -77,4 +77,36 @@ public sealed class RelationshipService(
         var following = await _store.IsFollowingAsync(actorId, request.UserId, ct);
         return new RelationshipResponse(request.UserId, FriendshipView.Outgoing, following);
     }
+
+    /// <summary>
+    /// <c>POST /friends/requests/{userId}/accept</c> — FR-011. Một câu <c>UPDATE</c> có điều kiện
+    /// (Đ-4.14), không cửa sổ race giữa SELECT và UPDATE.
+    ///
+    /// <list type="number">
+    /// <item>Tầng 2 — quyền <c>friend.respond</c>: đã xong ở controller.</item>
+    /// <item>Khác mình → 400, <b>trước</b> DB. <see cref="FriendPair.Of"/> ném nếu lọt.</item>
+    /// <item>Không tra hồ sơ: hợp đồng không có 404. Người gọi chưa onboarding vẫn 403 nếu 0 dòng
+    /// (cạm bẫy B2 — đừng biến <c>TC-A03-friend-accept</c> thành xanh vì lý do sai).</item>
+    /// <item><c>UPDATE</c> cặp + <c>pending</c> + <c>requester_id = userId</c>. 0 dòng → 403 cùng
+    /// <see cref="Result{T}.Forbidden()"/> cho mọi lý do (quy ước 3b).</item>
+    /// <item>Sau <c>COMMIT</c>: xóa cache nguồn cả hai phía, rồi
+    /// <see cref="SocialGraphEvents.FriendRequestAccepted"/>.</item>
+    /// </list>
+    /// </summary>
+    public async Task<Result<RelationshipResponse>> AcceptRequestAsync(
+        Guid actorId, Guid userId, CancellationToken ct)
+    {
+        if (actorId == userId)
+            return SocialGraphErrors.SelfAccept;
+
+        var pair = FriendPair.Of(actorId, userId);
+        if (!await _store.AcceptIncomingAsync(pair, userId, _clock.GetUtcNow(), ct))
+            return Result<RelationshipResponse>.Forbidden();
+
+        await _feedSources.InvalidateAsync(actorId, userId, ct);
+        _events.FriendRequestAccepted(userId, actorId);
+
+        var following = await _store.IsFollowingAsync(actorId, userId, ct);
+        return new RelationshipResponse(userId, FriendshipView.Friends, following);
+    }
 }

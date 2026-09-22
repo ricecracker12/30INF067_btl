@@ -22,6 +22,14 @@ public static class SocialGraphErrors
         Error.Validation("userId", "Không thể gửi lời mời kết bạn cho chính mình.");
 
     /// <summary>
+    /// 400 của <c>POST /friends/requests/{userId}/accept</c> khi <c>userId</c> là chính người gọi.
+    /// Kiểm <b>trước</b> DB: <c>FriendPair.Of</c> ném nếu lọt. Khác
+    /// <c>TC-A03-friend-self-accept</c> (A gửi cho B rồi A gọi accept với id của B → 403, 0 dòng).
+    /// </summary>
+    public static Error SelfAccept =>
+        Error.Validation("userId", "Không thể chấp nhận lời mời kết bạn với chính mình.");
+
+    /// <summary>
     /// 400 của <c>PUT /follows/{userId}</c> khi <c>userId</c> là chính người gọi. Kiểm trước DB.
     /// </summary>
     public static Error SelfFollow =>

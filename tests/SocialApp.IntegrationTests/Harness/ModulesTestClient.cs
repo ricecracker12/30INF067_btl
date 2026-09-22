@@ -288,6 +288,36 @@ public sealed class ModulesTestClient
     }
 
     /// <summary>
+    /// <c>POST /friends/requests/{userId}/accept</c> với tư cách <paramref name="actorId"/> (D3).
+    /// <paramref name="userId"/> nhận <c>object</c> để test gửi được id sai dạng.
+    /// <paramref name="role"/> mở ra để kiểm tầng 2: <c>"GUEST"</c> không có <c>friend.respond</c>.
+    /// </summary>
+    public Task<HttpResponseMessage> AcceptAsync(Guid actorId, object userId, string role = "USER")
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/friends/requests/{userId}/accept");
+        request.Headers.Authorization = Bearer(actorId, role);
+        return Http.SendAsync(request);
+    }
+
+    /// <summary>Như <see cref="AcceptAsync"/> nhưng đọc luôn body 200.</summary>
+    public async Task<RelationshipResponse> AcceptOkAsync(Guid actorId, Guid userId)
+    {
+        using var response = await AcceptAsync(actorId, userId);
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<RelationshipResponse>(Json))!;
+    }
+
+    /// <summary>
+    /// A gửi lời mời, B chấp nhận — cảnh "đã là bạn" qua API thật (D3). Người nhận phải có hồ sơ
+    /// vì D2 kiểm trước INSERT. Trả body 200 của accept.
+    /// </summary>
+    public async Task<RelationshipResponse> MakeFriendsAsync(Guid requesterId, Guid recipientId)
+    {
+        await SendFriendRequestOkAsync(requesterId, recipientId);
+        return await AcceptOkAsync(recipientId, requesterId);
+    }
+
+    /// <summary>
     /// Sửa dữ liệu trực tiếp — dùng để dựng cảnh SQL của D1 (bốn trạng thái quan hệ) khi endpoint ghi chưa có.
     /// Tham số vị trí <c>$1, $2…</c>. Trả số dòng bị ảnh hưởng. Chép khuôn <c>AuthTestClient.ExecuteSqlAsync</c>.
     /// </summary>
