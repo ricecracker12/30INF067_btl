@@ -1420,5 +1420,28 @@ Mỗi dòng: sửa tạm → chạy lọc → thấy **đúng** test dự kiến
 - `FollowWriteTests` **11/11** trên Redis thật. `FOL-*` nằm ở commit `B3` (Mục 8).
   Bốn lớp ranh giới (`Presentation` / `Persistence` / `Module` / `PermissionCodeUsage`) **12/12**.
 
+### B3 — 2026-09-22
+
+- Repo `30INF067_btl`. Chỉ thêm hai lớp test, không đổi hành vi sản phẩm. Impact trước các lần sửa tạm:
+  `AreFriendsAsync` / `AddRequestAsync` LOW; `AddContentModule` UNKNOWN (DI, `receiverTyping: 4` — grep `Program.cs`
+  và harness). `AcceptIncomingAsync` / `DeleteAcceptedAsync` chưa có trong index (1 commit sau HEAD) — caller là
+  `RelationshipService`. Không HIGH/CRITICAL. Mọi đột biến đã hoàn tác; `ContentModuleExtensions.cs` và
+  `FriendshipReader.cs` không còn diff.
+- `FriendRequestTests` + `FollowTests` **14/14** sau khi hoàn tác. `FRD-06`: mười cặp, mỗi cặp `WhenAll` hai chiều,
+  mỗi cặp một 201 + một 409 + một dòng, không 500. `FRD-09` nhìn qua `GET /posts/{id}` (200 rồi 404), không qua DI.
+
+Nửa quan hệ của Mục 17.4 (bước 4), mỗi dòng sửa tạm → lọc → hoàn tác:
+
+| Đột biến | Kết quả |
+| --- | --- |
+| Bỏ `RequesterId == userId` khi chấp nhận | Đỏ đúng `TC-A03-friend-self-accept` (200 thay vì 403). `TC-A03-friend-accept`, `FRD-05`, `FRD-10` vẫn xanh. Ca hình dạng `Tu_chap_nhan_loi_minh_gui` cũng đỏ — cùng luật, không phải dòng matrix khác. |
+| Đổi 403 của accept thành 404 | Đỏ `TC-A03-friend-accept` (nhận 404), `FRD-10` (NotFound). `FRD-05` vẫn xanh. Cùng đường 0 dòng nên `TC-A03-friend-self-accept` và `Khong_co_loi_moi` cũng đỏ. |
+| Khôi phục `AlwaysStrangers` trong `AddContentModule` | Test khởi động đỏ: hai đăng ký `[AlwaysStrangers, FriendshipReader]`. `READ-06b` **vẫn xanh** — `AddSocialGraphModule` đăng ký sau nên cái sau thắng. `FEED-04` chưa có (bước 5). |
+| `AreFriendsAsync` luôn `true` | Đỏ đúng `READ-06` (200 thay vì 404) và `READ_02_05(friends, false)`. Năm ca còn lại của ma trận BR-02 và `READ-06b` vẫn xanh. |
+| Không bắt `23505` | Đỏ `FRD-02` (500 thay vì 409) và `FRD-06` (`[201, 500]` thay vì `[201, 409]`). |
+| Bỏ kiểm "khác mình" trước DB ở D2 và D6 | Đỏ `FRD-03` và `FOL-03`, nhưng là **404** chứ không phải 500 từ CHECK: người gọi chưa có hồ sơ nên bước tra hồ sơ (ngay sau) trả 404 trước khi tới `FriendPair` / `ck_follows_not_self`. Lưới vẫn bắt (không còn 400). |
+| Bỏ `ON CONFLICT DO NOTHING` | Đỏ `FOL-02` (500 thay vì 204). `FOL-01` vẫn xanh. |
+| `DELETE /friends` thiếu `Status == Accepted` | Đỏ `Huy_ket_ban_khi_chi_co_loi_moi_khong_xoa_loi_moi` (dòng pending mất). `Huy_ket_ban_tra_204` và `FRD-09` vẫn xanh. |
+
 *Ghi tiếp khi làm: `EXPLAIN` của LATERAL và gợi ý trên dữ liệu tải (`C2`), dạng
-exception timeout thật (`C4`/`FEED-12`), hằng số `FEED-Q1` so với Mục 7.2, kết quả từng dòng đột biến, năm mục tự rà B.9.*
+exception timeout thật (`C4`/`FEED-12`), hằng số `FEED-Q1` so với Mục 7.2, nửa feed của bảng đột biến (bước 5), năm mục tự rà B.9.*
