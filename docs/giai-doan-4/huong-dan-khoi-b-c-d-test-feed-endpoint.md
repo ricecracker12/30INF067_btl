@@ -1343,5 +1343,18 @@ Mỗi dòng: sửa tạm → chạy lọc → thấy **đúng** test dự kiến
   không đổi chữ ký. `FeedSourceReaderTests` thêm Redis cổng 1 (L12) + `AddLogging` vì reader giờ inject `ILogger`.
 - `ServiceCollection` trần không chạy `RedisConnectionStarter` — `FeedSourceCacheTests` `await GetAsync()` trước ca đầu.
 
+### D1 — 2026-09-22
+
+- Repo `30INF067_btl`. Impact trước sửa: `RelationshipService` / `SocialGraphErrors` / `RelationshipState` risk
+  UNKNOWN — grep: service chưa có caller (chỉ DI), `RelationshipState.Of` chỉ unit test, `SocialGraphErrors` chưa ai
+  gọi. `IRelationshipStore` LOW (d=1: `RelationshipStore` + DI). `ModulesTestClient` **CRITICAL** (96 caller) —
+  chỉ thêm `GetRelationshipAsync` / `ExecuteSqlAsync`, không đổi chữ ký cũ. Không HIGH/CRITICAL trên symbol đang
+  đổi hành vi.
+- `RelationshipTests` **13/13** + `SocialGraphHarnessTests` 1/1. Tám ca 4×2 đọc JSON thô (`friendship` là
+  string, không số). Chính mình → 400 `errors.userId` câu D0. Guid mới không hồ sơ → 200 `none`/`false`. Id sai
+  dạng → 400; ẩn danh → 401.
+- `PresentationBoundaryTests` + `PersistenceBoundaryTests` + `ModuleBoundaryTests` + `PermissionCodeUsageTests`
+  + `SocialGraphPermissionsTests`: **14/14**.
+
 *Ghi tiếp khi làm: `EXPLAIN` của LATERAL và gợi ý trên dữ liệu tải (`C2`), dạng
 exception timeout thật (`C4`/`FEED-12`), hằng số `FEED-Q1` so với Mục 7.2, kết quả từng dòng đột biến, năm mục tự rà B.9.*

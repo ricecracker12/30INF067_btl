@@ -7,6 +7,7 @@ using Npgsql;
 using SocialApp.SharedKernel.Storage;
 using SocialApp.Modules.Content.Application.Posts;
 using SocialApp.Modules.Profile.Application.Profiles;
+using SocialApp.Modules.SocialGraph.Application.Relationships;
 
 namespace SocialApp.IntegrationTests.Harness;
 
@@ -239,6 +240,41 @@ public sealed class ModulesTestClient
         var request = new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/posts/{postId}");
         request.Headers.Authorization = Bearer(userId, role);
         return Http.SendAsync(request);
+    }
+
+    /// <summary>
+    /// <c>GET /relationships/{userId}</c> với tư cách <paramref name="actorId"/> (D1). <paramref name="userId"/> nhận
+    /// <c>object</c> để test gửi được id sai dạng — tham số đã gõ <c>Guid</c> không phát ra nổi.
+    /// </summary>
+    public Task<HttpResponseMessage> GetRelationshipAsync(Guid actorId, object userId)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, $"/api/v1/relationships/{userId}");
+        request.Headers.Authorization = Bearer(actorId);
+        return Http.SendAsync(request);
+    }
+
+    /// <summary>Như <see cref="GetRelationshipAsync"/> nhưng đọc luôn body 200.</summary>
+    public async Task<RelationshipResponse> GetRelationshipOkAsync(Guid actorId, Guid userId)
+    {
+        using var response = await GetRelationshipAsync(actorId, userId);
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<RelationshipResponse>(Json))!;
+    }
+
+    /// <summary>
+    /// Sửa dữ liệu trực tiếp — dùng để dựng cảnh SQL của D1 (bốn trạng thái quan hệ) khi endpoint ghi chưa có.
+    /// Tham số vị trí <c>$1, $2…</c>. Trả số dòng bị ảnh hưởng. Chép khuôn <c>AuthTestClient.ExecuteSqlAsync</c>.
+    /// </summary>
+    public async Task<int> ExecuteSqlAsync(string sql, params object[] parameters)
+    {
+        await using var connection = new NpgsqlConnection(_factory.ConnectionString);
+        await connection.OpenAsync();
+
+        await using var command = new NpgsqlCommand(sql, connection);
+        foreach (var value in parameters)
+            command.Parameters.Add(new NpgsqlParameter { Value = value });
+
+        return await command.ExecuteNonQueryAsync();
     }
 
     /// <summary>
