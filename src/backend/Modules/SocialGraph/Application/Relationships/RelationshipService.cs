@@ -182,6 +182,48 @@ public sealed class RelationshipService(
     }
 
     /// <summary>
+    /// <c>PUT /follows/{userId}</c> — FR-012. Theo dõi không cần người kia đồng ý và không tạo lời mời kết bạn (Đ-4.5).
+    ///
+    /// <list type="number">
+    /// <item>Tầng 2 — quyền <c>friend.request</c>: đã xong ở controller (Đ-4.12).</item>
+    /// <item>Khác mình → 400, <b>trước</b> DB. CHECK <c>ck_follows_not_self</c> thành 500 nếu lọt.</item>
+    /// <item>Người được theo dõi có hồ sơ (Đ-2.4) → 404.</item>
+    /// <item><c>INSERT … ON CONFLICT DO NOTHING</c>. Đã theo dõi rồi vẫn 204, đúng một dòng.</item>
+    /// <item><c>inserted == 1</c> mới xóa cache nguồn của <b>người theo dõi</b>, sau <c>COMMIT</c>. Người được theo dõi
+    /// không đổi nguồn feed của họ. Không event (Đ-4.15 chỉ lời mời kết bạn).</item>
+    /// </list>
+    /// </summary>
+    public async Task<Result> FollowAsync(Guid actorId, Guid userId, CancellationToken ct)
+    {
+        if (actorId == userId)
+            return SocialGraphErrors.SelfFollow;
+
+        var cards = await _directory.GetManyAsync([userId], ct);
+        if (!cards.ContainsKey(userId))
+            return SocialGraphErrors.UserNotFound;
+
+        if (await _store.AddFollowAsync(actorId, userId, _clock.GetUtcNow(), ct))
+            await _feedSources.InvalidateAsync(actorId, ct: ct);
+
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// <c>DELETE /follows/{userId}</c> — bỏ theo dõi (FR-012). <c>[Authorize]</c> trần (Đ-4.12).
+    /// 0 dòng vẫn 204. Quan hệ bạn bè không bị đụng (Đ-4.5).
+    ///
+    /// Chỉ xóa cache nguồn của người theo dõi khi có dòng bị xóa, sau <c>COMMIT</c>. Không kiểm hồ sơ: yaml không có 404.
+    /// Chính mình không có dòng nào để xóa (CHECK chặn từ lúc tạo) nên vẫn 204 — không gọi <see cref="FriendPair.Of"/>.
+    /// </summary>
+    public async Task<Result> UnfollowAsync(Guid actorId, Guid userId, CancellationToken ct)
+    {
+        if (await _store.DeleteFollowAsync(actorId, userId, ct))
+            await _feedSources.InvalidateAsync(actorId, ct: ct);
+
+        return Result.Success();
+    }
+
+    /// <summary>
     /// Một <see cref="IUserDirectory.GetManyAsync"/> cho cửa sổ <paramref name="limit"/> dòng gốc.
     /// Thiếu hồ sơ thì thẻ vắng mặt. <c>nextCursor</c> lấy từ dòng thứ <paramref name="limit"/> của danh sách
     /// gốc, trước khi lọc — không phải thẻ cuối còn lại (Đ-4.9). Hết dữ liệu khi không có dòng thừa.

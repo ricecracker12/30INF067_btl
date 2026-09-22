@@ -390,6 +390,38 @@ public sealed class ModulesTestClient
     }
 
     /// <summary>
+    /// <c>PUT /follows/{userId}</c> với tư cách <paramref name="actorId"/> (D6). <paramref name="userId"/> nhận
+    /// <c>object</c> để test gửi được id sai dạng.
+    ///
+    /// <paramref name="role"/> mở ra để kiểm tầng 2: <c>"GUEST"</c> không có <c>friend.request</c>.
+    /// </summary>
+    public Task<HttpResponseMessage> FollowAsync(Guid actorId, object userId, string role = "USER")
+    {
+        var request = new HttpRequestMessage(HttpMethod.Put, $"/api/v1/follows/{userId}");
+        request.Headers.Authorization = Bearer(actorId, role);
+        return Http.SendAsync(request);
+    }
+
+    /// <summary>Như <see cref="FollowAsync"/> nhưng khẳng định 204.</summary>
+    public async Task FollowOkAsync(Guid actorId, Guid userId)
+    {
+        using var response = await FollowAsync(actorId, userId);
+        Assert.Equal(System.Net.HttpStatusCode.NoContent, response.StatusCode);
+    }
+
+    /// <summary>
+    /// <c>DELETE /follows/{userId}</c> — bỏ theo dõi (D6). <paramref name="userId"/> nhận <c>object</c> để test
+    /// gửi được id sai dạng. Không có tầng 2 nên không có tham số <c>role</c>: mọi người đã đăng nhập đều gọi được
+    /// (Đ-4.12).
+    /// </summary>
+    public Task<HttpResponseMessage> UnfollowAsync(Guid actorId, object userId)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/follows/{userId}");
+        request.Headers.Authorization = Bearer(actorId);
+        return Http.SendAsync(request);
+    }
+
+    /// <summary>
     /// Sửa dữ liệu trực tiếp — dùng để dựng cảnh SQL của D1 (bốn trạng thái quan hệ) khi endpoint ghi chưa có.
     /// Tham số vị trí <c>$1, $2…</c>. Trả số dòng bị ảnh hưởng. Chép khuôn <c>AuthTestClient.ExecuteSqlAsync</c>.
     /// </summary>

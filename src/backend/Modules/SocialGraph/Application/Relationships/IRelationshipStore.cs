@@ -72,4 +72,21 @@ public interface IRelationshipStore
     Task<IReadOnlyList<FriendListRow>> ListRequestsAsync(
         Guid me, bool incoming, FriendCursor? cursor, int take, CancellationToken ct);
 
+    /// <summary>
+    /// D6 — <c>INSERT … ON CONFLICT DO NOTHING</c> vào <c>socialgraph.follows</c>. Không <c>SELECT</c> trước:
+    /// đã theo dõi rồi vẫn là thành công (idempotent, FR-012), không phải 409.
+    /// </summary>
+    /// <returns>
+    /// <c>true</c> khi chèn đúng một dòng (<c>inserted == 1</c>); <c>false</c> khi đụng PK và không chèn gì.
+    /// Service chỉ xóa cache nguồn của <b>người theo dõi</b> khi <c>true</c>. Vi phạm CHECK (tự theo dõi) PHẢI ném
+    /// thành 500 — lưới "khác mình trước DB" mới bắt được.
+    /// </returns>
+    Task<bool> AddFollowAsync(Guid followerId, Guid followeeId, DateTimeOffset now, CancellationToken ct);
+
+    /// <summary>
+    /// D6 — xóa đúng một chiều theo dõi. Không đụng chiều ngược và không đụng <c>friendships</c> (Đ-4.5).
+    /// Không <c>SELECT</c> trước.
+    /// </summary>
+    /// <returns><c>true</c> khi có dòng bị xóa; <c>false</c> khi 0 dòng. Service vẫn trả 204, và chỉ khi <c>true</c> mới xóa cache của người theo dõi.</returns>
+    Task<bool> DeleteFollowAsync(Guid followerId, Guid followeeId, CancellationToken ct);
 }

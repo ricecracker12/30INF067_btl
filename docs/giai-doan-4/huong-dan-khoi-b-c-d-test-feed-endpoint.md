@@ -1407,5 +1407,18 @@ Mỗi dòng: sửa tạm → chạy lọc → thấy **đúng** test dự kiến
 - `ListFriendsTests` **14/14**. `FriendCursorTests` **11/11**. Ba lớp ranh giới kiến trúc **10/10**.
   `?direction=` (chuỗi rỗng) model binding thành null nên là incoming — không phải 400.
 
+### D6 — 2026-09-22
+
+- Repo `30INF067_btl`, index 1 commit sau HEAD. Impact trước sửa: `RelationshipService` UNKNOWN (grep: không có
+  `new`, chỉ DI + `FriendsController` / `RelationshipsController`); `IRelationshipStore` LOW (d=1: `RelationshipStore`);
+  `RelationshipStore` LOW. `ModulesTestClient` CRITICAL (111 caller) — chỉ thêm `FollowAsync` / `FollowOkAsync` /
+  `UnfollowAsync`, không đổi chữ ký cũ.
+- `INSERT … ON CONFLICT DO NOTHING` nằm ở **store** (cùng lệch D2: Application không chạm EF). `inserted == 1` mới
+  `InvalidateAsync(actorId)` — không truyền người được theo dõi. `DELETE` cùng một phía, chỉ khi có dòng.
+  Không event. Không tra hồ sơ trên `DELETE`: yaml không có 404. Chính mình trên `PUT` → 400 trước DB; trên `DELETE`
+  vẫn 204 vì không có dòng (CHECK chỉ chặn lúc tạo) và yaml không có example tự-bỏ-theo-dõi.
+- `FollowWriteTests` **11/11** trên Redis thật. `FOL-*` nằm ở commit `B3` (Mục 8).
+  Bốn lớp ranh giới (`Presentation` / `Persistence` / `Module` / `PermissionCodeUsage`) **12/12**.
+
 *Ghi tiếp khi làm: `EXPLAIN` của LATERAL và gợi ý trên dữ liệu tải (`C2`), dạng
 exception timeout thật (`C4`/`FEED-12`), hằng số `FEED-Q1` so với Mục 7.2, kết quả từng dòng đột biến, năm mục tự rà B.9.*

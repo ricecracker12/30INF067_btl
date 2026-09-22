@@ -134,6 +134,31 @@ public sealed class RelationshipStore(SocialGraphDbContext db) : IRelationshipSt
             r.Since ?? throw new InvalidOperationException("Quan hệ accepted thiếu accepted_at."))).ToList();
     }
 
+    /// <summary>
+    /// SQL thô có nội suy là tham số hóa (EF <c>FormattableString</c>). <c>ON CONFLICT DO NOTHING</c> nuốt PK
+    /// <c>PK_follows</c> thành 0 dòng — lần theo dõi thứ hai không phải lỗi. CHECK <c>ck_follows_not_self</c> không
+    /// phải conflict: nó ném, và service phải chặn tự theo dõi trước khi tới đây.
+    /// </summary>
+    public async Task<bool> AddFollowAsync(
+        Guid followerId, Guid followeeId, DateTimeOffset now, CancellationToken ct)
+    {
+        var inserted = await db.Database.ExecuteSqlAsync(
+            $"INSERT INTO socialgraph.follows (follower_id, followee_id, created_at) VALUES ({followerId}, {followeeId}, {now}) ON CONFLICT DO NOTHING",
+            ct);
+
+        return inserted == 1;
+    }
+
+    /// <summary>Một câu. Chiều ngược (<c>followee</c> theo dõi lại) không khớp vế <c>follower_id</c>.</summary>
+    public async Task<bool> DeleteFollowAsync(Guid followerId, Guid followeeId, CancellationToken ct)
+    {
+        var changed = await db.Follows
+            .Where(f => f.FollowerId == followerId && f.FolloweeId == followeeId)
+            .ExecuteDeleteAsync(ct);
+
+        return changed > 0;
+    }
+
     public async Task<IReadOnlyList<FriendListRow>> ListRequestsAsync(
         Guid me, bool incoming, FriendCursor? cursor, int take, CancellationToken ct)
     {
