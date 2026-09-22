@@ -1127,8 +1127,10 @@ Khóa `feed:p1:{userId}` chỉ chứa `post_id` + `mode`; tác giả đăng / s�
 
 ### C5 — Môi trường đo + bộ dữ liệu tải (Đ-4.13)
 
-`tests/load/feed/`: `seed.sql` (có chốt chặn staging, Mục 5), `docker-compose.perf.yml` hoặc override giới hạn tài nguyên,
-`README.md` ghi lệnh dựng và lệnh xóa. Khóa ký JWT của môi trường đo sinh ngẫu nhiên lúc dựng, **không** commit.
+`tests/load/feed/`: `seed.sql` (hai chốt chặn), `docker-compose.perf.yml` (`name: socialapp-perf`, API `cpus: 2` /
+`mem_limit: 12g`, cổng 15432/16379/18080), `.env.example` (`PERF_JWT_KEY`, `POSTGRES_PASSWORD`), `README.md`.
+**Thi công 2026-09-22:** seed ~28 s → 10k hồ sơ, 1M bài (70/20/10, ~1% hidden), avg 120 bạn / 20 follows; hai chốt
+đã thử đỏ. Khóa JWT đo không commit.
 
 ### C6 — Kịch bản k6 + ba lượt + báo cáo sơ bộ
 

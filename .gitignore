@@ -4,7 +4,7 @@
 !.env.example
 deploy/backup.env
 !deploy/backup.env.example
-# ---- Sao lÆ°u (GÄ7 khá»‘i A) â€” chá»‰ tá»“n táº¡i trÃªn VM, khÃ´ng bao giá» vÃ o repo ----
+# ---- Sao l?u (G?7 kh?i A) ? ch? t?n t?i trên VM, không bao gi? vào repo ----
 deploy/backups/
 deploy/backup.log
 **/appsettings.*.Production.json
@@ -38,3 +38,6 @@ Thumbs.db
 .idea/
 
 .gitnexus/
+
+# ---- Môi tr??ng ?o feed (G?4 C5) ? CSV 10k dòng, không commit ----
+tests/load/feed/users.csv

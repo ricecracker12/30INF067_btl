@@ -1307,5 +1307,15 @@ Mỗi dòng: sửa tạm → chạy lọc → thấy **đúng** test dự kiến
   (`build-test` / AuthZ matrix GATE — 3 fail: `READ-06b`, `TC-A03-friend-accept`, `TC-A03-friend-self-accept`,
   đều `ArrangePath hỏng — POST /friends/requests … 404`).
 
-*Ghi tiếp khi làm: thời gian seed (`C5`), `EXPLAIN` của LATERAL và gợi ý trên dữ liệu tải (`C2`), dạng
+### C5 — 2026-09-22
+
+- `tests/load/feed/`: compose `socialapp-perf`, seed, README, `.env.example`. API `cpus: 2` / `mem_limit: 12g`.
+- Migrate bốn schema OK; seed **~28 s** trên Docker Desktop WSL2 (~7,6 GB RAM host).
+- Đếm: profiles 10.000 · posts 1.000.000 · friendships 600.000 (avg bậc 120) · follows 200.000 (avg 20).
+- Privacy 70/20/10 · hidden ≈ 10.048. Hai chốt chặn đã thử đỏ.
+- Lệch lúc thi công: LATERAL `random()` không tham chiếu `gs` → một giá trị cho cả bảng; sửa bằng `SELECT gs AS _row,
+  random()…`. README dùng `docker exec`/`docker cp` vì host Windows thường không có `psql`.
+- `users.csv` xuất local (gitignore). `PERF_JWT_KEY` chỉ trong `tests/load/feed/.env`.
+
+*Ghi tiếp khi làm: `EXPLAIN` của LATERAL và gợi ý trên dữ liệu tải (`C2`), dạng
 exception timeout thật (`C4`/`FEED-12`), hằng số `FEED-Q1` so với Mục 7.2, kết quả từng dòng đột biến, năm mục tự rà B.9.*

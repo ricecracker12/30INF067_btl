@@ -1,0 +1,75 @@
+# Môi trường đo feed (Đ-4.13 / C5). Tách hẳn staging và socialapp-dev.
+# Chạy từ gốc repo (cần tests/load/feed/.env — chép từ .env.example rồi điền):
+#   docker compose -f tests/load/feed/docker-compose.perf.yml --env-file tests/load/feed/.env up -d --build
+# Chi tiết: tests/load/feed/README.md
+name: socialapp-perf
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: socialapp_perf
+      POSTGRES_USER: socialapp
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Đặt POSTGRES_PASSWORD trong tests/load/feed/.env}
+    ports: ["15432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U socialapp -d socialapp_perf"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports: ["16379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Không Mailpit — đo không gửi mail. ASPNETCORE_ENVIRONMENT=Development để khỏi khai mail/R2/CORS
+  # (UnconfiguredObjectStorage; Cors từ appsettings.Development.json). Log Warning: tránh đo tốc độ ghi log.
+  api:
+    build:
+      context: ../../..
+      dockerfile: Dockerfile
+    cpus: 2.0
+    mem_limit: 12g
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: "http://+:8080"
+      Serilog__MinimumLevel__Default: Warning
+      Serilog__MinimumLevel__Override__Microsoft.AspNetCore: Warning
+      Serilog__MinimumLevel__Override__Microsoft.EntityFrameworkCore: Warning
+      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=socialapp_perf;Username=socialapp;Password=${POSTGRES_PASSWORD:?Đặt POSTGRES_PASSWORD trong tests/load/feed/.env}"
+      ConnectionStrings__Redis: "redis:6379"
+      Jwt__SigningKey: "${PERF_JWT_KEY:?Đặt PERF_JWT_KEY trong tests/load/feed/.env (openssl rand -base64 48)}"
+    ports: ["18080:8080"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 40s
+
+  # One-shot migrate bốn schema. Không tự chạy khi up -d.
+  migrate:
+    profiles: ["tools"]
+    build:
+      context: ../../..
+      dockerfile: Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=socialapp_perf;Username=socialapp;Password=${POSTGRES_PASSWORD:?Đặt POSTGRES_PASSWORD trong tests/load/feed/.env}"
+      ConnectionStrings__Redis: "redis:6379"
+      Jwt__SigningKey: "${PERF_JWT_KEY:?Đặt PERF_JWT_KEY trong tests/load/feed/.env (openssl rand -base64 48)}"
+    entrypoint: ["dotnet", "SocialApp.Api.dll", "--migrate"]
+    depends_on:
+      postgres: { condition: service_healthy }
+
+volumes:
+  pgdata:
