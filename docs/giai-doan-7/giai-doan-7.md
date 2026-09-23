@@ -245,7 +245,8 @@ an toàn vào ngày ai đó thêm một dòng ProxyPass.
 collector, không cần thêm container. OpenTelemetry mạnh hơn nhưng chỉ đáng giá khi có tracing tập trung — mà Tempo
 đã nằm ở Roadmap (Mục 2), nên phần mạnh hơn đó không ai dùng.
 
-Ghim **đúng một version dòng 8.x** cho khớp lineage net8 của dự án (EF Core 8.0.10, Serilog.AspNetCore 8.0.3…).
+Ghim **đúng một version dòng 8.x** cho khớp lineage net8 của dự án (EF Core 8.0.10, Serilog.AspNetCore 8.0.3…) —
+đã ghim **8.2.1** (C1, 2026-09-23).
 Kiểm arm64 trước khi ghim — luật vàng số 8.
 
 ### Đ-7.9 Cảnh báo bằng Grafana alerting, không dựng Alertmanager
@@ -800,17 +801,28 @@ lần trước khi Enter.
 > **Mục tiêu khối:** có một chỗ để **nhìn** hệ thống, và một cơ chế **gọi người** khi nó hỏng. Đây cũng là chỗ GĐ8
 > sẽ đọc kết quả k6.
 
-### C1 — `/metrics` trên API
+> **Hướng dẫn thi công và thực tế thi công:** [huong-dan-khoi-c-quan-sat.md](huong-dan-khoi-c-quan-sat.md) — viết dần
+> theo từng đầu việc.
 
-Thêm `prometheus-net.AspNetCore` (ghim version, kiểm arm64) + `UseHttpMetrics()` + `MapMetrics()`. **Hai dòng, và
-đây là toàn bộ phần chạm code backend của GĐ7.**
+### C1 — `/metrics` trên API ✅ *(code + test xong 2026-09-23, chưa deploy)*
+
+Thêm `prometheus-net.AspNetCore` **8.2.1** + `UseHttpMetrics()` + `MapMetrics().AllowAnonymous()`. **Hai dòng, và
+đây là toàn bộ phần chạm code backend của C1.**
+
+*Thực tế thi công:* `UseHttpMetrics()` **phải đứng trước** `UseSharedKernel()` (nơi có `UseExceptionHandler`) — đứng
+sau thì mọi lỗi 500 bị đếm thành 200 và cảnh báo tỷ lệ lỗi không bao giờ kêu. `MetricsEndpointTests` canh đúng chuyện
+này, đã thử cho đỏ.
 
 **Nghiệm thu:** trong mạng docker, `curl api:8080/metrics` ra số liệu; qua domain công khai thì **không** vào được.
 
-### C2 — Bốn chỉ số nghiệp vụ
+### C2 — Bốn chỉ số nghiệp vụ ⏸️ *(chờ nhóm chốt cách làm)*
 
 Counter theo Mục 5.2, đặt ở tầng service của module tương ứng (không đặt ở controller — chúng đo nghiệp vụ, không
 đo HTTP).
+
+*Thực tế thi công:* counter tạo bằng `System.Diagnostics.Metrics` **không** tự xuất hiện trên `/metrics` (thử 4 cách,
+2026-09-23). Phương án đề xuất: khai báo cả bốn counter bằng prometheus-net ở một chỗ trong SharedKernel. C2 **không**
+nằm trong ba điều kiện để GĐ7 xong — hoãn được. Chi tiết ở hướng dẫn khối C, Mục 2.
 
 **Nghiệm thu:** đăng một bài trên staging → `socialapp_posts_created_total` tăng đúng 1.
 

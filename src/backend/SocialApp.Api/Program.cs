@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using Prometheus;
 using Serilog;
 using Serilog.Formatting.Compact;
 using SocialApp.Api.Controllers;
@@ -409,6 +410,10 @@ if (isMigrate)
 // ĐẦU pipeline: log request, rate limiter và mọi thứ đọc RemoteIpAddress phía sau đều thấy IP thật của client.
 app.UseForwardedHeaders();
 app.UseSerilogRequestLogging();
+// RED metrics (GĐ7 C1). PHẢI đứng TRƯỚC UseSharedKernel (trong đó có UseExceptionHandler): đứng sau thì exception đi
+// xuyên qua middleware đếm lúc status còn 200 → mọi lỗi 500 bị đếm thành 200, cảnh báo tỷ lệ lỗi không bao giờ kêu
+// (MetricsEndpointTests.Loi_500_duoc_dem_dung_ma_500 canh đúng chuyện này).
+app.UseHttpMetrics();
 app.UseSharedKernel();
 
 // Swagger bật ở Development + Staging (để demo/test trên staging); TẮT ở Production.
@@ -442,6 +447,11 @@ app.UseSharedKernelRateLimiter();
 // và container bị báo unhealthy (SmokeEndpointsTests.Health_ready_khong_can_token).
 app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false }).AllowAnonymous();
 app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") }).AllowAnonymous();
+
+// /metrics cho Prometheus scrape qua mạng docker nội bộ (api:8080/metrics). AllowAnonymous: Prometheus không có token —
+// thiếu thì fallback policy trả 401 và target DOWN. KHÔNG ra Internet (Đ-7.7): apache không ProxyPass /metrics nên đường
+// công khai rơi về Next → 404; Kuma có monitor lộn ngược canh chuyện này (hướng dẫn khối C, C6).
+app.MapMetrics().AllowAnonymous();
 
 app.MapControllers();
 
