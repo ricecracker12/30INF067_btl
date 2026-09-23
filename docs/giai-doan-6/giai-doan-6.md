@@ -1769,6 +1769,12 @@ khoản không hoạt động, id lạ vắng mặt, 50 id một câu SQL, danh 
 `MapHub` cạnh `/hubs/chat`; `NotificationPusher` (sau `COMMIT` của upsert) gọi `Clients.User(recipient)`; hợp đồng hub + cổng.
 **Xong khi:** test hub (khuôn `HubAuthZTests` của B): không vé → 401; vé của A chỉ nhận thông báo của A (khuôn `HUB-09`).
 
+*Trạng thái 2026-09-24: **chờ GĐ5** — chưa làm.* Kiểm `origin/develop` (`a17ce39`), `origin/rice`, `origin/endgame`: không có
+`SharedKernel/Realtime/`, `AddSignalR`, `MapHub`, `RealtimeTicket` nào; `Modules/Messaging` chỉ có `.gitkeep`. Theo điều kiện của
+hướng dẫn khối A+C Mục 13: không tự dựng vé, không sửa thư mục của GĐ5, không chờ/hỏi người GĐ5. Thông báo chạy bằng hỏi lại 30
+giây (Đ-6.18 — đường lùi vĩnh viễn, không phải tạm). Làm C6 khi vé của GĐ5 có trên `develop`; nếu tới cổng đóng vẫn chưa có thì
+dòng hub ở Mục 12 ghi "chờ GĐ5 — đang chạy chế độ hỏi lại" (R6-01, thứ tự cắt B.10 #3).
+
 **Kết quả khối C:** mọi thứ Mục 6 đòi hỏi ở tầng hạ tầng đã có test; D chỉ còn nghiệp vụ.
 
 ---

@@ -1067,7 +1067,7 @@ PR: hai khối đi chung **một PR khối GĐ6** cùng D, B, E (pull-request-ru
 - [ ] `Privileged_controllers_carry_the_attribute` có mặt, `Skip` ghi "gỡ ở D2"
 - [ ] `WriteContracts_are_only_the_two_named` xanh, đã thử cho đỏ
 - [ ] Không log nào chứa `AuditEntry`, `note`, `ip`, `email` (B.10 #5)
-- [ ] C6: làm **hoặc** ghi "chờ B" — không xóa dòng
+- [ ] C6: làm **hoặc** ghi "chờ B" — không xóa dòng · *2026-09-24: **chờ GĐ5** (xem "Thực tế thi công" → C6)*
 
 **Quy trình**
 
@@ -1438,6 +1438,25 @@ Một ca đỏ lượt đầu vì lỗi **test** (so tuple chứa danh sách →
 | `HideSql` bỏ `AND status = 'published'`                          | `HID_store_01_…` (lần hai ra `Hidden` và ghi đè lý do)                         |
 | Thêm interface nhận `DbTransaction` ở Content                    | `WriteContracts_are_only_the_two_named`                                       |
 | Composite chọn im lặng khi hai provider cùng loại                | `Hai_provider_cung_loai_thi_nem_luc_dung`                                     |
+
+### C6 — 2026-09-24: chờ GĐ5, chưa làm
+
+Kiểm điều kiện bắt đầu (Mục 13) sau `git fetch`:
+- `origin/develop` (`a17ce39`, hơn `loveart1210` 25 commit — toàn bộ là GĐ7: `/metrics`, Prometheus, HSTS, runbook sao lưu): không
+  file Realtime/SignalR/hub nào, `Modules/Messaging` chỉ có `.gitkeep`.
+- `origin/rice` (`28158cb`), `origin/endgame` (`59772a7`): như trên.
+
+Thiếu cả bốn điều kiện → **không làm**, theo đúng Mục 13 và quyết định của người thi công (2026-09-24): không dựng tạm vé riêng,
+không dựng khung `INotificationPusher` trước, không sửa `SharedKernel/Realtime/`, không chờ/hỏi người GĐ5. Thông báo chạy bằng hỏi
+lại 30 giây — hợp đồng dữ liệu không đổi giữa hai chế độ (Đ-6.18), nên nối hub sau là thêm một nguồn đẩy, không sửa màn nào.
+
+**Khi nào làm lại:** khi `develop` có vé realtime của GĐ5 — làm đúng Mục 13, một commit `feat(gd6-c): C6 — …`. D9 lúc đó thêm một
+lời gọi `NotificationPusher` sau `COMMIT` của upsert. Tới cổng đóng mà vẫn chưa có: dòng hub ở Mục 12 của `giai-doan-6.md` ghi
+"chờ GĐ5 — đang chạy chế độ hỏi lại" (R6-01, thứ tự cắt B.10 #3), không xóa dòng.
+
+**Để ý khi rebase trước PR:** 25 commit GĐ7 trên `develop` có `feat(gd7-c): C2 — bốn chỉ số nghiệp vụ khai báo một chỗ ở
+SharedKernel`. Event bus của C0 đã có `Meter("SocialApp.Events")` riêng — lúc rebase kiểm hai bên không khai trùng tên chỉ số, và
+chỉ số `socialapp_events_*` có được `/metrics` của GĐ7 xuất ra không.
 
 ### Các đầu việc còn lại
 
