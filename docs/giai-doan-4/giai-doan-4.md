@@ -116,6 +116,8 @@ GĐ1 và GĐ2.
 | Bài `hidden` biến mất khỏi `GET /posts/{id}` và trang cá nhân | **GĐ6** | GĐ4 chỉ chặn `hidden` ở feed và ở danh sách bài theo tác giả (Đ-4.11); đường đọc một bài thuộc luồng kiểm duyệt |
 | Dọn `friendships`/`follows` khi xóa tài khoản | **GĐ8** | Hệ quả của Đ-2.2 (không FK chéo schema) — cùng nợ với `profiles`/`posts` của GĐ2 |
 | Đo k6 **chính thức** trên production | **GĐ8** | GĐ4 đo **sơ bộ** trên môi trường đo riêng (Đ-4.13), đúng lịch "GĐ4 (sơ bộ) → GĐ8 (chính thức)" |
+| `features/post/use-post-page.ts` chuyển sang `hooks/use-cursor-pages.ts` | **GĐ5** | Q-E8 (thêm ở `F4` 2026-09-23): hook chung dựng ở GĐ4 cho feed + `/friends`; bản GĐ2 giữ nguyên để không chạm năm ca test đang xanh — chuyển khi lịch sử hội thoại là người dùng thứ ba của khuôn |
+| Swagger runtime khai 503 của `GET /feed` là `ProblemDetails`, yaml khai `FeedOverloadedProblem` | **GĐ8** (dọn nợ) | Q-E4 (thêm ở `F4`): chỉ lệch tên schema, dữ liệu trên dây giống hệt; `ContentContractTests` không so schema response. Sửa khi có lý do sinh client từ Swagger runtime |
 
 ---
 
@@ -910,45 +912,66 @@ bộ dữ liệu, cùng nếp `PostVisibilityTests` của GĐ2 (hai bản của 
 
 ## 11. Definition of Done
 
-Theo Mục 3.5 của PTTK, áp cho **từng** UC (UC-08, UC-10/11, UC-13). Tick ở `F4`, kèm bằng chứng.
+Theo Mục 3.5 của PTTK, áp cho **từng** UC (UC-08, UC-10/11, UC-13). Tick ở `F3`, kèm bằng chứng. *(Sửa 2026-09-23, L1: bản
+đầu ghi "Tick ở `F4`" — B.8 đặt checklist ở `F3`.)* Rà `F3` ngày 2026-09-23, sau merge PR #21 (`0d0a093`).
 
-- [ ] Đủ AC: US-008 AC-01..03, US-010 AC-01..04, FR-012 — Mục 10.1, 10.2 xanh
-- [ ] **US-008 AC-04 (p95 ≤ 500ms @ 1.000 CCU) — sơ bộ**: báo cáo k6 ba lượt (Đ-4.13), lượt lạnh đạt ngưỡng; hoặc **không
-  đạt** kèm phân tích `EXPLAIN` và việc cụ thể chuyển sang GĐ8 — không tick khi chưa có báo cáo
-- [ ] Có kiểm RBAC (tầng 2) **và** tầng 3; năm dòng matrix + `READ-06b` xanh trên CI; bảng đột biến `B3`
-- [ ] Lỗi theo RFC 7807, `errors` đúng key; 403 của chấp nhận lời mời không phân biệt lý do
-- [ ] Đã chạy thử trên **staging** bằng hai tài khoản thật (`F3`)
-- [ ] Hai hợp đồng khớp Swagger runtime; `pnpm gen:api` chạy lại thì worktree sạch
-- [ ] Không lộ secret/PII: khóa ký JWT của môi trường đo **không** có trong repo; log feed không chứa URL ký
+- [x] Đủ AC: US-008 AC-01..03, US-010 AC-01..04, FR-012 — Mục 10.1, 10.2 xanh — CI của commit merge `0d0a093`
+  (https://github.com/ricecracker12/30INF067_btl/actions/runs/35838138171) và lượt `pull_request` của PR #21 (https://github.com/ricecracker12/30INF067_btl/actions/runs/35837668095): `FRD-01..10`, `FOL-01..04`, `FEED-01..13`
+- [x] **US-008 AC-04 (p95 ≤ 500ms @ 1.000 CCU) — sơ bộ**: báo cáo k6 ba lượt (Đ-4.13), lượt lạnh đạt ngưỡng; hoặc **không
+  đạt** kèm phân tích `EXPLAIN` và việc cụ thể chuyển sang GĐ8 — không tick khi chưa có báo cáo — **đạt**:
+  `bao-cao-k6-so-bo.md` lượt (2) p95 **37,6 ms**, 0 % lỗi. Truy vấn feed gợi ý đổi sau lượt đo (Đ-4.6 đổi 2026-09-23):
+  `EXPLAIN ANALYZE` trên 1.000.000 bài — `Merge Append` hai Index Scan, không `Sort`, 3,2 ms; GĐ8 đo lại chính thức
+- [x] Có kiểm RBAC (tầng 2) **và** tầng 3; năm dòng matrix + `READ-06b` xanh trên CI; bảng đột biến `B3` — cổng
+  `AuthZ matrix` 24/24 (`b66472c`) xanh ở CI trên; bảng đột biến ở hướng dẫn B+C+D Mục 17.4
+- [x] Lỗi theo RFC 7807, `errors` đúng key; 403 của chấp nhận lời mời không phân biệt lý do — rà ở `D7` (`fdb3662`); 503
+  feed mang `type` riêng (Q-E4, `e5a6efc`); `FRD` 403 accept một phản hồi cho mọi lý do (Đ-4.14)
+- [x] Đã chạy thử trên **staging** bằng hai tài khoản thật (`F2`) — đi tay trên staging 2026-09-23 (người trong nhóm, hai tài khoản): Kết bạn · Xem bài viết · Bài viết giới hạn bạn bè ·
+  Hủy kết bạn — cả bốn đạt. *Không đính kèm* ảnh, bảng tab Network, bản Chrome (Mục 9 hướng dẫn E+F) — xem "Thực tế thi công" F2. *(Sửa L1: bản đầu ghi `F3`.)* Lát cắt
+  cũng xanh trên API + FE dev thật: `e2e/friend-feed.spec.ts` (`10694a8`)
+- [x] Hai hợp đồng khớp Swagger runtime; `pnpm gen:api` chạy lại thì worktree sạch — cổng CI `API contract` 12/12 và
+  `API types khop hop dong`; staging sau `F1`: `socialgraph-v1/swagger.json` 200 đủ 7 path, `content-v1` có `/api/v1/feed`
+- [x] Không lộ secret/PII: khóa ký JWT của môi trường đo **không** có trong repo; log feed không chứa URL ký — repo chỉ có
+  `tests/load/feed/.env.example` (tên biến, giá trị rỗng), tự rà B.9 mục 5 (`42df85b`); log api staging
+  `$C logs api | grep -c "X-Amz-Signature"` → **0** (2026-09-23, sau `F2`)
 
 ## 12. Checklist nghiệm thu cuối GĐ4
 
 **Dữ liệu và ranh giới**
 
-- [ ] Thấy schema `socialgraph` với `__EFMigrationsHistory` riêng; `--migrate` chạy hai lần, lần hai không đổi gì
-- [ ] Không FK nào đi qua ranh giới schema (`information_schema.referential_constraints`), kể cả trong `socialgraph`
-- [ ] `EXPLAIN (ANALYZE)` truy vấn feed trên bộ dữ liệu tải: `Nested Loop` + `Index Scan using idx_posts_author_created`,
-  **không** `Sort` trên toàn bộ bài — kế hoạch dán vào hướng dẫn khối C
-- [ ] `EXPLAIN` danh sách bài theo tác giả trước và sau Đ-4.11 — ghi vào commit
+- [x] Thấy schema `socialgraph` với `__EFMigrationsHistory` riêng; `--migrate` chạy hai lần, lần hai không đổi gì —
+  log CD `deploy-staging` (${RUN}/35838138084): *"Đã áp dụng migration cho schema identity, profile, content,
+  socialgraph… Thoát 0"*; psql trên staging: `__EFMigrationsHistory` ở `content`, `identity`, `profile`, `socialgraph`; `$C run
+  --rm migrate` lần hai → `exit=0` (2026-09-23)
+- [x] Không FK nào đi qua ranh giới schema (`information_schema.referential_constraints`), kể cả trong `socialgraph` —
+  psql trên staging → **0** (2026-09-23)
+- [x] `EXPLAIN (ANALYZE)` truy vấn feed trên bộ dữ liệu tải: `Nested Loop` + `Index Scan using idx_posts_author_created`,
+  **không** `Sort` trên toàn bộ bài — kế hoạch dán vào hướng dẫn khối C — "Thực tế thi công" `C2` của hướng dẫn B+C+D;
+  thân `a1bbede` (521 nguồn)
+- [x] `EXPLAIN` danh sách bài theo tác giả trước và sau Đ-4.11 — ghi vào commit — thân `a1bbede`
 
 **Bảo mật và đúng quyền**
 
-- [ ] Test khởi động: `IFriendshipReader` không phải `AlwaysStrangers`, đúng một đăng ký
-- [ ] Thử cho đỏ: bỏ vế `requester_id = @other` → `TC-A03-friend-self-accept` đỏ; khôi phục `AlwaysStrangers` → test khởi
-  động đỏ (`READ-06b` vẫn xanh vì đăng ký của SocialGraph đứng sau — Mục 10.3, sửa 2026-09-23)
-- [ ] Redis trên môi trường đo: không khóa `feed:p1:*` nào chứa chuỗi `X-Amz-Signature` hay `myReaction` (lệnh `redis-cli
-  --scan --pattern 'feed:*'` + `GET` vài khóa)
+- [x] Test khởi động: `IFriendshipReader` không phải `AlwaysStrangers`, đúng một đăng ký —
+  `StartupConfigurationTests.Host_resolve_duoc_hai_contract_cheo_module_cua_A6_va_GD4`
+- [x] Thử cho đỏ: bỏ vế `requester_id = @other` → `TC-A03-friend-self-accept` đỏ; khôi phục `AlwaysStrangers` → test khởi
+  động đỏ (`READ-06b` vẫn xanh vì đăng ký của SocialGraph đứng sau — Mục 10.3, sửa 2026-09-23) — bảng đột biến hướng dẫn
+  B+C+D Mục 17.4; `35c2b30`
+- [x] Redis trên môi trường đo: không khóa `feed:p1:*` nào chứa chuỗi `X-Amz-Signature` hay `myReaction` (lệnh `redis-cli
+  --scan --pattern 'feed:*'` + `GET` vài khóa) — kiểm 2026-09-23 (`F3`): gọi `GET /feed` cho 5 người dùng đo (200,
+  `network`, 20 bài) → 5 khóa `feed:p1:*`, `GET` cả 5: **0** khóa chứa `X-Amz-Signature`, `myReaction`, `canEdit` hay URL —
+  giá trị chỉ là danh sách id
 
 **Hiệu năng**
 
-- [ ] Báo cáo k6 sơ bộ: máy chạy, bản k6, bộ dữ liệu, ba lượt, p50/p95/p99, tỷ lệ lỗi, số kết nối DB đỉnh — lưu ở
-  `docs/giai-doan-4/bao-cao-k6-so-bo.md`
-- [ ] Lượt Redis-dừng: tỷ lệ lỗi < 1%
+- [x] Báo cáo k6 sơ bộ: máy chạy, bản k6, bộ dữ liệu, ba lượt, p50/p95/p99, tỷ lệ lỗi, số kết nối DB đỉnh — lưu ở
+  `docs/giai-doan-4/bao-cao-k6-so-bo.md` (`84e4f1a`, đo lại sau hai sửa Mục 5)
+- [x] Lượt Redis-dừng: tỷ lệ lỗi < 1% — lượt (3): **0 %** lỗi, p95 190 ms
 
 **Lát cắt dọc**
 
-- [ ] E2E trên staging, hai tài khoản: feed gợi ý → kết bạn → chấp nhận → bài `friends` hiện trên trang chủ → hủy kết bạn →
-  biến mất (`F3`)
+- [x] E2E trên staging, hai tài khoản: feed gợi ý → kết bạn → chấp nhận → bài `friends` hiện trên trang chủ → hủy kết bạn →
+  biến mất (`F2`) — đi tay trên staging 2026-09-23 (người trong nhóm, hai tài khoản): Kết bạn · Xem bài viết · Bài viết giới hạn bạn bè ·
+  Hủy kết bạn — cả bốn đạt. *Không đính kèm* ảnh, bảng tab Network, bản Chrome (Mục 9 hướng dẫn E+F) — xem "Thực tế thi công" F2 *(sửa L1: bản đầu ghi `F3`)*
 
 ## 13. Sai khác so với kế hoạch gốc và báo cáo v5.0
 
@@ -1361,6 +1384,17 @@ ra ở đây, không phải ở k6.
 | Môi trường đo + seed + kịch bản k6 + báo cáo sơ bộ | GĐ8 — chạy lại **chính thức**, so với mốc GĐ4 |
 | `idx_posts_public_recent` + feed gợi ý | GĐ6 — tìm kiếm mở thêm đường khám phá, feed gợi ý vẫn giữ cho tài khoản mới |
 | Nợ có địa chỉ: dọn `friendships`/`follows` khi xóa tài khoản | GĐ8 (NĐ 13/2023) |
+
+### Xác nhận ba điều kiện (`F4`, 2026-09-23)
+
+| # | Điều kiện | Bằng chứng | Trạng thái |
+|---|---|---|---|
+| 1 | Hai tài khoản thật đi hết vòng trên staging | `F2` đi tay 2026-09-23: Kết bạn · Xem bài viết · Bài viết giới hạn bạn bè · Hủy kết bạn — đạt. Không có ảnh / bảng Network | **Đạt** (bằng chứng: báo cáo đi tay, không ảnh). Trên API + FE dev thật cũng xanh: `e2e/friend-feed.spec.ts` |
+| 2 | Báo cáo k6 ba lượt trên 1M bài | `bao-cao-k6-so-bo.md` — lượt (2) p95 37,6 ms, lượt (3) Redis dừng 0 % lỗi | **Đạt** |
+| 3 | CI xanh cả năm nhóm; cổng `socialgraph-v1` đã từng đỏ; matrix + `READ-06b` đã từng đỏ | CI commit merge `0d0a093` (https://github.com/ricecracker12/30INF067_btl/actions/runs/35838138171) + lượt `pull_request` PR #21 (https://github.com/ricecracker12/30INF067_btl/actions/runs/35837668095); `bcd507d` (B5 thử đỏ ba kiểu); bảng đột biến hướng dẫn B+C+D Mục 17.4 | **Đạt** |
+
+**Ba điều kiện đạt — GĐ4 xong, GĐ3 được phép bắt đầu** (2026-09-23). Hợp đồng `socialgraph-v1` và `/feed` của `content-v1`
+đã đóng băng (`F4`).
 
 **Một câu để nhớ:** GĐ2 cho mỗi người một thứ thuộc về họ, GĐ3 cho nhiều người cùng chạm vào một thứ; GĐ4 là lần đầu hệ
 thống phải trả lời **"ai nhìn thấy gì"** cho hàng nghìn người cùng lúc — và trả lời đó phải đúng *và* nhanh, không được đổi

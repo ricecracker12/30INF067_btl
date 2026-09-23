@@ -90,8 +90,15 @@ Hệ quả cho tài liệu này — GĐ3 khởi động trên nền GĐ4 đã xo
 | `IFriendshipReader` thật | Bài `friends` của bạn thật sự hiện ra → `READ-CMT-*`, `READ-REACT-*` kiểm được **cả hai** nhánh: người lạ (404) và bạn (thấy) |
 | Một hàm hydrate batch cho mọi đường trả `PostResponse` (GĐ4 `C3`) | `myReaction` thêm **vào đúng hàm đó** (Đ-3.11) → feed, trang cá nhân, chi tiết bài có trường mới cùng lúc |
 | Cache feed chỉ lưu `post_id`, test `FEED-13` hai người xem (GĐ4 Đ-4.9) | Mở rộng `FEED-13` thêm khẳng định `myReaction`; không đụng cache |
-| Trang chủ ráp `FeedList` + `PostCard` ở `app/` qua `renderPost` (GĐ4 Đ-4.16) | Cắm thanh cảm xúc vào chỗ ráp đó (Đ-3.13); không sửa `features/feed/` |
+| Trang chủ ráp `FeedList` + **`PostItem`** ở `app/(app)/(with-profile)/page.tsx` qua `renderPost(post, onChanged)` (GĐ4 Đ-4.16, lệch L4 — `PostItem` vì feed có bài của chính mình, cần Sửa/Xóa) | Cắm thanh cảm xúc vào đúng dòng `renderPost` đó (Đ-3.13); không sửa `features/feed/` |
+| `hooks/use-cursor-pages.ts` — hook phân trang cursor dùng chung, không biết nghiệp vụ (GĐ4 Q-E8) | Danh sách bình luận / phản hồi theo cursor dùng lại hook này; ref mà handler đọc đồng bộ bằng `useLayoutEffect` (luật frontend Mục 9) |
+| Feed gợi ý có bài của **chính mình** mọi mức (GĐ4 Đ-4.6 đổi 2026-09-23) | Thanh cảm xúc trên bài của mình xuất hiện cả khi người dùng chưa có kết nối — `READ-REACT-*` không phụ thuộc chế độ feed |
 | Báo cáo k6 sơ bộ | Chạy lại lượt lạnh sau khi `myReaction` vào đường hydrate — so với mốc GĐ4 (`F5`) |
+
+*Bàn giao GĐ4 → GĐ3 (2026-09-23, GĐ4 `F4`, sau merge PR #21 `0d0a093`):* ba chỗ cắm — `PostHydrator` (chữ ký ở hướng dẫn
+GĐ4 B+C+D Mục 11/18), `FEED-13` hai người xem, dòng `renderPost` của trang chủ. Hai việc phải làm lại: k6 lượt (2) sau khi
+`myReaction` vào đường hydrate; `READ-CMT-*` / `READ-REACT-*` với bài `friends` giữa hai người là **bạn thật** (quan hệ tạo qua
+API `POST /friends/requests` + `accept` — đã có trên `develop`). E2E staging hai tài khoản của GĐ4 (`F2`) đạt cùng ngày — GĐ4 xong.
 
 ---|---|---|
 | **Sau GĐ4** (đúng lịch gốc) | Feed đã có; bình luận/cảm xúc gắn thẳng vào card của feed | E-lane thêm slot tương tác vào card feed (Đ-3.13), không sửa `features/feed/` từ bên trong |
