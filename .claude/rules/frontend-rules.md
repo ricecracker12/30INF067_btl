@@ -163,14 +163,17 @@ Bốn tầng, phụ thuộc **một chiều**: `app/` → `features/` → `compo
   dán vào PR — cùng nếp "kiểm tay ghi bằng chứng" của khối D — **kèm bản Chrome đã chạy** (lệch Đ-E8:
   dùng Chrome hệ thống, bản khác nhau giữa các máy).
 - File test nằm **cạnh mã nguồn** (`lib/validation/auth.test.ts`). `test/` chỉ chứa **harness của Vitest**,
-  không chứa ca test nào: `setup.ts` và `server-only.ts` (shim cho alias `server-only`, Đ-E14) — *sửa câu
-  này 2026-09-21, trước đó ghi "chỉ chứa `setup.ts`" và đã lệch thực tế từ GĐ1*. `e2e/` chứa spec
+  không chứa ca test nào: `setup.ts`, `server-only.ts` (shim cho alias `server-only`, Đ-E14) và
+  `intersection-observer.ts` (stub điều khiển tay — jsdom không có `IntersectionObserver`; thêm 2026-09-23, GĐ4 E4)
+  — *sửa câu này 2026-09-21, trước đó ghi "chỉ chứa `setup.ts`" và đã lệch thực tế từ GĐ1*. `e2e/` chứa spec
   Playwright, `e2e/fixtures/` chứa ảnh thật commit vào repo (Q-E8).
 - **Màn nào sở hữu tài nguyên hủy được thì có ĐÚNG một ca `<StrictMode>`** (thêm 2026-09-21). `render(<X />)`
   mount một lần, Next dev mount → unmount → mount lại; lớp lỗi chỉ sống ở lần mount thứ hai nên không ca
   thường nào chạm tới. Ca đó khẳng định **trạng thái cuối đạt được**, **không đếm số request** — dưới
   StrictMode số request tăng gấp đôi một cách hợp lệ, trộn hai thứ vào một ca là tự làm ca test giòn.
-  Năm ca hiện có: `post-composer`, `me-profile`, `post-detail`, `user-posts`, `public-profile`.
+  Sáu ca hiện có: `post-composer`, `me-profile`, `post-detail`, `user-posts`, `public-profile`, `feed-list`
+  (GĐ4 E4, L5). Tài nguyên phải là thứ **thật sự tạo lúc mount**: ở `feed-list` đó là `AbortController` của trang
+  đầu, không phải observer — observer chỉ tạo sau khi trang đầu về, có ca thường riêng canh việc tạo lại nó.
 - **`waitFor` chờ một handler có `delay` thì ghi `timeout` viết tay.** Mặc định 1s đủ khi chạy riêng file
   và KHÔNG đủ khi chạy cả bộ — ca `Xem thêm` của `user-posts` đỏ ~1/3 lượt vì vậy (đo 2026-09-21). Nới
   thời gian chờ không làm ca yếu đi; khẳng định vẫn y nguyên.

@@ -7,6 +7,11 @@ import { server } from "@/mocks/node"
 import { mockControls } from "@/mocks/session"
 import { fakeApi } from "@/mocks/upstream"
 
+import {
+  installIntersectionObserverStub,
+  resetIntersectionObservers,
+} from "./intersection-observer"
+
 // `globals: false` nên auto-cleanup của Testing Library không tự đăng ký — không dọn thì DOM của
 // test trước còn lại, `getByLabelText` thấy hai phần tử và đỏ vô cớ.
 afterEach(cleanup)
@@ -25,6 +30,12 @@ afterEach(() => {
 afterAll(() => {
   server.close()
 })
+
+// GĐ4 E4: feed tự nạp bằng IntersectionObserver — jsdom không có. Stub ghi lại observer, KHÔNG tự bắn
+// (test gọi `kichHoatGiaoNhau` từ `@/test/intersection-observer`). Chỉ cài ở môi trường có `window` (jsdom);
+// test `node` của lib/bff không cần.
+if (typeof window !== "undefined") installIntersectionObserverStub()
+afterEach(resetIntersectionObservers)
 
 // Base UI cần vài API trình duyệt mà jsdom chưa có. Polyfill đặt ở đây, không rải trong từng test.
 if (!("ResizeObserver" in globalThis)) {

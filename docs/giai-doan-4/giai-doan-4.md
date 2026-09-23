@@ -691,12 +691,16 @@ FriendRequestPage     { items: [FriendCard], nextCursor: string | null }        
 
 ```
 FeedPage { items: [PostResponse], nextCursor: string | null, mode: "network" | "suggested" }
+FeedOverloadedProblem = ProblemDetails & { type: "urn:socialapp:problem:feed-overloaded" }   // 503 — thêm ở Q-E4
 ```
 
 - `items` dùng lại **đúng** `PostResponse` (`$ref`). Khi GĐ3 thêm `myReaction`, feed có trường đó **tự động**.
 - Mô tả của `nextCursor` ghi nguyên văn: *"`items` có thể ít hơn `limit`. Hết dữ liệu khi và chỉ khi `nextCursor` là
   `null`."* (Đ-4.9)
-- `info.version` của `content-v1` → `1.0.0-gd4`.
+- `info.version` của `content-v1` → `1.0.0-gd4`; Q-E4 (2026-09-23, sau `D7`) → `1.0.1-gd4`.
+- *Lệch đã biết (Q-E4):* Swagger sinh từ code vẫn khai 503 là `ProblemDetails` — thêm một lớp DTO chỉ để schema mang tên
+  `FeedOverloadedProblem` không đáng. Dữ liệu trên dây giống hệt; yaml là nguồn sự thật, `ContentContractTests` không so
+  schema response.
 
 ### 8.3 Codegen frontend
 

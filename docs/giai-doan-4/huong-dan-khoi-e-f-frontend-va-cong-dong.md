@@ -48,7 +48,7 @@ máy tôi"* và *"chứng minh được trên hệ thống thật"*: khối E ng
 | **E1** | Codegen, api client, ngữ cảnh lỗi, fixture `msw/node` | Cho năm đầu việc sau **một** bề mặt gọi API: kiểu sinh từ hai hợp đồng (hợp đồng đổi = đỏ compile), một chỗ gọi `fetch`, một bảng thông điệp lỗi phân biệt được 403/404/409 **theo endpoint** | `pnpm gen:api` → worktree **sạch** (file sinh đã có); `lib/api/types.ts` re-export đủ kiểu `socialgraph` + `FeedPage`/`FeedMode`, **không** khai tay dòng nào; `lib/api/socialgraph-api.ts` đủ chín endpoint + `contentApi.feed`, mọi id `encodeURIComponent`, **không** route BFF mới; `ErrorContext` có năm ngữ cảnh mới (Q-E3) và câu 409/404 chép **đúng** `detail` của hợp đồng; fixture gắn kiểu bằng `satisfies`; `pnpm typecheck` + `pnpm lint` xanh |
 | **E2** | Nút quan hệ trên hồ sơ người khác (`RelationshipButtons`) | Đóng FR-010/011/012 phía người dùng ở **đúng chỗ** người dùng quyết định — trang hồ sơ. Bốn nhánh trạng thái vẽ theo **phản hồi server**, không đoán trước (Đ-4.16) | Bốn trạng thái `friendship` × `following` vẽ đúng nút; bấm → **mọi** nút khóa + spinner → vẽ lại theo `RelationshipResponse` (hoặc theo kết quả tất định của 204, Mục 3 Bước 2); 409/403/404 → câu đúng + **đọc lại** `GET /relationships` để vẽ sự thật; Hủy kết bạn qua `AlertDialog`; không hiện trên hồ sơ **chính mình** (Q-E2); Vitest đủ nhánh + **đúng một** ca `<StrictMode>` |
 | **E3** | Màn `/friends`: lời mời đến, lời mời đi, danh sách bạn | Nơi người nhận **thấy** lời mời — không có màn này thì lời mời chỉ hiện khi người nhận tình cờ mở đúng hồ sơ người gửi (trước GĐ6 không có thông báo) | Ba danh sách theo cursor (`direction=incoming`, `outgoing`, `GET /friends`), "Xem thêm" theo `nextCursor`; Chấp nhận / Từ chối / Hủy / Hủy kết bạn **tại chỗ**, thẻ biến mất sau 2xx; chấp nhận xong thì danh sách bạn nạp lại; 403 chấp nhận → "lời mời không còn hiệu lực" + gỡ thẻ; mỗi thẻ dẫn tới `/users/{id}`; trạng thái rỗng riêng từng mục |
-| **E4** | Feed trang chủ (`FeedList` + `useFeedPage`) | Biến `GET /feed` thành trang chủ đọc được: cuộn vô hạn theo `nextCursor` **mà không suy "hết" từ độ dài trang** (Đ-4.9), nhãn gợi ý cho người mới (Đ-4.6), 503 thành "thử lại" (Đ-4.10) | Cuộn vô hạn bằng `IntersectionObserver` **tạo trong effect** + nút "Xem thêm" dự phòng; trang ngắn hơn `limit` mà `nextCursor ≠ null` **vẫn nạp tiếp**, kể cả trang **rỗng**; skeleton; `mode=suggested` → nhãn "Gợi ý cho bạn — kết bạn để thấy bài của bạn bè"; `mode=network` rỗng → câu mời kết bạn/theo dõi; 503 → thẻ "Bảng tin đang quá tải" + Thử lại, **không** màn trắng, **không** đếm ngược, **không** tự thử lại; `features/feed/` **không** import `features/post/` |
+| **E4** | Feed trang chủ (`FeedList` + `useFeedPage`) | Biến `GET /feed` thành trang chủ đọc được: cuộn vô hạn theo `nextCursor` **mà không suy "hết" từ độ dài trang** (Đ-4.9), nhãn gợi ý cho người mới (Đ-4.6), 503 thành "thử lại" (Đ-4.10) | Cuộn vô hạn bằng `IntersectionObserver` **tạo trong effect**, **không** nút lúc bình thường (Q-E5) — trang sau lỗi → dòng lỗi + Thử lại cuối danh sách, hết → "Bạn đã xem hết", trần 5 trang rỗng → nút "Xem tiếp", nối trang → báo `role=status`; trang ngắn hơn `limit` mà `nextCursor ≠ null` **vẫn nạp tiếp**, kể cả trang **rỗng**; skeleton; `mode=suggested` → nhãn "Gợi ý cho bạn — kết bạn để thấy bài của bạn bè"; `mode=network` rỗng → câu mời kết bạn/theo dõi; 503 mang `type` `feed-overloaded` (Q-E4) → thẻ "Bảng tin đang quá tải" + Thử lại, **không** màn trắng, **không** đếm ngược, **không** tự thử lại; `features/feed/` **không** import `features/post/` |
 | **E5** | Slot và ráp ở `app/` | Chỗ **duy nhất** biết cả `feed` + `post`, `profile` + `friend` (Đ-E13) — và là chỗ GĐ3 cắm thanh cảm xúc mà không chạm `features/feed/` (Mục 9.1 #3) | `/` là feed (route trùng đã xử — Q-E1); trang chủ ráp `FeedList` với `PostItem` qua `renderPost` (Q-E6); `PublicProfile` nhận slot `actions`, chỉ vẽ khi hồ sơ **đã nạp được**; `/users/[userId]` truyền `RelationshipButtons` trừ khi là chính mình; header có liên kết Trang chủ · Bạn bè · Trang của tôi qua slot, `AppHeader` không biết nghiệp vụ; lượt tay trên `localhost` với hai tài khoản đi hết vòng của `E6` |
 | **E6** | Vitest + Playwright | Biến ba màn thành thứ **chặn merge** (Vitest ở CI) và thành bằng chứng chạy tay có ghi lại cho lát cắt hai tài khoản (Playwright local, Đ-E8) | Vitest phủ đủ Mục 10.6 dòng 1 và 2; `e2e/friend-feed.spec.ts` hai tài khoản: feed gợi ý → Kết bạn → Chấp nhận → bài `friends` hiện → Hủy kết bạn → bài biến mất; **cả bộ** `pnpm test:e2e` xanh (không chỉ spec mới — bài học GĐ2); kết quả + **bản Chrome** dán vào PR |
 
@@ -110,7 +110,7 @@ Cắt thì **ghi rõ vào PR và vào `giai-doan-4.md`** (B.9), không lặng l�
 |---|---|---|
 | Mục "Lời mời đã gửi" ở `/friends` (`E3`) | Người gửi vẫn hủy được từ nút trên hồ sơ (`outgoing` → Hủy) | Người gửi không có một chỗ xem mình đang chờ ai |
 | Nút Theo dõi / Bỏ theo dõi (`E2`) | FR-012 đã phủ ở mức API (`FOL-*`) | Không ai tạo được nguồn `FollowingOnly` từ UI — feed chỉ còn bạn bè + mình |
-| Cuộn tự động bằng observer (`E4`) | Nút "Xem thêm" đã có sẵn làm dự phòng (Q-E5) | Mất "cuộn vô hạn" của B.7 — ghi như lệch B.7 |
+| **Không cắt:** cuộn tự động bằng observer (`E4`) *(sửa 2026-09-23 theo Q-E4/Q-E5)* | Q-E5 chốt **không** nút dự phòng — observer là đường **duy nhất** nạp thêm; cắt nó là feed chỉ còn trang đầu | Trễ thật thì phương án thay (không phải cắt): đổi observer thành nút trong `feed-list.tsx`, hook không chạm — ghi như lệch Q-E5 |
 | **Không cắt:** feed trang chủ, nhãn gợi ý, 503 → Thử lại (`E4`) | "Lõi" của bảng ưu tiên; nhãn gợi ý là đường **duy nhất** để người mới gặp người khác trước GĐ6 | — |
 | **Không cắt:** Kết bạn / Chấp nhận (`E2`, `E3` phần lời mời đến) | Thiếu thì `F2` không đi được vòng | — |
 | **Không cắt:** `F2` | Điều kiện 1 của B.11 | — |
@@ -227,7 +227,7 @@ gọi `GET` là mời người sau thêm câu 409 "đã có lời mời" vào m�
   | `friend-request` | `POST /friends/requests` | 403 · 404 · 409 | 403 "Tài khoản của bạn chưa được phép kết bạn." · 404 "Không tìm thấy người dùng." · 409 "Đã có lời mời hoặc quan hệ bạn bè giữa hai người." (**nguyên văn `detail`** của hợp đồng) |
   | `friend-respond` | `POST /friends/requests/{id}/accept` | 403 | "Lời mời này không còn hiệu lực." — **một** câu cho mọi lý do (Đ-4.14: không có lời mời · lời mời của chính mình · đã là bạn · người thứ ba) |
   | `follow` | `PUT /follows/{id}` | 403 · 404 | 403 "Tài khoản của bạn chưa được phép theo dõi người khác." · 404 "Không tìm thấy người dùng." |
-  | `feed` | `GET /feed` | 503 | "Bảng tin đang quá tải. Vui lòng thử lại sau ít phút." — **không** kèm `traceId`: 503 không phải lỗi hệ thống (Đ-4.10). Nhánh `BY_CONTEXT` chạy **trước** nhánh `>= 500` nên tự đúng |
+  | `feed` | `GET /feed` | 503 | "Bảng tin đang quá tải. Vui lòng thử lại sau ít phút." — **không** kèm `traceId`: 503 không phải lỗi hệ thống (Đ-4.10). *(sửa 2026-09-23 theo Q-E4/Q-E5)* Câu này **không** nằm ở `BY_CONTEXT` mà ở `BY_TYPE`, chọn theo `type` `feed-overloaded`; `feed` trong `BY_CONTEXT` rỗng — 503 không mang `type` riêng là lỗi hệ thống |
 
 - **Kèm theo:** `FieldErrorKey` thêm `"userId"` và `"direction"` — hai key `errors` mới của `socialgraph-v1` (tự gửi /
   tự theo dõi → `errors.userId`, câu server *"Không thể gửi lời mời kết bạn cho chính mình."* / *"Không thể theo dõi
@@ -267,6 +267,15 @@ ghi "cuộn vô hạn" cho feed.
   lượt nạp xong, nếu sentinel vẫn giao nhau và `nextCursor !== null` thì nạp tiếp. Có trần: tối đa **5** lượt nạp liên
   tiếp không thêm được bài nào thì dừng tự nạp, để nút làm việc — chặn vòng request khi server trả liên tục trang rỗng.
 
+*✅ chốt 2026-09-23 — **khác đề xuất**: chỉ observer tự nạp, **không** nút "Xem thêm" lúc bình thường.* Trang sau hỏng →
+ngừng tự nạp, dòng lỗi + **Thử lại** ở cuối danh sách; bấm là nạp lại đúng lô vừa hỏng (cùng `nextCursor`) và observer bật
+lại. Hết dữ liệu → "Bạn đã xem hết". Giữ cách xử sentinel còn trong khung nhìn và trần 5 lượt rỗng liên tiếp; tới trần thì
+hiện nút **Xem tiếp** (trạng thái bất thường, không phải "lúc bình thường" — không có nút thì feed kẹt).
+Xác nhận thêm (2026-09-23): nút **Xem tiếp** ở trần giữ nguyên — hiện "Bạn đã xem hết" ở đó là sai vì `nextCursor` còn khác
+null (Đ-4.9). Bỏ nút thì mất tín hiệu "có thêm bài" cho trình đọc màn hình → vùng `role=status` báo "Đã tải thêm N bài, đang
+hiển thị M bài." mỗi lần tự nối trang. **Q-E5 chỉ áp cho feed:** `/friends` (E3) giữ nút "Xem thêm" — ba danh sách xếp
+chồng trên một trang, tự nạp mục giữa đẩy mục dưới đi mãi.
+
 #### Q-E6 — `renderPost` trả `PostItem`, không `PostCard` — **lệch Đ-4.16 (L4)**
 
 Đ-4.16 ghi trang chủ ráp `FeedList` với `PostCard`. Nhưng feed chứa **bài của chính mình** (Đ-4.5): bài đó cần nút
@@ -278,6 +287,8 @@ dùng `PostItem`).
   `renderPost={(post, onChanged) => <PostItem post={post} onChanged={onChanged} />}`. `FeedList` vẫn **không** biết
   `PostItem` là gì — GĐ3 thay/bọc ở đúng dòng ráp này.
 - Ghi ngược vào Đ-4.16: "Lệch Đ-4.16 (nhóm chốt, 2026-09-…): ráp với `PostItem` …".
+
+*✅ chốt 2026-09-23 như đề xuất. `E4` dựng chữ ký `RenderPost`; lệch Đ-4.16 ghi ngược ở `E5` (chỗ ráp `PostItem`).*
 
 #### Q-E7 — Liên kết điều hướng trong header
 
@@ -501,7 +512,7 @@ một lượt nhanh hơn ba lần bấm. Mục "Lời mời đã gửi" là ứn
 Mỗi thẻ khóa nút **riêng** trong lúc chờ — khác `E2`: ở đây các thẻ là các người khác nhau, không giẫm lên nhau.
 
 **Bước 3 — phân trang:** mỗi mục một lượt `useCursorPages` (Q-E8), `PAGE_SIZE` 20, nút "Xem thêm" khi `nextCursor !== null`
-— không observer (ba danh sách cùng trang, ba observer là thừa). Gỡ thẻ tại chỗ đi qua `replaceItem(id, null)` để
+— không observer (ba danh sách cùng trang, ba observer là thừa; xác nhận khi chốt Q-E5 2026-09-23 — Q-E5 chỉ áp cho feed). Gỡ thẻ tại chỗ đi qua `replaceItem(id, null)` để
 tập khử trùng quên luôn id đó.
 
 **Bước 4 — trạng thái rỗng**, mỗi mục một câu: *"Chưa có lời mời nào."* · *"Bạn chưa có bạn bè nào. Mở trang chủ để xem
@@ -550,14 +561,16 @@ contentApi.feed({ cursor, limit: PAGE_SIZE }, signal)`, `getId = p => p.postId`,
 | Trạng thái | Vẽ |
 |---|---|
 | Trang đầu chưa về | Skeleton ba thẻ (khuôn `PostListSkeleton` — chép, không import) |
-| Trang đầu lỗi 503 | Thẻ "Bảng tin đang quá tải. Vui lòng thử lại sau ít phút." + **Thử lại**. `data-testid="feed-overloaded"` |
-| Trang đầu lỗi khác | `FormAlert` với `errorMessage("feed", e)` + **Thử lại** |
+| Trang đầu lỗi 503 **mang `type` `feed-overloaded`** (Q-E4) | Thẻ "Bảng tin đang quá tải. Vui lòng thử lại sau ít phút." + **Thử lại**. `data-testid="feed-overloaded"` |
+| Trang đầu lỗi khác — kể cả 503 BFF mất kho phiên, 503 HTML của apache | `FormAlert` với `errorMessage("feed", e)` + **Thử lại** |
 | `mode = suggested` | Dải nhãn **trên** danh sách: *"Gợi ý cho bạn — kết bạn để thấy bài của bạn bè"* (`Badge` hoặc `Alert` của kit, token màu). `data-testid="feed-suggested"` |
 | `mode = network`, trang đầu `items: []`, `nextCursor: null` | *"Chưa có bài nào — kết bạn hoặc theo dõi để thấy bài."* |
 | `mode = suggested`, rỗng | *"Chưa có bài công khai nào."* — hệ thống mới tinh, hiếm nhưng có |
 | Có bài | `items.map(p => <Fragment key={p.postId}>{renderPost(p, next => replaceItem(p.postId, next))}</Fragment>)` |
-| `nextCursor !== null` | Sentinel + nút "Xem thêm" (Q-E5) |
-| Lỗi ở trang sau | Danh sách giữ nguyên + nút **Tải lại**; observer ngừng tự nạp |
+| `nextCursor !== null` | Sentinel, **không** nút (Q-E5 chốt). Tới trần 5 trang rỗng liên tiếp → nút **Xem tiếp** |
+| Tự nối trang | Vùng `role=status` ẩn: "Đã tải thêm N bài, đang hiển thị M bài." |
+| `nextCursor === null`, có bài | "Bạn đã xem hết" |
+| Lỗi ở trang sau | Danh sách giữ nguyên + dòng lỗi + nút **Thử lại** cuối danh sách — nạp lại **đúng lô hỏng** (`loadMore`, cùng `nextCursor`), không nạp từ đầu; observer ngừng tự nạp tới khi lô đó về |
 
 Nút **Làm mới** ở đầu feed: gọi `reload()`. Đây là thay thế cho realtime (Mục 2, ngoài phạm vi) — rẻ, và là thứ người vừa
 kết bạn bấm để thấy bài bạn mới.
@@ -581,12 +594,12 @@ Test mặc định **không** bắn gì — ca nào cần cuộn thì bắn tay.
 | Trang đầu | Skeleton → 20 bài qua `renderPost` (đếm lời gọi `renderPost` giả) |
 | Cuộn | Bắn giao nhau → lượt `GET /feed?cursor=…` với **nguyên** chuỗi `nextCursor` |
 | **Trang rỗng mà `nextCursor ≠ null`** | Sau lượt về, sentinel vẫn giao nhau → **tự** nạp trang tiếp, không cần bắn lại (Q-E5 cạm bẫy) |
-| Trần 5 lượt rỗng | Handler trả trang rỗng mãi → dừng sau 5 lượt, nút "Xem thêm" còn |
-| `nextCursor = null` | Không sentinel, không nút |
+| Trần 5 lượt rỗng | Handler trả trang rỗng mãi → dừng sau 5 lượt, nút **Xem tiếp** hiện (Q-E5 chốt) |
+| `nextCursor = null` | Không sentinel, không nút, "Bạn đã xem hết" |
 | `mode = suggested` | `feed-suggested` hiện; `mode = network` thì không |
 | `network` rỗng | Câu mời kết bạn |
 | 503 trang đầu | `feed-overloaded` + Thử lại; **không** "Mã tra cứu"; bấm Thử lại → gọi lại |
-| 503 trang sau | Bài cũ còn, nút Tải lại, observer **không** tự gọi thêm khi bắn giao nhau |
+| 503 trang sau | Bài cũ còn, dòng lỗi + Thử lại, observer **không** tự gọi thêm khi bắn giao nhau; Thử lại nạp đúng lô hỏng |
 | `onChanged(null)` | Bài biến khỏi feed |
 | **`<StrictMode>`** (đúng một ca) | Trạng thái cuối: đủ bài trang đầu, không lặp; **không** đếm request (L5) |
 
@@ -1068,3 +1081,73 @@ Chốt **khác đề xuất** (xem dòng ✅ dưới Q-E4): 503 phân biệt b�
 
 **Bằng chứng:** Unit 291 → 292, Architecture 16, Integration 483 (482 đạt + 1 đỏ nền `StartupConfigurationTests` R2 của máy
 dev). Vitest 478 → 483.
+
+### E4 — 2026-09-23
+
+**Câu đã chốt:** Q-E5 (khác đề xuất — không nút "Xem thêm" lúc bình thường) và Q-E6 (như đề xuất), dòng *✅ chốt* dưới câu
+hỏi. Q-E4 chốt khác đề xuất và đi commit riêng trước (mục Q-E4 ở trên).
+
+**Đã làm:**
+
+- `hooks/use-cursor-pages.ts` (Q-E8): chép khuôn `use-post-page.ts`, generic `<T, P>`. Khác bản GĐ2: `error` là lỗi **thô** (màn
+  tự chọn câu và cách vẽ — feed tách 503 quá tải bằng `type`), trả `head` (trang đầu, feed đọc `mode` từ đây), đếm
+  `emptyStreak`. `fetchPage`/`getId` giữ trong ref để effect trang đầu không chạy lại mỗi render. `hooks/.gitkeep` bỏ.
+- `features/feed/use-feed-page.ts`: bọc hook chung, `limit` 20, `mode` theo trang đầu.
+- `features/feed/feed-list.tsx`: bảng trạng thái của Bước 2, trừ chỗ Q-E5 đổi — sentinel khi còn trang, không nút lúc bình
+  thường; trang sau lỗi → dòng lỗi + **Thử lại** gọi `loadMore` (cùng `nextCursor`, không nạp lại từ đầu); tới trần 5 trang
+  rỗng → nút **Xem tiếp**; hết → "Bạn đã xem hết". Thẻ quá tải chọn bằng `hasProblemType(…, feedOverloaded)`; 503 khác
+  (apache HTML, BFF mất kho phiên) đi `FormAlert` với câu của `errorMessage`. Observer tạo trong effect, `rootMargin
+  400px 0px`; effect thứ hai nạp tiếp khi sentinel vẫn giao nhau sau mỗi lượt về (Q-E5 cạm bẫy).
+- `test/intersection-observer.ts` (harness): stub ghi observer, không tự bắn; `kichHoatGiaoNhau`, `soObserverDangTheoDoi`.
+  `setup.ts` cài stub khi có `window`, gỡ observer sau mỗi ca. Luật frontend Mục 9 ghi thêm file harness này.
+
+**Chỗ lệch với file này:**
+
+- *Bảng Test:* "Trần 5 lượt rỗng … nút 'Xem thêm' còn" → nút **Xem tiếp** chỉ hiện ở trần; "`nextCursor = null` — không
+  sentinel, không nút" → thêm "Bạn đã xem hết". Thêm ca: không giao nhau thì không gọi; `mode` giữ theo trang đầu; Làm mới đọc
+  lại `mode`; **Làm mới rồi cuộn** (observer được tạo lại); 503 không `type` riêng → lỗi hệ thống; 503 BFF kho phiên; 500 có
+  mã tra cứu; `renderPost` nhận đúng `PostResponse`.
+- *Ca StrictMode:* tài nguyên StrictMode chạm tới ở màn này là `AbortController` trang đầu của hook — **không** phải observer
+  như bảng cạm bẫy ngụ ý: observer chỉ tạo **sau** khi trang đầu về, lúc đó không còn mount lại. Đột biến "observer chỉ tạo
+  một lần cho cả đời component" không bị ca StrictMode bắt → thêm ca thường "Làm mới rồi cuộn". Đã ghi vào luật frontend Mục 9.
+- *Thời gian chờ:* ca "503 ở trang SAU" đỏ 1/8 lượt khi chạy cả bộ với mức chờ mặc định 1s (không giữ được log lượt đỏ; luồng
+  state không có chỗ đua — lỗi và `pending=false` gộp một render). Mọi `waitFor`/`findBy` của file dùng hằng `CHO` 5s; sau đó
+  6/6 lượt cả bộ xanh. Theo dõi tiếp ở `E6`.
+
+**Thử đột biến** — tám đột biến, đều bị bắt:
+
+| Đột biến | Ca đỏ |
+|---|---|
+| Bỏ effect nạp tiếp khi sentinel vẫn giao nhau (Q-E5 cạm bẫy) | trang RỖNG mà `nextCursor ≠ null`; trần 5 trang |
+| `nextCursor = null` khi `items.length < 20` (suy hết từ độ dài trang) | 5 ca (cuộn, trang rỗng, trần, `mode` trang đầu, 503 trang sau) |
+| Bỏ trần `emptyStreak` | trần 5 trang rỗng |
+| `head` lấy trang mới nhất | `mode` giữ theo trang đầu |
+| Lỗi trang sau vẫn cho tự nạp | 503 ở trang SAU |
+| Thẻ quá tải chọn theo status 503 thay `type` | 503 apache; 503 BFF kho phiên |
+| Observer chỉ tạo một lần (cờ ref) | Làm mới rồi cuộn |
+| Effect trang đầu chỉ chạy một lần cho mỗi key (controller đã hủy bị dùng lại) | **chỉ** ca StrictMode |
+
+**Bằng chứng (trước lượt rà dưới):** Vitest 41 file / 503 ca (483 → 503: +20 `feed-list.test.tsx`). `lint`, `typecheck`, `build` xanh. `grep`
+checklist Mục 13: không `@/features/` trong `features/feed` + `hooks`, không so `items.length` với `limit`, không
+`useRef(new …)` (chỉ còn trong chú thích), không `console.`.
+
+**Bổ sung sau lượt rà hệ quả Q-E4/Q-E5 (2026-09-23, cùng commit E4):**
+
+- **`/friends` giữ nút "Xem thêm"** — Q-E5 chỉ áp cho feed (ghi dưới dòng chốt Q-E5 và ở E3 Bước 3).
+- **Mục 0.5:** cuộn tự động chuyển sang *Không cắt* — không còn nút dự phòng; phương án khi trễ là đổi observer thành nút.
+- **Nút "Xem tiếp" ở trần** xác nhận giữ — "Bạn đã xem hết" ở đó sai vì `nextCursor` còn khác null.
+- **`aria-live`:** hook chung thêm `lastAdded` (số mục trang SAU gần nhất thêm được; trang đầu 0); `FeedList` có vùng
+  `role=status` ẩn "Đã tải thêm N bài, đang hiển thị M bài." — kèm tổng để hai lượt cùng +20 vẫn là hai câu khác nhau. Test
+  chọn vùng theo `data-testid` (`Spinner` của kit cũng mang `role=status`) và khẳng định `role` riêng.
+- **`content-v1.yaml` `info.version` → `1.0.1-gd4`** (vá sau D7). `pnpm gen:api` không đổi file sinh (version không vào
+  `schema.d.ts`); cổng hợp đồng backend 12/12.
+- **Swagger lệch yaml ở tên schema 503:** giữ `ProblemDetails` trong `[ProducesResponseType]` — thêm DTO chỉ để đặt tên không
+  đáng. Ghi ở header yaml và `giai-doan-4.md` Mục 8.2.
+- **Màn GĐ1 đổi câu khi BFF mất Redis** (đổi có chủ đích của Q-E4): ca mới ở `login-form.test.tsx` — 503
+  `bff-session-unavailable` → "Dịch vụ đăng nhập tạm thời gián đoạn…", không mã tra cứu, không điều hướng. Đột biến "bỏ nhánh
+  `BY_TYPE`" làm đỏ ca này cùng ba ca 503 của feed.
+- **Tài liệu lệch đã sửa:** hướng dẫn Mục 0.1 (E4), Mục 0.5, bảng Q-E3 (câu 503 nằm ở `BY_TYPE`), bảng E4 Bước 2 và bảng Test;
+  `giai-doan-4.md` Mục 8.2 (schema `FeedOverloadedProblem`, version, lệch Swagger).
+
+**Bằng chứng cuối:** Vitest 41 file / 483 → 505 ca (+21 `feed-list.test.tsx`, +1 `login-form.test.tsx`), 3/3 lượt cả bộ
+xanh. `lint`, `typecheck`, `build` xanh. Backend: chỉ đổi yaml (version + chú thích) — `Contract` 12/12.

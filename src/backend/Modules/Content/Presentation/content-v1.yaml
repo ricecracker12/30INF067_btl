@@ -44,6 +44,8 @@
 #   Q-E4    (khối E, 2026-09-23) 503 của feed mang `type` riêng `urn:socialapp:problem:feed-overloaded` (schema
 #           `FeedOverloadedProblem`): tới trình duyệt, 503 còn có thể là BFF mất kho phiên — FE phân nhánh theo `type`,
 #           không theo `title`. Chỉ thêm giá trị cho `type`, không đổi tập status hay trường bắt buộc nào.
+#           `info.version` 1.0.0-gd4 → 1.0.1-gd4 (vá sau D7). Swagger sinh từ code vẫn khai 503 là `ProblemDetails`
+#           (không thêm DTO chỉ để đặt tên schema) — dữ liệu trên dây giống nhau; file này là nguồn sự thật.
 #
 # ĐIỂM CẦN NHÓM XÁC NHẬN Ở CỔNG MỞ (Q-D1): `mediaKeys` của POST /posts là MẢNG OBJECT {mediaKey, contentType, sizeBytes},
 #   không phải mảng chuỗi. Lý do: Đ-2.8 lớp 2 đối chiếu HEAD với "khai báo lúc presign", mà server không giữ trạng thái
@@ -54,7 +56,7 @@ openapi: 3.0.3
 
 info:
   title: SocialApp — Content API
-  version: 1.0.0-gd4
+  version: 1.0.1-gd4
   description: |
     Bài đăng kèm ảnh của GĐ2: xin URL tải ảnh theo lô, đăng bài, đọc một bài, đọc danh sách bài của một người
     (cursor keyset), sửa và xóa mềm.

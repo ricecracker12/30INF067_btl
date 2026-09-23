@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event"
 import { http, HttpResponse } from "msw"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
+import { BFF_PROBLEM_TYPES } from "@/lib/api/bff-contract"
 import { BFF_URL } from "@/lib/api/config"
 import { tokenStore } from "@/lib/auth/token-store"
 import { server } from "@/mocks/node"
@@ -99,6 +100,35 @@ describe("LoginForm — lỗi cấp form (Đ-E6)", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Không kết nối được máy chủ."
     )
+  })
+
+  it("503 BFF mất kho phiên (Redis): câu gián đoạn đăng nhập, KHÔNG mã tra cứu — đổi có chủ đích ở GĐ4 Q-E4", async () => {
+    // Hình dạng đúng như `sessionUnavailable()` của lib/bff/handlers.ts: `type` riêng, không `traceId` (BFF không có).
+    // Trước Q-E4 ca này ra câu chung "Đã xảy ra lỗi không mong muốn." — người dùng tưởng mình nhập sai gì đó.
+    server.use(
+      http.post(`${BFF_URL}/auth/login`, () =>
+        HttpResponse.json(
+          {
+            type: BFF_PROBLEM_TYPES.sessionUnavailable,
+            title: "Dịch vụ phiên đăng nhập tạm thời không sẵn sàng",
+            status: 503,
+          },
+          {
+            status: 503,
+            headers: { "Content-Type": "application/problem+json" },
+          }
+        )
+      )
+    )
+
+    await submit("an@example.com")
+
+    const alert = await screen.findByRole("alert")
+    expect(alert).toHaveTextContent(
+      "Dịch vụ đăng nhập tạm thời gián đoạn. Vui lòng thử lại sau ít phút."
+    )
+    expect(alert).not.toHaveTextContent("Mã tra cứu")
+    expect(replace).not.toHaveBeenCalled()
   })
 
   it("cùng một lỗi hai lần liên tiếp: focus quay lại thông báo", async () => {
