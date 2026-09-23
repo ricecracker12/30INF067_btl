@@ -5,5 +5,7 @@ node_modules/
 coverage/
 pnpm-lock.yaml
 .pnpm-store/
-lib/api/schema.d.ts
+# File sinh (pnpm gen:api) — MOI module, khong liet ke tung duong dan: them module thu ba ma quen
+# them dong o day thi `pnpm format` se dinh dang lai file sinh va cong codegen do (doi 2026-09-19).
+lib/api/**/schema.d.ts
 components/ui/

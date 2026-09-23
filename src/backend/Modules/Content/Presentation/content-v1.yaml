@@ -1,0 +1,1014 @@
+# ---------------------------------------------------------------------------------------------
+# HỢP ĐỒNG API — module Content, v1 (GĐ2 · UC-03 đăng bài kèm ảnh, UC-04 đọc, UC-05 sửa/xóa)
+#
+# Artifact BẮT BUỘC của cổng mở GĐ2 (docs/giai-doan-2/giai-doan-2.md Mục 8, Mục 9 "Cổng mở" bước 3).
+# Lane frontend sinh type TypeScript từ chính file này (`pnpm gen:api` → lib/api/content/schema.d.ts,
+# tự tìm theo glob — không ai thêm script), nên nó là NGUỒN SỰ THẬT của hợp đồng cho tới cổng đóng.
+#
+# VÌ SAO NẰM Ở ĐÂY: module sở hữu tầng HTTP của chính nó (`Presentation/`). Tên nhóm Swagger
+# `content-v1` phải khớp ở ĐÚNG BA CHỖ (Mục 8): [ApiExplorerSettings(GroupName)] trên controller,
+# SwaggerDoc trong Program.cs, và tên file này — ContentContractTests (B4) canh.
+#
+# CÓ MÁY CANH: ContentContractTests so file này với /swagger/content-v1/swagger.json — lệch tập
+# (path × method), tập status code, hoặc required field của request body là CI đỏ. 429/500 là mã do
+# middleware sinh, được trừ khỏi phép so.
+#
+# LUẬT SỬA FILE NÀY: đổi hợp đồng → sửa file này TRONG CÙNG COMMIT với code và chạy lại `pnpm gen:api`.
+#
+# ĐÓNG BĂNG (2026-09-21, cổng đóng GĐ2 — F5): file này KHÔNG đổi hình dạng trong phạm vi GĐ2. Đổi sau mốc này
+# thuộc cổng mở của giai đoạn cần đổi (GĐ3 thêm bộ đếm/bình luận, GĐ4 feed…), hoặc là hotfix blocking cả nhóm
+# thống nhất. Sửa comment/mô tả không đổi schema thì không tính là đổi hình dạng.
+#
+# QUYẾT ĐỊNH ĐÃ CHỐT chạm tới hợp đồng này (giai-doan-2.md Mục 3):
+#   Đ-2.5   Ảnh đi THẲNG trình duyệt → R2; API không bao giờ nhận byte ảnh. POST /media/uploads chỉ trả URL đã ký.
+#   Đ-2.6   Không thêm mã quyền mới. POST /media/uploads: [Authorize] + kiểm post.create ở controller bằng
+#           IAuthorizationService với policy perm:post.create khi purpose=post (chốt Q-D5, 2026-09-19).
+#   Đ-2.7   Key mang tiền tố người dùng; POST /posts kiểm MỌI key thuộc posts/{actorId}/ — khác → 403 (TC-A03-media).
+#   Đ-2.8   Ba lớp: allowlist + ≤10MB lúc presign (ký kèm Content-Type, Content-Length) → HEAD lại lúc commit → CHECK ở DB.
+#   Đ-2.9   URL ảnh trong PostResponse là presigned GET 15 phút, cấp SAU khi qua BR-02.
+#   Đ-2.10  DELETE là xóa mềm; sau đó GET của chính tác giả cũng 404. Object R2 do worker dọn trễ.
+#   Đ-2.11  Cursor keyset opaque: base64url("{created_at:O}|{post_id}"), sort (created_at DESC, post_id DESC),
+#           limit mặc định 20, tối đa 50; hết dữ liệu → nextCursor = null (KHÔNG phải ""); cursor rác → 400 errors.cursor.
+#   Đ-2.12  commentCount và reactionCounts có mặt từ GĐ2 (reactionCounts là {} rỗng, không null) để hình dạng DTO
+#           không đổi lần hai ở GĐ3.
+#   Đ-2.15  Presign theo LÔ: một request cho tối đa 10 file.
+#   Quy ước 3b (Mục 6.1): thao tác GHI cần ownership → 403; ĐỌC nội dung có mức hiển thị → 404 — không tồn tại và
+#           không được thấy trả CÙNG một thứ.
+#
+# MỞ LẠI Ở GĐ4 (D7, 2026-09-23 — docs/giai-doan-4/giai-doan-4.md Mục 8.2), luật CHỈ-THÊM: thêm `GET /feed`, `FeedPage`,
+# `FeedMode`, response `ServiceUnavailable`; không sửa hay xóa gì của GĐ2 ngoài `info.version`.
+#   Đ-4.5   Nguồn feed = bạn bè (public+friends) ∪ đang theo dõi (public) ∪ chính mình (mọi mức).
+#   Đ-4.6   Chưa có kết nối nào → feed gợi ý (`mode: suggested`): bài public mới nhất của người khác, CỘNG bài của chính
+#           mình mọi mức (sửa 2026-09-23 — trước đó trừ bài của mình: người mới đăng bài xong không thấy bài mình).
+#   Đ-4.9   `items` có thể ít hơn `limit`; hết dữ liệu khi và chỉ khi `nextCursor` là null.
+#   Đ-4.10  Truy vấn feed quá 5s → 503 + `Retry-After: 5`.
+#   Q-E4    (khối E, 2026-09-23) 503 của feed mang `type` riêng `urn:socialapp:problem:feed-overloaded` (schema
+#           `FeedOverloadedProblem`): tới trình duyệt, 503 còn có thể là BFF mất kho phiên — FE phân nhánh theo `type`,
+#           không theo `title`. Chỉ thêm giá trị cho `type`, không đổi tập status hay trường bắt buộc nào.
+#           `info.version` 1.0.0-gd4 → 1.0.1-gd4 (vá sau D7); → 1.0.2-gd4 khi Đ-4.6 đổi (bài của mình vào feed gợi ý). Swagger sinh từ code vẫn khai 503 là `ProblemDetails`
+#           (không thêm DTO chỉ để đặt tên schema) — dữ liệu trên dây giống nhau; file này là nguồn sự thật.
+#
+# ĐIỂM CẦN NHÓM XÁC NHẬN Ở CỔNG MỞ (Q-D1): `mediaKeys` của POST /posts là MẢNG OBJECT {mediaKey, contentType, sizeBytes},
+#   không phải mảng chuỗi. Lý do: Đ-2.8 lớp 2 đối chiếu HEAD với "khai báo lúc presign", mà server không giữ trạng thái
+#   giữa presign và commit — client (đang cầm File) gửi lại khai báo là đường rẻ nhất, và không có gì để giả: HEAD vẫn
+#   là thứ quyết định. Tên trường giữ `mediaKeys` để key lỗi `errors.mediaKeys` (AC-03) đúng như Mục 10.1.
+# ---------------------------------------------------------------------------------------------
+openapi: 3.0.3
+
+info:
+  title: SocialApp — Content API
+  version: 1.0.2-gd4
+  description: |
+    Bài đăng kèm ảnh của GĐ2: xin URL tải ảnh theo lô, đăng bài, đọc một bài, đọc danh sách bài của một người
+    (cursor keyset), sửa và xóa mềm.
+
+    ### Luồng đăng bài (SEQ-01)
+
+    1. `POST /media/uploads` `{ purpose: "post", files: [{contentType, sizeBytes}, …] }` → `201 [UploadTicket]`.
+    2. Trình duyệt `PUT` từng file **thẳng** lên `uploadUrl` với **đúng** `requiredHeaders` — dùng `XMLHttpRequest`
+       để có tiến trình; một ảnh lỗi báo riêng ảnh đó, không hủy cả lô. **Không tự đặt `Content-Length`**: trình
+       duyệt tự gửi, và header đó nằm trong chữ ký.
+    3. `POST /posts` `{ body, privacy, mediaKeys: [{mediaKey, contentType, sizeBytes}, …] }` → `201 PostResponse`.
+
+    ### Lỗi
+
+    Mọi lỗi trả **RFC 7807 Problem Details** kèm `traceId`. 400 validation có `errors` theo tên trường của request
+    (`body`, `mediaKeys`, `privacy`, `cursor`, `limit`, `files`, `purpose`) — FE hiện dưới đúng trường (luật frontend Mục 6).
+
+    ### Rate limit
+
+    100 req/phút/user. Presign theo lô tồn tại để một bài 10 ảnh tốn **1** request presign, không phải 10 (Đ-2.15).
+
+    ### Ghi chú cho lane frontend
+
+    - Mọi lời gọi đi qua proxy chung `/bff/api/...` (Đ-E14); **duy nhất** bước 2 (PUT lên R2) là trình duyệt gọi ra
+      ngoài — CSP phải mở `connect-src` và `img-src` cho host R2 (Đ-E17).
+    - `canEdit` do **server** tính; FE không tự so `author.userId` với người đang đăng nhập để hiện nút Sửa/Xóa.
+    - `reactionCounts` là object rỗng `{}` ở GĐ2 — viết code đọc một lần, GĐ3 không phải sửa.
+
+    ### Feed (GĐ4)
+
+    `GET /feed` trả bài của bạn bè, người đang theo dõi và của chính mình, mới nhất trước, cùng cursor keyset với
+    `/users/{userId}/posts`. Người chưa có kết nối nào nhận feed gợi ý (`mode: suggested`). `items` **có thể ít hơn
+    `limit`** — FE không bao giờ suy "hết" từ độ dài `items`, chỉ từ `nextCursor: null`. 503 → thẻ "Bảng tin đang quá
+    tải" + nút Thử lại, không đồng hồ đếm ngược.
+
+  contact:
+    name: Nhóm 4 — 30INF067
+
+servers:
+  - url: http://localhost:5259/api/v1
+    description: Dev — backend chạy local (`dotnet run`)
+  - url: https://mxh.banhgao.net/api/v1
+    description: Staging — HTTPS thật, đích của cổng đóng
+
+tags:
+  - name: media
+    description: Xin URL tải ảnh lên R2 theo lô. Byte ảnh không đi qua API (Đ-2.5).
+  - name: posts
+    description: Đăng, đọc, sửa, xóa mềm bài viết. BR-01 lúc ghi, BR-02 lúc đọc.
+  - name: feed
+    description: Bảng tin (GĐ4, FR-009, UC-08). Nguồn và mức nhìn theo Đ-4.5; feed gợi ý theo Đ-4.6.
+
+paths:
+
+  /media/uploads:
+    post:
+      tags: [media]
+      operationId: createUploads
+      summary: Xin URL tải ảnh lên R2 cho tối đa 10 file (presign theo lô, Đ-2.15)
+      description: |
+        Tầng 2 (Đ-2.6): `[Authorize]` cho mọi `purpose`; riêng `purpose=post` controller kiểm thêm quyền `post.create`
+        bằng `IAuthorizationService` với policy `perm:post.create` — thiếu → **403**. Người chưa có quyền đăng bài vẫn
+        đổi được avatar. Cùng handler và cùng lối tắt ADMIN với `[RequirePermission]` (chốt Q-D5, 2026-09-19: gọi thẳng
+        `IPermissionCache` chặn nhầm ADMIN, vì ADMIN không có dòng `role_permissions` nào).
+
+        Với mỗi file, server kiểm allowlist (`image/jpeg`, `image/png`, `image/webp`) và `sizeBytes ≤ 10485760`
+        (10 MB), sinh key `posts/{userId}/{uuid7}.{ext}` hay `avatars/{userId}/{uuid7}.{ext}` theo `purpose`, rồi ký
+        URL `PUT` hạn **600 giây** với `Content-Type` **và** `Content-Length` **nằm trong signed headers** (Đ-2.8 lớp 1).
+        `PUT` lệch một byte hay lệch kiểu thì R2 trả 403 — vì vậy `requiredHeaders` trả kèm để FE gửi đúng từng cái.
+
+        Endpoint này **không** tạo dòng nào trong DB. Object tải lên mà không được gắn vào bài trong 24 giờ sẽ bị worker
+        dọn (Đ-2.13). **Không bao giờ log `uploadUrl`.**
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUploadsRequest'
+            example:
+              purpose: post
+              files:
+                - contentType: image/jpeg
+                  sizeBytes: 1048576
+                - contentType: image/png
+                  sizeBytes: 204800
+      responses:
+        '201':
+          description: Một ticket cho mỗi file, **cùng thứ tự** với `files` gửi lên.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/UploadTicket'
+              example:
+                - mediaKey: posts/0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10/01a0b811f70376b7812581bf3209feca.jpg
+                  uploadUrl: https://<account-id>.r2.cloudflarestorage.com/socialmedia-dev/posts/0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10/01a0b811f70376b7812581bf3209feca.jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Expires=600&X-Amz-SignedHeaders=content-length%3Bcontent-type%3Bhost&X-Amz-Signature=…
+                  expiresIn: 600
+                  requiredHeaders:
+                    Content-Type: image/jpeg
+                    Content-Length: '1048576'
+        '400':
+          description: |
+            Loại ngoài allowlist, `sizeBytes` ngoài `1..10485760`, `files` rỗng hoặc quá 10, `purpose` không hợp lệ.
+            `errors` theo `files` / `purpose`.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: https://httpstatuses.io/400
+                title: Dữ liệu không hợp lệ
+                status: 400
+                detail: Dữ liệu đầu vào không hợp lệ
+                instance: /api/v1/media/uploads
+                traceId: 5e7a9c1b3d5f7092a4c6e8b0d2f4a6c8
+                errors:
+                  files:
+                    - Chỉ nhận ảnh JPEG, PNG hoặc WebP, tối đa 10 MB mỗi ảnh.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: '`purpose=post` nhưng người gọi không có quyền `post.create` (Đ-2.6).'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: https://httpstatuses.io/403
+                title: Bị từ chối
+                status: 403
+                detail: Bạn không có quyền thực hiện thao tác này.
+                instance: /api/v1/media/uploads
+                traceId: c6e8b0d2f4a6c8e0b2d4f6a8c0e2b4d6
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /posts:
+    post:
+      tags: [posts]
+      operationId: createPost
+      summary: Đăng bài (FR-004, BR-01)
+      description: |
+        Đường dài nhất của giai đoạn (SEQ-01 bước 6–7). Thứ tự kiểm là **một phần của hợp đồng** vì nó quyết định mã lỗi:
+
+        1. Tầng 2: quyền `post.create`.
+        2. Tầng 3 (Đ-2.4): người gọi **đã có hồ sơ** — chưa → **403**.
+        3. Tầng 3 (Đ-2.7): **mọi** `mediaKey` thuộc `posts/{actorId}/` — khác → **403** (`TC-A03-media`).
+        4. BR-01: `body` ≤ 5000 ký tự; ≤ 10 ảnh; `body` rỗng thì phải có ít nhất 1 ảnh — sai → **400** với
+           `errors.body` hoặc `errors.mediaKeys`.
+        5. Đ-2.8 lớp 2: `HEAD` từng object trên R2 — object chưa có, lệch `sizeBytes`, lệch `contentType` so với khai
+           báo → **400** `errors.mediaKeys`, **không tạo bài**. HEAD đứng **trước** transaction.
+        6. Một transaction: INSERT `posts` (`media_count` đúng ngay từ đầu) + INSERT `media_attachments`. Đụng
+           `storage_key` UNIQUE (cùng object đã gắn vào bài khác, hoặc commit lại cùng lô) → **409**, không để rơi thành 500.
+
+        Trả `PostResponse` đầy đủ với URL ảnh đã ký, để FE chèn thẳng vào danh sách mà không gọi lại.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePostRequest'
+            examples:
+              coAnh:
+                summary: Chữ + 1 ảnh
+                value:
+                  body: Chiều nay ở phố cổ.
+                  privacy: public
+                  mediaKeys:
+                    - mediaKey: posts/0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10/01a0b811f70376b7812581bf3209feca.jpg
+                      contentType: image/jpeg
+                      sizeBytes: 1048576
+              chiChu:
+                summary: Chỉ chữ, riêng tư
+                value:
+                  body: Ghi chú cho riêng mình.
+                  privacy: private
+                  mediaKeys: []
+      responses:
+        '201':
+          description: Bài đã tạo.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostResponse'
+        '400':
+          description: BR-01 hỏng, hoặc HEAD lệch khai báo / object chưa tải lên xong (Đ-2.8 lớp 2). `errors.body` hoặc `errors.mediaKeys`.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: https://httpstatuses.io/400
+                title: Dữ liệu không hợp lệ
+                status: 400
+                detail: Dữ liệu đầu vào không hợp lệ
+                instance: /api/v1/posts
+                traceId: 5e7a9c1b3d5f7092a4c6e8b0d2f4a6c8
+                errors:
+                  body:
+                    - Bài đăng phải có nội dung hoặc ít nhất một ảnh.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Thiếu quyền `post.create`, chưa có hồ sơ (Đ-2.4), hoặc một `mediaKey` không thuộc tiền tố của người gọi (Đ-2.7) — cùng một phản hồi, không nêu lý do nào.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: https://httpstatuses.io/403
+                title: Bị từ chối
+                status: 403
+                detail: Bạn không có quyền thực hiện thao tác này.
+                instance: /api/v1/posts
+                traceId: c6e8b0d2f4a6c8e0b2d4f6a8c0e2b4d6
+        '409':
+          description: Một object trong `mediaKeys` đã được gắn vào bài khác (`storage_key` UNIQUE) — kể cả khi commit lại cùng lô (POST-08).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: https://httpstatuses.io/409
+                title: Xung đột dữ liệu
+                status: 409
+                detail: Ảnh này đã được dùng trong một bài khác.
+                instance: /api/v1/posts
+                traceId: 9f2c7b1e4a6d4f0b8c3e5a7d9b1f3c5e
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /posts/{postId}:
+    get:
+      tags: [posts]
+      operationId: getPost
+      summary: Đọc một bài (BR-02 tại thời điểm đọc)
+      description: |
+        Tầng 2: `post.read.public`. Tầng 3 là BR-02 lúc đọc (Mục 7.4): `public` → ai cũng xem; `private` → chỉ tác
+        giả; `friends` → `IFriendshipReader` (GĐ2 luôn `false` — chỉ tác giả xem được, Đ-2.9).
+
+        Không đạt BR-02, bài đã xóa mềm, hay không tồn tại → **404**, **cùng một phản hồi** (quy ước 3b): trả 403 cho
+        một bên và 404 cho bên kia là status code tự tố cáo bài có tồn tại. Đây là dòng `READ-01` của AuthZ matrix.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PostId'
+      responses:
+        '200':
+          description: Bài đọc được.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostResponse'
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    patch:
+      tags: [posts]
+      operationId: updatePost
+      summary: Sửa nội dung hoặc mức riêng tư của bài mình (FR-005)
+      description: |
+        Chỉ `body` và `privacy`. **Không sửa được ảnh ở GĐ2** (Mục 7.3) — gửi `mediaKeys` vào đây là field lạ → **400**
+        (`UnmappedMemberHandling = Disallow`). Mỗi lần sửa đóng dấu `editedAt`.
+
+        Tầng 3 theo khuôn Mục 6.2: bài không tồn tại, không phải của bạn, hay đã xóa mềm → **403**, cùng một phản hồi
+        (`TC-A03`). Không có nhánh Admin ở tầng 3.
+
+        Hai trường đều tùy chọn nhưng body rỗng `{}` là 400 (không có gì để sửa). BR-01 áp lại với `body` mới: bài
+        không có ảnh mà `body` thành rỗng → **400** `errors.body`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PostId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePostRequest'
+            example:
+              body: Chiều nay ở phố cổ — đã sửa.
+              privacy: friends
+      responses:
+        '200':
+          description: Bài sau khi sửa, `editedAt` khác `null`.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostResponse'
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    delete:
+      tags: [posts]
+      operationId: deletePost
+      summary: Xóa mềm bài của mình (FR-005, Đ-2.10)
+      description: |
+        Đặt `status = 'deleted'` + `deleted_at`; không `DELETE` dòng, không xóa object R2 trong request — worker dọn
+        sau 7 ngày (Đ-2.13). Sau đó `GET /posts/{id}` của **chính tác giả** cũng 404 (Mục 7.3).
+
+        Gọi lại lần hai trên bài đã xóa → **403** (cùng phản hồi với "không phải của bạn"), không phải 404 — thao tác
+        ghi cần ownership dùng 403 (Mục 6.1). Đây là dòng `TC-A03-delete`.
+
+        `postId` sai dạng → **400** `errors.postId` (chốt Q-D7, 2026-09-19): route cố ý không ràng buộc `:guid` nên id
+        hỏng đi qua model binding chứ không rơi khỏi route. Ràng buộc `:guid` sẽ cho **404**, lệch hẳn `GET`/`PATCH`
+        cùng đường dẫn vốn đã hứa 400.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PostId'
+      responses:
+        '204':
+          description: Đã xóa mềm.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /users/{userId}/posts:
+    get:
+      tags: [posts]
+      operationId: listUserPosts
+      summary: Bài của một người dùng, mới nhất trước, phân trang keyset (Đ-2.11)
+      description: |
+        Tầng 2: `post.read.public`. BR-02 lọc **ngay trong câu truy vấn** — không lọc sau khi lấy 20 dòng, vì lọc sau
+        thì trang trả về ít hơn `limit` một cách ngẫu nhiên và FE tưởng đã hết dữ liệu (D6). Bài người gọi không được
+        xem đơn giản là **không có trong danh sách** — không 403.
+
+        Người dùng không tồn tại hoặc chưa có bài → `items: []`, `nextCursor: null` — không 404.
+
+        Cursor là **opaque** (`base64url("{created_at:O}|{post_id}")`): FE chỉ chuyển tiếp `nextCursor` nhận được, không
+        tự dựng. Hết dữ liệu → `nextCursor = null` (không phải `""`). Cursor rác → **400** `errors.cursor`, không âm
+        thầm trả trang đầu (PAGE-02). Bài mới chèn vào giữa hai lần gọi không gây nhân đôi hay nhảy cóc (PAGE-03).
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+        - name: cursor
+          in: query
+          required: false
+          description: '`nextCursor` của trang trước. Bỏ trống để lấy trang đầu.'
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          description: Số bài mỗi trang, mặc định 20, tối đa 50 (AGENTS.md Mục 9). Ngoài `1..50` → 400 `errors.limit`.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 50
+            default: 20
+      responses:
+        '200':
+          description: Một trang bài.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostPage'
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # ĐÓNG BĂNG (2026-09-23, cổng đóng GĐ4 — F4): path `/feed` cùng `FeedPage`, `FeedMode`, `FeedOverloadedProblem` và
+  # response `ServiceUnavailable` KHÔNG đổi hình dạng trong phạm vi GĐ4 (phần còn lại của file đã đóng băng từ GĐ2). GĐ3
+  # mở lại theo luật CHỈ-THÊM: `myReaction` vào `PostResponse` thì `FeedPage.items` tự có — không sửa gì ở đây.
+  /feed:
+    get:
+      tags: [feed]
+      operationId: getFeed
+      summary: Bảng tin của người gọi, mới nhất trước, phân trang keyset (GĐ4, SEQ-03)
+      description: |
+        Tầng 2: `post.read.public`. Người gọi lấy từ token — không tham số nào mang id người dùng.
+
+        **Nguồn** (Đ-4.5): bạn bè thấy `public` + `friends`, người đang theo dõi (không phải bạn) thấy `public`, bài của
+        chính mình thấy mọi mức. Chỉ bài đã đăng. Có dù chỉ một kết nối → `mode: network`, kể cả khi `items` rỗng — không
+        trộn bài người lạ. Chưa có kết nối nào → `mode: suggested`: bài `public` mới nhất của người khác, **cộng** bài của
+        chính mình mọi mức (Đ-4.6, sửa 2026-09-23 — người mới đăng bài xong phải thấy bài mình).
+
+        **Trang ngắn là hợp lệ** (Đ-4.9): mọi response kiểm lại quyền xem với quan hệ hiện tại, nên `items` có thể ít hơn
+        `limit`. Hết dữ liệu **khi và chỉ khi** `nextCursor` là `null`.
+
+        Cursor opaque, cùng bộ mã hóa với `/users/{userId}/posts`. Cursor rác → **400** `errors.cursor` (PAGE-04).
+
+        **503** khi hệ thống quá tải (truy vấn feed vượt thời hạn, Đ-4.10), kèm header `Retry-After` (giây). Thử lại sau;
+        FE không hiện đồng hồ đếm ngược.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: cursor
+          in: query
+          required: false
+          description: '`nextCursor` của trang trước. Bỏ trống để lấy trang đầu.'
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          description: Số bài mỗi trang, mặc định 20, tối đa 50 (AGENTS.md Mục 9). Ngoài `1..50` → 400 `errors.limit`.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 50
+            default: 20
+      responses:
+        '200':
+          description: Một trang bảng tin.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeedPage'
+              example:
+                items:
+                  - postId: 0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10
+                    author:
+                      userId: 0192f3c0-1b2d-7e4f-8a6c-9d0e1f2a3b4c
+                      displayName: Nguyễn Văn An
+                      avatarUrl: null
+                    body: Chiều nay trời đẹp quá.
+                    privacy: friends
+                    media: []
+                    commentCount: 0
+                    reactionCounts: {}
+                    createdAt: '2026-09-23T08:15:00Z'
+                    editedAt: null
+                    canEdit: false
+                nextCursor: MjAyNi0wOS0yM1QwODoxNTowMC4wMDAwMDAwKzAwOjAwfDAxOTJmM2MxLThhNGUtN2MzMS05ZjJhLTZiNWQ0ZTNjMmExMA
+                mode: network
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+components:
+
+  securitySchemes:
+
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Access token JWT HS256 của module Identity (hợp đồng `identity-v1`), sống 15 phút. Trình duyệt
+        **không** cầm token — BFF gắn bearer ở server (Đ-E14).
+
+  parameters:
+
+    UserId:
+      name: userId
+      in: path
+      required: true
+      description: UUID v7 của người dùng. Sai dạng → 400.
+      schema:
+        type: string
+        format: uuid
+
+    PostId:
+      name: postId
+      in: path
+      required: true
+      description: UUID v7 của bài. Sai dạng → 400.
+      schema:
+        type: string
+        format: uuid
+
+  headers:
+
+    XCorrelationId:
+      description: |
+        Correlation ID của request, bằng đúng `traceId` trong Problem Details khi có lỗi.
+        Client gửi header cùng tên thì server dùng lại giá trị đó.
+      schema:
+        type: string
+      example: 9f2c7b1e4a6d4f0b8c3e5a7d9b1f3c5e
+
+  responses:
+
+    ValidationProblem:
+      description: |
+        Dữ liệu đầu vào không hợp lệ. `errors` là map `tên trường → danh sách thông điệp`.
+
+        Cũng là mã trả về khi body chứa **field lạ** (`UnmappedMemberHandling = Disallow`, AGENTS.md Mục 9), khi tham số
+        path sai dạng UUID, khi `cursor` rác hoặc `limit` ngoài `1..50`.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://httpstatuses.io/400
+            title: Dữ liệu không hợp lệ
+            status: 400
+            detail: Dữ liệu đầu vào không hợp lệ
+            instance: /api/v1/users/0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10/posts
+            traceId: 5e7a9c1b3d5f7092a4c6e8b0d2f4a6c8
+            errors:
+              cursor:
+                - Cursor không hợp lệ.
+
+    Unauthorized:
+      description: Thiếu access token, token sai chữ ký, hết hạn, hoặc đã bị thu hồi. Dòng `TC-A01-posts` của AuthZ matrix.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://httpstatuses.io/401
+            title: Chưa xác thực
+            status: 401
+            detail: Yêu cầu access token hợp lệ.
+            instance: /api/v1/posts
+            traceId: a4c6e8b0d2f4a6c8e0b2d4f6a8c0e2b4
+
+    Forbidden:
+      description: |
+        Tầng 2 hoặc tầng 3 từ chối. Ở thao tác ghi cần ownership: bài không tồn tại, không phải của bạn, hay đã xóa mềm
+        đều trả **cùng** phản hồi này (Mục 6.2) — thông điệp không nêu id, key hay lý do.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://httpstatuses.io/403
+            title: Bị từ chối
+            status: 403
+            detail: Bạn không có quyền thực hiện thao tác này.
+            instance: /api/v1/posts/0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10
+            traceId: c6e8b0d2f4a6c8e0b2d4f6a8c0e2b4d6
+
+    NotFound:
+      description: |
+        Bài không tồn tại, đã xóa mềm, **hoặc người gọi không được xem** (BR-02) — cùng một phản hồi (quy ước 3b).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://httpstatuses.io/404
+            title: Không tìm thấy tài nguyên
+            status: 404
+            detail: Không tìm thấy bài viết.
+            instance: /api/v1/posts/0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10
+            traceId: d2f4a6c8e0b2d4f6a8c0e2b4d6f8a0c2
+
+    TooManyRequests:
+      description: Vượt hạn mức 100 req/phút/user (ISS-04). Không có `Retry-After`.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://httpstatuses.io/429
+            title: Quá nhiều yêu cầu
+            status: 429
+            detail: Bạn đã gửi quá nhiều yêu cầu. Vui lòng thử lại sau ít phút.
+            instance: /api/v1/posts
+            traceId: e0b2d4f6a8c0e2b4d6f8a0c2e4b6d8f0
+
+    ServiceUnavailable:
+      description: |
+        Hệ thống đang quá tải — truy vấn feed vượt thời hạn (Đ-4.10). Không phải lỗi hệ thống (500): thử lại sau số giây
+        trong `Retry-After`. `type` luôn là `urn:socialapp:problem:feed-overloaded` (Q-E4) — định danh để FE nhận ra ca này.
+      headers:
+        Retry-After:
+          description: Số giây nên chờ trước khi thử lại.
+          schema:
+            type: integer
+            format: int32
+          example: 5
+        X-Correlation-ID:
+          $ref: '#/components/headers/XCorrelationId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/FeedOverloadedProblem'
+          example:
+            type: urn:socialapp:problem:feed-overloaded
+            title: Bảng tin đang quá tải
+            status: 503
+            detail: Bảng tin đang có quá nhiều người truy cập. Vui lòng thử lại.
+            instance: /api/v1/feed
+            traceId: f8a0c2e4b6d8f0a2c4e6b8d0f2a4c6e8
+
+    InternalError:
+      description: |
+        Lỗi không mong muốn. **Không bao giờ có `detail`** — `GlobalExceptionHandler` giấu chi tiết nội bộ, chỉ
+        `traceId` đi ra ngoài để đối chiếu với log.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://httpstatuses.io/500
+            title: Đã xảy ra lỗi không mong muốn
+            status: 500
+            instance: /api/v1/posts
+            traceId: b6d8f0a2c4e6b8d0f2a4c6e8b0d2f4a6
+
+  schemas:
+
+    ProblemDetails:
+      type: object
+      description: |
+        RFC 7807 Problem Details — dạng lỗi duy nhất của toàn dự án. Sinh bởi
+        `SocialApp.SharedKernel.Errors.GlobalExceptionHandler`; `traceId` và `type` gắn thống nhất
+        trong `AddSharedKernel`.
+      properties:
+        type:
+          type: string
+          format: uri
+          description: Mặc định `https://httpstatuses.io/{status}`. Lỗi có `type` riêng khai bằng schema riêng (`FeedOverloadedProblem`).
+        title:
+          type: string
+          description: Nhãn ngắn, ổn định theo loại lỗi. **Không** chứa dữ liệu người dùng.
+        status:
+          type: integer
+          format: int32
+        detail:
+          type: string
+          nullable: true
+          description: Thông điệp cho người đọc. Vắng mặt ở lỗi 500.
+        instance:
+          type: string
+          description: Path của request gây lỗi.
+        traceId:
+          type: string
+          description: Bằng header `X-Correlation-ID` của chính request đó — dùng để tra log.
+        errors:
+          type: object
+          nullable: true
+          description: Chỉ có ở lỗi validation (400). Map `tên trường → danh sách thông điệp`.
+          additionalProperties:
+            type: array
+            items:
+              type: string
+      required: [title, status, traceId]
+
+    ImageContentType:
+      type: string
+      enum: [image/jpeg, image/png, image/webp]
+      description: Allowlist Đ-2.8 — đúng bằng CHECK `ck_media_content_type` ở DB và `StorageKeys.AllowedContentTypes`.
+
+    PostPrivacy:
+      type: string
+      enum: [public, friends, private]
+      description: |
+        Chữ thường, khớp CHECK `ck_posts_privacy`. `friends` ở GĐ2 chỉ tác giả xem được (Đ-2.9, `AlwaysStrangers`);
+        GĐ4 bật kết bạn thật bằng một dòng DI — hợp đồng không đổi.
+
+    UploadPurpose:
+      type: string
+      enum: [post, avatar]
+      description: Quyết định tiền tố key (`posts/` hay `avatars/`) và mức quyền (`post` cần `post.create`, Đ-2.6).
+
+    UploadFileDeclaration:
+      type: object
+      additionalProperties: false
+      description: Thứ client khai cho một file — server ký đúng hai giá trị này vào URL.
+      properties:
+        contentType:
+          $ref: '#/components/schemas/ImageContentType'
+        sizeBytes:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 10485760
+          description: Dung lượng thật của file (byte), tối đa 10 MB (BR-01, Đ-2.8).
+      required: [contentType, sizeBytes]
+
+    CreateUploadsRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        purpose:
+          $ref: '#/components/schemas/UploadPurpose'
+        files:
+          type: array
+          minItems: 1
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/UploadFileDeclaration'
+      required: [purpose, files]
+
+    UploadTicket:
+      type: object
+      description: Một URL ký cho một file. `mediaKey` là thứ gửi lại ở `POST /posts` hoặc `PUT /users/me/avatar`.
+      properties:
+        mediaKey:
+          type: string
+          maxLength: 200
+          description: '`posts/{userId}/{uuid7}.{ext}` hoặc `avatars/{userId}/{uuid7}.{ext}` (Đ-2.7).'
+        uploadUrl:
+          type: string
+          format: uri
+          description: Presigned `PUT`, hạn `expiresIn` giây. Mang chữ ký — **không log**, không lưu.
+        expiresIn:
+          type: integer
+          format: int32
+          description: Số giây còn hạn của `uploadUrl` (600).
+        requiredHeaders:
+          type: object
+          description: |
+            Header **phải** gửi kèm `PUT` vì chúng nằm trong chữ ký. `Content-Length` trình duyệt tự gửi từ body —
+            **không** tự đặt bằng tay; giá trị ở đây để FE đối chiếu kích thước file trước khi gửi.
+          properties:
+            Content-Type:
+              type: string
+            Content-Length:
+              type: string
+          required: [Content-Type, Content-Length]
+      required: [mediaKey, uploadUrl, expiresIn, requiredHeaders]
+
+    MediaKeyDeclaration:
+      type: object
+      additionalProperties: false
+      description: |
+        Một ảnh đã `PUT` xong, kèm lại khai báo lúc presign để server đối chiếu với `HEAD` (Đ-2.8 lớp 2). Xem Q-D1 ở đầu file.
+      properties:
+        mediaKey:
+          type: string
+          maxLength: 200
+          pattern: '^posts/[0-9a-f-]{36}/[0-9a-f]{32}\.(jpg|png|webp)$'
+        contentType:
+          $ref: '#/components/schemas/ImageContentType'
+        sizeBytes:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 10485760
+      required: [mediaKey, contentType, sizeBytes]
+
+    CreatePostRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        body:
+          type: string
+          nullable: true
+          maxLength: 5000
+          description: Rỗng/`null` được nếu có ít nhất một ảnh (BR-01, `ck_posts_not_empty`).
+        privacy:
+          $ref: '#/components/schemas/PostPrivacy'
+        mediaKeys:
+          type: array
+          maxItems: 10
+          description: Thứ tự trong mảng là `position` hiển thị (0..9). Bỏ trống hoặc `[]` nếu bài chỉ có chữ.
+          items:
+            $ref: '#/components/schemas/MediaKeyDeclaration'
+      required: [privacy]
+
+    UpdatePostRequest:
+      type: object
+      additionalProperties: false
+      description: Chỉ hai trường; `mediaKeys` không có ở đây — gửi vào là 400 (GĐ2 không sửa ảnh, Mục 7.3).
+      properties:
+        body:
+          type: string
+          nullable: true
+          maxLength: 5000
+        privacy:
+          $ref: '#/components/schemas/PostPrivacy'
+
+    PostAuthor:
+      type: object
+      description: Từ `IUserDirectory` (SharedKernel, A6) — một lời gọi batch cho cả trang (Đ-2.3).
+      properties:
+        userId:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+        avatarUrl:
+          type: string
+          format: uri
+          nullable: true
+          description: Presigned GET 15 phút, `null` khi chưa có avatar.
+      required: [userId, displayName]
+
+    PostMedia:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+          description: Presigned GET **15 phút** (Đ-2.9), cấp sau khi qua BR-02. **Không có `mediaKey`** — key là chi tiết nội bộ.
+        contentType:
+          $ref: '#/components/schemas/ImageContentType'
+        width:
+          type: integer
+          format: int32
+          nullable: true
+        height:
+          type: integer
+          format: int32
+          nullable: true
+        position:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 9
+      required: [url, contentType, position]
+
+    PostResponse:
+      type: object
+      properties:
+        postId:
+          type: string
+          format: uuid
+          description: UUID v7 — thứ tự PK là thứ tự thời gian, nền của cursor keyset (Đ-2.11).
+        author:
+          $ref: '#/components/schemas/PostAuthor'
+        body:
+          type: string
+          nullable: true
+        privacy:
+          $ref: '#/components/schemas/PostPrivacy'
+        media:
+          type: array
+          items:
+            $ref: '#/components/schemas/PostMedia'
+        commentCount:
+          type: integer
+          format: int32
+          description: GĐ2 luôn 0 (khung Đ-2.12).
+        reactionCounts:
+          type: object
+          description: GĐ2 luôn `{}` rỗng — **không** `null` (Đ-2.12). Key là loại cảm xúc, value là số lượt.
+          additionalProperties:
+            type: integer
+            format: int32
+        createdAt:
+          type: string
+          format: date-time
+        editedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: '`null` nếu chưa sửa lần nào.'
+        canEdit:
+          type: boolean
+          description: Do **server** tính (`author_id == actorId`). FE không tự so id (Mục 8.2).
+      required: [postId, author, privacy, media, commentCount, reactionCounts, createdAt, canEdit]
+
+    PostPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PostResponse'
+        nextCursor:
+          type: string
+          nullable: true
+          description: Opaque. `null` khi hết dữ liệu — không phải chuỗi rỗng (Đ-2.11).
+      required: [items, nextCursor]
+
+    FeedOverloadedProblem:
+      description: |
+        503 của `GET /feed` (Đ-4.10, Q-E4). Cùng hình dạng `ProblemDetails`, nhưng `type` là định danh ổn định của ca "bảng tin
+        quá tải" — FE so `type` để tách nó khỏi 503 của hạ tầng (BFF mất kho phiên), không so `title`.
+      allOf:
+        - $ref: '#/components/schemas/ProblemDetails'
+        - type: object
+          properties:
+            type:
+              type: string
+              enum: ['urn:socialapp:problem:feed-overloaded']
+          required: [type]
+
+    FeedMode:
+      type: string
+      enum: [network, suggested]
+      description: |
+        `network` — có ít nhất một kết nối (bạn hoặc đang theo dõi), kể cả khi feed rỗng. `suggested` — chưa có kết nối
+        nào, `items` là bài công khai mới nhất của người khác cộng bài của chính mình (Đ-4.6); FE hiện nhãn "Gợi ý cho bạn".
+
+    FeedPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PostResponse'
+        nextCursor:
+          type: string
+          nullable: true
+          description: '`items` có thể ít hơn `limit`. Hết dữ liệu khi và chỉ khi `nextCursor` là `null`.'
+        mode:
+          $ref: '#/components/schemas/FeedMode'
+      required: [items, nextCursor, mode]

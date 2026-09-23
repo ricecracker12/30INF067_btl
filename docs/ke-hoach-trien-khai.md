@@ -368,6 +368,14 @@ còn biên độ thêm index/cache nếu trượt; và thứ cắt được thì
 > (xem "Đường lõi & thứ tự ưu tiên"). Kế hoạch gốc đã chừa sẵn: *"GĐ3 chèn linh hoạt sau GĐ2"*.
 
 ### GĐ 4 — Social Graph + News Feed: UC-10/11, UC-13, UC-08 (Ngày 9–13) ⚠️ trọng điểm hiệu năng
+
+> 📄 **Tài liệu thi công chi tiết: [`giai-doan-4.md`](./giai-doan-4/giai-doan-4.md)** — 16 quyết định thiết kế
+> (Đ-4.1–Đ-4.16, trạng thái đề xuất, chốt ở cổng mở), DDL schema `socialgraph`, truy vấn feed `LATERAL`, hai tầng cache
+> chỉ lưu `post_id`, môi trường đo k6 riêng, ba chỗ dựng sẵn cho GĐ3 cắm vào, lịch một người làm tuần tự, checklist nghiệm thu.
+>
+> **Ba chỗ lệch mục này, có chủ đích:** feed có thêm **bài của chính mình** và **feed gợi ý** cho người chưa có kết nối
+> (UC-08 luồng A1 mà mục này bỏ sót); dòng DI `AlwaysStrangers` bị **xóa** ở Content chứ không "đổi tại chỗ" (Content không
+> được thấy kiểu của SocialGraph); **một người** làm cả hai lane, tuần tự, ước lượng ~8 ngày làm việc thay vì 4.
 - **Làm gì:** Kết bạn Pending→Accepted (FR-010/011, BR-03), theo dõi 1 chiều (FR-012),
   News Feed fan-out-on-read + cache Redis (FR-009, BR-02/07, ADR-004).
 - **Làm như nào:**
@@ -381,12 +389,31 @@ còn biên độ thêm index/cache nếu trượt; và thứ cắt được thì
     thành thông báo thử lại, không phải màn hình trắng.
   - **Cổng mở:** chốt hình dạng **cursor** trước khi code — frontend bám chặt nhất vào nó; đổi giữa
     chừng là viết lại toàn bộ phần cuộn vô hạn.
+  - **Hai bẫy chéo giai đoạn GĐ2 để lại** *(ghi 2026-09-21 ở cổng đóng GĐ2, `F5`; chép vào tài liệu GĐ4 khi mở giai đoạn)*:
+    - Cache feed lưu **`storage_key`**, **không** lưu URL ảnh đã ký. URL presigned GET chỉ sống 15 phút (Đ-2.9). Cache
+      mà lưu URL thì sau 15 phút trả về URL đã hết hạn: ảnh vỡ, còn log không có lỗi nào (R2 trả 403 thẳng cho
+      trình duyệt). Ký URL **lúc trả response**, sau khi đọc cache.
+    - Mức riêng tư `friends`: `IFriendshipReader` đổi **đúng một dòng đăng ký DI**
+      (`services.AddSingleton<IFriendshipReader, AlwaysStrangers>()` trong `Content/DependencyInjection/ContentModuleExtensions.cs`)
+      sang hiện thực thật của SocialGraph. **Không** chạm logic của Content: `PostVisibility` đã hỏi `AreFriendsAsync`
+      từ GĐ2. Đổi xong thì chạy lại `READ-01` (matrix) và các test của `PostVisibility`: bài `friends` của **người lạ**
+      phải vẫn 404, còn của **bạn** thì phải thấy.
+  - **Hợp đồng GĐ2 đã đóng băng** (2026-09-21): `profile-v1.yaml`, `content-v1.yaml`. Feed cần thêm field nào vào
+    `PostResponse` thì đổi ở cổng mở GĐ4, không sửa lặng.
 - **Kiểm tra:** AC US-010 (AC-01 accept → hai bên là bạn; AC-02 gửi trùng → 409; AC-03 tự gửi → 400;
   AC-04 người thứ 3 accept → 403). AC US-008 (AC-01 20 bài mới nhất + cursor; AC-02 bài "bạn bè" của
   người lạ KHÔNG hiện; AC-03 bài Hidden không hiện). **k6 load test feed @1.000 CCU → p95 ≤ 500ms**
   (NFR-PERF-01) — mốc kiểm chứng GOAL-01, chạy lại cuối GĐ8 sau tối ưu index.
 
 ### GĐ 3 — Tương tác: bình luận 3 cấp + cảm xúc: UC-06, UC-07 (Ngày 13–15)
+
+> 📄 **Tài liệu thi công chi tiết: [`giai-doan-3.md`](./giai-doan-3/giai-doan-3.md)** — 14 quyết định thiết kế
+> (Đ-3.1–Đ-3.14, trạng thái đề xuất, chốt ở cổng mở), migration chỉ-thêm của `comments`, khuôn giao dịch bộ đếm, hợp
+> đồng 8 endpoint mới trong `content-v1`, kế hoạch 3 người theo ngày, checklist nghiệm thu.
+>
+> **Hai chỗ lệch mục này, có chủ đích:** bài không được xem trả **404** chứ không 403 cho cả đọc/viết bình luận lẫn thả
+> cảm xúc (Đ-3.3, quy ước 3b của GĐ1); `PUT /reactions` tách thành `PUT`/`DELETE …/{đối tượng}/reactions/me` (Đ-3.7).
+> **Chốt 2026-09-21:** GĐ3 làm **sau** GĐ4 (giữ thứ tự gốc), **một người** làm cả hai lane, ước lượng ~6 ngày làm việc.
 - **Làm gì:** Bình luận ≤1000 ký tự, trả lời tối đa 3 cấp, xóa giữ nhánh (FR-007, BR-08);
   thả/đổi/gỡ 1 cảm xúc/đối tượng + cập nhật bộ đếm (FR-008, BR-05).
 - **Làm như nào:**

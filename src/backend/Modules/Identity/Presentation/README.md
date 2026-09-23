@@ -47,7 +47,7 @@ giữ xanh.
 ```bash
 # chạy từ src/frontend/ — script gen:api ghim openapi-typescript 7.13.0 (bản đã kiểm chứng)
 pnpm gen:api
-# = openapi-typescript ../backend/Modules/Identity/Presentation/identity-v1.yaml -o lib/api/schema.d.ts
+# = node scripts/gen-api.mjs — tự tìm mọi Modules/*/Presentation/*-v1.yaml; file này → lib/api/identity/schema.d.ts
 ```
 
 `RoleCode` ra union `'USER' | 'MODERATOR' | 'ADMIN'`, body là interface có `required` đúng — nên đổi

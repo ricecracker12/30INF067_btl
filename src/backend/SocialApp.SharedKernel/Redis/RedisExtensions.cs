@@ -25,6 +25,11 @@ public static class RedisExtensions
 
         // Factory, không truyền instance: DI chỉ dispose singleton do chính nó dựng → đóng kết nối khi host dừng.
         services.TryAddSingleton(_ => new RedisConnection(options));
+
+        // Mọi chỗ fail-open (thu hồi token, cache feed) dùng chung MỘT bộ giới hạn log cho cả host — đăng ký cạnh kết nối vì
+        // ai cần RedisConnection đều đi qua hàm này. TryAdd: module cũng TryAdd TimeProvider.System, một đồng hồ cho cả process.
+        services.TryAddSingleton(TimeProvider.System);
+        services.TryAddSingleton<FailOpenLogThrottle>();
         services.AddHostedService<RedisConnectionStarter>();
         return services;
     }

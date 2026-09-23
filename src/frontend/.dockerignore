@@ -5,7 +5,7 @@ node_modules
 e2e
 test-results
 playwright-report
-# Bí mật: .env.local có thể mang SESSION_ENCRYPTION_KEY — không bao giờ vào lớp image.
+# Bí mật: .env có thể mang SESSION_ENCRYPTION_KEY — không bao giờ vào lớp image.
 .env*
 !.env.example
 *.key

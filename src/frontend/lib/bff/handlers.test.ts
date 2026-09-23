@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto"
 
 import { beforeEach, describe, expect, it } from "vitest"
 
+import { BFF_PROBLEM_TYPES } from "@/lib/api/bff-contract"
 import { createFakeRedis } from "@/mocks/redis"
 import { fakeApi, UPSTREAM_API } from "@/mocks/upstream"
 
@@ -314,6 +315,29 @@ describe("/bff/api/* — proxy có phiên", () => {
 
   it("không phiên → 401, không gọi API", async () => {
     expect((await proxyMe(null)).status).toBe(401)
+    expect(fakeApi.callsTo("/me")).toEqual([])
+  })
+
+  it("Redis phiên chết → 503 problem+json mang type bff-session-unavailable (Q-E4), không gọi API, không đá về login", async () => {
+    const sid = await login()
+    deps = {
+      ...deps,
+      store: {
+        ...deps.store,
+        get: async () => {
+          throw new Error("connect ECONNREFUSED")
+        },
+      },
+    }
+
+    const res = await proxyMe(sid)
+
+    expect(res.status).toBe(503)
+    expect(res.headers.get("content-type")).toContain(
+      "application/problem+json"
+    )
+    expect((await res.json()).type).toBe(BFF_PROBLEM_TYPES.sessionUnavailable)
+    expect(res.headers.get("set-cookie")).toBeNull()
     expect(fakeApi.callsTo("/me")).toEqual([])
   })
 

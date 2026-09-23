@@ -26,15 +26,20 @@ public static class TestJwt
         builder.UseSetting("Jwt:AccessTokenSeconds", "900");
     }
 
-    public static string? ForCaller(Caller caller) => caller switch
+    /// <summary>
+    /// Token cho một <see cref="Caller"/>. <paramref name="userId"/> vào ở GĐ2 theo chốt <b>Q-B2</b>: khung matrix ký
+    /// token TRƯỚC khi gọi <c>ArrangePath</c> và truyền cùng id xuống, để hàm dựng dữ liệu biết người gọi là ai. Tham số
+    /// có mặc định nên mọi lời gọi cũ không đổi một ký tự; bỏ trống thì vẫn là một id ngẫu nhiên như trước.
+    /// </summary>
+    public static string? ForCaller(Caller caller, Guid? userId = null) => caller switch
     {
         Caller.Anonymous => null,
-        Caller.User => Create("USER"),
-        Caller.Moderator => Create("MODERATOR"),
-        Caller.Admin => Create("ADMIN"),
+        Caller.User => Create("USER", userId),
+        Caller.Moderator => Create("MODERATOR", userId),
+        Caller.Admin => Create("ADMIN", userId),
         // Hết hạn từ 45 phút trước — vượt xa mọi ClockSkew, không phụ thuộc cấu hình lệch giờ.
-        Caller.ExpiredToken => Create("USER", issuedAt: DateTimeOffset.UtcNow.AddHours(-1)),
-        Caller.WrongSignature => Create("USER", signingKey: Convert.ToBase64String(RandomNumberGenerator.GetBytes(48))),
+        Caller.ExpiredToken => Create("USER", userId, issuedAt: DateTimeOffset.UtcNow.AddHours(-1)),
+        Caller.WrongSignature => Create("USER", userId, signingKey: Convert.ToBase64String(RandomNumberGenerator.GetBytes(48))),
         _ => throw new ArgumentOutOfRangeException(nameof(caller)),
     };
 

@@ -13,6 +13,11 @@ namespace SocialApp.IntegrationTests;
 /// validation 400 (FluentValidation + body hỏng ở tầng JSON), 415 của input formatter, và 500 của GlobalExceptionHandler. Hợp đồng
 /// <c>required: [title, status, traceId]</c>, <c>type</c> mặc định <c>https://httpstatuses.io/{status}</c>. Title và thông điệp
 /// viết tay theo identity-v1.yaml / SharedKernel. Không chạm DB/Redis (<see cref="ApiFactory"/>).
+///
+/// <b>Một case của lớp này sống ở nơi khác:</b> 400 sinh từ <c>Error.Validation</c> trong service SAU I/O (Q-D4) —
+/// nguồn sinh thứ sáu, và là nguồn duy nhất cần DB, nên nó nằm ở
+/// <c>Profile.AvatarTests.D9_400_sinh_tu_Error_Validation_co_cung_hinh_dang_voi_400_cua_FluentValidation</c>. Lớp này
+/// cố ý giữ nguyên tắc "không chạm DB" để chạy được cả khi Postgres không lên.
 /// </summary>
 public sealed class ProblemDetailsTests(ApiFactory factory) : IClassFixture<ApiFactory>
 {

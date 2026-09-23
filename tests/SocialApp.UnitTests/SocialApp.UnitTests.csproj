@@ -25,6 +25,10 @@
     <ProjectReference Include="..\..\src\backend\Modules\Identity\SocialApp.Modules.Identity.csproj" />
     <!-- A4: PostContentPolicy (BR-01) là hàm thuần trong Domain của Content — unit test gọi thẳng. -->
     <ProjectReference Include="..\..\src\backend\Modules\Content\SocialApp.Modules.Content.csproj" />
+    <!-- D2: validator của Profile là hàm thuần trên DTO — kiểm biên độ dài ở tầng unit, không tốn lượt HTTP. -->
+    <ProjectReference Include="..\..\src\backend\Modules\Profile\SocialApp.Modules.Profile.csproj" />
+    <!-- A1 GĐ4: FriendPair / RelationshipState là hàm thuần trong Domain của SocialGraph. -->
+    <ProjectReference Include="..\..\src\backend\Modules\SocialGraph\SocialApp.Modules.SocialGraph.csproj" />
   </ItemGroup>
 
 </Project>

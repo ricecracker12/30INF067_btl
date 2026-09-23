@@ -2,10 +2,14 @@ using System.Globalization;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
+using Npgsql;
 using SocialApp.IntegrationTests.Harness;
+using SocialApp.Modules.Content.Infrastructure;
 using SocialApp.Modules.Identity.Application.Email;
 using SocialApp.SharedKernel.Contracts;
+using SocialApp.SharedKernel.Storage;
 using Xunit;
 
 namespace SocialApp.IntegrationTests;
@@ -206,6 +210,69 @@ public sealed class StartupConfigurationTests
         Assert.Contains(origin, ex.Message, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// C1 (GĐ2, Đ-2.14): ngoài Development thiếu một trong bốn key R2 thì từ chối khởi động, thông báo nêu đúng key và đúng
+    /// biến môi trường. Mọi thứ khác khai hợp lệ để chắc chắn app chết vì đúng key đó.
+    /// </summary>
+    [Theory]
+    [InlineData("R2:Endpoint", "R2__Endpoint")]
+    [InlineData("R2:Bucket", "R2__Bucket")]
+    [InlineData("R2:AccessKey", "R2__AccessKey")]
+    [InlineData("R2:SecretKey", "R2__SecretKey")]
+    public void Missing_r2_config_must_fail_fast_outside_development(string key, string variable)
+    {
+        using var factory = StagingWithEmailConfig(b => b.UseSetting(key, string.Empty));
+
+        var ex = Assert.Throws<InvalidOperationException>(() => factory.CreateClient());
+
+        Assert.Contains(key, ex.Message, StringComparison.Ordinal);
+        Assert.Contains(variable, ex.Message, StringComparison.Ordinal);
+        Assert.Contains("deploy/.env", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("Staging", ex.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// C1: Endpoint kèm tên bucket (hay có path, hay http) là lỗi cấu hình có thật trong hướng dẫn khối C — SDK ghép bucket
+    /// lần nữa và mọi lời gọi 404. Từ chối khởi động ở mọi môi trường khi giá trị có mà sai dạng.
+    /// </summary>
+    [Theory]
+    [InlineData("https://test-account.r2.cloudflarestorage.com/socialapp-dev")]
+    [InlineData("https://test-account.r2.cloudflarestorage.com/")]
+    [InlineData("http://test-account.r2.cloudflarestorage.com")]
+    public void Invalid_r2_endpoint_must_fail_fast(string endpoint)
+    {
+        using var factory = StagingWithEmailConfig(b => b.UseSetting("R2:Endpoint", endpoint));
+
+        var ex = Assert.Throws<InvalidOperationException>(() => factory.CreateClient());
+
+        Assert.Contains("R2:Endpoint", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("R2__Endpoint", ex.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Q-C1 (chốt 2026-09-19): Development KHÔNG có khóa R2 vẫn khởi động — đây là đường ApiFactory đi, tức là đường của
+    /// smoke test và cổng hợp đồng API trên CI. Mất tính chất này thì cổng hợp đồng đỏ vì lý do không liên quan hợp đồng.
+    /// Đổi lại, lời gọi IObjectStorage đầu tiên phải ném với thông điệp nêu đúng biến và đúng lệnh user-secrets — lỗi cấu
+    /// hình lộ ra ở lúc dùng, với đúng lời, thay vì null reference vô danh.
+    /// </summary>
+    [Fact]
+    public async Task Development_boots_without_r2_config_and_first_use_names_the_variables()
+    {
+        using var factory = new ApiFactory();
+        using var client = factory.CreateClient();
+
+        using var live = await client.GetAsync("/health/live");
+        Assert.True(live.IsSuccessStatusCode, $"/health/live trả {(int)live.StatusCode}");
+
+        var storage = factory.Services.GetRequiredService<IObjectStorage>();
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => storage.HeadAsync("posts/x/y.jpg"));
+
+        Assert.Contains("R2__Endpoint", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("R2__SecretKey", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("user-secrets", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("Development", ex.Message, StringComparison.Ordinal);
+    }
+
     private static WebApplicationFactory<Program> StagingWithEmailConfig(Action<IWebHostBuilder> tweak) =>
         new WebApplicationFactory<Program>().WithWebHostBuilder(b =>
         {
@@ -218,6 +285,11 @@ public sealed class StartupConfigurationTests
             b.UseSetting("Smtp:From", "no-reply@example.com");
             b.UseSetting("Frontend:BaseUrl", "https://app.example.com");
             b.UseSetting("Cors:AllowedOrigins:0", "https://app.example.com");   // D4 — thiếu thì Staging từ chối khởi động
+            // C1 (GĐ2) — thiếu thì Staging từ chối khởi động. Giá trị giả, không phải khóa thật.
+            b.UseSetting("R2:Endpoint", "https://test-account.r2.cloudflarestorage.com");
+            b.UseSetting("R2:Bucket", "socialapp-test");
+            b.UseSetting("R2:AccessKey", "test-access-key");
+            b.UseSetting("R2:SecretKey", "test-secret-key");
             tweak(b);
         });
 
@@ -274,18 +346,18 @@ public sealed class StartupConfigurationTests
     }
 
     /// <summary>
-    /// A6: hai contract chéo module phải resolve được từ container CỦA HOST.
+    /// A6 + Đ-4.3: hai contract chéo module phải resolve được từ container CỦA HOST.
     ///
     /// Vì sao cần một khẳng định riêng: từ A6, module Content chỉ chạy được khi host đã gọi
-    /// <c>AddProfileModule</c> (IUserDirectory đăng ký ở đó, còn người dùng nó nằm ở Content). Không có gì
-    /// bắt lỗi lúc build — quên một dòng DI thì app khởi động BÌNH THƯỜNG rồi nổ lúc resolve service của
-    /// request đầu tiên, tức lỗi hiện ra ở khối D dưới dạng 500 chứ không ở đây.
+    /// <c>AddProfileModule</c> (IUserDirectory đăng ký ở đó, còn người dùng nó nằm ở Content). Từ GĐ4,
+    /// <c>IFriendshipReader</c> đăng ký ở <c>AddSocialGraphModule</c> — thiếu thì request đọc bài nổ lúc resolve.
+    /// Không có gì bắt lỗi lúc build.
     ///
-    /// IUserDirectory là scoped (dùng ProfileDbContext) nên phải mở scope; resolve thẳng từ
+    /// IUserDirectory / IFriendshipReader / IFeedSourceReader là scoped nên phải mở scope; resolve thẳng từ
     /// <c>factory.Services</c> sẽ ném vì lý do KHÁC hẳn và test sẽ nói dối.
     /// </summary>
     [Fact]
-    public void Host_resolve_duoc_hai_contract_cheo_module_cua_A6()
+    public void Host_resolve_duoc_hai_contract_cheo_module_cua_A6_va_GD4()
     {
         using var factory = new ApiFactory();
 
@@ -293,8 +365,26 @@ public sealed class StartupConfigurationTests
 
         Assert.NotNull(scope.ServiceProvider.GetRequiredService<IUserDirectory>());
 
-        // GĐ2 cố ý là null-object (Đ-2.9): khẳng định luôn cả KIỂU, để GĐ4 đổi dòng DI thì test này đỏ và
-        // người đổi biết có một khẳng định ở đây cần cập nhật theo.
-        Assert.IsType<AlwaysStrangers>(scope.ServiceProvider.GetRequiredService<IFriendshipReader>());
+        // Đ-4.3: đúng một đăng ký (hai lần thì thứ tự Add*Module quyết định BR-02 im lặng) và không phải AlwaysStrangers.
+        var readers = scope.ServiceProvider.GetServices<IFriendshipReader>().ToList();
+        Assert.Single(readers);
+        Assert.IsNotType<AlwaysStrangers>(readers[0]);
+        Assert.NotNull(scope.ServiceProvider.GetRequiredService<IFeedSourceReader>());
+    }
+
+    /// <summary>
+    /// PERF-03 (báo cáo k6 sơ bộ GĐ4 Mục 5): chuỗi kết nối KHÔNG ghi trần pool thì host đặt 80, không để mặc định 100 của
+    /// Npgsql — bằng đúng max_connections 100 của Postgres, và lúc Redis dừng pool chiếm hết chỗ của migrate/backup/psql.
+    /// Đọc từ DbContext THẬT của host: canh chỗ nối trong Program.cs, không chỉ hàm PostgresPool (unit test đã canh hàm).
+    /// </summary>
+    [Fact]
+    public void Chuoi_ket_noi_khong_ghi_tran_pool_thi_host_dat_80()
+    {
+        using var factory = new ApiFactory();
+        using var scope = factory.Services.CreateScope();
+
+        var connectionString = scope.ServiceProvider.GetRequiredService<ContentDbContext>().Database.GetConnectionString();
+
+        Assert.Equal(80, new NpgsqlConnectionStringBuilder(connectionString).MaxPoolSize);
     }
 }

@@ -23,6 +23,13 @@ public sealed class UserProfile
     public const int DisplayNameMaxLength = 50;
 
     /// <summary>
+    /// Độ dài tối đa của <see cref="Bio"/> (cột <c>varchar(500)</c>). Ở đây chứ không ở validator, cùng lý do với
+    /// <see cref="DisplayNameMaxLength"/>: cột DB và validator của D2 đọc CÙNG một hằng nên không thể lệch nhau. Để số
+    /// 500 ở hai chỗ thì lần nới cột sau sẽ nới được DB mà quên validator, và triệu chứng là 400 cho một giá trị DB nhận.
+    /// </summary>
+    public const int BioMaxLength = 500;
+
+    /// <summary>
     /// Khóa chính, <b>bằng</b> <c>identity.users.user_id</c> — không FK chéo schema (Đ-2.2).
     ///
     /// KHÔNG có <c>= Uuid7.New()</c>: khác <c>Post</c>, khóa chính của hồ sơ không do module này
@@ -37,7 +44,13 @@ public sealed class UserProfile
     /// </summary>
     public required string DisplayName { get; set; }
 
-    /// <summary>Giới thiệu ngắn, <c>varchar(500)</c>; <c>null</c> nghĩa là chưa đặt.</summary>
+    /// <summary>
+    /// Giới thiệu ngắn, <c>varchar(500)</c> (<see cref="BioMaxLength"/>); <c>null</c> nghĩa là chưa đặt.
+    ///
+    /// Q-D3 (chốt 2026-09-19): <c>PUT /users/me/profile</c> là thay thế TOÀN PHẦN — trường vắng mặt hay <c>null</c> đều
+    /// XÓA bio, không phải "giữ nguyên". System.Text.Json không phân biệt hai trường hợp đó cho <c>string?</c>, và phân
+    /// biệt được thì phải tự viết <c>Optional&lt;T&gt;</c> + converter chỉ để phục vụ một trường.
+    /// </summary>
     public string? Bio { get; set; }
 
     /// <summary>

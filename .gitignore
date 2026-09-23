@@ -39,3 +39,6 @@ Thumbs.db
 .idea/
 
 .gitnexus/
+
+# ---- Môi trường đo feed (GĐ4 C5) — CSV 10k dòng, không commit ----
+tests/load/feed/users.csv

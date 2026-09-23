@@ -96,11 +96,13 @@ export function problem(
   status: number,
   title: string,
   detail?: string,
-  extraHeaders: Record<string, string> = {}
+  extraHeaders: Record<string, string> = {},
+  // Q-E4: chỉ đặt khi trình duyệt phải phân biệt ca này với một lỗi cùng status (BFF_PROBLEM_TYPES).
+  type = `https://httpstatuses.io/${status}`
 ): Response {
   return new Response(
     JSON.stringify({
-      type: `https://httpstatuses.io/${status}`,
+      type,
       title,
       status,
       ...(detail && { detail }),

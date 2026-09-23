@@ -6,12 +6,12 @@ namespace SocialApp.UnitTests.SharedKernel;
 /// <summary>
 /// <b>Test pin</b> cho <see cref="AlwaysStrangers"/> (A6, Đ-2.9): null-object của GĐ2 luôn trả <c>false</c>.
 ///
-/// GĐ4 thay hiện thực thì <b>sửa một dòng DI</b> trong <c>AddContentModule</c> — KHÔNG sửa test này. Test
-/// này còn xanh sau GĐ4 là đúng: nó nói về <see cref="AlwaysStrangers"/>, không nói về "kết bạn ở hệ thống
-/// này hoạt động ra sao".
+/// GĐ4 (Đ-4.3) đăng ký hiện thực thật ở SocialGraph và xóa dòng AlwaysStrangers ở Content —
+/// KHÔNG sửa test này. Test này còn xanh sau GĐ4 là đúng: nó nói về <see cref="AlwaysStrangers"/>,
+/// không nói về "kết bạn ở hệ thống này hoạt động ra sao".
 ///
 /// Lý do cần pin: đổi thân hàm thành <c>true</c> "cho dễ test" là mở toàn bộ bài chế độ <c>friends</c> cho
-/// mọi người, và không có test nào khác của GĐ2 nhìn thấy — GĐ2 chưa có endpoint đọc bài.
+/// mọi người, và không có test nào khác nhìn thấy hành vi của chính class null-object.
 /// </summary>
 public sealed class AlwaysStrangersTests
 {

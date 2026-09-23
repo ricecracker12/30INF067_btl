@@ -1,3 +1,7 @@
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { dirname, join } from "node:path"
+
 import { expect, test, type APIRequestContext } from "@playwright/test"
 
 // Dùng chung cho các spec chạy trên API dev thật (E3–E6). Gốc API và Mailpit đổi được bằng biến môi trường.
@@ -7,25 +11,54 @@ export const MAILPIT =
   process.env.PLAYWRIGHT_MAILPIT_URL ?? "http://localhost:8025"
 
 // ── Hạn mức /auth/* ────────────────────────────────────────────────────────────────────────────────────────
-// Server: 10 req/phút theo IP, cửa sổ cố định (FixedWindowRateLimiter). Cả bộ spec tốn hơn 10 lượt, nên mỗi
+// Server: 10 req/phút theo IP, cửa sổ cố định (FixedWindowRateLimiter). Cả bộ spec tốn hơn 50 lượt, nên mỗi
 // test KHAI trước số lượt nó dùng. Lượt khai vượt hạn mức thì chờ: 60 giây cửa sổ + 15 giây cho các request của
-// test trước còn bắn sau lúc khai. `workers: 1` nên module này dùng chung cho mọi file spec trong cùng worker.
+// test trước còn bắn sau lúc khai.
+//
+// **Ngân sách nằm trong MỘT FILE, không phải một biến module** (E8, 2026-09-21). Biến module chỉ sống trong một
+// worker process, mà Playwright **khởi động lại worker sau mỗi test thất bại** — thế là `used` về 0, lượt khai
+// kế tiếp không chờ, và một ca 429 kéo cả bộ đổ theo dây chuyền (đo được: 11/18 spec đỏ, cả bộ chạy hết 40 giây
+// vì không chờ lần nào). File cũng làm ngân sách sống qua **hai lượt chạy `playwright test` liền nhau**, đúng
+// chỗ trước đây phải chờ tay.
 const AUTH_LIMIT = 10
 const WAIT_MS = 75_000
-let used = 0
-let lastReservedAt = 0
+const NGAN_SACH_FILE = join(tmpdir(), "socialapp-e2e-auth-budget.json")
+
+type NganSach = { used: number; at: number }
+
+function docNganSach(): NganSach {
+  try {
+    const raw = JSON.parse(readFileSync(NGAN_SACH_FILE, "utf8")) as NganSach
+    // Cửa sổ cũ đã qua thì ngân sách tự đầy lại — lượt chạy sau không phải chờ vô cớ vì lượt chạy trước.
+    if (Date.now() - raw.at >= WAIT_MS) return { used: 0, at: 0 }
+    return raw
+  } catch {
+    // Chưa có file, hoặc file hỏng: coi như ngân sách đầy. Sai theo hướng "chờ ít hơn", và 429 khi đó vẫn là
+    // một test đỏ nhìn thấy được — im lặng nuốt nó mới là cái giá không trả được.
+    return { used: 0, at: 0 }
+  }
+}
+
+function ghiNganSach(s: NganSach) {
+  mkdirSync(dirname(NGAN_SACH_FILE), { recursive: true })
+  writeFileSync(NGAN_SACH_FILE, JSON.stringify(s))
+}
 
 export async function giuHanMucAuth(n: number) {
+  const truoc = docNganSach()
+  let used = truoc.used
+
   if (used + n > AUTH_LIMIT) {
-    const waitMs = Math.max(0, lastReservedAt + WAIT_MS - Date.now())
+    // Mốc là lượt khai CUỐI, không phải lượt đầu của cửa sổ: chờ dài hơn cần một chút, và đó là hướng an toàn.
+    const waitMs = Math.max(0, truoc.at + WAIT_MS - Date.now())
     if (waitMs > 0) {
       test.info().setTimeout(test.info().timeout + waitMs)
       await new Promise((r) => setTimeout(r, waitMs))
     }
     used = 0
   }
-  used += n
-  lastReservedAt = Date.now()
+
+  ghiNganSach({ used: used + n, at: Date.now() })
 }
 
 /** Email chưa từng dùng — mỗi lượt chạy một tài khoản mới, không đụng dữ liệu của lượt trước. */

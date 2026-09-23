@@ -96,6 +96,8 @@ Nhìn danh sách endpoint thì GĐ2 chỉ có "CRUD bài viết". Ba thứ làm 
 | Xóa cứng bài + xóa object theo NĐ 13/2023 | **GĐ8** | Đi cùng quyền tự xóa tài khoản và chính sách ẩn danh PII |
 | Dọn `profiles`/`posts` khi user bị xóa | **GĐ8** | Hệ quả trực tiếp của Đ-2.2 (không FK chéo schema) — ghi vào nợ có địa chỉ, không để vô chủ |
 | Cắt/nén ảnh phía client, thumbnail, EXIF strip | **GĐ7** | UI/UX; GĐ2 chỉ chặn loại và dung lượng |
+| Sửa danh sách ảnh của bài đã đăng | **GĐ7** | Kéo theo một luồng rác nữa (object của ảnh bị gỡ); `PATCH /posts/{id}` gửi `mediaKeys` → 400 (Mục 7.3). *Thêm vào bảng 2026-09-21 ở `F5` — trước đó chỉ nằm trong thân Mục 7.3* |
+| Dọn avatar mồ côi (object cũ khi đổi/gỡ avatar) | **GĐ8** | Worker của Content chỉ quét `posts/`, không được đọc `profile.profiles.avatar_key` (Đ-2.2, Đ-2.3); làm khi Profile có worker riêng hoặc khi xóa tài khoản chạm tới. *Thêm vào bảng 2026-09-21 ở `F5` — trước đó chỉ nằm trong Mục 7.5* |
 | Video, GIF động, SVG | **Ngoài MVP** | SVG bị loại có chủ đích: script trong SVG chạy được nếu phục vụ từ domain R2 |
 | Sửa hồ sơ của người khác (admin) | **Ngoài MVP** | Không có FR nào yêu cầu; nhờ vậy GĐ2 không phải thêm mã quyền mới (Đ-2.6) |
 
@@ -198,7 +200,7 @@ Ma trận 17 mã quyền của Mục 6.7.2 đã seed từ GĐ1 và seeder chạy
 
 | Endpoint | Tầng 2 | Tầng 3 |
 |---|---|---|
-| `POST /media/uploads` với `purpose=post` | `[RequirePermission("post.create")]` | — (key sinh theo `userId` người gọi) |
+| `POST /media/uploads` với `purpose=post` | `[Authorize]` + `IAuthorizationService` với `perm:post.create` (Q-D5) | — (key sinh theo `userId` người gọi) |
 | `POST /media/uploads` với `purpose=avatar` | `[Authorize]` | — |
 | `PUT /users/me/profile`, `PUT/DELETE /users/me/avatar` | `[Authorize]` | không cần: route là `me`, id lấy từ token |
 | `POST /posts` | `post.create` | hồ sơ tồn tại (Đ-2.4) + key thuộc tiền tố của người gọi (Đ-2.7) |
@@ -208,8 +210,10 @@ Ma trận 17 mã quyền của Mục 6.7.2 đã seed từ GĐ1 và seeder chạy
 
 Một endpoint hai mức quyền theo `purpose` là chỗ dễ sai: **không** đặt `[RequirePermission("post.create")]` cho cả
 endpoint (người chưa có quyền đăng bài vẫn phải đổi được avatar), và **không** bỏ trắng tầng 2 rồi kiểm trong service
-(mất tính khai báo). Cách làm: `[Authorize]` ở attribute + kiểm `post.create` trong service khi `purpose=post`, bằng
-chính `IPermissionCache` của SharedKernel. Ghi rõ ở hợp đồng: `purpose=post` mà thiếu quyền → **403**.
+(mất tính khai báo). Cách làm: `[Authorize]` ở attribute + kiểm `post.create` **ở controller bằng `IAuthorizationService`
+với policy `perm:post.create`** — cùng handler và short-circuit Admin của tầng 2 (chốt Q-D5, 2026-09-19: gọi thẳng
+`IPermissionCache` chặn nhầm Admin, vì `GetAsync("ADMIN")` trả rỗng — lối tắt ADMIN nằm trong `PermissionHandler`, không
+trong cache; xem `huong-dan-khoi-d-endpoint.md` Q-D5). Ghi rõ ở hợp đồng: `purpose=post` mà thiếu quyền → **403**.
 
 ### Đ-2.7 `storage_key` mang tiền tố người dùng, và commit phải kiểm tiền tố đó
 
@@ -535,6 +539,12 @@ Khung đã có từ `B2`/`B3` của GĐ1: thêm dòng, **không** sửa `AuthZMa
 để tạo bài của B rồi trả về path thật. Nếu phải sửa khung mới thêm được dòng nào ở bảng trên thì **dừng lại** — đó là
 dấu hiệu khung thiết kế sai, và sửa khung một lần ở GĐ2 rẻ hơn nhiều so với sửa ở GĐ5.
 
+> **Chốt 2026-09-19 (`Q-B2`, hướng dẫn khối B/C Mục 1.3):** đúng trường hợp đoạn trên đã chừa — `TC-A03-media` **không**
+> thêm được mà không chạm khung. `Ma_tran_phan_quyen` sinh token **sau** `ArrangePath` nên `ArrangePath` không biết id
+> người gọi; người gọi chưa có hồ sơ nên 403 đến từ Đ-2.4, không từ Đ-2.7 — dòng xanh vì lý do sai. Sửa khung **một lần,
+> tối thiểu**: `AuthZArrange` mang thêm `CallerUserId`, token sinh trước `ArrangePath`, `TestJwt.ForCaller` nhận `userId`
+> tùy chọn. Năm dòng còn lại không cần gì thêm.
+
 ---
 
 ## 7. Luồng nghiệp vụ
@@ -620,6 +630,14 @@ log: số object đã xóa, số byte thu hồi. Redis chết → BỎ lượt n
 Nhánh (1) phải liệt kê bucket theo `continuation token` và giới hạn mỗi lượt (ví dụ 1000 object) để một bucket lớn
 không giữ khóa suốt cả tiếng.
 
+> **Chốt 2026-09-19 (lúc thi công C4):** nhánh (1) chỉ quét tiền tố **`posts/`**, không quét cả bucket. Lý do: avatar
+> **không** có dòng `media_attachments` — nó sống ở `profile.profiles.avatar_key`, schema mà module Content không được đọc
+> (Đ-2.2, Đ-2.3). Áp luật "cũ hơn 24 giờ mà không có dòng `media_attachments`" lên `avatars/` là **xóa nhầm avatar đang
+> dùng**. Avatar mồ côi (đổi avatar để lại object cũ; `DELETE /users/me/avatar` chỉ gỡ liên kết — D3) là việc của module
+> Profile, **hoãn có địa chỉ**: dung lượng không đáng kể ở quy mô đồ án, làm khi Profile có worker riêng hoặc khi GĐ8
+> (xóa tài khoản) chạm tới. Hai điểm thi công khác: lượt đầu chạy **sau** một chu kỳ, không chạy lúc khởi động (deploy
+> hai instance cùng lúc không tranh khóa khi còn warm-up); không nhả khóa sau lượt — `EX 3000` tự nhả trước chu kỳ kế.
+
 ---
 
 ## 8. Hợp đồng API
@@ -649,6 +667,13 @@ ProfileResponse { userId, displayName, bio?, avatarUrl?, createdAt, updatedAt }
 `avatarUrl` là presigned GET 15 phút (Đ-2.9), **không** phải `avatar_key`. Client không bao giờ thấy key của người
 khác — đó cũng là lý do `PUT /users/me/avatar` nhận `mediaKey` chứ không nhận URL.
 
+**Request body (chốt 2026-09-19 lúc viết hợp đồng — Mục 8 bản gốc chỉ đặc tả response):**
+
+```
+UpsertProfileRequest { displayName (bắt buộc, 2–50 ký tự sau trim), bio? (≤ 500; vắng mặt HOẶC null = xóa — PUT là thay thế toàn phần, chốt Q-D3) }
+SetAvatarRequest     { mediaKey (bắt buộc, dạng avatars/{userId}/{uuid7}.{ext}) }
+```
+
 ### 8.2 Content
 
 | Method | Path | Auth | Thành công | Lỗi |
@@ -674,18 +699,39 @@ PostPage      { items: [PostResponse], nextCursor: string | null }
 - **Không có** `mediaKey` trong `PostResponse`: key là chi tiết nội bộ, chỉ đi ra ngoài trong `UploadTicket` của
   chính người vừa xin upload.
 
+**Request body (chốt 2026-09-19 lúc viết hợp đồng — Mục 8 bản gốc chỉ đặc tả response):**
+
+```
+CreateUploadsRequest { purpose: "post" | "avatar" (bắt buộc), files: [{ contentType, sizeBytes }] 1..10 (bắt buộc) }
+CreatePostRequest    { body? (≤ 5000), privacy (BẮT BUỘC), mediaKeys?: [{ mediaKey, contentType, sizeBytes }] ≤ 10 }
+UpdatePostRequest    { body?, privacy? }   — body {} rỗng → 400; có mediaKeys → 400 (field lạ, GĐ2 không sửa ảnh)
+```
+
+> **Q-D1 (chốt 2026-09-19):** `mediaKeys` của `POST /posts` là **mảng object** `{mediaKey, contentType, sizeBytes}`, không phải
+> mảng chuỗi. Đ-2.8 lớp 2 đối chiếu HEAD với *"khai báo lúc presign"*, mà server không giữ trạng thái giữa presign và commit
+> — mảng chuỗi thì hoặc thêm bảng `media_uploads` tạm (một migration, một luồng dọn nữa), hoặc bỏ luôn lớp 2. Client đang cầm
+> `File` nên gửi lại khai báo là rẻ nhất, và không có gì để giả: HEAD vẫn là thứ quyết định. Tên trường giữ `mediaKeys` để
+> `errors.mediaKeys` (AC-03) đúng như Mục 10.1. Ba điểm nhỏ chốt cùng lúc: `privacy` **bắt buộc** (tùy chọn + mặc định
+> `public` là composer quên gửi thành bài công khai ngoài ý muốn); `PATCH` với body `{}` → 400 (OpenAPI không diễn đạt gọn
+> "ít nhất một trường", ContractTests chỉ so mảng `required`); `bio: null` = xóa, bỏ trường = giữ nguyên.
+
 ### 8.3 Codegen frontend
 
-`package.json` thêm hai script, mỗi module một file sinh (luật frontend Mục 7):
+**Không thêm script nào** (đổi 2026-09-19, luật frontend Mục 7). `pnpm gen:api` gọi `scripts/gen-api.mjs`, script
+này **suy ra** danh sách module từ glob `../backend/Modules/*/Presentation/*-v1.yaml` và ghi ra
+`lib/api/<module>/schema.d.ts`. Hai hợp đồng của GĐ2 vì vậy được sinh **ngay khi file `.yaml` được commit ở cổng mở**,
+không phải chờ ai thêm dòng.
 
-```
-"gen:api:profile": "openapi-typescript ../backend/Modules/Profile/Presentation/profile-v1.yaml -o lib/api/profile/schema.d.ts",
-"gen:api:content": "openapi-typescript ../backend/Modules/Content/Presentation/content-v1.yaml -o lib/api/content/schema.d.ts",
-"gen:api": "<chạy cả ba, gồm cả identity>"
-```
+Đích suy từ **tên nhóm Swagger** (tên file bỏ hậu tố `-v1`), không từ tên thư mục module — tên nhóm đã buộc phải duy nhất
+toàn app (mỗi nhóm một `SwaggerDoc` trong `Program.cs`), nên không có lớp va chạm "một module hai nhóm". **Không có ngoại
+lệ đường dẫn nào**: Identity đã dời từ `lib/api/schema.d.ts` vào `lib/api/identity/` cùng ngày, đúng như GĐ1 khối E Mục 13
+đã hẹn ("module thứ hai mới tách"). Phần lập kế hoạch của script là hàm thuần có unit test (`scripts/gen-api.test.ts`).
 
-Cổng CI `API types khop hop dong` hiện chỉ kiểm `lib/api/schema.d.ts` — **phải mở rộng sang hai file mới trong cùng
-commit**, nếu không hợp đồng đổi mà file sinh lệch thì không ai biết.
+Cổng CI `API types khop hop dong` **cũng không liệt kê file nào**: nó chạy `pnpm gen:api` rồi đòi worktree sạch. Lý do
+bỏ danh sách — `git status --porcelain -- <đường dẫn không tồn tại>` trả **rỗng và exit 0**, nên mọi danh sách gõ tay
+(trong `package.json` lẫn trong `ci.yml`) đều có thể **xanh giả**: gõ sai một ký tự, hay thêm module thứ ba mà quên
+thêm dòng, đều không ai biết. Cùng luật với `TreatNoTestsAsError=true` của cổng Contract/AuthZ: **một số không không
+phải là một lần qua**.
 
 ---
 
@@ -696,7 +742,7 @@ commit**, nếu không hợp đồng đổi mà file sinh lệch thì không ai 
 Hệ quả trực tiếp của Đ-2.14 (chốt 2026-09-18). Đây là việc thao tác trên dashboard Cloudflare, không phải việc code —
 làm trước, để buổi cổng mở không biến thành buổi ngồi chờ tạo bucket. Người làm: chủ dự án (chủ tài khoản Cloudflare).
 
-1. **Hai bucket:** `socialapp-dev` và `socialapp-staging`. Tách bucket, không tách bằng thư mục trong một bucket —
+1. **Hai bucket:** `socialmedia-dev` và `socialmedia-staging`. Tách bucket, không tách bằng thư mục trong một bucket —
    token phạm vi theo bucket mới chặn được dev ghi nhầm sang staging.
 2. **CORS cho từng bucket.** Đây là thứ duy nhất chỉ trình duyệt mới kiểm chứng được (ISS-02):
 
@@ -717,7 +763,7 @@ làm trước, để buổi cổng mở không biến thành buổi ngồi chờ
    # DEV, trên máy mỗi người — user-secrets của project host, KHÔNG phải deploy/.env:
    dotnet user-secrets init -p src/backend/SocialApp.Api
    dotnet user-secrets set "R2:Endpoint"  "https://<account-id>.r2.cloudflarestorage.com" -p src/backend/SocialApp.Api
-   dotnet user-secrets set "R2:Bucket"    "socialapp-dev"  -p src/backend/SocialApp.Api
+   dotnet user-secrets set "R2:Bucket"    "socialmedia-dev"  -p src/backend/SocialApp.Api
    dotnet user-secrets set "R2:AccessKey" "<khóa của bucket -dev>" -p src/backend/SocialApp.Api
    dotnet user-secrets set "R2:SecretKey" "<khóa của bucket -dev>" -p src/backend/SocialApp.Api
    ```
@@ -725,7 +771,7 @@ làm trước, để buổi cổng mở không biến thành buổi ngồi chờ
    `user-secrets` nằm ngoài thư mục repo nên không có đường lọt vào commit. Ai lỡ đặt khóa `-dev` vào `deploy/.env`
    thì lần chạy `docker compose -f deploy/docker-compose.staging.yml` kế tiếp sẽ đẩy ảnh dev vào bucket staging.
 
-**Điều kiện coi là xong bước 9.0:** một ảnh `PUT` được lên `socialapp-dev` **từ tab Network của trình duyệt** bằng URL
+**Điều kiện coi là xong bước 9.0:** một ảnh `PUT` được lên `socialmedia-dev` **từ tab Network của trình duyệt** bằng URL
 ký tay (hoặc bằng `C2` nếu đã có code). Chưa làm được việc này thì ISS-02 vẫn đang mở, dù code có xanh.
 
 ### Cổng mở — Ngày 6 sáng, cả nhóm, ~2 giờ
@@ -836,42 +882,64 @@ không phải JPEG hợp lệ, và lỗi khi đó trông hệt lỗi CORS.
 
 ## 11. Definition of Done
 
-Theo Mục 3.5 của PTTK, áp cho **từng** UC của giai đoạn:
+Theo Mục 3.5 của PTTK, áp cho **từng** UC của giai đoạn. *Rà ở `F4` ngày 2026-09-21. Chi tiết và lệnh đã chạy nằm ở
+mục "Thực tế thi công" của `F4` trong [huong-dan-khoi-e-f-frontend-va-cong-dong.md](huong-dan-khoi-e-f-frontend-va-cong-dong.md).*
 
-- [ ] Đủ AC (US-004 AC-01..04; FR-005; FR-013)
-- [ ] Có kiểm RBAC (tầng 2) **và** ownership (tầng 3), có dòng trong `AuthZMatrix.cs`
-- [ ] Lỗi theo RFC 7807, `errors` đúng key hợp đồng, không lộ tài nguyên có tồn tại hay không
-- [ ] Đã chạy thử trên **staging** bằng tài khoản thật, qua domain HTTPS
-- [ ] Hợp đồng `.yaml` khớp Swagger runtime (cổng CI xanh), `schema.d.ts` sinh lại trong cùng commit
+- [x] Đủ AC (US-004 AC-01..04; FR-005; FR-013). Integration 320 ca (319 xanh + 1 đỏ nền R2 của máy dev, CI xanh), E2E
+  staging `F3`
+- [x] Có kiểm RBAC (tầng 2) **và** ownership (tầng 3), có dòng trong `AuthZMatrix.cs`. `AuthZ matrix` 18/18 trên CI
+  run 35561152514; bảng đột biến `B3` (bảy đột biến đều bị bắt)
+- [x] Lỗi theo RFC 7807, `errors` đúng key hợp đồng, không lộ tài nguyên có tồn tại hay không (`TC-A03*` 403,
+  `READ-01` 404, 403 của FE không lộ, `E6`)
+- [x] Đã chạy thử trên **staging** bằng tài khoản thật, qua domain HTTPS (`F2`, `F3`, 2026-09-21)
+- [x] Hợp đồng `.yaml` khớp Swagger runtime (`API contract` 6/6 trên CI), `pnpm gen:api` chạy lại thì worktree sạch
 - [ ] Không lộ secret/PII: log **không** chứa presigned URL (nó mang chữ ký, là thông tin nhạy cảm có hạn), không chứa email
+  — **chờ lệnh trên server** (`docker compose logs api | grep -c "X-Amz-Signature"` → 0, và đếm email). Máy dev không
+  thay được: container api dev là bản 2026-09-18, không chạy lát cắt GĐ2
 
 ## 12. Checklist nghiệm thu cuối GĐ2
 
+*Rà ở `F4` ngày 2026-09-21. Dòng chưa tick là dòng **chờ thao tác trên server staging hoặc dashboard R2**, không phải
+dòng bỏ. Lệnh cho từng dòng ở "Thực tế thi công" của `F4`.*
+
 **Dữ liệu và ranh giới**
 
-- [ ] Thấy đủ ba schema `identity`, `profile`, `content`; mỗi schema có `__EFMigrationsHistory` riêng
-- [ ] Không có FK nào đi qua ranh giới schema — chứng minh bằng truy vấn `information_schema.referential_constraints`
-- [ ] `--migrate` chạy hai lần liên tiếp: lần hai không đổi gì, exit 0
-- [ ] ArchUnitNET xanh, và **không** ai nới rule để code chạy được
+- [x] Thấy đủ ba schema `identity`, `profile`, `content`; mỗi schema có `__EFMigrationsHistory` riêng. Log CD run
+  35561152520: `[migrate] Đã áp dụng migration cho schema "identity", "profile", "content" … Thoát 0`; psql trên
+  Postgres dev: ba bảng lịch sử
+- [ ] Không có FK nào đi qua ranh giới schema — chứng minh bằng truy vấn `information_schema.referential_constraints`.
+  Dev: **0** FK chéo (8 FK, đều cùng schema). **Chờ chạy trên Postgres staging**
+- [ ] `--migrate` chạy hai lần liên tiếp: lần hai không đổi gì, exit 0 — **chờ chạy trên server**
+- [x] ArchUnitNET xanh, và **không** ai nới rule để code chạy được. 13/13; lịch sử `tests/SocialApp.ArchitectureTests`
+  từ GĐ2 chỉ **thêm** rule (A1, A4+A7, D0) và gỡ `Skip`, không có dòng nới
 
 **Bảo mật**
 
-- [ ] Sáu dòng matrix mới xanh; thử cho đỏ một lần bằng cách bỏ kiểm ownership rồi khôi phục
-- [ ] Đọc thẳng DB: không có `posts.author_id` nào khác `sub` của người đã tạo bài
-- [ ] Trình duyệt không bao giờ thấy `storage_key` của người khác (Network tab ở F3)
-- [ ] Bucket **không** để public; mở một URL ảnh đã hết hạn → R2 trả 403
+- [x] Sáu dòng matrix mới xanh; thử cho đỏ một lần bằng cách bỏ kiểm ownership rồi khôi phục (`B3`: bỏ
+  `post.AuthorId != actorId` → đỏ đúng `TC-A03` / `TC-A03-delete`)
+- [ ] Đọc thẳng DB: không có `posts.author_id` nào khác `sub` của người đã tạo bài. Dev: 77 bài, 0 `author_id` không
+  có trong `identity.users`, 0 không có hồ sơ; body gửi `authorId` → 400 (`Field_la_trong_body_tra_400`). **Chờ psql
+  trên staging**
+- [x] Trình duyệt không bao giờ thấy `storage_key` của người khác (Network tab ở `F2`: response của `/bff/api/posts/*`
+  không có key nào)
+- [x] Bucket **không** để public; mở một URL ảnh đã hết hạn → R2 trả 403 (`F3` #5: **403 `ExpiredRequest`**; bỏ hẳn
+  chữ ký → `400 InvalidArgument`, không trả object)
 
 **Vận hành**
 
-- [ ] `R2__Endpoint`, `R2__Bucket`, `R2__AccessKey`, `R2__SecretKey` đã có trên staging **trước khi merge**
-- [ ] Worker dọn rác chạy đúng một lượt trên staging, log số object đã xóa
-- [ ] Tắt Redis → worker bỏ lượt và **không** chạy khi không có khóa; api vẫn phục vụ bình thường
+- [x] `R2__Endpoint`, `R2__Bucket`, `R2__AccessKey`, `R2__SecretKey` đã có trên staging **trước khi merge**. Bằng chứng
+  gián tiếp: `F3` `PUT`/`GET` 200 vào đúng bucket `socialmedia-staging`, CSP có host R2
+- [ ] Worker dọn rác chạy đúng một lượt trên staging, log số object đã xóa — **chờ server**: worker mặc định TẮT, phải
+  đặt `Media__Cleanup__Enabled=true`, và lượt đầu chạy **sau 60 phút** (không chạy lúc khởi động)
+- [ ] Tắt Redis → worker bỏ lượt và **không** chạy khi không có khóa; api vẫn phục vụ bình thường — **chờ server**
+  (Integration `Redis_khong_toi_duoc_thi_bo_luot_khong_xoa_gi` xanh ở local)
 
 **Lát cắt dọc**
 
-- [ ] E2E trên staging: đăng nhập → onboarding → đăng bài 2 ảnh → xem lại → sửa → xóa
-- [ ] Ảnh có mặt thật trong bucket `-staging` (ảnh chụp dashboard R2)
-- [ ] Frontend đã bỏ mock (`mocks/` chỉ còn phục vụ Vitest)
+- [x] E2E trên staging: đăng nhập → onboarding → đăng bài 2 ảnh → xem lại → sửa → xóa (`F3`, 2026-09-21)
+- [ ] Ảnh có mặt thật trong bucket `-staging` (ảnh chụp dashboard R2) — **chờ người có quyền Cloudflare**. Đường dẫn
+  object đã biết: `avatars/{userId}/…` và `posts/{userId}/…` (`F3`)
+- [x] Frontend đã bỏ mock (`mocks/` chỉ còn phục vụ Vitest — `F2` bước 1, lệnh bản Q-E7)
 
 ## 13. Sai khác so với kế hoạch gốc và báo cáo v5.0
 
@@ -1031,6 +1099,11 @@ Sau A5, hai module đã có type thật: thêm một test canh gác giống
 > **Mục tiêu khối:** biến mọi luật của Phần A thành thứ **chặn merge**, và giữ nguyên tinh thần GĐ1: khung không sửa,
 > chỉ thêm dòng.
 
+> **Hướng dẫn thi công từng bước:** [huong-dan-khoi-b-c-test-va-luu-tru.md](huong-dan-khoi-b-c-test-va-luu-tru.md)
+> — mục tiêu và kết quả mong đợi của từng đầu việc, file nào, lệnh nào, cạm bẫy nào, checklist nghiệm thu.
+> Gộp chung với khối C vì B.2 giao cả hai cho cùng một người (BE-2) và hai khối gặp nhau ở `C5`.
+> Mục B.4 dưới đây giữ nguyên vai trò "cái gì và vì sao".
+
 ### B1 — Harness cho hai context mới
 
 `PostgresFixture` thêm `SeededContentDatabaseAsync(key)` chạy migrate cả ba module. Giữ nguyên luật chọn hàm của
@@ -1038,6 +1111,14 @@ GĐ1: test **sửa** dữ liệu dùng `CreateDatabaseAsync`, test chỉ **đọ
 
 Cảnh báo về thời gian: nhóm test Postgres của GĐ1 đã chạy tuần tự trong một collection. Thêm hai module là thêm
 migration mỗi lần dựng DB — đo lại thời gian **trước** khi thêm; vượt ~3 phút thì tách collection (GĐ1 đã ghi ngưỡng này).
+
+> **Chốt 2026-09-19 (`Q-B1`):** thêm `SeededContentDatabaseAsync` **bên cạnh**, giữ nguyên hàm cũ. Hàm cũ có **bốn** chỗ
+> gọi cùng `key = "authz"` (`AuthZMatrixTests`, `OwnershipTemplateTests`, `JwtAuthenticationTests`,
+> `RolePermissionSourceTests`) — phát hiện bằng impact analysis, không phải hai như bản phác của hướng dẫn. Vì cache
+> `_shared` khóa theo `key`, đổi lẻ vài chỗ là database dùng chung phụ thuộc thứ tự xUnit → đỏ ngẫu nhiên. Xử lý: **đổi
+> cả bốn** sang hàm mới, và cache khóa theo `<hàm>:<key>` để trộn hai hàm cùng key không bao giờ thành một database.
+> Đổi một dòng gọi ở các file test đó **không** tính là "sửa khung" — khung là hình dạng `AuthZCase` và khẳng định của
+> `Ma_tran_phan_quyen`, không phải nguồn dữ liệu.
 
 ### B2 — Sáu dòng AuthZ matrix (Mục 6.3)
 
@@ -1049,6 +1130,10 @@ DB — INSERT thẳng thì test không đi qua đúng đường mà người dù
 Đúng nếp `B3` của GĐ1: thêm dòng matrix **trước** khi viết kiểm ownership, thấy đỏ, rồi mới viết `PATCH`/`DELETE`.
 Ghi lại bảng đột biến: bỏ `post.AuthorId != actorId` → `TC-A03` đỏ; đổi 403 thành 404 → đỏ; bỏ kiểm tiền tố key →
 `TC-A03-media` đỏ.
+
+> **Chốt 2026-09-19 (`Q-B3`):** `B3` nhận thêm bốn test BR-01 **mức integration** đi qua `POST /posts` — `AC-02`, `AC-03`,
+> `BR01-05`, `BR01-06` của Mục 10.1. Unit test BR-01 dạng hàm thuần vẫn thuộc `A4` (đã xong); phần còn lại của Mục 10.1
+> đi cùng endpoint sinh ra chúng (khối D). `BR01-05` còn canh thứ mà `D5` không tự canh được: HEAD đứng **trước** transaction.
 
 ### B4 — Hai `ContractTests` mới + hai dòng trong csproj
 
@@ -1067,11 +1152,21 @@ Mục 9: thêm cổng thì **phải thử cho đỏ một lần rồi khôi ph�
 > **Mục tiêu khối:** đóng rủi ro ISS-02 sớm nhất có thể, và để lại một interface mà GĐ5 dùng lại được cho media
 > tin nhắn mà không phải sửa gì.
 
+> **Hướng dẫn thi công từng bước:** [huong-dan-khoi-b-c-test-va-luu-tru.md](huong-dan-khoi-b-c-test-va-luu-tru.md)
+> Phần I — mục tiêu và kết quả mong đợi của từng đầu việc, file nào, lệnh nào, cạm bẫy nào, checklist nghiệm thu.
+> Mục B.5 dưới đây giữ nguyên vai trò "cái gì và vì sao".
+
 ### C1 — `IObjectStorage` + `R2Options` ở SharedKernel
 
 Bề mặt tối thiểu, không hơn: `CreatePresignedPut`, `CreatePresignedGet`, `HeadAsync`, `DeleteAsync`, `ListAsync`.
 `R2Options` fail-fast như `JwtOptions` của GĐ1: ngoài Development thiếu `R2__Endpoint|Bucket|AccessKey|SecretKey`
 thì **app từ chối khởi động**, thông báo nêu đúng tên biến và đúng chỗ sửa.
+
+> **Chốt 2026-09-19 (`Q-C1`):** fail-fast **chỉ ngoài Development**, chép nguyên khuôn cấu hình email của GĐ1. Lý do:
+> `ApiFactory` (smoke + **cổng hợp đồng API**) chạy Development và cố ý không có khóa R2; fail-fast ở mọi môi trường là cổng
+> hợp đồng đỏ vì lý do không liên quan hợp đồng. Ở Development thiếu khóa thì app khởi động, lời gọi `IObjectStorage`
+> đầu tiên mới ném với thông điệp nêu bốn tên biến và lệnh `user-secrets`. `StartupConfigurationTests` có thêm hai
+> khẳng định: Staging thiếu từng key → ném nêu tên; `ApiFactory` khởi động được **không** có `R2__*`.
 
 ### C2 — `R2ObjectStorage` + kiểm chứng presign PUT bằng tay
 
@@ -1080,6 +1175,16 @@ Hiện thực bằng `AWSSDK.S3` trỏ vào endpoint R2 (`ForcePathStyle` theo y
 
 **Nghiệm thu C2 không phải bằng test**: dựng một trang tạm hay dùng luôn DevTools của FE để `PUT` một ảnh thật lên
 bucket `-dev` từ **trình duyệt**. Đây là lần chạm đầu tiên với CORS — làm ở Ngày 6, không để tới F3.
+
+> **Thi công 2026-09-19 — xong cả code lẫn nghiệm thu trình duyệt; ISS-02 đóng trên dev** (PUT 200 từ `http://localhost:3000`
+> lên `socialmedia-dev`, preflight 204, `Access-Control-Allow-Origin` đúng, `X-Amz-SignedHeaders=content-length;content-type;host`).
+> Trang probe phục vụ bằng server tĩnh trần vì CSP của `proxy.ts` chưa mở `connect-src` cho R2 — đó là việc `E7`/`Đ-E17`, và
+> là thứ `F3` phải kiểm lại trên staging qua chính app. Hai điều lộ ra khi làm: (1) `AWSSDK.S3`
+> **v4** mặc định `RequestChecksumCalculation`/`ResponseChecksumValidation = WHEN_SUPPORTED`, gửi thêm header checksum CRC mà
+> R2 không hiểu và lỗi trả về không nói gì về checksum — phải đặt cả hai về `WHEN_REQUIRED`; (2) sinh key (`posts/{userId}/…`,
+> allowlist, kiểm tiền tố cho `TC-A03-media`) đặt ở `SharedKernel/Storage/StorageKeys.cs` vì cả Profile lẫn Content dùng;
+> allowlist ở đó trùng `MediaAttachment.AllowedContentTypes` và có unit test canh hai danh sách không lệch. Unit test đã
+> khẳng định URL PUT có `content-length` + `content-type` trong `X-Amz-SignedHeaders`, hạn 600 s; GET 900 s, chỉ ký `host`.
 
 ### C3 — Kiểm lúc commit: `HeadAsync` + đối chiếu khai báo
 
@@ -1090,6 +1195,12 @@ object không tồn tại: ba nhánh, ba thông điệp, cùng một mã 400.
 
 `IHostedService` trong `Content.Infrastructure`, đăng ký trong `AddContentModule`. Có công tắc cấu hình để tắt
 (`Media:Cleanup:Enabled`) — test và môi trường dev không cần nó chạy nền.
+
+> **Chốt 2026-09-19 (`Q-C2`):** công tắc mặc định **tắt**; staging bật tường minh bằng `Media__Cleanup__Enabled=true`
+> trong `deploy/.env` (key này phải có mặt trong mục "Trước khi merge" của PR khối C). Vì worker đăng ký trong
+> `AddContentModule` nên nó chạy trong **mọi** host kể cả `WebApplicationFactory` của test — mặc định bật là gọi R2 thật
+> từ CI không có khóa, hoặc xóa object trong lúc test khác đang dùng. "Quên bật trên staging" nhìn thấy được (bucket tích
+> rác); "quên tắt trên CI" thì không.
 
 ### C5 — `FakeObjectStorage` cho test
 
@@ -1102,6 +1213,13 @@ In-memory, cài cùng interface, cho phép test dựng sẵn kết quả HEAD. �
 
 > **Mục tiêu khối:** hợp đồng ở Mục 8 thành hệ thống chạy thật, khớp từng mã lỗi, và mỗi endpoint chạm tài nguyên có
 > chủ đều có dòng matrix.
+
+> **Hướng dẫn thi công từng bước:** [huong-dan-khoi-d-endpoint.md](huong-dan-khoi-d-endpoint.md)
+> — mục tiêu và kết quả mong đợi của từng đầu việc `D0`–`D9`, file nào, lệnh nào, cạm bẫy nào, checklist nghiệm thu.
+> Mục 1.4 của file đó liệt kê tám điểm (`Q-D2`–`Q-D9`) mà Phần A chưa nói đủ hoặc nói lệch nhau (casing enum, ngữ nghĩa
+> `bio`, 400 kèm `errors` từ service, kiểm `post.create` theo `purpose`, keyset, mã 400 của `DELETE /posts`, tác giả vắng
+> mặt, avatar khi chưa có hồ sơ) — chốt ở đầu khối, ghi ngược vào đây khi chốt. Mục B.6 dưới đây giữ nguyên vai trò
+> "cái gì và vì sao".
 
 ### D0 — Nền chung của hai module
 
@@ -1167,15 +1285,31 @@ Giống `D9`/`D10` của GĐ1: đối chiếu từng mã lỗi trong hợp đồ
 > **Mục tiêu khối:** lát cắt dọc chạm tới người dùng thật, và chứng minh CORS bằng trình duyệt — thứ backend không tự
 > chứng minh được.
 
+> **Hướng dẫn thi công từng bước:** [huong-dan-khoi-e-f-frontend-va-cong-dong.md](huong-dan-khoi-e-f-frontend-va-cong-dong.md)
+> — mục tiêu và kết quả mong đợi của từng đầu việc `E1`–`E8` và `F1`–`F5`, file nào, lệnh nào, cạm bẫy nào, checklist
+> nghiệm thu. Gộp khối E và khối F vào một file vì tới lúc chúng bắt đầu thì A–D đã xong, không còn lane để chạy song
+> song. Mục 1.4 của file đó liệt kê tám điểm (`Q-E1`–`Q-E8`) mà Phần B chưa nói đủ hoặc nói lệch nhau (host R2 vào CSP
+> lấy từ biến nào, chỗ đặt `/onboarding`, `XMLHttpRequest` trong luật ESLint, số ngữ cảnh lỗi, kit cần thêm, bản đồ
+> route, nội dung thật của `F2`, Playwright có vào CI không).
+
 Luật đặt file theo `frontend-rules.md` Mục 2: màn nào thì `features/<màn>/`. Tên theo **màn**, không theo module
 backend: `features/profile/`, `features/post/`. Không `features/` nào import chéo `features/` khác.
 
 ### E1 — Codegen + api client + mở rộng `request()`
 
-Hai script `gen:api:*`; `lib/api/profile/`, `lib/api/content/` (kiểu lấy từ file sinh, **không khai lại tay**);
+**Không thêm script `gen:api:*` nào** — `pnpm gen:api` tự sinh `lib/api/profile/` và `lib/api/content/` ngay khi hai file
+`.yaml` được commit ở cổng mở (Mục 8.3, đổi 2026-09-19). `E1` chỉ còn: kiểu lấy từ file sinh (**không khai lại tay**);
 `RequestOptions.method` thêm `PUT | PATCH | DELETE`; `errorMessage` thêm ngữ cảnh `profile`, `post`, `upload`.
 
 Mọi lời gọi đi qua proxy chung `/bff/api/...` — **không thêm route BFF nào** (Đ-E14, luật frontend Mục 4).
+
+> **Lệch B.7 bản gốc (Q-E4, chốt 2026-09-20, trước khi thi công `E1`):** `errorMessage` nhận **bảy** ngữ cảnh —
+> `profile-read`, `profile-write`, `avatar`, `upload`, `post-create`, `post-read`, `post-write` — không phải ba
+> (`profile`, `post`, `upload`) như câu trên. Lý do: bảng ánh xạ theo `(ngữ cảnh, status)`, mà **403 mang nghĩa khác
+> nhau trên các endpoint của cùng một module** — `POST /posts` 403 là "chưa có hồ sơ hoặc thiếu quyền đăng bài",
+> `PATCH /posts/{id}` 403 là "không phải bài của bạn", `PUT /users/me/avatar` 403 là "khóa ảnh không phải của bạn".
+> Gộp ba endpoint vào một ngữ cảnh thì hoặc mất hai câu, hoặc phải đoán nghĩa 403 ở chỗ hiển thị — đúng thứ Đ-E6
+> sinh ra để tránh.
 
 ### E2 — Onboarding hồ sơ
 
@@ -1221,15 +1355,34 @@ Theo Mục 10.5. Playwright chạy local, `workers: 1`, kết quả dán vào PR
 
 > **Mục tiêu khối:** chứng minh trên hệ thống thật, không phải trên máy local và không phải trên mock.
 
+> **Hướng dẫn thi công từng bước:** [huong-dan-khoi-e-f-frontend-va-cong-dong.md](huong-dan-khoi-e-f-frontend-va-cong-dong.md)
+> Mục 10–14 — cùng file với khối E.
+
 ### F1 — Deploy staging qua CD tự động
 
 Trước khi merge: `R2__*` đã có trong `.env` trên server. Sau deploy: service `migrate` chạy xanh cho **cả ba** module;
 `/health/ready` = 200.
 
+> **Bổ sung B.8 bản gốc (Q-E1, ĐẢO lại 2026-09-20 sau khi thi công `E7`):** **KHÔNG có biến mới nào** cho `.env` trên
+> server. Frontend dựng CSP cho R2 từ **chính `R2__Endpoint`** mà API đã dùng — container frontend thấy nó sẵn nhờ
+> `env_file: [./.env]`. Bản chốt đầu buổi sinh thêm `R2_PUBLIC_HOST` vì sợ cổng CI bundle (`B5`, grep chuỗi `R2__` trên
+> `.next/static`) đỏ; **đã đo và cổng không đỏ** — `proxy.ts` là middleware, chuỗi đó chỉ nằm trong `.next/server`.
+> Bỏ biến thứ hai là bỏ luôn cái giá "hai biến một giá trị, có thể lệch". Ràng buộc còn lại: hằng tên biến phải nằm
+> trong `proxy.ts`, không trong `lib/security/csp.ts` (xem Đ-E17). Dòng kiểm ở `F1` giữ nguyên: header
+> `Content-Security-Policy` của `/login` trên staging phải có host R2 — thiếu thì upload **chết trên staging** dù dev
+> xanh, và `R2__Endpoint` sai dạng (có path, có `/` cuối) thì Next **từ chối phục vụ**, không chỉ chặn upload.
+
 ### F2 — Frontend trỏ staging thật, bỏ mock
 
 `mocks/` chỉ còn phục vụ Vitest (luật frontend Mục 8). Kiểm Network: chỉ thấy `/bff/*` và các `PUT` thẳng tới R2 —
 không có JWT nào, không có `storage_key` của người khác.
+
+> **Lệch B.8 bản gốc (Q-E7, chốt 2026-09-20):** `F2` **không còn việc "bỏ mock"** — mock trình duyệt đã bị bỏ từ GĐ1
+> (Đ-E7, đổi 2026-09-17): không cờ `NEXT_PUBLIC_API_MOCKING`, không `public/mockServiceWorker.js`, code app không
+> import `@/mocks/*`. Giữ nguyên mã việc, đổi nội dung thành hai phần: (a) **xác nhận** bằng lệnh —
+> `grep -rn "@/mocks" app features components lib` không ra dòng nào; (b) phần chính là **kiểm tab Network trên
+> staging** theo bốn điều ở câu trên. Để nguyên câu cũ thì `F2` giao một việc không còn tồn tại, và người tick
+> checklist sẽ tick một ô rỗng.
 
 ### F3 — E2E lát cắt + bằng chứng ISS-02
 

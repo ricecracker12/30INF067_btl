@@ -1,0 +1,94 @@
+using SocialApp.IntegrationTests.Harness;
+
+namespace SocialApp.IntegrationTests;
+
+/// <summary>
+/// Fake cũng phải giữ đúng hợp đồng của IObjectStorage — nếu không thì mọi test dựng trên nó xanh trên một hành vi
+/// không tồn tại ngoài đời. Ba điểm hợp đồng dễ lệch: HEAD null khi không có, Delete idempotent, List phân trang thật.
+/// Không cần container: đây là test của harness.
+/// </summary>
+public sealed class FakeObjectStorageTests
+{
+    [Fact]
+    public async Task Head_tra_dung_thu_da_Put_va_null_khi_khong_co()
+    {
+        var fake = new FakeObjectStorage();
+        fake.Put("posts/u/a.jpg", 12L * 1024 * 1024, "image/jpeg");
+
+        var head = await fake.HeadAsync("posts/u/a.jpg");
+        Assert.NotNull(head);
+        Assert.Equal(12L * 1024 * 1024, head.ContentLength);
+        Assert.Equal("image/jpeg", head.ContentType);
+
+        Assert.Null(await fake.HeadAsync("posts/u/khong-co.jpg"));
+        Assert.Equal(2, fake.HeadCalls);
+    }
+
+    [Fact]
+    public async Task Delete_idempotent_va_ghi_lai_key_da_xoa()
+    {
+        var fake = new FakeObjectStorage();
+        fake.Put("avatars/u/a.png", 10, "image/png");
+
+        await fake.DeleteAsync("avatars/u/a.png");
+        await fake.DeleteAsync("avatars/u/a.png");   // lần hai: không ném, không ghi thêm
+
+        Assert.False(fake.Exists("avatars/u/a.png"));
+        Assert.Equal(["avatars/u/a.png"], fake.Deleted);
+    }
+
+    [Fact]
+    public async Task List_phan_trang_theo_prefix_bang_continuation_token()
+    {
+        var fake = new FakeObjectStorage();
+        for (var i = 0; i < 5; i++)
+            fake.Put($"posts/u/{i}.jpg", 1, "image/jpeg");
+        fake.Put("avatars/u/x.png", 1, "image/png");   // prefix khác — không được lọt vào
+
+        var page1 = await fake.ListAsync("posts/", continuationToken: null, maxKeys: 2);
+        var page2 = await fake.ListAsync("posts/", page1.NextContinuationToken, maxKeys: 2);
+        var page3 = await fake.ListAsync("posts/", page2.NextContinuationToken, maxKeys: 2);
+
+        Assert.Equal(2, page1.Items.Count);
+        Assert.Equal(2, page2.Items.Count);
+        Assert.Single(page3.Items);
+        Assert.Null(page3.NextContinuationToken);
+        Assert.All(page1.Items.Concat(page2.Items).Concat(page3.Items), i => Assert.StartsWith("posts/", i.Key));
+    }
+
+    [Fact]
+    public void URL_gia_khong_giong_R2_va_khong_mang_chu_ky()
+    {
+        var fake = new FakeObjectStorage();
+        var url = fake.CreatePresignedPut("posts/u/a.jpg", "image/jpeg", 1);
+
+        Assert.StartsWith("https://fake.invalid/", url);
+        Assert.DoesNotContain("X-Amz-Signature", url);
+        Assert.DoesNotContain("r2.cloudflarestorage.com", url);
+    }
+
+    /// <summary>
+    /// B1 (GĐ4, L2): tắt mặc định thì hai lần ký bằng nhau (AvatarTests/UpsertProfileTests so nguyên chuỗi); bật thì
+    /// khác nhau nhưng cùng tiền tố — FEED-10 phân biệt hydrate ký lại với cache trả URL cũ.
+    /// </summary>
+    [Fact]
+    public void DistinctGetUrls_tat_hai_lan_bang_nhau_bat_thi_khac_cung_tien_to()
+    {
+        var fake = new FakeObjectStorage();
+        const string key = "posts/u/a.jpg";
+
+        Assert.False(fake.DistinctGetUrls);
+        var a = fake.CreatePresignedGet(key);
+        var b = fake.CreatePresignedGet(key);
+        Assert.Equal(a, b);
+        Assert.Equal($"https://fake.invalid/get/{key}", a);
+
+        fake.DistinctGetUrls = true;
+        var c = fake.CreatePresignedGet(key);
+        var d = fake.CreatePresignedGet(key);
+        Assert.NotEqual(c, d);
+        Assert.StartsWith($"https://fake.invalid/get/{key}?sig=", c);
+        Assert.StartsWith($"https://fake.invalid/get/{key}?sig=", d);
+        Assert.Equal(4, fake.PresignGetCalls);
+    }
+}

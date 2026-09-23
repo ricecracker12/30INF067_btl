@@ -179,7 +179,7 @@ describe("RegisterForm — lỗi cấp form (bảng E4)", () => {
     expect(alert).toHaveTextContent(
       "Bạn thao tác quá nhanh. Vui lòng thử lại sau ít phút."
     )
-    expect(alert).toHaveFocus()
+    await waitFor(() => expect(alert).toHaveFocus())
   })
 
   it("500: câu chung kèm traceId của response", async () => {

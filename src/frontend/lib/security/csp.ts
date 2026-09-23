@@ -13,7 +13,53 @@ export function createNonce(): string {
   return btoa(String.fromCharCode(...bytes))
 }
 
-export function buildCsp(nonce: string, { dev }: { dev: boolean }): string {
+/**
+ * Đ-E17 bước 3 — kiểm DẠNG của host R2. Cùng cạm bẫy đã đốt một lần ở `APP_ORIGIN` và
+ * `Cors__AllowedOrigins`: lệch một ký tự (`/` cuối, có path) thì trình duyệt chặn IM LẶNG, và triệu
+ * chứng trông hệt ký sai chữ ký — mất cả buổi để phân biệt. Thà đỏ lúc khởi động.
+ *
+ * Hàm THUẦN: không đọc `process.env`, để Vitest kiểm được mọi nhánh mà không dựng môi trường.
+ *
+ * `name` truyền vào chỉ để ghép thông điệp. File này KHÔNG chứa chuỗi `R2__`: `app/layout.tsx` import
+ * `NONCE_HEADER` từ đây, nên nếu về sau có một client component nào import module này thì cả module
+ * vào bundle trình duyệt — và cổng CI bundle grep đúng chuỗi `R2__` sẽ đỏ với thông điệp không liên
+ * quan gì tới nguyên nhân thật. Tên biến nằm ở `proxy.ts`, chỗ không bao giờ ra trình duyệt.
+ */
+export function checkR2Host(
+  raw: string | undefined | null,
+  { dev, name }: { dev: boolean; name: string }
+): { host: string | null; problem: string | null } {
+  const value = raw?.trim()
+  // Thiếu biến ở dev là hợp lệ: chưa làm E3/E4 thì chưa cần R2. Ngoài dev, chỗ gọi tự từ chối chạy.
+  if (!value) return { host: null, problem: null }
+
+  const sai = (vi_sao: string) => ({
+    host: null,
+    problem: `${name} '${value}' ${vi_sao} — phải có dạng scheme://host[:port], không path, không dấu / ở cuối`,
+  })
+
+  let u: URL
+  try {
+    u = new URL(value)
+  } catch {
+    return sai("không phải URL tuyệt đối")
+  }
+  // http chỉ chấp nhận ở dev (R2 thật luôn https); production dính http là hạ cấp bảo mật lặng lẽ.
+  if (u.protocol !== "https:" && !(dev && u.protocol === "http:"))
+    return sai("phải là https")
+  // `u.origin` bỏ path, query, và dấu `/` cuối — so lại với chuỗi gốc là bắt được cả ba thứ đó một lần.
+  if (u.origin !== value) return sai("có path, query hoặc dấu / ở cuối")
+
+  return { host: value, problem: null }
+}
+
+export function buildCsp(
+  nonce: string,
+  { dev, r2Host }: { dev: boolean; r2Host: string | null }
+): string {
+  // Host R2 vào ĐÚNG HAI chỉ thị dưới. `null` (chưa cấu hình) → không chỉ thị nào có chuỗi rỗng thừa.
+  const r2 = (host: string | null) => (host ? [host] : [])
+
   const directives: [string, ...string[]][] = [
     ["default-src", "'self'"],
     // KHÔNG 'strict-dynamic' (mẫu của Next có): nó tin mọi <script> do script đã tin tạo bằng createElement, và Chrome áp
@@ -32,10 +78,12 @@ export function buildCsp(nonce: string, { dev }: { dev: boolean }): string {
       "'self'",
       ...(dev ? ["'unsafe-inline'"] : [`'nonce-${nonce}'`]),
     ],
-    ["img-src", "'self'", "blob:", "data:"],
+    // Đ-E17: ảnh của người dùng phục vụ từ presigned GET trên R2 (Đ-2.9) — không proxy qua origin mình.
+    ["img-src", "'self'", "blob:", "data:", ...r2(r2Host)],
     ["font-src", "'self'"],
-    // Trình duyệt chỉ nói chuyện với BFF cùng origin (Đ-E14): script lạ không gửi được dữ liệu ra domain khác bằng fetch.
-    ["connect-src", "'self'"],
+    // Trình duyệt chỉ nói chuyện với BFF cùng origin (Đ-E14) — TRỪ lượt `PUT` thẳng lên R2 (Đ-2.5, Đ-E17):
+    // upload đi vòng qua Next server là nhân đôi băng thông VPS cho mỗi ảnh, đúng thứ Đ-2.5 tránh.
+    ["connect-src", "'self'", ...r2(r2Host)],
     ["object-src", "'none'"],
     // Chặn chèn <base href> để đổi đích của mọi đường dẫn tương đối.
     ["base-uri", "'self'"],

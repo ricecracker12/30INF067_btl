@@ -102,4 +102,20 @@ public sealed class PersistenceBoundaryTests
             "Không có type nào trong SocialApp.Modules.Content.Domain — rule persistence boundary "
           + "đang chạy trong chân không. Kiểm tra lại namespace trong PersistenceBoundaryTests.");
     }
+
+    /// <summary>
+    /// Bản SocialGraph của cùng cái canh gác trên (A1, GĐ4 khối A). Không có Skip để gỡ — trước A1
+    /// namespace rỗng nên rule persistence xanh vĩnh viễn trên module này. Test đi cùng entity đầu tiên.
+    /// </summary>
+    [Fact]
+    public void SocialGraph_Domain_namespace_must_not_be_empty()
+    {
+        var types = Architecture.Types
+            .Where(t => t.FullName.StartsWith("SocialApp.Modules.SocialGraph.Domain", StringComparison.Ordinal))
+            .ToList();
+
+        Assert.True(types.Count > 0,
+            "Không có type nào trong SocialApp.Modules.SocialGraph.Domain — rule persistence boundary "
+          + "đang chạy trong chân không. Kiểm tra lại namespace trong PersistenceBoundaryTests.");
+    }
 }

@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test"
 
-import { giuHanMucAuth, taoTaiKhoanDaXacMinh } from "./dev-api"
+import { giuHanMucAuth } from "./dev-api"
+import { taoTaiKhoanCoHoSo } from "./post-helpers"
 
 // E6 trên API DEV THẬT: guard phía client (Đ-E3), tải lại giữ phiên bằng một refresh, đăng xuất.
 // Cần: `dotnet run --project src/backend/SocialApp.Api` (5259) + postgres, redis, mailpit của compose dev.
@@ -41,9 +42,14 @@ test("đăng nhập → /me hiện roleDisplayName; tải lại giữ phiên b�
   page,
   request,
 }) => {
-  // register + verify + login + logout (tải lại và vào lại /me chỉ hỏi BFF, không tốn lượt /auth/* của API)
-  await giuHanMucAuth(4)
-  const { email, password } = await taoTaiKhoanDaXacMinh(request, "e6")
+  // register + verify + login API (dựng hồ sơ) + login UI + logout. Tải lại và vào lại /me chỉ hỏi BFF,
+  // không tốn lượt /auth/* của API.
+  await giuHanMucAuth(5)
+  // HỒ SƠ là TIỀN ĐỀ, không phải thứ ca này kiểm: từ `E2`, `RequireProfile` đá mọi tài khoản chưa
+  // onboarding sang `/onboarding`, nên `taoTaiKhoanDaXacMinh` (chỉ xác minh, chưa có hồ sơ) không bao giờ
+  // tới được `/me`. Bốn ca của GĐ1 đã đỏ vì điều này từ commit E2 và không ai biết — Playwright không vào
+  // CI (Q-E8), và tới `E8` mới có người chạy cả bộ.
+  const { email, password } = await taoTaiKhoanCoHoSo(request, "e6", "An Guard")
 
   await page.goto("/login?next=%2Fme")
   await page.getByLabel("Email").fill(email)

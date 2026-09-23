@@ -28,7 +28,7 @@ public sealed class RolePermissionSourceTests(PostgresFixture postgres) : IAsync
 
     public async Task InitializeAsync() =>
         _services = new ServiceCollection()
-            .AddIdentityModule(await postgres.SeededIdentityDatabaseAsync("authz"))
+            .AddIdentityModule(await postgres.SeededContentDatabaseAsync("authz"))
             .BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
 
     public async Task DisposeAsync() => await _services.DisposeAsync();

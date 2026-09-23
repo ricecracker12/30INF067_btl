@@ -10,6 +10,13 @@ export default defineConfig({
   testDir: "./e2e",
   fullyParallel: false,
   workers: 1,
+  // Một lượt chạy tự động lại cho ca đỏ. KHÔNG phải để che lỗi: Playwright in riêng dòng `flaky` khi ca
+  // đỏ rồi xanh lại, và con số đó phải dán vào PR y như `passed`/`failed` — một ca flaky vẫn là một ca cần
+  // nhìn. Có `retries` vì worker Playwright thỉnh thoảng chết trên Windows với `0xC0000409`
+  // (STATUS_STACK_BUFFER_OVERRUN) TRƯỚC khi test chạy dòng đầu tiên — đã gặp 2026-09-21 với
+  // `register.spec.ts`: đỏ ở 0ms trong lượt cả bộ, chạy riêng ngay sau đó xanh trong 1,9 giây. Không có
+  // `retries` thì một lần Windows hắt hơi là mất cả lượt 8 phút.
+  retries: 1,
   forbidOnly: !!process.env.CI,
   reporter: "list",
   use: {

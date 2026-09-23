@@ -2,8 +2,10 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using SocialApp.IntegrationTests.Harness;
+using SocialApp.SharedKernel.Storage;
 
 namespace SocialApp.IntegrationTests.AuthZ;
 
@@ -18,6 +20,12 @@ namespace SocialApp.IntegrationTests.AuthZ;
 public sealed class AuthZApiFactory : WebApplicationFactory<Program>
 {
     private string? _postgres;
+
+    /// <summary>
+    /// C5 (GĐ2): lưu trữ đối tượng giả cho test của D3/D4/D5 và B3 — test dựng sẵn object bằng <c>Storage.Put(...)</c> rồi gọi
+    /// API thật. Một instance cho cả factory, nên hai test cùng lớp thấy chung dữ liệu: dùng key có Guid riêng, đừng dùng key cố định.
+    /// </summary>
+    public FakeObjectStorage Storage { get; } = new();
 
     /// <summary>Gọi trước CreateClient đầu tiên. Gọi lại với cùng giá trị là vô hại.</summary>
     public void UseDatabase(string connectionString) => _postgres ??= connectionString;
@@ -35,6 +43,11 @@ public sealed class AuthZApiFactory : WebApplicationFactory<Program>
             // Probe controller sống trong assembly TEST: không có trong image, không có trong Swagger,
             // không bị PresentationBoundaryTests quét (nó chỉ quét module + Api).
             services.AddControllers().AddApplicationPart(typeof(AuthZApiFactory).Assembly);
+
+            // C5: thay IObjectStorage bằng fake. RemoveAll trước — không thì hai đăng ký và DI lấy cái cuối theo thứ tự gọi,
+            // tức là đỏ ngẫu nhiên. Program.cs đăng ký bằng TryAdd nên đây là chỗ DUY NHẤT quyết định hiện thực trong test.
+            services.RemoveAll<IObjectStorage>();
+            services.AddSingleton<IObjectStorage>(Storage);
         });
     }
 }

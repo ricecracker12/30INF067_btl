@@ -1,4 +1,5 @@
-import type { ProblemDetails } from "./types"
+import { BFF_PROBLEM_TYPES } from "./bff-contract"
+import type { FeedOverloadedProblem, ProblemDetails } from "./types"
 
 /**
  * Mọi thứ không phải 2xx. Đọc được cả khi body không phải Problem Details — apache trả trang
@@ -41,4 +42,22 @@ export async function toApiError(res: Response): Promise<ApiError> {
       ? (body as ProblemDetails)
       : null
   return new ApiError(res.status, problem)
+}
+
+/**
+ * `type` riêng của Problem Details mà FE phân nhánh theo (GĐ4 Q-E4) — cùng status, khác việc người dùng phải làm. Giá trị
+ * API ràng vào kiểu SINH từ hợp đồng: yaml đổi `type` thì dòng dưới đỏ compile. Giá trị BFF lấy từ `bff-contract.ts` —
+ * hợp đồng của chính BFF. So `type`, KHÔNG so `title`: `title` là nhãn hiển thị, server đổi chữ được mà không báo ai.
+ */
+export const PROBLEM_TYPES = {
+  feedOverloaded:
+    "urn:socialapp:problem:feed-overloaded" satisfies FeedOverloadedProblem["type"],
+  bffSessionUnavailable: BFF_PROBLEM_TYPES.sessionUnavailable,
+} as const
+
+export type ProblemType = (typeof PROBLEM_TYPES)[keyof typeof PROBLEM_TYPES]
+
+/** Lỗi từ `request()` mang đúng `type` này. `NetworkError`, lỗi lạ, hay body không phải Problem Details → `false`. */
+export function hasProblemType(error: unknown, type: ProblemType): boolean {
+  return error instanceof ApiError && error.problem?.type === type
 }

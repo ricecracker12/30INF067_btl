@@ -26,7 +26,10 @@ Lộ trình 8 giai đoạn (GĐ0 → GĐ8) ở [`docs/ke-hoach-trien-khai.md`](d
 |---|---|
 | **GĐ0 + GĐ0B** — Walking Skeleton, staging, CD | Xong. API chạy thật ở `https://mxh.banhgao.net` |
 | **GĐ1** — Identity & Access ([`docs/giai-doan-1/giai-doan-1.md`](docs/giai-doan-1/giai-doan-1.md)) | **Xong** (2026-09-18) |
-| GĐ2 → GĐ8 | Được phép mở. Các module `Profile`, `SocialGraph`, `Content`, `Messaging`, `Notification`, `Moderation` mới có khung thư mục — bắt đầu bằng **cổng mở hợp đồng** module kế tiếp |
+| **GĐ2** — Hồ sơ & Bài viết + ảnh R2 ([`docs/giai-doan-2/giai-doan-2.md`](docs/giai-doan-2/giai-doan-2.md)) | **Xong theo B.11** (2026-09-21). Còn 7 dòng kiểm tận nơi của F4 chờ server staging — xem dưới |
+| GĐ4 (chạy trước GĐ3) | **Được phép mở** — bắt đầu bằng cổng mở hợp đồng SocialGraph + feed |
+| GĐ7 — Vận hành ([`docs/giai-doan-7/giai-doan-7.md`](docs/giai-doan-7/giai-doan-7.md)) | Đang làm song song — khối A + B đã merge (PR #16) |
+| GĐ3, GĐ5, GĐ6, GĐ8 | Chưa mở. Module `SocialGraph`, `Messaging`, `Notification`, `Moderation` mới có khung thư mục |
 
 Chi tiết GĐ1:
 
@@ -48,6 +51,24 @@ Chi tiết GĐ1:
   - bên ghi `revoked:user` khi hạ quyền / khóa TK → **GĐ6**
   - bất biến «≥ 1 Admin» + CRUD vai trò → **GĐ6 / GĐ8**
   - đổi / quên mật khẩu → sau MVP
+
+Chi tiết GĐ2:
+
+- **Đã merge vào `develop`:** khối A (PR #15), khối B–E (PR #19). Staging https://mxh.banhgao.net chạy đủ ba schema
+  `identity`, `profile`, `content`.
+- **Cổng đóng (khối F), 2026-09-21:** F1 deploy CD · F2 tab Network (chỉ `/bff/*` + host R2, không `Authorization`,
+  Web Storage trống) · F3 E2E trên staging bằng tài khoản mới, **ISS-02 đóng** (`PUT` thẳng lên R2 → 200) · F4 tick
+  13/20 dòng Mục 11–12 · F5 đóng băng. Hướng dẫn:
+  [`huong-dan-khoi-e-f-frontend-va-cong-dong.md`](docs/giai-doan-2/huong-dan-khoi-e-f-frontend-va-cong-dong.md).
+- **Còn chờ (F4):** log api không chứa presigned URL/email; psql trên staging (FK chéo schema, `posts.author_id`);
+  `migrate` lần hai; worker chạy một lượt; tắt Redis; ảnh dashboard R2. Lệnh sẵn ở "Thực tế thi công" của F4.
+- **Đóng băng hợp đồng:** `profile-v1.yaml`, `content-v1.yaml` **không đổi hình dạng** cho phạm vi GĐ2. Đổi sau mốc
+  này = cổng mở của giai đoạn cần đổi.
+- **Dễ hiểu nhầm:** bài `friends` hiện **chỉ tác giả thấy** (`IFriendshipReader` là null-object tới GĐ4), không phải
+  bug. URL ảnh sống 15 phút: tab mở lâu thì ảnh tự nạp lại URL mới.
+- **Hoãn có địa chỉ** (bảng đầy đủ ở `giai-doan-2.md` Mục 2): bình luận/cảm xúc → **GĐ3** · feed + `friends` thật →
+  **GĐ4** · media tin nhắn → **GĐ5** · ẩn/gỡ bài BR-07, index tìm kiếm → **GĐ6** · cắt/nén ảnh, sửa ảnh của bài →
+  **GĐ7** · xóa cứng, dọn `profiles`/`posts` và avatar mồ côi khi xóa tài khoản → **GĐ8**
 
 ---
 
@@ -163,9 +184,15 @@ pnpm dev
 ```
 
 Mở **http://localhost:3000**. Trình duyệt chỉ gọi **BFF** cùng origin (`/bff/*`); Next server gọi API
-`http://localhost:5259/api/v1` và giữ token trong **Redis** — nên FE dev cần Redis của Mục 4.2 đang chạy. **Không cần**
-file `.env.local`: thiếu biến thì `lib/bff/config.ts` dùng mặc định local (khóa mã hóa phiên sinh ngẫu nhiên mỗi lần
-`pnpm dev` — khởi động lại là phải đăng nhập lại). Danh sách biến: `src/frontend/.env.example`.
+`http://localhost:5259/api/v1` và giữ token trong **Redis** — nên FE dev cần Redis của Mục 4.2 đang chạy. Cấu hình BFF
+**không bắt buộc**: thiếu biến thì `lib/bff/config.ts` dùng mặc định local (khóa mã hóa phiên sinh ngẫu nhiên mỗi lần
+`pnpm dev` — khởi động lại là phải đăng nhập lại). Cần đặt gì thì đặt vào **`src/frontend/.env`** — FE dùng **một** file
+env duy nhất, không `.env.local` (chốt 2026-09-20). Danh sách biến của BFF: `deploy/.env.example` — dev thiếu biến
+nào cũng có mặc định local, nên `src/frontend/.env.example` chỉ giữ thứ **phải** đặt tay ở dev.
+
+> Làm `E3`/`E4` (ảnh) thì `.env` phải có `R2__Endpoint` — chép từ `dotnet user-secrets` của API sang. Node **không**
+> đọc được user-secrets (kho của .NET), và key bên đó tên `R2:Endpoint` chứ không phải `R2__Endpoint`. Thiếu nó thì
+> CSP chặn lượt `PUT` lên R2, triệu chứng trông hệt CORS sai trên bucket (Đ-E17).
 
 > Vì sao DevTools không còn thấy `Authorization: Bearer …`: token không bao giờ tới trình duyệt (Đ-E14). Muốn xem token
 > để gỡ lỗi API thì gọi API bằng `curl` như [Mục 6.3](#63-gọi-endpoint-cần-đăng-nhập).
@@ -217,8 +244,8 @@ docker compose -f deploy/docker-compose.dev.yml up -d --build
 docker compose -f deploy/docker-compose.dev.yml run --rm --entrypoint "dotnet SocialApp.Api.dll --migrate" api
 ```
 
-API khi đó ở **http://localhost:8080**. Muốn BFF gọi vào đây thì tạo `src/frontend/.env.local` với
-`API_INTERNAL_URL=http://localhost:8080/api/v1`. Đừng chạy song song với `dotnet run` nếu không cần: hai API cùng
+API khi đó ở **http://localhost:8080**. Muốn BFF gọi vào đây thì thêm `API_INTERNAL_URL=http://localhost:8080/api/v1`
+vào `src/frontend/.env`. Đừng chạy song song với `dotnet run` nếu không cần: hai API cùng
 trỏ một DB.
 
 **Rút ngắn access token để thử refresh** (E7) — mặc định 900 giây:
@@ -362,7 +389,7 @@ cũng được, vì trình duyệt tự gửi cookie cùng origin.
 npx @redocly/cli lint src/backend/Modules/Identity/Presentation/identity-v1.yaml   # 2 warning đã biết, 0 error
 dotnet test tests/SocialApp.IntegrationTests --filter "Category=Contract"
 
-cd src/frontend && pnpm gen:api     # sinh lại lib/api/schema.d.ts từ yaml, COMMIT file sinh ra
+cd src/frontend && pnpm gen:api     # sinh lại lib/api/<nhóm>/schema.d.ts từ MỌI yaml, COMMIT file sinh ra
 ```
 
 ---
@@ -603,14 +630,14 @@ Repo được index bởi GitNexus để phân tích tác động trước khi s
 | Mọi thao tác báo lỗi 503 / không giữ được phiên | Redis chưa chạy: `docker compose -f deploy/docker-compose.dev.yml up -d redis` |
 | `POST /bff/…` trả 403 | Request không có `Origin` đúng `APP_ORIGIN` (chống CSRF) — FE chạy ở cổng khác 3000 thì đặt `APP_ORIGIN` |
 | Console: `Refused to execute inline script … Content Security Policy` | Script inline không mang nonce (Đ-E15). Dùng `next/script` hoặc đọc nonce từ header `x-nonce`; không nới CSP |
-| Vừa `pnpm dev` lại thì bị đăng xuất | Bình thường ở dev: khóa mã hóa phiên sinh lại mỗi lần khởi động. Đặt `SESSION_ENCRYPTION_KEY` trong `.env.local` nếu cần giữ |
+| Vừa `pnpm dev` lại thì bị đăng xuất | Bình thường ở dev: khóa mã hóa phiên sinh lại mỗi lần khởi động. Đặt `SESSION_ENCRYPTION_KEY` trong `src/frontend/.env` nếu cần giữ |
 | 429 Too Many Requests | Rate limit `/auth/*` 10 request/phút/IP. Chờ một phút |
 | Integration test lỗi `Docker is either not running…` | Bật Docker Desktop |
 | `pnpm` sai phiên bản / lockfile lỗi | `corepack enable` rồi `pnpm install`. Không dùng `npm install` |
 | Không thấy mail xác minh (dev) | Mailpit chưa bật: `docker compose -f deploy/docker-compose.dev.yml up -d mailpit` |
 | Staging `/login` 404, `/` là trang apache | Bình thường ở thời điểm này: FE chưa deploy (F1) |
 | Trang Apache **503** (`Service Unavailable`), `/health/ready` vẫn 200 | Frontend không listen trên `127.0.0.1:3000`: container chưa `up` sau lần bind fail, hoặc crash thiếu biến BFF. `docker compose … ps` + `logs frontend` |
-| Container frontend dừng ngay, exit 1 | Thiếu / sai biến BFF — `docker logs` có dòng `[bff] …` nêu tên biến (`src/frontend/.env.example`) |
+| Container frontend dừng ngay, exit 1 | Thiếu / sai biến BFF — `docker logs` có dòng `[bff] …` nêu tên biến (`deploy/.env.example`) |
 
 ---
 

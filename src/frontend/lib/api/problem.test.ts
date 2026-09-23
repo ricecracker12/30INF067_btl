@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest"
 
-import { ApiError, toApiError } from "./problem"
+import {
+  ApiError,
+  hasProblemType,
+  NetworkError,
+  PROBLEM_TYPES,
+  toApiError,
+} from "./problem"
 
 const problemResponse = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), {
@@ -96,5 +102,37 @@ describe("toApiError", () => {
 
     expect(err.status).toBe(503)
     expect(err.problem).toBeNull()
+  })
+})
+
+describe("hasProblemType (Q-E4)", () => {
+  const withType = (type: string) =>
+    new ApiError(503, { type, title: "t", status: 503, traceId: "x" })
+
+  it("khớp đúng `type`, không khớp `type` kia dù cùng status", () => {
+    const feed = withType(PROBLEM_TYPES.feedOverloaded)
+
+    expect(hasProblemType(feed, PROBLEM_TYPES.feedOverloaded)).toBe(true)
+    expect(hasProblemType(feed, PROBLEM_TYPES.bffSessionUnavailable)).toBe(
+      false
+    )
+  })
+
+  it("type mặc định theo status, body không phải Problem Details, lỗi mạng, lỗi lạ → false", () => {
+    expect(
+      hasProblemType(
+        withType("https://httpstatuses.io/503"),
+        PROBLEM_TYPES.feedOverloaded
+      )
+    ).toBe(false)
+    expect(
+      hasProblemType(new ApiError(503, null), PROBLEM_TYPES.feedOverloaded)
+    ).toBe(false)
+    expect(
+      hasProblemType(new NetworkError("x"), PROBLEM_TYPES.feedOverloaded)
+    ).toBe(false)
+    expect(
+      hasProblemType(new TypeError("x"), PROBLEM_TYPES.feedOverloaded)
+    ).toBe(false)
   })
 })
