@@ -32,7 +32,7 @@ pg()  { docker compose exec -T postgres "$@"; }
 env_value() { { grep -E "^$1=" "$BACKUP_ENV" 2>/dev/null || true; } | head -1 | cut -d= -f2-; }
 
 # full (03:00) và sync (*/15) có thể gặp nhau — không cho chạy chồng
-exec 9>/tmp/socialapp-backup.lock
+exec 9>/tmp/socialmedia-backup.lock
 flock -n 9 || { log "đang có lần chạy khác — bỏ qua"; exit 0; }
 
 sync_to_r2() {

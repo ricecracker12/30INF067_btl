@@ -20,7 +20,7 @@
 | Nơi | Đường dẫn | Ai có | Khi nào dùng |
 |---|---|---|---|
 | **Nóng** — trên VM | `~/app/deploy/backups/{base,wal,dump}/` (user `deploy`) | Ai có SSH | Xóa nhầm, migration hỏng, VM còn sống |
-| **Nguội** — R2 | bucket `socialapp-backup`, tiền tố `staging/` (sau D4: `production/`) | Token trong `deploy/backup.env` trên VM + bản trong kho bí mật nhóm | **Mất VM** |
+| **Nguội** — R2 | bucket `socialmedia-backup`, tiền tố `staging/` (sau D4: `production/`) | Token trong `deploy/backup.env` trên VM + bản trong kho bí mật nhóm | **Mất VM** |
 | Log | `~/app/deploy/backup.log` — mỗi bản: tên, kích thước, sha256, trạng thái archiver | | Chọn bản, đối chiếu hash |
 
 Tên bản sao: `daily-20260920T200000Z` / `weekly-…` (UTC). Bản `weekly` chỉ khôi phục được **tới đúng lúc chụp**
@@ -69,7 +69,7 @@ mkdir -p backups
 
 # 1. Kéo toàn bộ bản sao về — ghi giờ bắt đầu/kết thúc, đây là bước tốn thời gian nhất
 docker run --rm --env-file backup.env -v "$PWD/backups:/data" rclone/rclone:latest \
-  copy "r2:socialapp-backup/staging" /data --stats-one-line -v
+  copy "r2:socialmedia-backup/staging" /data --stats-one-line -v
 ls backups/base/ backups/wal/ | head
 
 # 2. Khôi phục ra cạnh và đối chiếu (giống Kịch bản A, bước 2–4)

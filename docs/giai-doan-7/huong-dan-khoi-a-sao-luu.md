@@ -182,8 +182,8 @@ Bản sao nằm trên VM chưa phải bản sao (Đ-7.10). Và "backup không ch
 ### Việc phải làm
 
 **Bước 1 — Cloudflare dashboard (chủ tài khoản, ~15 phút):**
-1. R2 → *Create bucket* → `socialapp-backup`. Không bật public access. Không CORS (không có trình duyệt nào đọc nó).
-2. R2 → *Manage R2 API Tokens* → *Create* → quyền **Object Read & Write**, *Specify bucket* = `socialapp-backup`
+1. R2 → *Create bucket* → `socialmedia-backup`. Không bật public access. Không CORS (không có trình duyệt nào đọc nó).
+2. R2 → *Manage R2 API Tokens* → *Create* → quyền **Object Read & Write**, *Specify bucket* = `socialmedia-backup`
    **chỉ bucket này** → lưu Access Key ID + Secret Access Key + endpoint `https://<account-id>.r2.cloudflarestorage.com`
    vào kho bí mật nhóm. **Không** dùng lại token của `-dev`/`-staging` (GĐ2) — và nhớ đây là token mới, không dính
    vụ lộ khóa 2026-09-04.
@@ -210,7 +210,7 @@ nano backup.env      # điền 3 khóa R2 + endpoint + BACKUP_KUMA_PUSH_URL; BAC
 ```bash
 mkdir -p /tmp/r2-check
 docker run --rm --env-file backup.env -v /tmp/r2-check:/data rclone/rclone:latest \
-  copy r2:socialapp-backup/staging/base /data --max-depth 2 --stats-one-line
+  copy r2:socialmedia-backup/staging/base /data --max-depth 2 --stats-one-line
 ls -R /tmp/r2-check | head; tar tzf /tmp/r2-check/daily-*/base.tar.gz | head -3     # liệt kê được = file lành
 ```
 
@@ -277,7 +277,7 @@ docker compose -f docker-compose.staging.apache.yml exec -T postgres psql -U soc
 # 3. GIẢ VỜ MẤT VM: đổi tên thư mục bản sao nóng — không xóa
 mv backups backups.truoc-drill && mkdir backups
 # 4. Kéo về từ R2 — BẤM GIỜ (bước tốn nhất)
-docker run --rm --env-file backup.env -v "$PWD/backups:/data" rclone/rclone:latest copy r2:socialapp-backup/staging /data --stats-one-line -v
+docker run --rm --env-file backup.env -v "$PWD/backups:/data" rclone/rclone:latest copy r2:socialmedia-backup/staging /data --stats-one-line -v
 # 5. Khôi phục ra cạnh — BẤM GIỜ
 ./restore.sh $(ls backups/base | grep daily | tail -1)
 # 6. --migrate phải no-op (runbook Kịch bản A bước 3) — BẤM GIỜ
