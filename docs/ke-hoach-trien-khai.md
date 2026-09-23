@@ -452,6 +452,16 @@ còn biên độ thêm index/cache nếu trượt; và thứ cắt được thì
   client cho việc này, vì FE trễ một nhịp nên chat UI mãi GĐ6 mới có. Bản B không cần — Mục 0C.)*
 
 ### GĐ 6 — Notification + Search + Moderation/Admin: UC-16,17,18,19,20 (Ngày 19–21)
+
+> 📄 **Tài liệu thi công chi tiết: [`giai-doan-6.md`](./giai-doan-6/giai-doan-6.md)** — 21 quyết định thiết kế
+> (Đ-6.1–Đ-6.21, trạng thái đề xuất, chốt ở cổng mở), DDL hai schema `moderation`/`notification`, transaction xuyên module,
+> hợp đồng ba nhóm mới (`moderation-v1`, `notification-v1`, `admin-v1`) + hub thông báo, checklist nghiệm thu.
+>
+> **Ba chỗ lệch mục này, có chủ đích:** `/admin/users*` và `/admin/roles*` nằm ở **Identity**, không ở Moderation (Đ-6.1);
+> hai hợp đồng **ghi** ở SharedKernel (`IAuditTrail`, `IModerationTargets`) để ẩn bài + đóng báo cáo + audit chung một
+> transaction (Đ-6.3, lệch Đ-2.3); thêm mã quyền thứ 18 `role.manage` (Đ-6.9).
+> **Chốt 2026-09-23:** **một người** làm GĐ6, **song song** với GĐ3 (một thành viên) và GĐ5 (một thành viên) — GĐ6 dựng event
+> bus trước để hai giai đoạn kia phát event thẳng vào (Đ-6.4); ước lượng ~12–13 ngày làm việc.
 - **Làm gì:** Thông báo (comment/reaction/tag/friend/message) gộp cùng loại (FR-018); tìm người dùng
   không dấu tiền tố (FR-017); báo cáo nội dung (FR-019); kiểm duyệt ẩn/gỡ + audit (FR-020, BR-07);
   admin khóa/mở tài khoản + gán vai trò; **quản lý vai trò (role CRUD) — phần hoãn từ GĐ1**.
