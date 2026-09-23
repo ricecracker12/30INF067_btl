@@ -21,7 +21,7 @@
 |---|---|---|---|
 | **C1** | `/metrics` RED trên API | `/metrics` 200 không cần token; lỗi 500 được đếm **đúng là 500** | ✅ Code + test xong (2026-09-23), **chưa deploy** |
 | **C2** | Bốn chỉ số nghiệp vụ | Đăng một bài trên staging → counter tăng đúng 1 | ✅ Code + test xong (2026-09-23), **chưa deploy** |
-| **C3** | Prometheus trong stack ops | Trang Targets: mọi target **UP** | ⬜ Chưa làm — cần C1 lên staging trước |
+| **C3** | Prometheus trong stack ops | Trang Targets: mọi target **UP** | 🟡 File cấu hình xong (2026-09-23), **chờ thi công trên VM** |
 | **C4** | Grafana + dashboard | Biểu đồ có số liệu thật từ staging | ⬜ Chưa làm |
 | **C5** | Cảnh báo + thử cho kêu ⭐ | Ảnh ≥ 3 cảnh báo đã kêu thật, kèm giờ | ⬜ Chưa làm |
 | **C6** | Redact PII + cổng CI + canh `/metrics` | CI đỏ khi cố tình log email; `/metrics` công khai không lộ | ⬜ Chưa làm |
@@ -167,14 +167,124 @@ phải vào `PostgresCollection`**, đặt ngoài là số đếm lệch và tes
 
 ---
 
-## 3. C3–C6 — chưa làm
+## 3. C3 — Prometheus trong stack ops 🟡
+
+> File cấu hình xong và đã kiểm cục bộ (2026-09-23). **Chờ thi công trên VM.** Làm được ngay cả khi C1 chưa lên
+> staging — xem "Đọc kết quả" ở bước 5: target API báo 404 chính là bằng chứng mạng đã thông.
+
+### Mục tiêu
+
+Prometheus chạy trong stack ops, 15 giây một lần gọi `api:8080/metrics` **qua mạng docker** (không qua domain, không
+qua `127.0.0.1:18080` — Đ-7.7 lớp 3) và gọi node-exporter để lấy đĩa/RAM/CPU của host. Dữ liệu có trần để không ăn
+đĩa VM (đang 72%).
+
+### Đã chuẩn bị
+
+| File | Nội dung |
+|---|---|
+| [`deploy/prometheus.yml`](../../deploy/prometheus.yml) | 3 job: `socialapp-api` (`api:8080`), `node` (`node-exporter:9100`), `prometheus` (chính nó). Không có rule — cảnh báo làm ở Grafana (Đ-7.9) |
+| [`deploy/docker-compose.ops.yml`](../../deploy/docker-compose.ops.yml) | Thêm `prometheus` (`v3.5.0`, LTS) và `node-exporter` (`v1.9.1`); mạng external `socialapp-staging_internal`; volume `prometheus-data` |
+
+Quyết định trong file, kèm lý do:
+
+| Quyết định | Vì sao |
+|---|---|
+| Gắn prometheus vào mạng staging bằng `external: true` | Hai project Compose không thấy nhau. `external` nghĩa là stack ops **dùng** mạng đó nhưng không tạo, không xóa — `down` stack ops không đụng tới staging |
+| Chỉ **prometheus** gắn vào mạng staging, Kuma và node-exporter thì không | Mạng staging nằm trong `ReverseProxy__TrustedNetworks`: container nào gắn vào là "proxy tin được" với API. Gắn ít nhất có thể |
+| Retention `30d` **và** `2GB` | Chạm trần nào trước thì cắt theo trần đó. 30 ngày đủ phủ GĐ8; 2GB chặn trường hợp số series phình |
+| Prometheus publish `127.0.0.1:9090`, node-exporter không publish | Xem trang Targets qua SSH tunnel như Kuma; node-exporter chỉ prometheus cần gọi |
+| `api:8080` tĩnh, chưa dùng DNS discovery | Một bản sao thì tĩnh là đủ và nhãn `instance` không đổi qua mỗi lần deploy. **Khối E** (api ×2) phải đổi sang `dns_sd_configs` — ghi sẵn trong `prometheus.yml` |
+
+Kiểm cục bộ: `docker compose config -q` hợp lệ; `promtool check config` → `SUCCESS`; cả hai image có bản **arm64**
+(`docker manifest inspect`, luật vàng 8).
+
+### Thi công trên VM
+
+**Bước 1 — Kiểm cổng và tên mạng.**
+
+```bash
+ss -ltnp | grep -E ':9090\b' || echo "9090 trống"
+docker network ls --format '{{.Name}}' | grep socialapp-staging
+```
+
+- Phải thấy `9090 trống`. Nếu 9090 đã có người dùng (Oracle Linux hay để cockpit ở đây), chỉ đổi **vế trái** trong
+  compose, ví dụ `127.0.0.1:9091:9090` — bài học cổng Kuma ở khối B.
+- Phải thấy đúng `socialapp-staging_internal`. Khác tên thì sửa `networks.staging.name` trong compose cho khớp.
+
+**Bước 2 — Chép hai file lên `~/app/ops/`** (từ máy có repo, PowerShell):
+
+```powershell
+scp deploy/docker-compose.ops.yml deploy/prometheus.yml deploy@<VM>:~/app/ops/
+```
+
+**Bước 3 — Kiểm cú pháp trên VM, rồi up.**
+
+```bash
+cd ~/app/ops
+docker run --rm -v ~/app/ops/prometheus.yml:/p.yml:ro --entrypoint promtool prom/prometheus:v3.5.0 check config /p.yml
+docker compose -f docker-compose.ops.yml up -d
+docker compose -f docker-compose.ops.yml ps
+```
+
+- `promtool` phải in `SUCCESS`.
+- `ps`: ba container `Up`. **uptime-kuma không bị tạo lại**: cột `STATUS` vẫn là `Up <nhiều giờ>`, vì cấu hình của nó
+  không đổi. Nếu Kuma bị tạo lại thì cũng không mất dữ liệu (nằm trong volume), chỉ mất vài giây theo dõi.
+
+**Bước 4 — Đọc trạng thái target từ VM** (không cần trình duyệt; mỗi dòng một target: tên · lỗi gần nhất · up/down):
+
+```bash
+curl -s http://127.0.0.1:9090/api/v1/targets \
+  | grep -oE '"(scrapePool|lastError|health)":"([^\"]|\\\")*"' | paste - - -
+```
+
+**Bước 5 — Đọc kết quả.**
+
+| Target | Trước khi C1 lên staging | Sau khi C1 lên staging |
+|---|---|---|
+| `node` | `up` | `up` |
+| `prometheus` | `up` | `up` |
+| `socialapp-api` | `down`, lastError `server returned HTTP status 404 Not Found` | `up` |
+
+Target API báo **404** trước deploy là tín hiệu **tốt**: Prometheus đã phân giải được tên `api` và đã nói chuyện được
+với API qua mạng docker, chỉ là API chưa có `/metrics`. Các lỗi khác chỉ ra chỗ hỏng:
+
+| `lastError` | Nghĩa | Sửa |
+|---|---|---|
+| `lookup api ... no such host` | Prometheus không nằm trong mạng staging | Kiểm tên mạng (bước 1); `docker inspect socialapp-ops-prometheus-1 --format '{{json .NetworkSettings.Networks}}'` phải có `socialapp-staging_internal` |
+| `connection refused` | Đúng host nhưng sai cổng | Target phải là `api:8080` (cổng **trong** container), không phải 18080 |
+| `context deadline exceeded` | API treo hoặc quá tải | `docker compose -f docker-compose.staging.apache.yml ps` bên staging |
+| `network socialapp-staging_internal not found` (lúc `up`) | Stack staging chưa chạy | Up stack staging trước |
+
+**Bước 6 — Xem bằng mắt và chụp ảnh** (máy cá nhân):
+
+```powershell
+ssh -L 9090:127.0.0.1:9090 deploy@<VM>
+```
+
+Mở `http://localhost:9090/targets`. Sau khi C1 đã lên staging và cả ba target **UP**: chụp ảnh, lưu vào
+`docs/giai-doan-7/bang-chung/` (ảnh nghiệm thu C3).
+
+**Bước 7 — Sau khi C1 + C2 lên staging, thử một truy vấn thật.** Ở tab *Query*:
+
+- `up` → ba dòng, giá trị 1.
+- `socialapp_posts_created_total` → có số. Đăng một bài trên staging, chờ 15–30 giây, giá trị tăng 1 (C2 đóng luôn ở đây).
+- `prometheus_tsdb_storage_blocks_bytes` → dung lượng TSDB. Ghi lại con số sau một ngày để kiểm ước lượng 30–60 MB/ngày.
+
+### Còn lại để đóng C3
+
+- [ ] Bước 1–5 trên VM: `node` và `prometheus` UP, `socialapp-api` báo 404 (mạng đã thông)
+- [ ] Sau khi C1/C2 merge vào `develop` và CD deploy: cả ba target **UP**; chụp ảnh trang Targets
+- [ ] Sau một ngày: ghi dung lượng TSDB thực tế vào mục này
+
+---
+
+## 4. C4–C6 — chưa làm
 
 Viết khi bắt đầu từng đầu việc (đúng nếp các khối trước). Những điều đã biết cần mang theo:
 
-- **C3:** Prometheus scrape `api:8080/metrics` — stack ops phải gắn vào mạng `internal` của staging dưới dạng
-  *external network*. Chỉ lấy được số **sau khi C1 đã lên staging**. Đặt giới hạn dung lượng lưu trữ (đĩa VM đang 72%).
 - **C4:** Grafana publish `127.0.0.1` thôi, xem qua SSH tunnel như Kuma. Cổng `3001` trên VM đã có người dùng,
-  `3002` là Kuma — kiểm `ss -ltnp` trước khi chọn.
+  `3002` là Kuma, `9090` là Prometheus (C3) — kiểm `ss -ltnp` trước khi chọn. Grafana chỉ cần mạng `default` của stack
+  ops (gọi `prometheus:9090`), **không** gắn vào mạng staging.
 - **C5:** Trong năm cảnh báo của Mục 5.3, **hai cái đã có** nhờ Kuma: *dịch vụ chết* (B1) và *backup không chạy*
   (monitor Push, A3). Grafana chỉ cần thêm ba: tỷ lệ lỗi, độ trễ, đĩa. Bắn thử tỷ lệ lỗi **từ VM** qua
   `127.0.0.1:18080/api/v1/ping/boom` — đường công khai đã chặn ở D2.
