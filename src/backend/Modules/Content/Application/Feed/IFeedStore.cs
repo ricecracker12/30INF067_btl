@@ -26,8 +26,9 @@ public interface IFeedStore
         Guid me, FeedSources sources, PostCursor? cursor, int take, CancellationToken ct);
 
     /// <summary>
-    /// Đ-4.6. Bài <c>public</c> + <c>published</c> mới nhất toàn hệ thống, TRỪ bài của chính mình, trên
-    /// <c>idx_posts_public_recent</c>. Chỉ gọi khi nguồn rỗng — có dù chỉ một kết nối là feed mạng lưới.
+    /// Đ-4.6 (sửa 2026-09-23). Bài <c>public</c> + <c>published</c> mới nhất của người khác (<c>idx_posts_public_recent</c>),
+    /// CỘNG bài <c>published</c> của chính mình mọi mức (<c>idx_posts_author_created</c>). Chỉ gọi khi nguồn rỗng — có dù chỉ
+    /// một kết nối là feed mạng lưới.
     /// </summary>
     Task<IReadOnlyList<Post>> SuggestedPageAsync(Guid me, PostCursor? cursor, int take, CancellationToken ct);
 }

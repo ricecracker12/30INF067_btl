@@ -217,8 +217,8 @@ export const feedPost = {
 } satisfies T.PostResponse
 
 /**
- * `mode: "network"` → `example` của hợp đồng. `mode: "suggested"` (Đ-4.6) chỉ chứa bài `public` của NGƯỜI KHÁC —
- * nên đổi `privacy` của bài mẫu: bài `friends` không bao giờ lọt vào feed gợi ý. `nextCursor` truyền vào khi test cần trang
+ * `mode: "network"` → `example` của hợp đồng. `mode: "suggested"` (Đ-4.6) chứa bài `public` của NGƯỜI KHÁC cộng bài của
+ * CHÍNH MÌNH — bài mẫu là của người khác (`canEdit: false`), nên đổi `privacy`: bài `friends` của người khác không lọt vào gợi ý. `nextCursor` truyền vào khi test cần trang
  * sau (ví dụ `CURSOR_TRANG_RONG` để dựng ca trang rỗng giữa chừng).
  */
 export const feedPage = (mode: T.FeedMode, nextCursor: string | null = null) =>

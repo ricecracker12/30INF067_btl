@@ -65,10 +65,16 @@ public sealed class FeedVisibilityTests
     public void Privacy_la_thi_khong_thay() =>
         Assert.False(FeedVisibility.CanSee((PostPrivacy)99, PostStatus.Published, Friend, Me, Sources));
 
-    /// <summary>Đ-4.6: bài public đã đăng của người khác; KHÔNG bài của chính mình, không friends/private, không hidden.</summary>
+    /// <summary>
+    /// Đ-4.6 (sửa 2026-09-23): bài public đã đăng của người khác, CỘNG bài đã đăng của chính mình mọi mức; của người khác thì
+    /// không friends/private; không hidden — kể cả của mình (BR-07).
+    /// </summary>
     [Theory]
     [InlineData(false, PostPrivacy.Public, PostStatus.Published, true)]
-    [InlineData(true, PostPrivacy.Public, PostStatus.Published, false)]
+    [InlineData(true, PostPrivacy.Public, PostStatus.Published, true)]
+    [InlineData(true, PostPrivacy.Friends, PostStatus.Published, true)]
+    [InlineData(true, PostPrivacy.Private, PostStatus.Published, true)]
+    [InlineData(true, PostPrivacy.Public, PostStatus.Hidden, false)]
     [InlineData(false, PostPrivacy.Friends, PostStatus.Published, false)]
     [InlineData(false, PostPrivacy.Private, PostStatus.Published, false)]
     [InlineData(false, PostPrivacy.Public, PostStatus.Hidden, false)]

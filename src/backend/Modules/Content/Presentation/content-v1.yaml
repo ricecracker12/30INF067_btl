@@ -38,13 +38,14 @@
 # MỞ LẠI Ở GĐ4 (D7, 2026-09-23 — docs/giai-doan-4/giai-doan-4.md Mục 8.2), luật CHỈ-THÊM: thêm `GET /feed`, `FeedPage`,
 # `FeedMode`, response `ServiceUnavailable`; không sửa hay xóa gì của GĐ2 ngoài `info.version`.
 #   Đ-4.5   Nguồn feed = bạn bè (public+friends) ∪ đang theo dõi (public) ∪ chính mình (mọi mức).
-#   Đ-4.6   Chưa có kết nối nào → feed gợi ý (`mode: suggested`): bài public mới nhất toàn hệ thống, trừ bài của mình.
+#   Đ-4.6   Chưa có kết nối nào → feed gợi ý (`mode: suggested`): bài public mới nhất của người khác, CỘNG bài của chính
+#           mình mọi mức (sửa 2026-09-23 — trước đó trừ bài của mình: người mới đăng bài xong không thấy bài mình).
 #   Đ-4.9   `items` có thể ít hơn `limit`; hết dữ liệu khi và chỉ khi `nextCursor` là null.
 #   Đ-4.10  Truy vấn feed quá 5s → 503 + `Retry-After: 5`.
 #   Q-E4    (khối E, 2026-09-23) 503 của feed mang `type` riêng `urn:socialapp:problem:feed-overloaded` (schema
 #           `FeedOverloadedProblem`): tới trình duyệt, 503 còn có thể là BFF mất kho phiên — FE phân nhánh theo `type`,
 #           không theo `title`. Chỉ thêm giá trị cho `type`, không đổi tập status hay trường bắt buộc nào.
-#           `info.version` 1.0.0-gd4 → 1.0.1-gd4 (vá sau D7). Swagger sinh từ code vẫn khai 503 là `ProblemDetails`
+#           `info.version` 1.0.0-gd4 → 1.0.1-gd4 (vá sau D7); → 1.0.2-gd4 khi Đ-4.6 đổi (bài của mình vào feed gợi ý). Swagger sinh từ code vẫn khai 503 là `ProblemDetails`
 #           (không thêm DTO chỉ để đặt tên schema) — dữ liệu trên dây giống nhau; file này là nguồn sự thật.
 #
 # ĐIỂM CẦN NHÓM XÁC NHẬN Ở CỔNG MỞ (Q-D1): `mediaKeys` của POST /posts là MẢNG OBJECT {mediaKey, contentType, sizeBytes},
@@ -56,7 +57,7 @@ openapi: 3.0.3
 
 info:
   title: SocialApp — Content API
-  version: 1.0.1-gd4
+  version: 1.0.2-gd4
   description: |
     Bài đăng kèm ảnh của GĐ2: xin URL tải ảnh theo lô, đăng bài, đọc một bài, đọc danh sách bài của một người
     (cursor keyset), sửa và xóa mềm.
@@ -485,8 +486,8 @@ paths:
 
         **Nguồn** (Đ-4.5): bạn bè thấy `public` + `friends`, người đang theo dõi (không phải bạn) thấy `public`, bài của
         chính mình thấy mọi mức. Chỉ bài đã đăng. Có dù chỉ một kết nối → `mode: network`, kể cả khi `items` rỗng — không
-        trộn bài người lạ. Chưa có kết nối nào → `mode: suggested`: bài `public` mới nhất toàn hệ thống, **trừ** bài của
-        mình (Đ-4.6).
+        trộn bài người lạ. Chưa có kết nối nào → `mode: suggested`: bài `public` mới nhất của người khác, **cộng** bài của
+        chính mình mọi mức (Đ-4.6, sửa 2026-09-23 — người mới đăng bài xong phải thấy bài mình).
 
         **Trang ngắn là hợp lệ** (Đ-4.9): mọi response kiểm lại quyền xem với quan hệ hiện tại, nên `items` có thể ít hơn
         `limit`. Hết dữ liệu **khi và chỉ khi** `nextCursor` là `null`.
@@ -992,7 +993,7 @@ components:
       enum: [network, suggested]
       description: |
         `network` — có ít nhất một kết nối (bạn hoặc đang theo dõi), kể cả khi feed rỗng. `suggested` — chưa có kết nối
-        nào, `items` là bài công khai mới nhất của người khác (Đ-4.6); FE hiện nhãn "Gợi ý cho bạn".
+        nào, `items` là bài công khai mới nhất của người khác cộng bài của chính mình (Đ-4.6); FE hiện nhãn "Gợi ý cho bạn".
 
     FeedPage:
       type: object

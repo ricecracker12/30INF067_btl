@@ -9,6 +9,6 @@ public enum FeedMode
     /// <summary>Có ít nhất một kết nối (bạn hoặc đang theo dõi) — kể cả khi feed rỗng.</summary>
     Network,
 
-    /// <summary>Chưa có kết nối nào: bài công khai mới nhất toàn hệ thống, trừ bài của mình.</summary>
+    /// <summary>Chưa có kết nối nào: bài công khai mới nhất của người khác, cộng bài của chính mình (Đ-4.6 sửa 2026-09-23).</summary>
     Suggested,
 }

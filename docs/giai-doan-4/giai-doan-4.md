@@ -228,6 +228,12 @@ cho tài khoản mới" — thiếu nửa sau. Và đây không chỉ là chuy�
 - `FeedPage` mang thêm trường `mode: "network" | "suggested"` để FE hiện nhãn "Gợi ý cho bạn — kết bạn để thấy bài của
   bạn bè". Không có trường này thì FE phải đoán từ việc tác giả có phải bạn không — tức là tự dựng lại luật của server.
 - Cần một index riêng (Mục 4): index theo tác giả không phục vụ được truy vấn toàn hệ thống.
+- **Đổi 2026-09-23 (quyết định mới, nhóm chốt — sau `E5`):** nội dung là bài `public` + `published` của **người khác**,
+  **cộng** bài `published` của **chính mình** mọi mức (nhất quán Đ-4.5: mình luôn thấy bài mình). Lý do: chạy thử `E5`, người
+  chưa có kết nối đăng bài xong không thấy bài mình trên trang chủ — trông như "đăng bài không lên". Truy vấn thành
+  `UNION ALL` hai nhánh, mỗi nhánh tự cắt `take` trên index của nó (`idx_posts_public_recent` · `idx_posts_author_created`)
+  rồi trộn. `EXPLAIN ANALYZE` trên dữ liệu perf (1.000.000 bài): `Merge Append` của hai Index Scan, không `Sort`, 28 buffer,
+  3,2 ms. `mode` vẫn là `suggested` (nhãn gợi ý giữ nguyên). Hợp đồng `content-v1` → `1.0.2-gd4` (chỉ đổi mô tả).
 
 ### Đ-4.7 Truy vấn feed: một `LATERAL` cho mỗi nguồn trên index có sẵn, gộp lấy `limit + 1`
 
@@ -841,7 +847,7 @@ sơ bộ; **đóng băng `socialgraph-v1`** và phần `/feed` của `content-v1
 | `FEED-04` | Bài `friends` của bạn | xuất hiện |
 | `FEED-05` | Bài `private` của bạn · bài `private` của mình | của bạn: **không** · của mình: **có** (Đ-4.5) |
 | `FEED-06` | Bài `hidden` của bạn (AC-03, INSERT thẳng trạng thái vì GĐ6 chưa có endpoint) | **không** xuất hiện |
-| `FEED-07` | Người chưa có kết nối | `mode = suggested`, bài `public` của người khác, **không** có bài của mình |
+| `FEED-07` | Người chưa có kết nối | `mode = suggested`, bài `public` của người khác **và** bài của mình mọi mức; bài `friends` của người lạ không (Đ-4.6 đổi 2026-09-23) |
 | `FEED-07b` | Người mới đọc feed (gợi ý, đã cache) → có kết nối đầu tiên → đọc lại trong 30s | `mode = network`, có bài của người vừa kết nối (canh dấu nguồn, Đ-4.8) |
 | `FEED-08` | Có một bạn nhưng bạn chưa đăng gì | `mode = network`, `items` rỗng, `nextCursor=null` — **không** trộn gợi ý |
 | `FEED-09` | Hủy kết bạn khi trang đầu đang nằm trong cache | request kế tiếp **không** còn bài `friends` của người kia; trang có thể ngắn hơn `limit`, `nextCursor` vẫn đúng |

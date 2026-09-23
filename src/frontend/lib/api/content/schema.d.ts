@@ -155,8 +155,8 @@ export interface paths {
          *
          *     **Nguồn** (Đ-4.5): bạn bè thấy `public` + `friends`, người đang theo dõi (không phải bạn) thấy `public`, bài của
          *     chính mình thấy mọi mức. Chỉ bài đã đăng. Có dù chỉ một kết nối → `mode: network`, kể cả khi `items` rỗng — không
-         *     trộn bài người lạ. Chưa có kết nối nào → `mode: suggested`: bài `public` mới nhất toàn hệ thống, **trừ** bài của
-         *     mình (Đ-4.6).
+         *     trộn bài người lạ. Chưa có kết nối nào → `mode: suggested`: bài `public` mới nhất của người khác, **cộng** bài của
+         *     chính mình mọi mức (Đ-4.6, sửa 2026-09-23 — người mới đăng bài xong phải thấy bài mình).
          *
          *     **Trang ngắn là hợp lệ** (Đ-4.9): mọi response kiểm lại quyền xem với quan hệ hiện tại, nên `items` có thể ít hơn
          *     `limit`. Hết dữ liệu **khi và chỉ khi** `nextCursor` là `null`.
@@ -345,7 +345,7 @@ export interface components {
         };
         /**
          * @description `network` — có ít nhất một kết nối (bạn hoặc đang theo dõi), kể cả khi feed rỗng. `suggested` — chưa có kết nối
-         *     nào, `items` là bài công khai mới nhất của người khác (Đ-4.6); FE hiện nhãn "Gợi ý cho bạn".
+         *     nào, `items` là bài công khai mới nhất của người khác cộng bài của chính mình (Đ-4.6); FE hiện nhãn "Gợi ý cho bạn".
          * @enum {string}
          */
         FeedMode: "network" | "suggested";

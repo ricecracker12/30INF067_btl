@@ -303,7 +303,8 @@ B.7 `E5`: "Liên kết 'Bạn bè' trong `AppHeader`". `AppHeader` ở `componen
   **Bạn bè** (`/friends`), **Trang của tôi** (`/me`). Chuỗi đường dẫn nằm ở `app/`, shell chỉ đặt chỗ. Ở màn hẹp, ba liên
   kết là chữ nhỏ cùng hàng — không thêm menu thả xuống (không có trong kit, và không đáng một component mới).
 
-*✅ chốt 2026-09-23 như đề xuất.*
+*✅ chốt 2026-09-23 như đề xuất.* *Đổi cùng ngày, sau `E5`: bỏ liên kết **Trang chủ** — logo đã dẫn về `/`; header còn
+**Bạn bè** · **Trang của tôi**.*
 
 #### Q-E8 — Hook phân trang: chép, hay tách một hook chung?
 
@@ -1287,3 +1288,17 @@ liên kết. **1 passed (10,9s)**, lượt đầu. `smoke.spec.ts` (khẳng đ�
 
 **Bằng chứng:** Vitest 538 → 543 (+4 slot `actions` của `public-profile`, +1 slot `action` của `feed-list`), 43 file, 3/3 lượt
 cả bộ xanh. `lint`, `typecheck`, `build` xanh — `build` liệt kê `/` và `/friends`, không trùng route.
+
+### Sau E5 — hai yêu cầu chỉnh (2026-09-23)
+
+1. **Bài của chính mình hiện trên trang chủ khi chưa có kết nối.** Nguyên nhân: feed gợi ý **cố ý** loại bài của mình (Đ-4.6
+   cũ: `author_id <> me` trong `SuggestedPageAsync`, `authorId != me` trong `CanSeeSuggested`) — không phải cache (đăng bài
+   có xóa `feed:p1:{tác giả}` sau COMMIT). Đổi Đ-4.6 (ghi có ngày trong `giai-doan-4.md`): gợi ý = public của người khác ∪ bài
+   của mình mọi mức. **Lệch Mục 1.2 luật 3** (chạm `src/backend/**`): nhóm chốt. Impact: `SuggestedPageAsync` UNKNOWN (tên qua
+   interface) / 12 phụ thuộc LOW, `CanSeeSuggested` LOW (13, 1 luồng) — cả hai chỉ đổi tập bài của MỘT trường hợp (mình).
+   Test đổi khẳng định có chủ đích: `FeedVisibilityTests` (+3 dòng: của mình friends/private/hidden), `FeedStoreTests` (3 → 6 bài;
+   cursor cắt 3 + 3 qua ranh giới hai nhánh), `FEED-07` (đổi tên, thêm bài private của mình và bài friends của người lạ).
+   *Sự cố khi chạy test:* API dev đang chạy khóa DLL trong `SocialApp.Api/bin` → build lỗi, và lượt `--no-build` đầu **chạy trên
+   bản cũ** (tên ca `FEED_07_…khong_co_bai_cua_minh` còn trong danh sách) — kết quả đó bỏ. Build test ra thư mục riêng rồi chạy
+   lại; không tắt tiến trình API của người dùng.
+2. **Bỏ liên kết "Trang chủ"** trên header — logo đã dẫn về `/`. Ghi dưới Q-E7.

@@ -40,9 +40,10 @@ public static class FeedVisibility
     }
 
     /// <summary>
-    /// Feed gợi ý (Đ-4.6): <c>public</c> + <c>published</c>, không phải bài của chính mình. Không nhận nguồn — ở chế độ
-    /// này nguồn rỗng theo định nghĩa, và gọi <see cref="CanSee"/> với nguồn rỗng là loại sạch mọi bài của người lạ.
+    /// Feed gợi ý (Đ-4.6): <c>published</c>, và <c>public</c> nếu của người khác — bài của CHÍNH MÌNH mọi mức (sửa 2026-09-23:
+    /// trước đó loại bài của mình; người chưa có kết nối đăng bài xong không thấy bài mình trên trang chủ). Không nhận nguồn —
+    /// ở chế độ này nguồn rỗng theo định nghĩa, và gọi <see cref="CanSee"/> với nguồn rỗng là loại sạch mọi bài của người lạ.
     /// </summary>
     public static bool CanSeeSuggested(PostPrivacy privacy, PostStatus status, Guid authorId, Guid me) =>
-        status == PostStatus.Published && privacy == PostPrivacy.Public && authorId != me;
+        status == PostStatus.Published && (authorId == me || privacy == PostPrivacy.Public);
 }

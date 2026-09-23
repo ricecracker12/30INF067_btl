@@ -109,7 +109,10 @@ public sealed class FeedStoreTests(PostgresFixture postgres)
         Assert.Equal(expected, page.Select(p => p.PostId).ToList());
     }
 
-    /// <summary>Đối chiếu cho feed gợi ý: public + published của người khác, không bài của mình — 3 bài.</summary>
+    /// <summary>
+    /// Đối chiếu cho feed gợi ý (Đ-4.6 sửa 2026-09-23): public + published của người khác (3) CỘNG bài published của mình mọi
+    /// mức (3) — 6 bài, viết tay để một lỗi chung của SQL và <see cref="FeedVisibility.CanSeeSuggested"/> không lọt.
+    /// </summary>
     [Fact]
     public async Task Goi_y_SQL_khop_CanSeeSuggested_tren_du_to_hop()
     {
@@ -124,7 +127,7 @@ public sealed class FeedStoreTests(PostgresFixture postgres)
             .Select(p => p.PostId)
             .ToList();
 
-        Assert.Equal(3, expected.Count);
+        Assert.Equal(6, expected.Count);
         Assert.Equal(expected, page.Select(p => p.PostId).ToList());
     }
 
@@ -168,7 +171,10 @@ public sealed class FeedStoreTests(PostgresFixture postgres)
         Assert.Equal(expected, first.Concat(second).Select(p => p.PostId).ToList());
     }
 
-    /// <summary>Cursor cũng áp cho feed gợi ý: trang sau không chứa bài của trang trước.</summary>
+    /// <summary>
+    /// Cursor cũng áp cho feed gợi ý: trang sau không chứa bài của trang trước. Cắt 3 + 3 trên 6 bài trộn hai nhánh (của
+    /// người khác, của mình) — trang cắt ngang qua ranh giới hai nhánh mới bắt được lỗi cursor chỉ áp cho một nhánh.
+    /// </summary>
     [Fact]
     public async Task Cursor_cua_feed_goi_y()
     {
@@ -180,8 +186,8 @@ public sealed class FeedStoreTests(PostgresFixture postgres)
             .Select(p => p.PostId)
             .ToList();
 
-        var first = await SuggestedAsync(services, cursor: null, take: 2);
-        var second = await SuggestedAsync(services, new PostCursor(first[^1].CreatedAt, first[^1].PostId), take: 2);
+        var first = await SuggestedAsync(services, cursor: null, take: 3);
+        var second = await SuggestedAsync(services, new PostCursor(first[^1].CreatedAt, first[^1].PostId), take: 3);
 
         Assert.Equal(expected, first.Concat(second).Select(p => p.PostId).ToList());
     }

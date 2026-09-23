@@ -82,15 +82,30 @@ public sealed class FeedStore(ContentDbContext db) : IFeedStore
         DateTimeOffset? cursorAt = cursor?.CreatedAt;
         Guid? cursorId = cursor?.PostId;
 
-        // Hai vế đầu của WHERE khớp NGUYÊN VĂN điều kiện của idx_posts_public_recent — lệch một chữ là planner bỏ index.
+        // Hai nhánh (Đ-4.6 sửa 2026-09-23): bài public của NGƯỜI KHÁC ∪ bài của CHÍNH MÌNH mọi mức (nhất quán Đ-4.5 — mình luôn
+        // thấy bài mình). Mỗi nhánh tự cắt `take` trên index của nó rồi mới trộn — cùng khuôn LATERAL của feed mạng lưới:
+        //  - nhánh 1: hai vế đầu của WHERE khớp NGUYÊN VĂN điều kiện của idx_posts_public_recent — lệch một chữ là planner bỏ
+        //    index. `author_id <> me` giữ lại để bài public của mình không có mặt hai lần.
+        //  - nhánh 2: `author_id = me AND status = 'published'` — đúng idx_posts_author_created (index một phần).
         return await WithFeedTimeoutAsync(() => db.Posts
             .FromSql($"""
                 SELECT p.*
-                FROM content.posts p
-                WHERE p.status = 'published' AND p.privacy = 'public'
-                  AND p.author_id <> {me}::uuid
-                  AND ({cursorAt}::timestamptz IS NULL
-                       OR (p.created_at, p.post_id) < ({cursorAt}::timestamptz, {cursorId}::uuid))
+                FROM (
+                    (SELECT * FROM content.posts p
+                     WHERE p.status = 'published' AND p.privacy = 'public'
+                       AND p.author_id <> {me}::uuid
+                       AND ({cursorAt}::timestamptz IS NULL
+                            OR (p.created_at, p.post_id) < ({cursorAt}::timestamptz, {cursorId}::uuid))
+                     ORDER BY p.created_at DESC, p.post_id DESC
+                     LIMIT {take})
+                    UNION ALL
+                    (SELECT * FROM content.posts p
+                     WHERE p.author_id = {me}::uuid AND p.status = 'published'
+                       AND ({cursorAt}::timestamptz IS NULL
+                            OR (p.created_at, p.post_id) < ({cursorAt}::timestamptz, {cursorId}::uuid))
+                     ORDER BY p.created_at DESC, p.post_id DESC
+                     LIMIT {take})
+                ) p
                 ORDER BY p.created_at DESC, p.post_id DESC
                 LIMIT {take}
                 """)

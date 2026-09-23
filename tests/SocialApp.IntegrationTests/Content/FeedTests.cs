@@ -158,22 +158,27 @@ public sealed class FeedTests(PostgresFixture postgres, ModulesApiFactory factor
     }
 
     /// <summary>
-    /// <c>FEED-07</c> (Đ-4.6) — chưa kết nối: <c>mode = suggested</c>, có bài <c>public</c> của người khác, KHÔNG có bài của mình.
+    /// <c>FEED-07</c> (Đ-4.6 sửa 2026-09-23) — chưa kết nối: <c>mode = suggested</c>, có bài <c>public</c> của người khác VÀ bài
+    /// của chính mình mọi mức (người mới đăng bài xong phải thấy bài mình trên trang chủ); bài <c>friends</c> của người lạ không.
     /// </summary>
     [Fact]
-    public async Task FEED_07_chua_ket_noi_thi_goi_y_khong_co_bai_cua_minh()
+    public async Task FEED_07_chua_ket_noi_thi_goi_y_co_bai_cua_minh()
     {
         var client = new ModulesTestClient(factory);
         var a = await OnboardAsync(client);
         var stranger = await OnboardAsync(client);
-        await PostAsync(client, a, "Bài của chính mình.", "public");
+        var minePublic = await PostAsync(client, a, "Bài công khai của chính mình.", "public");
+        var minePrivate = await PostAsync(client, a, "Bài riêng tư của chính mình.", "private");
         var theirs = await PostAsync(client, stranger, "Bài công khai của người lạ.", "public");
+        var theirsFriends = await PostAsync(client, stranger, "Bài bạn bè của người lạ.", "friends");
 
         var page = await client.GetFeedOkAsync(a);
 
         Assert.Equal(FeedMode.Suggested, page.Mode);
         Assert.Contains(theirs.PostId, Ids(page));
-        Assert.DoesNotContain(page.Items, i => i.Author.UserId == a);
+        Assert.Contains(minePublic.PostId, Ids(page));
+        Assert.Contains(minePrivate.PostId, Ids(page));
+        Assert.DoesNotContain(theirsFriends.PostId, Ids(page));
     }
 
     /// <summary>

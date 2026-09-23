@@ -15,12 +15,10 @@ export default function AppLayout({
     <RequireAuth>
       <div className="flex min-h-svh flex-col">
         <AppHeader
-          // Q-E7: ba liên kết ở `app/` — shell chỉ đặt chỗ (Đ-E13). Không huy hiệu đếm lời mời: thông báo là GĐ6.
+          // Q-E7: liên kết ở `app/` — shell chỉ đặt chỗ (Đ-E13). Không huy hiệu đếm lời mời: thông báo là GĐ6. Không có
+          // "Trang chủ": logo đã dẫn về `/` (bỏ 2026-09-23 theo yêu cầu — hai lối vào cùng một chỗ trên cùng một hàng).
           nav={
             <>
-              <Link href="/" className="hover:text-foreground">
-                Trang chủ
-              </Link>
               <Link href="/friends" className="hover:text-foreground">
                 Bạn bè
               </Link>
