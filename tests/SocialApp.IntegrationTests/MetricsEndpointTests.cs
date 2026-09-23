@@ -23,6 +23,29 @@ public sealed class MetricsEndpointTests(ApiFactory factory)
         Assert.Contains("http_request_duration_seconds", await response.Content.ReadAsStringAsync());
     }
 
+    /// <summary>
+    /// C2: bảy chuỗi nghiệp vụ phải có mặt NGAY sau khởi động, không đợi sự kiện đầu tiên (BusinessMetrics.Initialize).
+    /// Chỉ kiểm có mặt, không kiểm giá trị 0: test khác cùng process có thể đã tăng chúng. <c>result="failed"</c> không
+    /// test nào kích được, nên thiếu Initialize là dòng đó vắng dù chạy chung hay chạy riêng.
+    /// </summary>
+    [Fact]
+    public async Task Chi_so_nghiep_vu_co_mat_tu_luc_khoi_dong()
+    {
+        var dong = (await Client.GetStringAsync("/metrics")).Split('\n');
+
+        string[] chuoi =
+        [
+            "socialapp_login_failed_total ",
+            "socialapp_posts_created_total ",
+            "socialapp_presign_issued_total{purpose=\"post\"} ",
+            "socialapp_presign_issued_total{purpose=\"avatar\"} ",
+            "socialapp_media_cleanup_runs_total{result=\"ran\"} ",
+            "socialapp_media_cleanup_runs_total{result=\"lock\"} ",
+            "socialapp_media_cleanup_runs_total{result=\"failed\"} ",
+        ];
+        Assert.All(chuoi, c => Assert.Contains(dong, l => l.StartsWith(c, StringComparison.Ordinal)));
+    }
+
     [Fact]
     public async Task Loi_500_duoc_dem_dung_ma_500()
     {

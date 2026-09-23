@@ -32,6 +32,23 @@ public static class BusinessMetrics
         "Lượt worker dọn rác media, theo kết quả: ran | lock | failed. Chứng minh worker thật sự chạy, kể cả khi không có gì để dọn.",
         new CounterConfiguration { LabelNames = ["result"] });
 
+    /// <summary>
+    /// Host gọi MỘT lần lúc khởi động. Không có lời gọi này thì <c>/metrics</c> <b>trống</b> các chỉ số trên cho tới sự
+    /// kiện đầu tiên: field static của lớp chỉ khởi tạo khi có ai chạm vào lớp, và nhãn chỉ thành chuỗi thời gian khi có
+    /// giá trị đầu tiên (đã gặp trên staging 2026-09-23 — deploy xong, <c>grep socialapp_</c> ra rỗng). Hậu quả không
+    /// chỉ là "chưa thấy": <c>increase()</c> mất luôn lần tăng đầu tiên sau mỗi lần deploy, và cảnh báo "đứng yên ở 0"
+    /// không kêu được trên một chuỗi không tồn tại. Nên ở đây tạo sẵn cả bảy chuỗi với giá trị 0.
+    /// </summary>
+    public static void Initialize()
+    {
+        _ = LoginFailedCounter;
+        _ = PostsCreatedCounter;
+        foreach (var purpose in (string[])["post", "avatar"])
+            PresignIssuedCounter.WithLabels(purpose);
+        foreach (var result in (string[])["ran", "lock", "failed"])
+            MediaCleanupRunsCounter.WithLabels(result);
+    }
+
     /// <summary>Đăng nhập trả 401 vì sai thông tin — gọi ở CẢ nhánh email không tồn tại lẫn nhánh sai mật khẩu.</summary>
     public static void LoginFailed() => LoginFailedCounter.Inc();
 

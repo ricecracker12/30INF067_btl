@@ -808,7 +808,7 @@ lần trước khi Enter.
 > **Hướng dẫn thi công và thực tế thi công:** [huong-dan-khoi-c-quan-sat.md](huong-dan-khoi-c-quan-sat.md) — viết dần
 > theo từng đầu việc.
 
-### C1 — `/metrics` trên API ✅ *(code + test xong 2026-09-23, chưa deploy)*
+### C1 — `/metrics` trên API ✅ *(deploy + nghiệm thu trên staging 2026-09-23)*
 
 Thêm `prometheus-net.AspNetCore` **8.2.1** + `UseHttpMetrics()` + `MapMetrics().AllowAnonymous()`. **Hai dòng, và
 đây là toàn bộ phần chạm code backend của C1.**

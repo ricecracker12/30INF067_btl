@@ -19,8 +19,8 @@
 
 | Mã | Đầu việc | Kết quả mong đợi | Trạng thái |
 |---|---|---|---|
-| **C1** | `/metrics` RED trên API | `/metrics` 200 không cần token; lỗi 500 được đếm **đúng là 500** | ✅ Code + test xong (2026-09-23), **chưa deploy** |
-| **C2** | Bốn chỉ số nghiệp vụ | Đăng một bài trên staging → counter tăng đúng 1 | ✅ Code + test xong (2026-09-23), **chưa deploy** |
+| **C1** | `/metrics` RED trên API | `/metrics` 200 không cần token; lỗi 500 được đếm **đúng là 500** | ✅ **Đóng** — deploy + nghiệm thu trên staging (2026-09-23) |
+| **C2** | Bốn chỉ số nghiệp vụ | Đăng một bài trên staging → counter tăng đúng 1 | 🟡 Đã deploy; lần đầu `/metrics` thiếu chuỗi → sửa (`Initialize`), **chờ deploy lại** |
 | **C3** | Prometheus trong stack ops | Trang Targets: mọi target **UP** | 🟡 File cấu hình xong (2026-09-23), **chờ thi công trên VM** |
 | **C4** | Grafana + dashboard | Biểu đồ có số liệu thật từ staging | ⬜ Chưa làm |
 | **C5** | Cảnh báo + thử cho kêu ⭐ | Ảnh ≥ 3 cảnh báo đã kêu thật, kèm giờ | ⬜ Chưa làm |
@@ -73,12 +73,19 @@ GĐ1). Prometheus scrape không có token → thiếu dòng này thì target bá
 | Toàn bộ suite | Unit **295** · Architecture **16** · Integration **485** (483 → 485) — 0 fail, 0 skip |
 | Swagger / cổng hợp đồng | Không đổi — `/metrics` không có `GroupName` nên không lọt vào trang Swagger nào |
 
-### Còn lại để đóng C1
+### Nghiệm thu trên staging (2026-09-23) ✅
 
-- [ ] Commit + merge vào `develop` → CD deploy lên staging
-- [ ] Trên VM, từ **trong** mạng docker: `docker compose -f docker-compose.staging.apache.yml exec api curl -s localhost:8080/metrics | head`
-      → thấy các dòng `http_request_duration_seconds…`
-- [ ] Từ Internet: `curl -s -o /dev/null -w '%{http_code}' https://mxh.banhgao.net/metrics` → **404** (không phải 200)
+Chạy trên VM (user `deploy`) sau khi C1–C3 merge vào `develop` và CD deploy:
+
+| Kiểm | Lệnh | Kết quả |
+|---|---|---|
+| `/metrics` trong VM | `curl … http://127.0.0.1:18080/metrics` | **200** |
+| Lỗi 500 đếm đúng | `curl …/api/v1/ping/boom` → 500, rồi grep `Boom` trên `/metrics` | `http_requests_received_total{code="500",method="GET",controller="Ping",action="Boom",endpoint=""} 1` |
+| Không lộ ra Internet | `curl … https://mxh.banhgao.net/metrics` | **404**; đếm `http_request_duration_seconds` trong thân trả về = **0** |
+
+*Ghi chú cho C4:* nhãn `endpoint` rỗng ở request lỗi 500 — `UseExceptionHandler` chạy lại pipeline với đường xử lý lỗi
+và xóa endpoint gốc. Dashboard và cảnh báo **nhóm theo `controller`/`action`**, không theo `endpoint`, kẻo mọi lỗi 500
+dồn vào một dòng không tên.
 
 ---
 
@@ -158,12 +165,37 @@ phải vào `PostgresCollection`**, đặt ngoài là số đếm lệch và tes
 | Toàn bộ suite, **chạy hai lần liên tiếp** | Cả hai lần: Unit 295 · Architecture 16 · Integration **489** (485 → 489) — 0 fail, không đỏ chập chờn |
 | Luật kiến trúc | Không đổi — không có luật cấm thư viện ngoài; module chỉ phụ thuộc SharedKernel như trước |
 
-### Còn lại để đóng C2 (sau khi deploy)
+### Lần deploy đầu (2026-09-23): `/metrics` không có dòng `socialapp_` nào — đã sửa
 
-- [ ] Trên VM: `curl -s http://127.0.0.1:18080/metrics | grep socialapp_` — thấy `socialapp_login_failed_total` và
-      `socialapp_posts_created_total` (hai counter không nhãn hiện ngay từ đầu, giá trị 0)
+Deploy xong, `curl -s http://127.0.0.1:18080/metrics | grep '^socialapp_'` ra **rỗng**. Code không sai chỗ đếm; lỗi ở
+chỗ **tạo** counter:
+
+- Bốn counter là field `static readonly` của `BusinessMetrics`. Field static chỉ khởi tạo khi có ai **chạm vào lớp** —
+  tức lúc sự kiện đầu tiên xảy ra. Trước đó counter chưa đăng ký với prometheus-net, `/metrics` không có gì.
+- Counter có nhãn còn thêm một tầng: kể cả đã đăng ký, chuỗi `{purpose="post"}` chỉ có khi giá trị nhãn đó xuất hiện
+  lần đầu.
+
+Test C2 không bắt được chuyện này vì `MetricsReader` đọc "không có dòng" thành 0 — đúng cho phép đo *tăng bao nhiêu*,
+nhưng che mất việc chuỗi không tồn tại.
+
+Hậu quả không chỉ là "chưa thấy": mỗi lần deploy, mọi chuỗi biến mất cho tới sự kiện đầu tiên; `increase()` của
+Prometheus **mất luôn lần tăng đầu tiên** (không có mẫu 0 để so); và cảnh báo kiểu "đứng yên ở 0" không kêu được trên
+một chuỗi không tồn tại.
+
+**Sửa:** `BusinessMetrics.Initialize()` — host gọi một lần lúc khởi động (`Program.cs`, ngay dưới `MapMetrics`), tạo sẵn
+cả **bảy** chuỗi với giá trị 0: 2 không nhãn + `purpose` × {post, avatar} + `result` × {ran, lock, failed}.
+
+| Kiểm | Kết quả |
+|---|---|
+| Test mới `MetricsEndpointTests.Chi_so_nghiep_vu_co_mat_tu_luc_khoi_dong` | Xanh |
+| Thử cho đỏ: tắt dòng `Initialize()` | **Đỏ, thiếu cả 7 chuỗi** — đúng triệu chứng trên staging; trả lại → xanh |
+| Toàn bộ suite | Unit 303 · Architecture 16 · Integration **491** — 0 fail |
+
+### Còn lại để đóng C2 (sau khi deploy bản sửa)
+
+- [ ] Trên VM: `curl -s http://127.0.0.1:18080/metrics | grep '^socialapp_'` — **đủ 7 dòng** ngay sau deploy, giá trị 0
 - [ ] Đăng một bài trên staging qua UI → `socialapp_posts_created_total` tăng đúng 1
-- [ ] Sau ≥ 60 phút (nếu `Media__Cleanup__Enabled=true`): có dòng `socialapp_media_cleanup_runs_total{result="ran"}`
+- [ ] Sau ≥ 60 phút (nếu `Media__Cleanup__Enabled=true`): `socialapp_media_cleanup_runs_total{result="ran"}` > 0
 
 ---
 
