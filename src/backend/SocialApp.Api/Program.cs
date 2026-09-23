@@ -377,8 +377,24 @@ builder.Services
                 }
 
                 var revocation = ctx.HttpContext.RequestServices.GetRequiredService<ITokenRevocationStore>();
-                if (await revocation.IsRevokedAsync(sub, iat, ctx.HttpContext.RequestAborted))
-                    ctx.Fail("token đã bị thu hồi");   // → 401 problem+json qua UseStatusCodePages
+                switch (await revocation.CheckAsync(sub, iat, ctx.HttpContext.RequestAborted))
+                {
+                    case RevocationCheck.Revoked:
+                        ctx.Fail("token đã bị thu hồi");   // → 401 problem+json qua UseStatusCodePages
+                        break;
+
+                    // Đ-6.8 (GĐ6): endpoint quản trị/kiểm duyệt FAIL-CLOSED khi không kiểm được thu hồi. OnTokenValidated chỉ Fail
+                    // được thành 401 — đặt dấu để AuditingAuthorizationResultHandler đổi lần challenge đó thành 503. GetEndpoint()
+                    // có giá trị ở đây vì WebApplication tự chèn UseRouting ĐẦU pipeline: đừng thêm app.UseRouting() sau
+                    // UseAuthentication.
+                    case RevocationCheck.Unknown
+                        when ctx.HttpContext.GetEndpoint()?.Metadata.GetMetadata<PrivilegedEndpointAttribute>() is not null:
+                        ctx.HttpContext.Items[PrivilegedEndpointAttribute.RevocationUnavailableKey] = true;
+                        ctx.Fail("không kiểm được thu hồi token trên endpoint đặc quyền");
+                        break;
+
+                    // Unknown trên endpoint thường: fail-open như GĐ1 (store đã ghi log cảnh báo có giới hạn tần suất).
+                }
             },
         };
     });

@@ -1197,6 +1197,57 @@ tầng của `TX-01`, `AUD-01`) áp như chốt. `giai-doan-6.md` B.5 C1 và `AG
 Ca `TX_01_commit_…` **vẫn xanh** dưới đột biến 1 — đúng như dự đoán ở cạm bẫy 1 Mục 8: ghi sai kết nối "chạy tốt mọi lúc trừ lúc
 lỗi". Vì vậy ca rollback mới là bằng chứng, không phải ca commit.
 
+### C3 + C4 — 2026-09-23
+
+Làm cùng một lượt vì C4 dùng `IsAllowedAsync` của C3 (handler any-of). L-C3..L-C7, L-C10 áp như chốt. `giai-doan-6.md` (B.5 C3, C4;
+Mục 10.1 thêm `PERM-03`, `ANY-01`, `AUD-03b`) và `AGENTS.md` (khung tầng 3: short-circuit ở `PermissionChecks.IsAllowedAsync`,
+`[PrivilegedEndpoint]`) sửa cùng lượt.
+
+**Lệch so với chính tài liệu này:**
+- **`IsAllowedAsync` là extension method** (`PermissionChecks`) trên `IPermissionCache`, không phải thành viên interface như Mục 9
+  bước 1 viết: đúng MỘT hiện thực short-circuit, và fake trong test không phải chép nó — ca `Admin_qua_ma_khong_cham_cache` vẫn
+  đúng nghĩa. Interface chỉ thêm `Invalidate`, `InvalidateAll`.
+- **Gỡ entry bằng ghi-rồi-kiểm** thay cho so-rồi-ghi của Mục 9 bước 2: `Invalidate` chen giữa "so thế hệ" và "ghi" vẫn để lại entry
+  cũ; ghi trước rồi kiểm thế hệ, đổi thì `TryRemove` đúng entry vừa ghi.
+- **Subscriber đăng ký vô điều kiện**, tự thoát khi không có `RedisConnection` — thay cho đăng ký có điều kiện ở Mục 9 bước 5
+  (thứ tự `AddSharedKernelAuthorization` / `AddSharedKernelRedis` trong Program.cs không còn quan trọng).
+- **`CheckAsync` vẫn tự ghi cảnh báo fail-open** (Mục 10 bước 2 ghi "không log ở đây"): `OnTokenValidated` giờ gọi `CheckAsync`, và
+  `RV04` khẳng định có log khi Redis chết. `IsRevokedAsync` = `CheckAsync == Revoked`.
+- Test đặt tên theo lớp: `PermissionInvalidationTests` (`PERM-01` gộp cả đối chứng "chưa notify vẫn 201" trong một ca, `PERM-02`),
+  `FailClosedTests` (`FC-01` + ca không token vẫn 401), `PrivilegedEndpointAuditTests` (`AUD-03`, `AUD-03b`, `ANY-01`), Architecture
+  `PrivilegedEndpointTests`. `ModulesApiFactory` thêm hook `UseDatabase(cs)` cho `PERM-02` (hai host chung DB). `PERM-02` chờ bằng
+  trạng thái: `PUBSUB NUMSUB` ≥ 2 trước khi báo.
+
+**Lỗi tìm ra khi chạy test, đã sửa:** lượt đầu cả bộ Integration mất **5 phút 31 giây** (trước đó ~2 phút) —
+`StartupConfigurationTests` 4 → 41 giây, `ForwardedClientIpTests` 1 → 27 giây. Nguyên nhân: `PermissionsChangedSubscriber` chờ
+`RedisConnection.GetAsync()` và `SubscribeAsync` — không nhận token — khi Redis không tới được; host dừng phải chờ `ExecuteAsync`, nên
+MỌI lần dừng host chậm theo timeout của thư viện. Sửa: `.WaitAsync(stoppingToken)` ở cả hai lượt chờ. Đo lại hai lớp đó: 40 → 3 giây;
+cả bộ: 1 phút 48 giây. So thời gian theo lớp giữa hai file trx là cách tìm ra — không test nào đỏ vì lỗi này.
+
+**Test:** Unit 309 → 314 (+3 `PermissionCacheTests`: invalidate, invalidate một/tất cả, `PERM-03`; +2 `PermissionPolicyProviderTests`),
+Integration 509 → 516 (+2 `PERM-*`, +2 `FailClosedTests`, +3 `PrivilegedEndpointAuditTests`), Architecture 17 → 18 xanh + 1 Skip có địa
+chỉ (`Privileged_groups_are_not_empty` — gỡ ở D2). Năm ca `PermissionHandlerTests` và bộ `TokenRevocationTests` (gồm `RV04`) xanh
+không sửa khẳng định. Còn đỏ nền R2 trên máy dev.
+
+**Thử cho đỏ — 6/6 đột biến bị bắt**, file khôi phục nguyên byte (`cmp`):
+
+| Đột biến                                                           | Ca đỏ thực tế                                                                 |
+| ------------------------------------------------------------------ | ----------------------------------------------------------------------------- |
+| `NotifyAsync` bỏ `Invalidate` tại chỗ                              | `PERM_01_…`                                                                   |
+| `PermissionCache` giữ entry bất kể thế hệ                          | `PERM_03_…` (unit)                                                            |
+| `OnTokenValidated` bỏ nhánh `Unknown` khi đặc quyền                 | `FC_01_…`                                                                     |
+| Khóa chống ngập theo `Request.Path`                                | `AUD_03_…`                                                                    |
+| Subscriber nhận tin mà không xóa cache                             | `PERM_02_…`                                                                   |
+| Provider bỏ nhánh `perm-any:`                                      | `ANY_01_…`                                                                    |
+
+Hai lượt đầu của đột biến 5 viết sai (lượt 1 xóa câu lệnh làm vỡ cú pháp; lượt 2 dùng `_ =` mà `_` là tham số lambda) — build lỗi,
+test chạy trên DLL cũ và "xanh" — không tính. Lượt 3 dùng `GC.KeepAlive(message)`. Bài học: đọc dòng `Error(s)` của build trước khi
+đọc kết quả test đột biến.
+
+**detect-changes:** medium, 2 luồng — `HandleRequirementAsync → Entry` (tầng 2 qua `IsAllowedAsync`, cache có thế hệ) và
+`IsRevokedAsync → Slot` (giờ qua `CheckAsync`, hành vi giữ nguyên — `RV04` xanh): cả hai có chủ đích. Impact trước khi sửa:
+`PermissionHandler` MEDIUM (5 ca `PermissionHandlerTests` — xanh không sửa khẳng định), còn lại LOW/UNKNOWN đã xác nhận bằng text search.
+
 ### Các đầu việc còn lại
 
 *Chưa thi công.* Điền khi làm, theo khuôn của C0: chỗ nào phải đổi hướng so với Mục 0.4 và vì sao; lệch so với chính tài liệu này;

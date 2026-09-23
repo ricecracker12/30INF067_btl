@@ -75,11 +75,19 @@ public sealed class PermissionHandlerTests
     {
         public ValueTask<IReadOnlySet<string>> GetAsync(string roleCode, CancellationToken ct = default) =>
             throw new InvalidOperationException($"Không được chạm cache cho vai trò '{roleCode}'.");
+
+        public void Invalidate(string roleCode) => throw new InvalidOperationException("Handler không bao giờ xóa cache.");
+
+        public void InvalidateAll() => throw new InvalidOperationException("Handler không bao giờ xóa cache.");
     }
 
     private sealed class FixedCache(params string[] permissions) : IPermissionCache
     {
         public ValueTask<IReadOnlySet<string>> GetAsync(string roleCode, CancellationToken ct = default) =>
             ValueTask.FromResult<IReadOnlySet<string>>(permissions.ToHashSet(StringComparer.Ordinal));
+
+        public void Invalidate(string roleCode) { }
+
+        public void InvalidateAll() { }
     }
 }

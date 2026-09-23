@@ -32,27 +32,33 @@ internal sealed class RedisTokenRevocationStore(
         await connection.GetDatabase().StringSetAsync(Key(userId.ToString()), at.ToUnixTimeSeconds(), Ttl);
     }
 
-    public async Task<bool> IsRevokedAsync(string userId, long issuedAtUnix, CancellationToken ct = default)
+    /// <summary>Hành vi GĐ1 giữ nguyên: <see cref="RevocationCheck.Unknown"/> → false (fail-open). Một chỗ đọc Redis: <see cref="CheckAsync"/>.</summary>
+    public async Task<bool> IsRevokedAsync(string userId, long issuedAtUnix, CancellationToken ct = default) =>
+        await CheckAsync(userId, issuedAtUnix, ct) == RevocationCheck.Revoked;
+
+    public async Task<RevocationCheck> CheckAsync(string userId, long issuedAtUnix, CancellationToken ct = default)
     {
-        // Chưa kết nối → fail-open NGAY, không chờ timeout: nếu không, mọi request có token chậm theo Redis chết (Đ-D8).
-        // Quyết định có ý thức (Mục 7.5 "Khi Redis chết"): Redis sập không được kéo sập cả API; đổi lại việc thu hồi tạm mất tác
-        // dụng, còn exp 15 phút vẫn giữ.
+        // Chưa kết nối → trả lời NGAY, không chờ timeout: nếu không, mọi request có token chậm theo Redis chết (Đ-D8).
+        // Quyết định có ý thức (Mục 7.5 "Khi Redis chết"): Redis sập không được kéo sập cả API; endpoint thường coi Unknown là
+        // "chưa thu hồi" (fail-open), endpoint đặc quyền coi là 503 (Đ-6.8, GĐ6).
         if (redis.ConnectedOrNull() is not { } connection)
         {
             LogFailOpen(null);
-            return false;
+            return RevocationCheck.Unknown;
         }
 
         try
         {
             var value = await connection.GetDatabase().StringGetAsync(Key(userId));
-            return value.TryParse(out long revokedAt) && issuedAtUnix < revokedAt;
+            return value.TryParse(out long revokedAt) && issuedAtUnix < revokedAt
+                ? RevocationCheck.Revoked
+                : RevocationCheck.NotRevoked;
         }
         // RedisTimeoutException KHÔNG kế thừa RedisException (nó là TimeoutException) — bắt riêng, không thì Redis chậm = 500.
         catch (Exception ex) when (ex is RedisException or RedisTimeoutException)
         {
             LogFailOpen(ex);
-            return false;
+            return RevocationCheck.Unknown;
         }
     }
 

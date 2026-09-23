@@ -1294,6 +1294,8 @@ Luật vàng số 8: mọi thứ phải chạy trên ARM64 — không có native
 | `ROLE-07` | Chạy seeder hai lần sau khi đã sửa quyền MODERATOR | Chỉnh sửa còn nguyên; dòng `permissions` 18 có mặt đúng một lần |
 | `PERM-01` | Gỡ `post.create` của USER rồi `POST /posts` ngay (không tua đồng hồ) | 403 ở request kế tiếp |
 | `PERM-02` | Hai `WebApplicationFactory` chung Redis; sửa ở 1 | 2 thấy quyền mới trong ≤ 1 giây |
+| `PERM-03` | *(unit, thêm 2026-09-23)* Lần nạp đang dở khi `Invalidate` | Lần đọc sau về nguồn, không dùng kết quả cũ |
+| `ANY-01` | *(thêm 2026-09-23)* Vai trò chỉ có `role.assign` gọi `[RequireAnyPermission]` · USER · ADMIN | 200 · 403 · 200 |
 
 **Báo cáo, kiểm duyệt, nhật ký**
 
@@ -1317,6 +1319,7 @@ Luật vàng số 8: mọi thứ phải chạy trên ARM64 — không có native
 | `AUD-01` | Mọi dòng audit có `actor_id`, `action`, `ip` | Không dòng nào chứa chuỗi đánh dấu `SECRET-xyz` đã đặt trong thân bài bị ẩn |
 | `AUD-02` | `UPDATE` / `DELETE` dòng audit bằng SQL · `DELETE` với `SET LOCAL socialapp.audit_purge = 'on'` | exception · exception · được |
 | `AUD-03` | 5 lần bị từ chối cùng endpoint trong 1 phút | đúng **1** dòng `access.denied` |
+| `AUD-03b` | *(thêm 2026-09-23)* 403 ở endpoint không đặc quyền · 401 ẩn danh · 200 được phép | 0 dòng audit |
 | `AUD-04` | `GET /admin/audit-logs` lọc theo `actorId`, `action`, `targetId`; 3 trang | keyset `id DESC` đúng, không trùng không sót |
 
 **Thông báo, event, tìm kiếm**
@@ -1693,6 +1696,14 @@ status='published' RETURNING …`; không trả gì → `SELECT status` để ph
 **Làm gì:** `Invalidate`, `InvalidateAll`; `PermissionsChangedPublisher` (sau `COMMIT`) + `PermissionsChangedSubscriber`
 (`BackgroundService`, `SUBSCRIBE` có tiền tố môi trường; nối lại khi Redis hồi). **Xong khi:** `PERM-01`, `PERM-02` xanh.
 
+*Sửa 2026-09-23 khi thi công C3* (L-C3..L-C5, L-C10 của `huong-dan-khoi-a-c-nen-du-lieu-va-ha-tang.md`):
+- `IsAllowedAsync` (Mục 6.2 — trước đó không đầu việc nào nhận) làm ở C3, dạng **extension method** `PermissionChecks.IsAllowedAsync`
+  trên `IPermissionCache`: một hiện thực short-circuit duy nhất, fake trong test không phải chép lại. `PermissionHandler` gọi nó.
+- Publisher là `IPermissionChangeNotifier.NotifyAsync(roleCode)`: xóa tại chỗ **rồi** `PUBLISH` — một lời gọi cho D5, không hai.
+- `PermissionCache` có **thế hệ** theo vai trò: lần nạp bắt đầu trước `Invalidate` không để kết quả cũ nằm lại (`PERM-03`, unit).
+  Subscriber gọi `InvalidateAll` khi Redis nối lại — tin phát lúc rớt đã mất.
+- `PERM-01` là bản hạ tầng (SQL + notify); bản qua `PUT /admin/roles/…/permissions` là của D5.
+
 ### C4 — `[PrivilegedEndpoint]`: fail-closed + audit khi bị từ chối + policy any-of (Đ-6.8, Đ-6.15, Mục 6.1)
 
 **Làm gì:** attribute (metadata) ở SharedKernel; `ITokenRevocationStore.CheckAsync`; nhánh trong `OnTokenValidated`;
@@ -1703,6 +1714,15 @@ rộng `PermissionPolicyProvider`; test reflection `Privileged_controllers_carry
 `moderation-v1`. Chống ngập bằng `SET audit:denied:{actor}:{route} 1 NX EX 60`.
 
 **Xong khi:** `FC-01`, `AUD-03` xanh; thử cho đỏ: bỏ attribute khỏi một controller → test reflection đỏ.
+
+*Sửa 2026-09-23 khi thi công C4* (L-C6, L-C7, L-C10 của `huong-dan-khoi-a-c-nen-du-lieu-va-ha-tang.md`):
+- `OnTokenValidated` chỉ `Fail` được thành 401 → nó đặt dấu `HttpContext.Items` rồi `Fail`; `AuditingAuthorizationResultHandler` thấy
+  `Challenged` + dấu trên endpoint đặc quyền thì ghi 503 qua `IProblemDetailsService` (có `traceId`).
+- `CheckAsync` vẫn tự ghi cảnh báo fail-open có giới hạn tần suất (như `IsRevokedAsync` cũ); `IsRevokedAsync` = `CheckAsync == Revoked`
+  — một chỗ đọc Redis, hành vi GĐ1 giữ nguyên cho filter hub của GĐ5 (`RV04` vẫn xanh).
+- Chưa có controller admin/moderation thật: `FC-01`, `AUD-03`, `ANY-01` chạy trên probe controller của test; canh gác "có ít nhất một
+  controller trong hai nhóm" của test reflection mang `Skip` — gỡ ở D2, và thử cho đỏ test reflection làm ở đó.
+- Chỉ ghi audit khi `Forbidden`, không khi 401 (không có actor); ghi audit lỗi thì log Error, vẫn 403.
 
 ### C5 — `IAccountStatusReader` (Đ-6.19)
 

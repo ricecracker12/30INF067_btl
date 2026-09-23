@@ -160,7 +160,9 @@ client_msg_id khử trùng), `notifications`(UQ recipient+group_key), `reports`,
 > **Endpoint chạm tài nguyên có chủ sở hữu mà không có dòng tương ứng trong
 > `tests/SocialApp.IntegrationTests/AuthZ/AuthZMatrix.cs` thì coi như CHƯA XONG.** Kiểm ownership ở tầng
 > Application, trả `Result.Forbidden()`, danh tính người gọi lấy từ `User.GetUserId()` — không bao giờ từ
-> route/body. Không có nhánh Admin ở tầng 3 (Admin short-circuit CHỈ ở `PermissionHandler`, tầng 2). "Không
+> route/body. Không có nhánh Admin ở tầng 3 (Admin short-circuit CHỈ ở `PermissionChecks.IsAllowedAsync`, tầng 2 — mọi kiểm
+> quyền trong code, kể cả tầng 2 thứ hai trong service, gọi hàm đó chứ không tự so `"ADMIN"`). Endpoint quản trị/kiểm duyệt
+> mang thêm `[PrivilegedEndpoint]` (GĐ6 Đ-6.8, Đ-6.15): fail-closed 503 khi Redis chết + audit `access.denied` khi bị từ chối. "Không
 > tồn tại" và "không được phép thấy" trả cùng một phản hồi (`docs/giai-doan-1/giai-doan-1.md` Mục 6.3 quy ước 3b).
 > Controller trả `result.ToActionResult(this)` — không ném exception cho luồng từ chối.
 

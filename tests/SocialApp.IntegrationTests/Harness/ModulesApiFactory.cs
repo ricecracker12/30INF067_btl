@@ -51,6 +51,12 @@ public sealed class ModulesApiFactory : WebApplicationFactory<Program>
     public Task UseFreshDatabaseAsync(PostgresFixture postgres) => _database ??= CreateMigratedDatabaseAsync(postgres);
 
     /// <summary>
+    /// GĐ6 C3 (PERM-02): dùng database ĐÃ migrate của một factory khác — hai host chung DB + chung Redis mô phỏng hai bản sao API.
+    /// Gọi thay cho <see cref="UseFreshDatabaseAsync"/>, trước CreateClient đầu tiên.
+    /// </summary>
+    public void UseDatabase(string connectionString) => _database ??= Task.FromResult(connectionString);
+
+    /// <summary>
     /// B1 (GĐ4): Redis THẬT cho test cache feed. Gọi ở InitializeAsync, trước CreateClient đầu tiên — cùng luật với
     /// UseFreshDatabaseAsync. Không gọi thì Redis là cổng 1: cache fail-open, và test cache xanh vì lý do sai.
     /// </summary>

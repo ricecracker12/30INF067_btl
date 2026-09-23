@@ -40,12 +40,17 @@ public sealed class PermissionCodeUsageTests
             .SelectMany(a => a.GetTypes())
             .Where(t => typeof(ControllerBase).IsAssignableFrom(t) && !t.IsAbstract);
 
+        // GĐ6 C4: đọc cả [RequireAnyPermission] (Mục 10.4 #4) — mỗi mã trong danh sách của nó được kiểm như một [RequirePermission].
+        static IEnumerable<string> Codes(MemberInfo member, bool inherit) =>
+            member.GetCustomAttributes<RequirePermissionAttribute>(inherit).Select(a => a.Permission)
+                .Concat(member.GetCustomAttributes<RequireAnyPermissionAttribute>(inherit).SelectMany(a => a.Permissions));
+
         var unknown = controllers
             .SelectMany(t => t
                 .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
-                .Select(m => (Where: $"{t.FullName}.{m.Name}", Attributes: m.GetCustomAttributes<RequirePermissionAttribute>()))
-                .Prepend((Where: t.FullName!, Attributes: t.GetCustomAttributes<RequirePermissionAttribute>(inherit: true))))
-            .SelectMany(x => x.Attributes.Select(a => (x.Where, a.Permission)))
+                .Select(m => (Where: $"{t.FullName}.{m.Name}", Codes: Codes(m, inherit: false)))
+                .Prepend((Where: t.FullName!, Codes: Codes(t, inherit: true))))
+            .SelectMany(x => x.Codes.Select(code => (x.Where, Permission: code)))
             .Where(x => !known.Contains(x.Permission))
             .Select(x => $"{x.Where}: \"{x.Permission}\"")
             .ToList();
