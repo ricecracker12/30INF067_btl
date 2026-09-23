@@ -360,7 +360,8 @@ trạng thái thật, 10 ms chỉ là nhịp hỏi.
    Một thông báo lỗi làm sập api.
 3. **Mở scope ngoài vòng handler** (một scope cho cả event) — L1.
 4. **`_pending` giảm trước khi handler xong** (giảm ngay sau khi đọc khỏi channel) → `DrainAsync` trả về khi handler còn
-   chạy; test `EVT-06` đỏ lúc có lúc không. Giảm trong `finally` **sau** `DispatchAsync`.
+   chạy. Giảm trong `finally` **sau** `DispatchAsync`. Handler giả đồng bộ **không** lộ được lỗi này (đo khi thi công: 0/20
+   lượt unit, 0/5 lượt `EVT-06` đỏ) — `EVT-03` khẳng định tất định "`DrainAsync` chưa xong trong lúc handler bị chặn".
 5. **Log `envelope.Event`** hoặc dùng `{@Event}` — luật 4 Mục 1.3. `EVT-02` khẳng định log không chứa id.
 
 ---
@@ -458,9 +459,9 @@ song song.
 4. **Harness** `tests/SocialApp.IntegrationTests/Harness/EventBusHarness.cs`: extension
    `DrainEventsAsync(this WebApplicationFactory<Program> app)` gọi `InProcessEventBus.DrainAsync(TimeSpan.FromSeconds(5))`.
    Đây là phần "đăng ký `DrainAsync` của event bus" của **B1** — làm sớm ở đây vì `EVT-06` cần; B1 ghi "đã có từ C0".
-5. **`EVT-06`** — `tests/SocialApp.IntegrationTests/SocialGraph/SocialGraphEventsTests.cs`: factory con
-   `factory.WithWebHostBuilder(b => b.ConfigureTestServices(s => …AddIntegrationEventHandler<FriendRequestSent, Recorder>()…))`
-   (Recorder ghi vào một singleton của test). Gửi lời mời A → B qua API thật, `DrainEventsAsync`, khẳng định **đúng một**
+5. **`EVT-06`** — `tests/SocialApp.IntegrationTests/SocialGraph/SocialGraphEventsTests.cs`: `factory.UseTestServices(s =>
+   …AddIntegrationEventHandler<FriendRequestSent, Recorder>()…)` ở `InitializeAsync` (hook mới của `ModulesApiFactory`, cùng nếp
+   `UseRedis`); Recorder ghi vào một singleton **của host**, test đọc lại qua `factory.Services`. Gửi lời mời A → B qua API thật, `DrainEventsAsync`, khẳng định **đúng một**
    `FriendRequestSent(RequesterId = A, AddresseeId = B)`; B chấp nhận → **đúng một** `FriendRequestAccepted(RequesterId = A,
    AccepterId = B)`. Thêm nhánh âm: gửi lần hai (409) → **không** có event thứ hai.
 
@@ -472,8 +473,12 @@ song song.
 
 - **Đổi chỗ hai id** khi viết `new FriendRequestAccepted(…)` — compile được (cùng `Guid`), `FRD-*` vẫn xanh (không ai đọc
   event), và ở D10 thông báo "đã chấp nhận lời mời" gửi cho **chính người vừa bấm chấp nhận**. `EVT-06` là lưới duy nhất.
-- **Dựng handler ghi lại bằng `ConfigureTestServices` trên `factory` chung của lớp** (`IClassFixture`) thay vì
-  `WithWebHostBuilder` → mọi lớp test khác dùng chung factory đó cũng có handler, và chạy cả bộ thì thứ tự quyết định.
+- **`WithWebHostBuilder` không dùng được**: nó trả `WebApplicationFactory<Program>`, còn `ModulesTestClient` đòi đúng kiểu
+  `ModulesApiFactory`. Cũng không cần: `IClassFixture<ModulesApiFactory>` dựng **một factory cho mỗi lớp test**, nên handler
+  đăng ký qua `UseTestServices` không lọt sang lớp khác. *(Bản đầu của tài liệu này ghi ngược lại — sai, sửa khi thi công.)*
+- **Giữ bộ ghi ở field của lớp test** (`private readonly Recorded _recorded = new()`) rồi `AddSingleton(_recorded)` → xUnit dựng
+  lại lớp test cho **mỗi ca** nhưng host dựng **một lần cho cả lớp**: từ ca thứ hai, test đọc một bộ ghi mà handler không bao
+  giờ ghi vào. Đăng ký `AddSingleton<Recorded>()` và đọc qua `factory.Services`.
 - Khẳng định `EVT-06` **trước** `DrainEventsAsync` → đỏ ngẫu nhiên. Mọi khẳng định về event đứng sau nó.
 
 ---
@@ -615,7 +620,7 @@ tính public có kiểu thuộc tập cho phép — `Guid`, `Guid?`, enum, `long
 | Một scope cho cả event thay vì mỗi handler                                | `EVT-04` |
 | `AddHostedService<InProcessEventBus>()`                                   | `EVT-05` |
 | Đổi chỗ hai id trong `new FriendRequestAccepted(…)`                       | `EVT-06` |
-| Giảm `_pending` trước khi dispatch                                        | `EVT-06` (đỏ lúc có lúc không — chạy 20 lần) |
+| Giảm `_pending` trước khi dispatch                                        | `EVT-03` (khẳng định "`DrainAsync` chưa xong khi handler còn chạy") |
 | Thêm `string Body` vào `CommentCreated`                                   | `EVT-07` |
 
 **Quy trình**
@@ -632,5 +637,51 @@ tính public có kiểu thuộc tập cho phép — `Guid`, `Guid?`, enum, `long
 
 ## Thực tế thi công
 
-*(Điền khi làm: chỗ lệch nào trong L1–L8 đã chốt khác đề xuất, và vì sao; A, B trả lời gì ở [0]; `IAccountStatusReader` có
-kéo vào không; số test trước → sau; bảng đột biến thực tế; link PR và CI run.)*
+Thi công 2026-09-23 trên `loveart1210` (fast-forward lên `origin/develop` `9f296a8` trước khi sửa — cây không đổi, chỉ thêm hai
+commit merge của PR #21, #22).
+
+**Chỗ lệch L1–L8:** cả tám chốt **đúng như đề xuất**; B.3, Đ-6.2, Đ-6.17 và Mục 10.1 của `giai-doan-6.md` đã sửa theo, mỗi chỗ có
+ghi "sửa 2026-09-23 khi thi công C0".
+
+**[0] — bỏ bước chốt với A, B (quyết định của người thi công, 2026-09-23):** không chờ và không hỏi người GĐ3, người GĐ5.
+Chữ ký sáu record lấy đúng Đ-6.17 (trừ tên enum theo L3) làm bản chốt; ai cần khác thì đổi theo luật chỉ-thêm của Mục 9.4.
+`IAccountStatusReader` **không** kéo vào C0 — C5 giữ chỗ cũ. Bước 5 của C0.8 (tin nhắn cho A, B) không làm.
+
+**Lệch so với chính tài liệu này (đã sửa ở trên):**
+- **`EventBusMetrics` là lớp thường, không `static`.** Bus tự dựng nó từ `IMeterFactory` — mỗi container một Meter, test không
+  đếm lẫn nhau.
+- **C0.6 bước 5:** không dùng được `WithWebHostBuilder` (`ModulesTestClient` đòi đúng kiểu `ModulesApiFactory`). Thêm hook
+  `ModulesApiFactory.UseTestServices(Action<IServiceCollection>)`, cùng nếp `UseRedis`. Cạm bẫy "factory chung của lớp" trong bản
+  đầu là sai — `IClassFixture` dựng một factory cho mỗi lớp test.
+- **Đột biến "giảm `_pending` trước khi dispatch" không bị bắt** trong lượt đầu (0/20 unit, 0/5 `EVT-06` — handler giả đều đồng
+  bộ). Thêm vào `EVT-03` khẳng định tất định "`DrainAsync` chưa xong khi handler còn chạy" → bị bắt.
+- Thêm hai ca ngoài bảng: `Dang_ky_trung_mot_handler_cho_mot_event_thi_nem_luc_dung` (bus ném lúc dựng khi đăng ký trùng) và
+  `Sau_record_cua_D6_17_deu_co_mat` (đổi tên/xóa một record đã chốt với A, B → đỏ; thêm record mới không đỏ).
+- `RelationshipServicePostCommitTests` dùng `DiscardingPublisher` (không ghi gì) thay cho `RecordingPublisher` — ca đó canh
+  cache nguồn, event đã có `EVT-06`.
+
+**Test:** Unit 295 → 303 (+6 `InProcessEventBusTests`, +2 `IntegrationEventShapeTests`), Integration 483 → 484 (+`EVT-06`),
+Architecture 16 → 16. Integration còn **một đỏ nền trên máy dev**, có từ trước C0:
+`StartupConfigurationTests.Development_boots_without_r2_config_and_first_use_names_the_variables` (user-secrets có khóa R2; CI
+xanh). 100/100 test `SocialGraph` xanh, không đổi khẳng định nào.
+
+**Thử cho đỏ — 8/8 đột biến đều bị bắt**, file khôi phục nguyên byte sau mỗi lượt:
+
+| Đột biến                                      | Ca đỏ thực tế            |
+| --------------------------------------------- | ------------------------ |
+| Bỏ callback `itemDropped`                     | `EVT-03`                 |
+| Bỏ try/catch quanh handler                    | `EVT-02`, `EVT-04`       |
+| Log cả record                                 | `EVT-02`                 |
+| Một scope cho cả event                        | `EVT-04`                 |
+| `AddHostedService<InProcessEventBus>()`       | `EVT-05`                 |
+| Đổi chỗ hai id `FriendRequestAccepted`        | `EVT-06`                 |
+| Giảm `_pending` trước khi dispatch            | `EVT-03`                 |
+| Thêm `string Body` vào `CommentCreated`       | `EVT-07`                 |
+
+**detect-changes:** medium, 4 luồng — `FriendRequestSent/Accepted → Envelope/Published`: đây là thay đổi có chủ đích (hai phương
+thức của `SocialGraphEvents` giờ phát qua bus).
+
+**Chưa kiểm:** chạy app local rồi gọi `/health/ready` bằng tay. Host thật (`Program`) đã được bộ integration dựng và gọi hàng
+trăm lần, kể cả `EVT-06` đi qua bus thật.
+
+**PR / CI run:** chưa mở.

@@ -35,6 +35,7 @@ public sealed class ModulesApiFactory : WebApplicationFactory<Program>
 {
     private Task<string>? _database;
     private string _redis = ApiFactory.UnreachableRedis;   // mặc định GIỮ NGUYÊN: mọi lớp cũ vẫn chạy không Redis
+    private Action<IServiceCollection>? _testServices;
 
     /// <summary>
     /// C5: lưu trữ đối tượng giả. Test dựng sẵn object bằng <c>Storage.Put(...)</c> rồi gọi API thật. MỘT instance cho cả
@@ -53,6 +54,13 @@ public sealed class ModulesApiFactory : WebApplicationFactory<Program>
     /// UseFreshDatabaseAsync. Không gọi thì Redis là cổng 1: cache fail-open, và test cache xanh vì lý do sai.
     /// </summary>
     public void UseRedis(string connectionString) => _redis = connectionString;
+
+    /// <summary>
+    /// C0 (GĐ6): thêm dịch vụ riêng của MỘT lớp test — vd handler event ghi lại (<c>SocialGraphEventsTests</c>). Gọi ở
+    /// InitializeAsync, trước CreateClient đầu tiên — cùng luật với <see cref="UseRedis"/>. An toàn vì
+    /// <c>IClassFixture&lt;ModulesApiFactory&gt;</c> dựng một factory cho mỗi lớp test, không dùng chung giữa các lớp.
+    /// </summary>
+    public void UseTestServices(Action<IServiceCollection> configure) => _testServices = configure;
 
     public string ConnectionString => _database is { IsCompletedSuccessfully: true } db
         ? db.Result
@@ -97,6 +105,8 @@ public sealed class ModulesApiFactory : WebApplicationFactory<Program>
             // bằng TryAdd nên đây là chỗ DUY NHẤT quyết định hiện thực IObjectStorage trong test.
             services.RemoveAll<IObjectStorage>();
             services.AddSingleton<IObjectStorage>(Storage);
+
+            _testServices?.Invoke(services);
         });
     }
 }

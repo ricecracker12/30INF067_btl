@@ -177,8 +177,9 @@ GĐ2 (bảng "phương án loại bỏ"): *"nếu GĐ5/GĐ6 cần event thật t
 SharedKernel/Events/
   IIntegrationEvent                         -- đánh dấu; mọi event là record bất biến, chỉ mang id + enum, KHÔNG mang nội dung
   IEventPublisher.Publish(IIntegrationEvent)          -- producer gọi SAU COMMIT, không await handler
-  IIntegrationEventHandler<TEvent>.HandleAsync(e, ct) -- consumer đăng ký trong Add<X>Module
+  IIntegrationEventHandler<TEvent>.HandleAsync(e, ct) -- consumer đăng ký trong Add<X>Module bằng AddIntegrationEventHandler
   InProcessEventBus                          -- Channel<T> có giới hạn + BackgroundService tiêu thụ, mỗi handler một scope DI
+  EventBusMetrics                            -- Meter("SocialApp.Events"): published_total, dropped_total, tag event
   ContentEvents.cs / SocialGraphEvents.cs / MessagingEvents.cs / ModerationEvents.cs   -- các record event (Đ-6.17)
 ```
 
@@ -199,8 +200,14 @@ worker + xử lý trùng cho **mỗi** module phát event, trong khi cái mất 
 deploy. Chỗ **không được** mất — quyết định kiểm duyệt, audit — thì **không** đi qua event mà đi qua transaction (Đ-6.3).
 Ghi vào Mục 13.
 
-**Test không chờ bằng `Task.Delay`:** `InProcessEventBus` có `DrainAsync()` (chỉ đăng ký trong test harness) chờ tới khi
-hàng đợi rỗng và mọi handler đang chạy xong. Test `EVT-*` gọi nó thay vì ngủ.
+**Test không chờ bằng `Task.Delay`:** `InProcessEventBus` có `DrainAsync(timeout)` chờ tới khi hàng đợi rỗng và mọi handler
+đang chạy xong. Test `EVT-*` gọi nó (qua harness `DrainEventsAsync`) thay vì ngủ.
+
+*Sửa 2026-09-23 khi thi công C0* (chi tiết ở `huong-dan-khoi-c0-duong-ray.md`, L2/L5/L6): `DrainAsync` là phương thức public của
+bus chứ không "chỉ đăng ký trong test harness" — số event dở dang phải nằm trong bus; `IEventPublisher` không có nó nên code
+sản phẩm không thấy. Handler đăng ký **chỉ** qua `AddIntegrationEventHandler<TEvent, THandler>()` (bus cần biết kiểu handler
+trước khi mở scope riêng cho nó). Metric dùng `System.Diagnostics.Metrics` có sẵn trong .NET 8, GĐ7 C2 kiểm tên ở `/metrics`.
+Luật 3 có cổng CI: `IntegrationEventShapeTests` (`EVT-07`).
 
 ### Đ-6.3 Ghi xuyên module trong một transaction bằng cách **truyền `DbTransaction`** — hai hợp đồng ghi có tên, lệch Đ-2.3 luật 1 có chủ đích
 
@@ -587,12 +594,18 @@ Event tới (vd ReactionSet: Bình thả tim bài P của An)
 ```csharp
 record CommentCreated(Guid CommentId, Guid PostId, Guid PostAuthorId, Guid? ParentCommentId, Guid? ParentAuthorId,
                       Guid ActorId, IReadOnlyList<Guid> MentionedUserIds)   // MentionedUserIds rỗng tới khi làm tag
-record ReactionSet(ReactionTargetType TargetType, Guid TargetId, Guid PostId, Guid TargetAuthorId, Guid ActorId, bool IsNew)
+record ReactionSet(ReactionTargetKind TargetType, Guid TargetId, Guid PostId, Guid TargetAuthorId, Guid ActorId, bool IsNew)
 record FriendRequestSent(Guid RequesterId, Guid AddresseeId)
 record FriendRequestAccepted(Guid RequesterId, Guid AccepterId)
 record MessageSent(Guid ConversationId, Guid MessageId, Guid SenderId, Guid RecipientId, long Seq)   // khớp Đ-5.15
 record ContentHidden(ModerationTargetType TargetType, Guid TargetId, Guid? PostId, Guid AuthorId, string ReasonCode)
 ```
+
+*Sửa 2026-09-23 khi thi công C0:* enum của `ReactionSet` tên **`ReactionTargetKind`** (ở `SharedKernel.Events`), không phải
+`ReactionTargetType` — `SocialApp.Modules.Content.Domain.ReactionTargetType` đã có, service cảm xúc của A `using` cả hai
+namespace là `CS0104`; SharedKernel không được dùng enum của Content (ADR-001), Content ánh xạ bằng một `switch`.
+`ModerationTargetType { Post, Comment, User }` đặt ở **`SharedKernel/Moderation/`** — C2 dựng `ModerationTarget`,
+`IModerationTargets` cạnh nó mà không phải dời enum. Mọi record là `sealed record … : IIntegrationEvent`.
 
 ### Đ-6.18 Realtime: hub `/hubs/notifications` dùng **vé của GĐ5**; trước khi có vé thì hỏi lại 30 giây — và đó cũng là đường lùi vĩnh viễn
 
@@ -1306,9 +1319,16 @@ Luật vàng số 8: mọi thứ phải chạy trên ARM64 — không có native
 | `NOTIF-07` | `read-all { upTo }` rồi có sự kiện mới sau `upTo` | nhóm mới vẫn chưa đọc |
 | `NOTIF-08` | Danh sách không N+1 | số câu SQL không đổi khi trang có 1 hay 20 nhóm (nếp `FEED-Q1`) |
 | `NOTIF-09` | Thông báo `moderation` | `actor = null`, có `reasonCode`; không lộ id Moderator ở bất kỳ trường nào |
-| `EVT-01` | `Publish` khi chưa có handler | no-op, không lỗi |
-| `EVT-02` | Handler ném lỗi | Request gốc vẫn 2xx; log có tên event + id, **không** payload |
-| `EVT-03` | Hàng đợi đầy | event rơi, metric `dropped` tăng, producer không bị chặn |
+| `EVT-01` | `Publish` khi chưa có handler | no-op, không lỗi; metric `published` vẫn đếm |
+| `EVT-02` | Handler ném lỗi | `Publish` không ném (request gốc không đổi mã); log có tên handler + tên event + số thứ tự phong bì, **không** id hay payload (message lẫn property); event kế tiếp vẫn được xử lý |
+| `EVT-03` | Hàng đợi đầy | event rơi, metric `dropped` tăng, **một** dòng cảnh báo (ngưỡng), producer không bị chặn; `DrainAsync` chưa xong khi handler còn chạy |
+| `EVT-04` | Hai handler một event, handler 1 ném | handler 2 vẫn chạy; hai handler ở hai scope DI khác nhau |
+| `EVT-05` | Dựng bằng `AddInProcessEventBus()` | `IEventPublisher`, `InProcessEventBus`, `IHostedService` là **một** instance |
+| `EVT-06` | Gửi → chấp nhận lời mời → gửi lại (409), qua API thật | đúng hai event, **đúng vai** từng id; request 409 không phát gì |
+| `EVT-07` | Reflection trên mọi `IIntegrationEvent` | `sealed`; thuộc tính chỉ id/enum/số/cờ, ngoại lệ duy nhất `ContentHidden.ReasonCode` |
+
+*`EVT-01..05`, `EVT-07` là unit test (`InProcessEventBusTests`, `IntegrationEventShapeTests`); `EVT-06` là integration
+(`SocialGraphEventsTests`). `EVT-04..07` thêm 2026-09-23 khi thi công C0.*
 | `SRCH-01` | "nguyen" | ra "Nguyễn Văn An" |
 | `SRCH-02` | "van" | ra "Nguyễn **Văn** An" (tiền tố của từ thứ hai) |
 | `SRCH-03` | "duc" | ra "Đức" |
@@ -1540,14 +1560,19 @@ Kiểm ngày 2026-09-23 trên `loveart1210` (`ac509e4`). GĐ6 **không** dựng 
 ### C0 — Event bus trong tiến trình + toàn bộ record event
 
 **Làm gì:** `SharedKernel/Events/` đúng Đ-6.2; sáu record của Đ-6.17 (kể cả của A, B); `AddInProcessEventBus()` trong
-`AddSharedKernel`; `DrainAsync` cho test; metric `socialapp_events_published_total`, `…_dropped_total` (nếu `prometheus-net` của GĐ7
-đã có, chưa thì bộ đếm nội bộ + TODO trỏ GĐ7 C2); `SocialGraphEvents` gọi `Publish`.
+`AddSharedKernel`; `DrainAsync` cho test; metric `socialapp_events_published_total`, `…_dropped_total` trên
+`Meter("SocialApp.Events")` của `System.Diagnostics.Metrics` (GĐ7 C2 kiểm tên ở `/metrics`); `SocialGraphEvents` gọi `Publish`.
 
-**Làm như nào:** `Channel.CreateBounded<IIntegrationEvent>(10_000, DropWrite)`; một `BackgroundService` đọc, với mỗi event mở
-**một scope DI**, gọi tuần tự mọi `IIntegrationEventHandler<T>` đã đăng ký (tra bằng `IServiceProvider.GetServices`), bắt mọi
-ngoại lệ từng handler, log tên event + id (không payload). Không handler → bỏ qua, đếm.
+**Làm như nào:** `Channel.CreateBounded(options { Capacity = 10_000, DropWrite }, itemDropped)` — `TryWrite` với `DropWrite` luôn
+trả `true`, chỉ callback `itemDropped` biết có rơi; một `BackgroundService` đọc, với mỗi **handler** mở **một scope DI riêng**
+(Đ-6.2 — hai handler chung scope là chung `DbContext`), gọi tuần tự theo danh sách `EventHandlerRegistration` do
+`AddIntegrationEventHandler` đăng ký, bắt ngoại lệ từng handler, log tên handler + tên event + số thứ tự phong bì (không id, không
+payload — id người dùng là PII). Không handler → bỏ qua; `published` đã đếm.
 
-**Xong khi:** `EVT-01..03` xanh; test tích hợp GĐ4 (`FRD-*`) vẫn xanh; PR mỏng vào `develop` đã merge; tin nhắn cho A và B kèm
+*Sửa 2026-09-23 khi thi công:* câu cũ "mỗi event một scope, tra bằng `GetServices`, log tên event + id, bộ đếm nội bộ" lệch
+Đ-6.2 và không an toàn — lý do từng chỗ ở `huong-dan-khoi-c0-duong-ray.md` bảng L1–L8.
+
+**Xong khi:** `EVT-01..07` xanh; test tích hợp GĐ4 (`FRD-*`) vẫn xanh; PR mỏng vào `develop` đã merge; tin nhắn cho A và B kèm
 đoạn code mẫu một dòng `publisher.Publish(new CommentCreated(…))`.
 
 **Cạm bẫy:** gọi `Publish` bên trong khối `await using var tx` — trông "sau `SaveChanges`" nhưng vẫn **trước** `COMMIT`. Luôn
@@ -1759,7 +1784,7 @@ nội dung. **Xong khi:** ba lớp cổng hợp đồng mới + ba cũ xanh hai 
 ### B1 — Harness
 
 Thêm Moderation, Notification vào thứ tự migrate cố định của `PostgresFixture` và `ModulesApiFactory`; helper "dựng Admin thứ
-hai", "dựng vai trò tự tạo", "dựng báo cáo mở"; đăng ký `DrainAsync` của event bus; đo lại thời gian nhóm test Postgres — vượt ~3
+hai", "dựng vai trò tự tạo", "dựng báo cáo mở"; `DrainEventsAsync` của event bus (đã có từ C0 — `Harness/EventBusHarness.cs`); đo lại thời gian nhóm test Postgres — vượt ~3
 phút thì tách collection (ngưỡng GĐ1).
 
 ### B2 — Dòng AuthZ matrix (Mục 6.3), viết cho đỏ trước
@@ -1901,7 +1926,8 @@ Tick từng dòng có bằng chứng. Dòng chờ A/B hay chờ server ghi "ch�
 cho người duyệt PR):
 
 1. **DB trước, Redis sau** ở mọi đường gọi `RevokeUserAsync` — liệt kê tên hàm đã rà trong mô tả PR.
-2. `Publish` đặt **sau** `CommitAsync`, không trong khối transaction; record event chỉ mang id và enum.
+2. `Publish` đặt **sau** `CommitAsync`, không trong khối transaction. (Phần "record event chỉ mang id và enum" đã có cổng CI:
+   `EVT-07`.)
 3. Không có `role == "ADMIN"` nào ngoài `SystemRoles` / `IsAllowedAsync` của SharedKernel; không nhánh Admin nào ở tầng 3.
 4. `actorId` từ token (`GetUserId()`), không từ route hay body — kể cả ở `PUT /admin/users/{id}/role` (id trên đường là **đích**,
    người thao tác là token).
