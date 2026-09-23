@@ -4,6 +4,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using SocialApp.Modules.Content.Domain;
+using SocialApp.SharedKernel.Observability;
 using SocialApp.SharedKernel.Redis;
 using SocialApp.SharedKernel.Storage;
 using StackExchange.Redis;
@@ -72,6 +73,7 @@ public sealed class MediaCleanupWorker(
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
                     // Một lượt hỏng không được giết worker: lượt sau thử lại. Khóa tự hết hạn.
+                    BusinessMetrics.MediaCleanupRun("failed");
                     logger.LogError(ex, "Lượt dọn rác media thất bại; sẽ thử lại ở chu kỳ kế");
                 }
             }
@@ -87,11 +89,16 @@ public sealed class MediaCleanupWorker(
     /// </summary>
     public async Task<MediaCleanupReport> RunOnceAsync(CancellationToken ct)
     {
+        // "disabled" cố ý KHÔNG đếm (GĐ7 C2): worker tắt thì ExecuteAsync thoát trước vòng lặp nên nhánh này chỉ tới được
+        // khi test gọi thẳng — đếm ở đây là số liệu giả.
         if (!options.Value.Enabled)
             return MediaCleanupReport.Skipped("disabled");
 
         if (!await TryAcquireLockAsync(ct))
+        {
+            BusinessMetrics.MediaCleanupRun("lock");
             return MediaCleanupReport.Skipped("lock");
+        }
 
         await using var scope = scopes.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<ContentDbContext>();
@@ -101,6 +108,7 @@ public sealed class MediaCleanupWorker(
         var (orphans, bytes2) = await CleanOrphansAsync(db, now, ct);
 
         var report = new MediaCleanupReport(true, null, fromDeletedPosts, orphans, bytes1 + bytes2);
+        BusinessMetrics.MediaCleanupRun("ran");
         logger.LogInformation(
             "Dọn rác media: {FromDeletedPosts} object của bài xóa mềm, {Orphans} object mồ côi, thu hồi {Bytes} byte",
             report.DeletedFromSoftDeletedPosts, report.DeletedOrphans, report.BytesReclaimed);

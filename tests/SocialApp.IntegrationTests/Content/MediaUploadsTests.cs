@@ -121,6 +121,34 @@ public sealed class MediaUploadsTests(PostgresFixture postgres, ModulesApiFactor
     }
 
     /// <summary>
+    /// GĐ7 C2: <c>socialapp_presign_issued_total</c> đếm SỐ URL đã ký (một lô 3 file là 3, không phải 1), tách theo nhãn
+    /// <c>purpose</c> — số này đem đối chiếu với số object trên R2 nên phải đếm theo object.
+    /// </summary>
+    [Fact]
+    public async Task C2_presign_issued_dem_dung_so_url_theo_muc_dich()
+    {
+        const string Metric = "socialapp_presign_issued_total";
+        var client = new ModulesTestClient(factory);
+        using var http = factory.CreateClient();
+        var actor = Guid.NewGuid();
+        var truocPost = await MetricsReader.ReadAsync(http, Metric, "purpose=\"post\"");
+        var truocAvatar = await MetricsReader.ReadAsync(http, Metric, "purpose=\"avatar\"");
+
+        using (var lo = await client.CreateUploadsAsync(actor, new
+               {
+                   purpose = "post",
+                   files = new[] { File("image/jpeg", 1024), File("image/png", 1024), File("image/webp", 1024) },
+               }))
+            Assert.Equal(3, (await ReadTicketsAsync(lo)).Count);
+        using (var avatar = await client.CreateUploadsAsync(
+                   actor, new { purpose = "avatar", files = new[] { File("image/png", 2048) } }))
+            Assert.Single(await ReadTicketsAsync(avatar));
+
+        Assert.Equal(truocPost + 3, await MetricsReader.ReadAsync(http, Metric, "purpose=\"post\""));
+        Assert.Equal(truocAvatar + 1, await MetricsReader.ReadAsync(http, Metric, "purpose=\"avatar\""));
+    }
+
+    /// <summary>
     /// <b>Đ-2.6 + Q-D5 — hai mức quyền tách nhau thật.</b> CÙNG một vai trò <c>GUEST</c> (không có dòng nào trong
     /// <c>role_permissions</c> nên thiếu <c>post.create</c>): <c>purpose=post</c> → <b>403</b>, <c>purpose=avatar</c> →
     /// <b>201</b>. Hai lượt gọi trong MỘT test là cố ý — tách đôi thì bản đặt <c>[RequirePermission("post.create")]</c>

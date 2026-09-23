@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using SocialApp.Modules.Identity.Application.Security;
 using SocialApp.SharedKernel.Authentication;
 using SocialApp.SharedKernel.Ids;
+using SocialApp.SharedKernel.Observability;
 using SocialApp.SharedKernel.Results;
 
 namespace SocialApp.Modules.Identity.Application.Login;
@@ -32,6 +33,7 @@ public sealed class LoginService(
         if (user is null)
         {
             hasher.VerifyAgainstDummy(request.Password);
+            BusinessMetrics.LoginFailed();
             return IdentityErrors.InvalidCredentials;
         }
 
@@ -44,6 +46,7 @@ public sealed class LoginService(
         if (!hasher.Verify(request.Password, user.PasswordHash))
         {
             await users.RegisterFailedLoginAsync(user.UserId, now, ct);
+            BusinessMetrics.LoginFailed();
             return IdentityErrors.InvalidCredentials;   // CÙNG đối tượng lỗi với bước 2
         }
 
