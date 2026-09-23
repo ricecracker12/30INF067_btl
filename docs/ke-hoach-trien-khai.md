@@ -481,7 +481,7 @@ còn biên độ thêm index/cache nếu trượt; và thứ cắt được thì
 >   endpoint nào nên không có cổng mở hợp đồng để chờ. Chỉ khối F (lane frontend) phải đợi đúng nhịp.
 > - **Không có production riêng — staging `mxh.banhgao.net` là môi trường cuối** (Đ-7.4, nhóm chốt 2026-09-23).
 >   Những chỗ bên dưới nói "production", "2 API container", "deploy theo tag", "TẮT Swagger ở production" đọc theo
->   Đ-7.4 / Đ-7.13 của `giai-doan-7.md`: Swagger giữ trên staging nhưng khóa bằng mật khẩu ở apache; GĐ8 bắn k6 và
+>   Đ-7.4 / Đ-7.13 của `giai-doan-7.md`: Swagger để mở công khai có chủ đích (chặn hai endpoint demo lỗi); GĐ8 bắn k6 và
 >   quét ZAP vào chính staging theo quy tắc riêng (báo nhóm, backup trước, không chạy 48 giờ trước bảo vệ).
 >
 > **Đồng hồ uptime phải bật sớm nhất có thể** — GOAL-04 đo bằng thời gian tích lũy, bật muộn là mất bằng

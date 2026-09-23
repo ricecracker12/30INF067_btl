@@ -54,6 +54,9 @@ docker run --rm --network socialapp-restore_default --env-file .env \
   ghcr.io/ricecracker12/30inf067_btl/api:staging --migrate
 #    (Không dùng host.docker.internal:15432 — cổng đó chỉ bind 127.0.0.1 của host, từ trong container
 #     đi qua host-gateway là bị từ chối kết nối.)
+#    Bản sao tạo TRƯỚC ngày xoay mật khẩu Postgres (D3) mang mật khẩu CŨ → bước này báo sai mật khẩu. Đặt lại trước:
+#      docker compose -f docker-compose.restore.yml exec -T postgres psql -U socialapp -d socialapp \
+#        -v p="<mật khẩu hiện tại trong .env>" <<< "ALTER ROLE socialapp PASSWORD :'p';"
 #    Bằng chứng no-op: dòng "[migrate] Đã áp dụng migration…" in ra CẢ KHI không có gì để áp — exit 0 chỉ chứng
 #    minh schema tương thích. Đếm lại các bảng __EFMigrationsHistory: số dòng phải BẰNG bảng restore.sh vừa in.
 docker compose -f docker-compose.restore.yml exec -T postgres psql -U socialapp -d socialapp -At -f - \

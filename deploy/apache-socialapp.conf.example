@@ -23,6 +23,19 @@
     ProxyPreserveHost On
     RequestHeader set X-Forwarded-Proto "https"
 
+    # --- GĐ7 D1: HSTS cho MỌI đường (giai-doan-7.md Đ-7.12). Frontend đã tự gửi (src/frontend/next.config.ts)
+    #     nhưng /api, /health, /swagger thì không. unset header của backend TRƯỚC rồi mới set — thiếu dòng unset
+    #     thì trang frontend nhận HAI header HSTS (một của Next, một của apache). Cần mod headers (a2enmod ở trên).
+    Header onsuccess unset Strict-Transport-Security
+    Header always set Strict-Transport-Security "max-age=31536000"
+
+    # --- GĐ7 D2: chặn hai endpoint demo lỗi của GĐ0 từ Internet (Đ-7.13) — /ping/boom cho bất kỳ ai tự tạo lỗi 500.
+    #     Không sửa code: integration test vẫn dùng chúng; C5 vẫn bắn được từ VM qua 127.0.0.1:18080 (không qua apache).
+    #     KHÔNG viết <Location /api/v1/ping> — chặn luôn /api/v1/ping, monitor "api ping" của Kuma đỏ theo.
+    <LocationMatch "^/api/v1/ping/(boom|app-error)$">
+        Require all denied
+    </LocationMatch>
+
     # --- Backend API (ASP.NET Core) — liệt kê TRƯỚC để ưu tiên hơn catch-all "/" ---
     ProxyPass        /api     http://127.0.0.1:18080/api
     ProxyPassReverse /api     http://127.0.0.1:18080/api
