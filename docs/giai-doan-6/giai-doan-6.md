@@ -381,7 +381,8 @@ Thiết kế GĐ1 đã hứa (PTTK 6.7.2 "nâng cấp là thay dữ liệu, khô
 **Mã quyền thứ 18 `role.manage` — lệch ma trận PTTK (17 mã).** "Gán vai trò cho người" (`role.assign`) và "định nghĩa vai trò
 là gì" là hai quyền khác bậc: một vai trò "Nhân sự" gán được người vào MODERATOR không có nghĩa được sửa MODERATOR có những
 quyền gì. Chỉ ADMIN có (short-circuit — không dòng `role_permissions` nào). Seeder tự chèn dòng `permissions` thứ 18 vì đọc
-`PermissionCodes.All` (`DO NOTHING`); **không** thêm vào bộ bootstrap của USER/MODERATOR.
+`PermissionCodes.All` (`DO NOTHING`); **không** thêm vào bộ bootstrap của USER/MODERATOR. *(Sửa 2026-09-23, A3: seeder chèn kèm
+mô tả — xem Mục 4 phần Identity.)*
 
 **Vì sao USER/MODERATOR không được về 0 quyền** — ranh giới GĐ1 Mục 5.4: seeder chỉ bootstrap vai trò **chưa có dòng nào**, nên
 vai trò đã seed bị gỡ hết quyền trông y như vai trò chưa từng seed → lần deploy sau **được cấp lại đủ bộ mặc định**, âm thầm.
@@ -805,13 +806,16 @@ CREATE TABLE notification.notification_actors (
 );
 
 ------------------------------------------------------------------ Identity (migration mới, chỉ mở rộng)
--- permissions.description (GĐ1 Mục 2: "migration UPDATE kèm cột mô tả, KHÔNG sửa seeder")
-ALTER TABLE identity.permissions ADD COLUMN description varchar(120);
-UPDATE identity.permissions SET description = … WHERE code = …;      -- 18 dòng, câu tiếng Việt cho màn vai trò
--- Mã quyền 18 'role.manage': seeder tự chèn (đọc PermissionCodes.All, DO NOTHING) — migration chỉ đặt description
+-- permissions.description: cột ĐÃ CÓ từ InitialIdentity (GĐ1) — KHÔNG ADD COLUMN (sửa 2026-09-23 khi thi công A3, L-A1)
+UPDATE identity.permissions SET description = … WHERE code = … AND description IS NULL;   -- cho DB đã seed từ GĐ1 (staging)
+-- DB MỚI: seeder chèn (permission_id, code, description) từ PermissionCodes.Descriptions, DO NOTHING — migration chạy TRƯỚC
+--   seeder nên UPDATE ở trên chạm 0 dòng trên DB mới (sửa 2026-09-23, L-A2 — lệch GĐ1 Mục 2 "không sửa seeder")
+-- Mã quyền 18 'role.manage': seeder tự chèn (đọc PermissionCodes.All, DO NOTHING), kèm mô tả
+-- Sequence cho vai trò tự tạo (thêm 2026-09-23, L-A4): CREATE SEQUENCE identity.roles_role_id_seq AS smallint START 100
+--   (HasSequence trong IdentityDbContext); roles.role_id vẫn gán tay, D5 lấy id bằng nextval
 -- Trigger vai trò hệ thống (Đ-6.9):
 --   BEFORE UPDATE OF code OR DELETE ON identity.roles FOR EACH ROW
---   WHEN (OLD.code IN ('ADMIN','USER','MODERATOR')) → RAISE EXCEPTION 'system role is immutable'
+--   WHEN (OLD.code IN ('ADMIN','USER','MODERATOR')) → RAISE EXCEPTION (P0001) khi DELETE hoặc NEW.code IS DISTINCT FROM OLD.code
 -- KHÔNG thêm cột nào vào users: status 'disabled' đã có trong ck_users_status từ GĐ1 (Đ-6.5)
 
 ------------------------------------------------------------------ Profile (migration mới)
@@ -846,7 +850,7 @@ không FK sang `users` (Đ-2.2); `reason_code` là CHECK không bảng tham chi�
 | Việc | Ở đâu | Vì sao |
 |---|---|---|
 | `PermissionCodes.RoleManage = "role.manage"` thêm vào cuối `PermissionCodes.All` (id 18) | Identity | Seeder chèn dòng `permissions` (`DO NOTHING`); `PermissionCodeUsageTests` canh chính tả mọi `[RequirePermission]`. **Không** thêm vào bootstrap USER/MODERATOR |
-| `description` cho 18 mã | Migration Identity (`UPDATE`) | GĐ1 Mục 2: seeder `DO NOTHING` không chạm DB đã seed (staging) — chỉ migration đổi được |
+| `description` cho 18 mã | Migration Identity (`UPDATE … AND description IS NULL`) **và** seeder (`PermissionCodes.Descriptions`, `DO NOTHING`) | GĐ1 Mục 2: seeder `DO NOTHING` không chạm DB đã seed (staging) — migration điền cho nó. Nhưng migration chạy trước seeder, nên DB mới nhận mô tả từ seeder (*sửa 2026-09-23 khi thi công A3, L-A2*) |
 | Hằng quyền cục bộ `ModerationPermissions` (`report.create`, `report.resolve`, `post.hide`, `audit.read`) + `ModerationPermissionsTests` | Moderation + ArchitectureTests | Module không import `Identity.Domain` — chép khuôn `ContentPermissionsTests` |
 | `MigrateModerationModuleAsync`, `MigrateNotificationModuleAsync` nối `--migrate`, **sau** SocialGraph và sau Messaging (nếu B đã nối) | `Program.cs` | Thứ tự cố định để log deploy đọc được; hai module mới không phụ thuộc thứ tự dữ liệu với ai |
 | **Không seed Admin mới.** Tài khoản ADMIN trên staging đã có từ GĐ1 | — | Test bất biến ≥ 1 Admin tự dựng Admin trong fixture |
@@ -1627,6 +1631,14 @@ description`, 18 câu `UPDATE`, hàm + trigger `trg_roles_protect_system`.
 **Làm như nào:** seeder **không** sửa (nó tự chèn mã 18 vì đọc `All`). Thêm `description` vào entity `Permission` + configuration.
 
 **Xong khi:** `ROLE-05`, `ROLE-07` xanh; test seeder GĐ1 (`SEED-01`, `SEED-02`) vẫn xanh.
+
+*Sửa 2026-09-23 khi thi công A3* (chi tiết ở `huong-dan-khoi-a-c-nen-du-lieu-va-ha-tang.md`, L-A1..L-A4): migration tên
+`SystemRoleGuardAndPermissionDescriptions`, **không** `ADD COLUMN` — cột, entity, configuration đã có từ GĐ1. Seeder **có** sửa:
+chèn kèm mô tả từ `PermissionCodes.Descriptions` (DB mới — migration chạy trước seeder nên `UPDATE` chạm 0 dòng); migration chỉ
+`UPDATE … AND description IS NULL` cho DB đã seed. Thêm sequence `identity.roles_role_id_seq` từ 100 cho vai trò tự tạo (D5).
+Bốn test GĐ1 **không thể** "vẫn xanh" nếu không sửa, đã sửa cùng commit: `PermissionCodes_doc_duoc_du_17_ma` → `…_18_ma`;
+`SEED-01` thêm mã 18 + khẳng định không mô tả nào NULL; `SEED-03` tắt đúng trigger mới trước khi đổi `code` (mô phỏng lớp 3 bị
+gỡ — lớp 2 vẫn phải bắt); `FK-01` dùng vai trò tự tạo (với vai trò hệ thống trigger chặn trước FK, ra `P0001` không phải `23503`).
 
 ### A4 — Profile: extension, `search_norm`, index GIN
 

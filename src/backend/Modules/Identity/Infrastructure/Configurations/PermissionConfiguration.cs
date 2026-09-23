@@ -12,7 +12,7 @@ internal sealed class PermissionConfiguration : IEntityTypeConfiguration<Permiss
         builder.ToTable("permissions");
 
         builder.HasKey(x => x.PermissionId);
-        // Id gán tay 1..17 theo Mục 5.2, cùng lý do như roles.role_id.
+        // Id gán tay theo vị trí trong PermissionCodes.All (1..17 Mục 5.2, 18 GĐ6), cùng lý do như roles.role_id.
         builder.Property(x => x.PermissionId).HasColumnName("permission_id").ValueGeneratedNever();
 
         builder.Property(x => x.Code).HasColumnName("code").HasMaxLength(40).IsRequired();

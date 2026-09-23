@@ -1132,6 +1132,46 @@ trigger thứ hai), B.4 A1 và A5, B.7 B1 — mỗi chỗ ghi "sửa 2026-09-23"
 các mục tài liệu). Impact trước khi sửa: `PostgresFixture.SeededContentDatabaseAsync` MEDIUM (5 lớp test đọc DB chung — chỉ thêm
 một lượt migrate, không đổi hành vi), `ModulesApiFactory.CreateMigratedDatabaseAsync` LOW.
 
+### A3 — 2026-09-23
+
+Làm đúng Mục 5; L-A1 (không `ADD COLUMN`), L-A2 (mô tả hai đường, seeder có sửa), L-A3 (bốn test GĐ1), L-A4 (sequence từ 100) áp
+như chốt. `dotnet ef migrations add` chỉ sinh `CreateSequence` — xác nhận L-A1 tại chỗ. `giai-doan-6.md` sửa cùng commit: Đ-6.9,
+Mục 4 phần Identity, Mục 5 hàng `description`, B.4 A3.
+
+**Lệch so với chính tài liệu này:**
+- **Migration `UPDATE` cả 18 mã**, không 17: dòng `role.manage` chưa có trên DB đã seed nên câu thứ 18 chạm 0 dòng — vô hại, và DB
+  nào lỡ chạy seeder mới trước (không có đường nào như vậy, nhưng) cũng được điền.
+- **Test mới gom ở `IdentitySystemRoleGuardTests`** (không rải vào `IdentitySeederTests`): `ROLE-05` ba ca bị chặn (Theory) + ca
+  được phép (`display_name`, `SET code = code`) + ca vai trò tự tạo đổi/xóa tự do; `Mo_ta_quyen_duoc_dien_cho_DB_da_seed_tu_GD1`
+  (migrate tới `InitialIdentity` bằng `IMigrator`, chèn 17 dòng như seeder GĐ1, rồi `MigrateIdentityModuleAsync`);
+  `Mo_ta_da_co_khong_bi_migration_de` *(thêm ngoài bảng — canh `AND description IS NULL`)*; `Sequence_vai_tro_tu_tao_bat_dau_tu_100`.
+  `ROLE-07` ở `IdentitySeederTests`. Unit `PermissionCodesTests` (mọi mã có mô tả, ≤ 120 ký tự, `role.manage` ở cuối).
+- **`IdentitySeederTests` thêm `ClearPool` ở `DisposeAsync`** — cùng khuôn A1; lớp này cũng một DB mỗi ca.
+
+**Kiểm tay trên DB dev** (đã seed từ GĐ1 — đúng hình dạng staging): `--migrate` hai lần, exit 0; 18 quyền, **0** mô tả NULL; lịch sử
+Identity có `20260923153649_SystemRoleGuardAndPermissionDescriptions`; `trg_roles_protect_system` có mặt; `roles_role_id_seq`
+`last_value = 100, is_called = false`; `psql` `UPDATE identity.roles SET code = 'X' WHERE code = 'USER'` → *"Vai trò hệ thống USER
+không đổi mã, không xóa được"*.
+
+**Test:** Unit 306 → 309 (+3 `PermissionCodesTests`), Integration 495 → 504 (+5 `ROLE-05`, +2 mô tả, +1 sequence, +1 `ROLE-07`),
+Architecture 17 → 17 (đổi tên `…_17_ma` → `…_18_ma`). Còn đỏ nền R2 trên máy dev như A1.
+
+**Thử cho đỏ — 4/4 đột biến bị bắt**, file khôi phục nguyên byte (`cmp`):
+
+| Đột biến                                                          | Ca đỏ thực tế                                                                                 |
+| ----------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| Hàm trigger chặn mọi `UPDATE` (bỏ so `IS DISTINCT FROM`)          | `ROLE_05_doi_display_name_va_update_giu_nguyen_code_thi_duoc`                                 |
+| Bỏ `WHEN (OLD.code IN …)`                                         | `ROLE_05_vai_tro_tu_tao_doi_code_va_xoa_duoc`                                                 |
+| Seeder chèn `NULL` thay mô tả                                     | `SEED_01`, `ROLE_07`, `Mo_ta_quyen_duoc_dien_cho_DB_da_seed_tu_GD1`                           |
+| Migration bỏ `AND description IS NULL`                            | `Mo_ta_da_co_khong_bi_migration_de`                                                           |
+
+Lượt đầu của đột biến 3 viết sai (bỏ cột `description` khỏi danh sách cột nhưng giữ giá trị → lệch số cột, cả lớp đỏ vì lỗi SQL
+chứ không vì mô tả) — không tính, làm lại bằng `NULL`.
+
+**detect-changes:** medium, 1 luồng — `MigrateIdentityModuleAsync → Literal`, đổi `PermissionsSql`: có chủ đích (seeder chèn kèm
+mô tả, L-A2). Impact trước khi sửa: `IdentitySeeder` LOW (15), `PermissionsSql` LOW (8), `IdentityDbContext` LOW (1),
+`PermissionCodes` UNKNOWN — text search: seeder + ba test đối chiếu.
+
 ### Các đầu việc còn lại
 
 *Chưa thi công.* Điền khi làm, theo khuôn của C0: chỗ nào phải đổi hướng so với Mục 0.4 và vì sao; lệch so với chính tài liệu này;

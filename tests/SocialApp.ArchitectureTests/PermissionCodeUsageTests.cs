@@ -57,11 +57,12 @@ public sealed class PermissionCodeUsageTests
 
     /// <summary>
     /// Canh gác vế bên kia: đọc hằng số sai cách (vd đổi sang static readonly) thì tập mã rỗng và rule trên
-    /// đỏ với MỌI attribute — hoặc tệ hơn, ai đó "sửa" bằng cách nới rule. Khóa đúng 17 mã của Mục 5.2.
+    /// đỏ với MỌI attribute — hoặc tệ hơn, ai đó "sửa" bằng cách nới rule. Khóa đúng 18 mã: 17 của Mục 5.2 (GĐ1) + <c>role.manage</c>
+    /// (GĐ6 Đ-6.9). Thêm mã mới thì sửa số này có chủ đích, trong cùng commit với migration/seeder.
     /// </summary>
     [Fact]
-    public void PermissionCodes_doc_duoc_du_17_ma()
+    public void PermissionCodes_doc_duoc_du_18_ma()
     {
-        Assert.Equal(17, KnownCodes().Count);
+        Assert.Equal(18, KnownCodes().Count);
     }
 }
