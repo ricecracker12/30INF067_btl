@@ -199,6 +199,9 @@ báo lỗi build (route group không tạo segment URL).
 - **Đã cân nhắc rồi loại:** giữ `/` redirect sang `/feed`. Loại vì thêm một bước điều hướng cho mọi lần mở app, và
   `AppHeader` đã trỏ logo về `/` từ GĐ1.
 
+*✅ chốt 2026-09-23 như đề xuất. Rà `e2e/`: chỉ `smoke.spec.ts` (vào `/` chưa đăng nhập) đổi khẳng định → `/login?next=%2F`;
+mọi spec khác đăng nhập với `?next=%2Fme` tường minh nên không đổi.*
+
 #### Q-E2 — Hồ sơ chính mình: không vẽ nút quan hệ
 
 `GET /relationships/{mình}` → **400** (Mục 8.1). Người dùng tự mở `/users/{id của mình}` (bấm tên mình trên một bài
@@ -212,6 +215,8 @@ trong feed — Đ-4.5 đưa bài của mình vào feed) thì `RelationshipButton
   luật server từ status; và vẫn tốn một request hỏng mỗi lần mở hồ sơ mình.
 - **Đã cân nhắc rồi loại:** redirect `/users/{mình}` → `/me`. Tốt về trải nghiệm nhưng là hành vi mới không ai yêu cầu;
   để GĐ sau nếu cần.
+
+*✅ chốt 2026-09-23 như đề xuất (slot `actions` thành hàm nhận hồ sơ — xem "Thực tế thi công" E5).*
 
 #### Q-E3 — `ErrorContext` cho SocialGraph và feed — **lệch B.7 (L3)**
 
@@ -297,6 +302,8 @@ B.7 `E5`: "Liên kết 'Bạn bè' trong `AppHeader`". `AppHeader` ở `componen
 - **Đề xuất:** thêm slot `nav?: ReactNode` cạnh `actions`; `app/(app)/layout.tsx` truyền ba `Link`: **Trang chủ** (`/`),
   **Bạn bè** (`/friends`), **Trang của tôi** (`/me`). Chuỗi đường dẫn nằm ở `app/`, shell chỉ đặt chỗ. Ở màn hẹp, ba liên
   kết là chữ nhỏ cùng hàng — không thêm menu thả xuống (không có trong kit, và không đáng một component mới).
+
+*✅ chốt 2026-09-23 như đề xuất.*
 
 #### Q-E8 — Hook phân trang: chép, hay tách một hook chung?
 
@@ -664,10 +671,13 @@ A (mới): / → nhãn gợi ý, thấy bài public của B, KHÔNG thấy bài 
 A bấm tên B → hồ sơ B → Kết bạn → nút thành "Đã gửi lời mời"
 B: /friends → Lời mời đến có A → Chấp nhận → A sang mục Bạn bè
 A: / → Làm mới → không còn nhãn gợi ý; thấy CẢ HAI bài của B
-A: hồ sơ B → Hủy kết bạn → xác nhận → / → Làm mới → bài friends biến mất, bài public cũng mất (không theo dõi)
+A: hồ sơ B → Hủy kết bạn → xác nhận → / → Làm mới → bài friends biến mất; nhãn gợi ý TRỞ LẠI (hết kết nối, Đ-4.6)
 A: hồ sơ B → Theo dõi → / → bài public của B quay lại, bài friends thì không
 A: /users/{id của A} → không có nút quan hệ
 ```
+
+*Sửa 2026-09-23:* dòng hủy kết bạn bản đầu ghi "bài public cũng mất" — mâu thuẫn Đ-4.6: A hết kết nối thì feed về
+`suggested`, bài public của B **có thể** hiện lại dưới nhãn gợi ý. Khẳng định đúng là bài `friends` mất và nhãn gợi ý trở lại.
 
 Dòng thứ năm canh **dấu nguồn** của cache trang đầu (`FEED-07b`): A vừa có kết nối đầu tiên thì trong 30s vẫn phải thấy
 `network`, không phải feed gợi ý đã cache. Đỏ ở đây là lỗi backend (`C4`) — dừng lại, không vá ở FE.
@@ -1241,3 +1251,39 @@ Ghi cả hai vào luật frontend Mục 9. Sau hai sửa: **10/10 lượt cả b
 bị bắt với cách bắn mới.
 
 **Bằng chứng E3:** Vitest 42 → 43 file, 524 → 538 ca (+14 `friends-screen.test.tsx`). `lint`, `typecheck`, `build` xanh.
+
+### E5 — 2026-09-23
+
+**Câu đã chốt:** Q-E1, Q-E2, Q-E7 — cả ba như đề xuất (dòng *✅ chốt* dưới từng câu).
+
+**Đã làm:**
+
+- **Q-E1:** xóa `app/page.tsx`; trang chủ `app/(app)/(with-profile)/page.tsx` (client) ráp `FeedList` + `PostItem` qua
+  `renderPost` — dòng ráp GĐ3 cắm thanh cảm xúc. `safeNext` mặc định `"/me"` → `"/"`, `onboarding.tsx` về `"/"`. Khẳng định
+  đổi **có chủ đích**: `safe-next.test.ts` (mặc định + open redirect → `/`), `login-form.test.tsx` (không `next` / `next` độc →
+  `/`), `profile-form.test.tsx` (onboarding không `next` → `/`), `e2e/smoke.spec.ts` (`/` chưa đăng nhập → `/login?next=%2F`).
+  Rà `e2e/`: mọi spec khác đăng nhập với `?next=%2Fme` tường minh — không đổi.
+- **`/friends`:** `app/(app)/(with-profile)/friends/page.tsx` chỉ ráp `FriendsScreen`.
+- **Q-E2:** `users/[userId]/page.tsx` thành client (`use(params)` + `useProfile()`); hồ sơ của chính mình không truyền
+  `RelationshipButtons`, câu rỗng của danh sách bài đổi theo "mình / người khác".
+- **Q-E7:** `AppHeader` thêm slot `nav` (`<nav aria-label="Điều hướng chính">`); `app/(app)/layout.tsx` truyền ba `Link`.
+- Impact: `safeNext`, `PublicProfile`, `AppHeader`, `OnboardingPage` đều ra **UNKNOWN** (chỉ mục không lần được lời gọi JSX) —
+  tìm chữ xác nhận: `safeNext` 2 người gọi, `PublicProfile` 1, `AppHeader` 1, đích onboarding 1 chỗ.
+
+**Chỗ lệch với file này:**
+
+- *Slot `actions` của `PublicProfile` là HÀM* `(profile) => ReactNode`, không `ReactNode` như Q-E2/Bước 3: `app/` lấy tên người
+  kia cho hộp thoại Hủy kết bạn mà không nạp hồ sơ lần hai. Ghi "Lệch Đ-4.16" trong `giai-doan-4.md`.
+- *`FeedList` thêm slot `action`* (nút "Đăng bài" của trang chủ) — code mẫu Bước 1 đã dùng prop này nhưng `E4` chưa dựng.
+- *Bước 5 dòng hủy kết bạn* mâu thuẫn Đ-4.6 — đã sửa ở Bước 5.
+- *Lệch Đ-4.16 (L4)* — ráp `PostItem`, không `PostCard` — ghi ngược vào `giai-doan-4.md` trong commit này.
+
+**Lượt tay Bước 5 — do Playwright đi thay** (Chrome **153.0.8010.53**, API dev + FE dev thật trên `localhost`): một spec
+**tạm** (không commit — spec chính thức là `E6`) đi đúng bảy dòng Bước 5 bằng hai context trình duyệt, hai tài khoản mới, bài
+tạo qua API: gợi ý + không thấy bài `friends` → bấm tên B trên feed → Kết bạn → "Đã gửi lời mời" → B `/friends` Chấp nhận → A
+thấy cả hai bài, **không** còn nhãn gợi ý (dấu nguồn cache trang đầu, `FEED-07b`, đúng) → Hủy kết bạn → bài `friends` mất, nhãn
+gợi ý trở lại → Theo dõi → bài public trong mạng lưới, bài `friends` không → `/users/{A}` không có nút quan hệ. Header có đủ ba
+liên kết. **1 passed (10,9s)**, lượt đầu. `smoke.spec.ts` (khẳng định mới) 2/2.
+
+**Bằng chứng:** Vitest 538 → 543 (+4 slot `actions` của `public-profile`, +1 slot `action` của `feed-list`), 43 file, 3/3 lượt
+cả bộ xanh. `lint`, `typecheck`, `build` xanh — `build` liệt kê `/` và `/friends`, không trùng route.

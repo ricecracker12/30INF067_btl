@@ -455,6 +455,12 @@ Xóa khóa `sg:feed-sources:*` cũng **sau** `COMMIT`: xóa trước thì một 
   hai**, đúng khuôn slot `actions` của `PostCard` (GĐ2 E6). GĐ3 cắm thanh cảm xúc vào đúng chỗ ráp này (Đ-3.13).
 - Nút quan hệ trên trang hồ sơ người khác: `PublicProfile` (của `features/profile/`) nhận slot `actions`, `app/users/[userId]`
   truyền `RelationshipButtons` của `features/friend/` vào.
+- *Lệch Đ-4.16 (nhóm chốt 2026-09-23, Q-E6, L4):* trang chủ ráp `FeedList` với **`PostItem`**, không `PostCard` — feed có bài
+  của chính mình (Đ-4.5), cần nút Sửa/Xóa theo `canEdit` và xóa xong phải biến khỏi feed (để lại card là để lại liên kết chết,
+  cùng lý do `PostList` của GĐ2 dùng `PostItem`). `renderPost(post, onChanged)`; `FeedList` vẫn không biết `PostItem` là gì.
+- *Lệch Đ-4.16 (nhóm chốt 2026-09-23, E5):* slot `actions` của `PublicProfile` là **hàm** `(profile) => ReactNode`, chỉ gọi khi
+  hồ sơ đã nạp — `app/` lấy tên người kia cho hộp thoại Hủy kết bạn mà không nạp hồ sơ lần hai. `FeedList` thêm slot `action`
+  (nút Đăng bài của trang chủ).
 - **Nút kết bạn / theo dõi không optimistic**: bấm → nút khóa + spinner → cập nhật theo phản hồi. Thao tác hiếm, và trạng
   thái có bốn nhánh (không có · đã gửi · nhận được · là bạn) — đoán trước sai là hiện "Đã là bạn" trong khi server trả 409.
 - `IntersectionObserver` của cuộn vô hạn tạo **trong effect**, ref chỉ là hộp đựng (luật frontend Mục 1 #14). `feed-list` sở

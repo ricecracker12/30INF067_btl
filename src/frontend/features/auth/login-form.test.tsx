@@ -192,8 +192,9 @@ describe("LoginForm — lỗi theo trường (Đ-E5)", () => {
 describe("LoginForm — thành công", () => {
   it.each([
     ["/me", "/me"],
-    ["//evil.example", "/me"],
-    ["https://evil.example/", "/me"],
+    // Chặn open redirect → về trang chủ "/" (GĐ4 Q-E1 đổi mặc định từ "/me").
+    ["//evil.example", "/"],
+    ["https://evil.example/", "/"],
     ["/posts/1?tab=comments", "/posts/1?tab=comments"],
   ])(
     "?next=%s → router.replace(%s), phiên authenticated",
@@ -207,9 +208,9 @@ describe("LoginForm — thành công", () => {
     }
   )
 
-  it("không có ?next → /me", async () => {
+  it("không có ?next → trang chủ \"/\" (feed — GĐ4 Q-E1, trước đó /me)", async () => {
     await submit("an@example.com")
-    await waitFor(() => expect(replace).toHaveBeenCalledWith("/me"))
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/"))
   })
 
   it("đang chờ: nút disabled, bấm thêm không gửi lần hai", async () => {

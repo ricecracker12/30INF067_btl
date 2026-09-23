@@ -37,9 +37,13 @@ export const MAX_AUTO_EMPTY_PAGES = 5
 /** Nạp trước khi chạm đáy — người đọc không phải dừng lại chờ ở cuối trang. */
 const PRELOAD_MARGIN = "400px 0px"
 
-type Props = { renderPost: RenderPost }
+type Props = {
+  renderPost: RenderPost
+  /** Nút cạnh "Làm mới" (trang chủ truyền "Đăng bài") — `features/feed` không import `features/post` (Đ-E13). */
+  action?: ReactNode
+}
 
-export function FeedList({ renderPost }: Props) {
+export function FeedList({ renderPost, action }: Props) {
   // Hook gọi TRƯỚC `useAutoLoad`: effect đồng bộ ref của hook phải chạy trước effect tự nạp trong cùng commit.
   const feed = useFeedPage()
   const sentinelRef = useAutoLoad(feed, canAutoLoad(feed))
@@ -56,16 +60,19 @@ export function FeedList({ renderPost }: Props) {
     <section className="flex flex-col gap-4" data-testid="feed">
       <div className="flex items-center justify-between gap-4">
         <h1 className="text-lg font-medium">Bảng tin</h1>
-        {/* Thay cho realtime (ngoài phạm vi): người vừa kết bạn bấm đây để thấy bài của bạn mới. */}
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={feed.reload}
-          disabled={feed.pending}
-        >
-          <RefreshCwIcon data-icon="inline-start" aria-hidden />
-          Làm mới
-        </Button>
+        <div className="flex items-center gap-2">
+          {action}
+          {/* Thay cho realtime (ngoài phạm vi): người vừa kết bạn bấm đây để thấy bài của bạn mới. */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={feed.reload}
+            disabled={feed.pending}
+          >
+            <RefreshCwIcon data-icon="inline-start" aria-hidden />
+            Làm mới
+          </Button>
+        </div>
       </div>
 
       {/* Đ-4.6: nhãn đọc từ `mode` của server, không suy từ tác giả. Đứng TRÊN danh sách, kể cả khi rỗng. */}

@@ -27,7 +27,8 @@ export function Onboarding() {
   }, [status])
 
   useEffect(() => {
-    if (status === "ready") router.replace("/me")
+    // Onboarding xong → trang chủ: người mới thấy feed GỢI Ý, đường gặp người khác (Đ-4.6, GĐ4 Q-E1; trước đó /me).
+    if (status === "ready") router.replace("/")
   }, [status, router])
 
   if (status === "unknown" || status === "ready") return <PageSkeleton />

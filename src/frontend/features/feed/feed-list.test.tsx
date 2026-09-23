@@ -450,6 +450,18 @@ describe("FeedList — lỗi (Đ-4.10, Q-E4)", () => {
 })
 
 describe("FeedList — ráp với renderPost (Q-E6)", () => {
+  it("slot action hiện cạnh 'Làm mới' — trang chủ truyền nút Đăng bài mà features/feed không import features/post", async () => {
+    phucVu({ dau: trang([bai("p1")], null) })
+    render(
+      <FeedList renderPost={renderPost} action={<button>Đăng bài</button>} />
+    )
+
+    expect(
+      await screen.findByRole("button", { name: "Đăng bài" }, CHO)
+    ).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Làm mới" })).toBeInTheDocument()
+  })
+
   it("onChanged(null) → bài biến khỏi feed (đã xóa: không để lại liên kết chết)", async () => {
     phucVu({ dau: trang(nhieuBai(3), null) })
     render(<FeedList renderPost={renderPost} />)
