@@ -126,10 +126,15 @@ admin chưa có dòng trong `AuthZMatrix.cs`, đường dẫn nội bộ (`/metr
 Thêm vào vhost 443, **trước** các dòng `ProxyPass`:
 
 ```apache
-<LocationMatch "^/api/v1/ping/(boom|app-error)$">
+<LocationMatch "(?i)^/api/v1/ping/(boom|app-error)(/.*)?$">
     Require all denied
 </LocationMatch>
 ```
+
+**`(?i)` và `(/.*)?` không phải trang trí.** ASP.NET định tuyến **không phân biệt hoa thường** và **nhận dấu `/` cuối**;
+apache thì so khớp phân biệt cả hai. Bản đầu của mẫu này (`^…(boom|app-error)$`) chặn được đường chính nhưng để lọt
+`/api/V1/Ping/Boom`, `/api/v1/ping/boom/`, `/api/v1/ping/boom/.` và `/api/v1/ping/App-Error/` — kiểm trên staging
+ngày 2026-09-23 đều trả 500/409.
 
 ```bash
 sudo apache2ctl configtest && sudo systemctl reload apache2
@@ -152,6 +157,13 @@ done
 - [ ] `ping` → Internet **200** · VM **200**
 - [ ] `ping/boom` → Internet **403** · VM **500**
 - [ ] `ping/app-error` → Internet **403** · VM **409**
+- [ ] **Không biến thể nào lọt** — tất cả phải **403** (hoặc 404/401, tức là không tới được hai endpoint demo):
+  ```bash
+  for p in /api/V1/Ping/Boom /api/v1/ping/boom/ /api/v1/ping/boom/. /api/v1/ping/App-Error/ /api/v1/ping/%62oom; do
+    printf "%-28s %s\n" "$p" "$(curl -s --path-as-is -o /dev/null -w '%{http_code}' https://mxh.banhgao.net$p)"
+  done
+  ```
+  Thấy **500** hay **409** ở dòng nào là còn lỗ.
 - [ ] Mọi endpoint còn lại trên Swagger có trong file hợp đồng
 - [ ] Kuma `api ping` vẫn xanh
 
@@ -172,10 +184,10 @@ Ghi **tên khóa và ngày**, không bao giờ ghi giá trị. Đây là bằng 
 
 | Khóa | Lộ ngày | Tình trạng lúc mở D3 | Việc | Ưu tiên | Đã xong (ngày · ai) |
 |---|---|---|---|---|---|
-| Khóa SMTP **Brevo** | 2026-09-04 | **Không còn dùng** — GĐ1 đã đổi sang Resend | **Thu hồi** trên dashboard Brevo. Khóa còn sống thì ai cầm cũng gửi mail được, có thể dưới tên domain của nhóm | **Cao** · 2 phút | |
+| Khóa SMTP **Brevo** | 2026-09-04 | **Không còn dùng** — GĐ1 đã đổi sang Resend | **Thu hồi** trên dashboard Brevo. Khóa còn sống thì ai cầm cũng gửi mail được, có thể dưới tên domain của nhóm | **Cao** · 2 phút | 2026-09-23 · <người làm> — **xóa hẳn tài khoản Brevo** (mọi khóa SMTP/API mất hiệu lực theo) |
 | Token **R2** cũ | 2026-09-04 | Chưa rõ còn sống không | Cloudflare → R2 → *Manage R2 API Tokens*: thu hồi mọi token tạo **trước hoặc đúng 2026-09-04**. Nếu token ứng dụng đang dùng nằm trong số đó → xoay theo 4.2 trước rồi mới thu hồi | **Cao** | |
 | `Jwt__SigningKey` | 2026-09-04 | **Đã xoay** sau GĐ1 F5 (`huong-dan-khoi-f-cong-dong.md`) | Chỉ xác nhận. Xoay lại là đăng xuất mọi người — chỉ làm khi nghi lộ lần nữa | — | 2026-09-18 (GĐ1 F5) |
-| Mật khẩu **Postgres** | 2026-09-04 | Chưa xoay | Xoay theo 4.3 | Thấp nhất — DB không mở cổng ra ngoài, kẻ cầm mật khẩu phải vào được VM trước | |
+| Mật khẩu **Postgres** | 2026-09-04 | Chưa xoay | Xoay theo 4.3 | Thấp nhất — DB không mở cổng ra ngoài, kẻ cầm mật khẩu phải vào được VM trước | 2026-09-23 · <người làm> — `/health/ready` Healthy sau khi `api` đọc mật khẩu mới |
 
 ### 4.2 Xoay token R2 của ứng dụng — không gián đoạn quá 15 giây
 

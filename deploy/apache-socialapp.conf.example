@@ -32,7 +32,9 @@
     # --- GĐ7 D2: chặn hai endpoint demo lỗi của GĐ0 từ Internet (Đ-7.13) — /ping/boom cho bất kỳ ai tự tạo lỗi 500.
     #     Không sửa code: integration test vẫn dùng chúng; C5 vẫn bắn được từ VM qua 127.0.0.1:18080 (không qua apache).
     #     KHÔNG viết <Location /api/v1/ping> — chặn luôn /api/v1/ping, monitor "api ping" của Kuma đỏ theo.
-    <LocationMatch "^/api/v1/ping/(boom|app-error)$">
+    #     (?i) + (/.*)? vì ASP.NET KHÔNG phân biệt hoa thường và nhận dấu / cuối: bản cũ "^…(boom|app-error)$" để lọt
+    #     /api/V1/Ping/Boom, /ping/boom/ và /ping/App-Error/ (kiểm trên staging 2026-09-23).
+    <LocationMatch "(?i)^/api/v1/ping/(boom|app-error)(/.*)?$">
         Require all denied
     </LocationMatch>
 
