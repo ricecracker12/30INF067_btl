@@ -250,7 +250,7 @@ Backup ghi ra volume trên chính VM chỉ cứu được sự cố *logic* (xó
 sự cố mất máy — mà mất máy đúng là kịch bản mà NFR-REL-02 sinh ra để phòng.
 
 Chốt: mỗi bản sao được đẩy **rời khỏi VM**, dùng lại chính hạ tầng R2 đã có từ GĐ2, nhưng:
-- **bucket riêng** `socialapp-backup`, **không** dùng chung với `-dev`/`-staging`;
+- **bucket riêng** `socialmedia-backup`, **không** dùng chung với `-dev`/`-staging`;
 - **token riêng, phạm vi chỉ bucket đó**, chỉ nằm trên VM production;
 - vòng đời: giữ 7 bản ngày + 4 bản tuần, cũ hơn thì xóa.
 
@@ -737,7 +737,7 @@ sở hữu và cron chạy hỏng.
 
 ### A3 — Đẩy bản sao lên R2 (bucket + token riêng)
 
-Bucket `socialapp-backup`, token phạm vi chỉ bucket đó, **khóa mới** (Đ-7.10). Thêm bước upload vào `backup.sh`;
+Bucket `socialmedia-backup`, token phạm vi chỉ bucket đó, **khóa mới** (Đ-7.10). Thêm bước upload vào `backup.sh`;
 thêm 4 khóa vào `.env.example` với **giá trị trống**.
 
 **Nghiệm thu:** thấy object trên R2 dashboard; tải một bản về máy khác và giải nén được.
