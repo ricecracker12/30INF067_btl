@@ -20,8 +20,8 @@
 | Mã | Đầu việc | Kết quả mong đợi | Trạng thái |
 |---|---|---|---|
 | **C1** | `/metrics` RED trên API | `/metrics` 200 không cần token; lỗi 500 được đếm **đúng là 500** | ✅ **Đóng** — deploy + nghiệm thu trên staging (2026-09-23) |
-| **C2** | Bốn chỉ số nghiệp vụ | Đăng một bài trên staging → counter tăng đúng 1 | 🟡 Đã deploy; lần đầu `/metrics` thiếu chuỗi → sửa (`Initialize`), **chờ deploy lại** |
-| **C3** | Prometheus trong stack ops | Trang Targets: mọi target **UP** | 🟡 File cấu hình xong (2026-09-23), **chờ thi công trên VM** |
+| **C2** | Bốn chỉ số nghiệp vụ | Đăng một bài trên staging → counter tăng đúng 1 | ✅ Bản sửa đã deploy; `posts_created` = 1 qua Prometheus — còn xác nhận đủ 7 dòng |
+| **C3** | Prometheus trong stack ops | Trang Targets: mọi target **UP** | ✅ **Đóng** — cả ba target UP trên VM (2026-09-23); còn ảnh Targets |
 | **C4** | Grafana + dashboard | Biểu đồ có số liệu thật từ staging | ⬜ Chưa làm |
 | **C5** | Cảnh báo + thử cho kêu ⭐ | Ảnh ≥ 3 cảnh báo đã kêu thật, kèm giờ | ⬜ Chưa làm |
 | **C6** | Redact PII + cổng CI + canh `/metrics` | CI đỏ khi cố tình log email; `/metrics` công khai không lộ | ⬜ Chưa làm |
@@ -194,14 +194,14 @@ cả **bảy** chuỗi với giá trị 0: 2 không nhãn + `purpose` × {post, 
 ### Còn lại để đóng C2 (sau khi deploy bản sửa)
 
 - [ ] Trên VM: `curl -s http://127.0.0.1:18080/metrics | grep '^socialapp_'` — **đủ 7 dòng** ngay sau deploy, giá trị 0
-- [ ] Đăng một bài trên staging qua UI → `socialapp_posts_created_total` tăng đúng 1
+- [x] Đăng một bài trên staging qua UI → `socialapp_posts_created_total` tăng đúng 1 (Prometheus đọc được `1`, 2026-09-23)
 - [ ] Sau ≥ 60 phút (nếu `Media__Cleanup__Enabled=true`): `socialapp_media_cleanup_runs_total{result="ran"}` > 0
 
 ---
 
-## 3. C3 — Prometheus trong stack ops 🟡
+## 3. C3 — Prometheus trong stack ops ✅
 
-> File cấu hình xong và đã kiểm cục bộ (2026-09-23). **Chờ thi công trên VM.** Làm được ngay cả khi C1 chưa lên
+> Thi công trên VM và nghiệm thu 2026-09-23 (xem cuối mục). Làm được cả khi C1 chưa lên
 > staging — xem "Đọc kết quả" ở bước 5: target API báo 404 chính là bằng chứng mạng đã thông.
 
 ### Mục tiêu
@@ -302,11 +302,24 @@ Mở `http://localhost:9090/targets`. Sau khi C1 đã lên staging và cả ba t
 - `socialapp_posts_created_total` → có số. Đăng một bài trên staging, chờ 15–30 giây, giá trị tăng 1 (C2 đóng luôn ở đây).
 - `prometheus_tsdb_storage_blocks_bytes` → dung lượng TSDB. Ghi lại con số sau một ngày để kiểm ước lượng 30–60 MB/ngày.
 
-### Còn lại để đóng C3
+### Nghiệm thu trên VM (2026-09-23) ✅
 
-- [ ] Bước 1–5 trên VM: `node` và `prometheus` UP, `socialapp-api` báo 404 (mạng đã thông)
-- [ ] Sau khi C1/C2 merge vào `develop` và CD deploy: cả ba target **UP**; chụp ảnh trang Targets
-- [ ] Sau một ngày: ghi dung lượng TSDB thực tế vào mục này
+| Kiểm | Kết quả |
+|---|---|
+| `promtool check config` | `SUCCESS` |
+| `up -d` | Tạo `prometheus` + `node-exporter` + volume `prometheus-data`; **uptime-kuma không bị tạo lại** (`Up 3 days`) |
+| Trạng thái target (bước 4) | `node` · `prometheus` · `socialapp-api` — cả ba `up`, `lastError` rỗng |
+| Truy vấn `socialapp_posts_created_total` | `{env="staging", instance="api:8080", job="socialapp-api"} = 1` — Prometheus thu được chỉ số C2 qua mạng docker |
+
+*Vấp khi thi công:* chạy `promtool` lúc `prometheus.yml` **chưa có** trên VM (đã chép nhầm vào `~/app/deploy/`) →
+Docker tự tạo **thư mục rỗng** trùng tên, chủ `root`, và `promtool` báo `'p.yml' is a directory`. Sửa:
+`sudo rmdir ~deploy/app/ops/prometheus.yml`, chuyển file thật sang `~/app/ops/`. Bài học: bind mount một file chưa tồn
+tại **không báo lỗi**, nó tạo thư mục — kiểm `ls -l` (dòng bắt đầu bằng `-`) trước khi `promtool` hay `up`.
+
+### Còn lại
+
+- [ ] Chụp ảnh trang Targets (`ssh -L 9090:127.0.0.1:9090 …` → `http://localhost:9090/targets`) vào `bang-chung/`
+- [ ] Sau một ngày: ghi dung lượng TSDB thực tế (`prometheus_tsdb_storage_blocks_bytes`) vào mục này
 
 ---
 

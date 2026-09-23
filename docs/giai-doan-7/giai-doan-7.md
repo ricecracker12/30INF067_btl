@@ -819,7 +819,7 @@ này, đã thử cho đỏ.
 
 **Nghiệm thu:** trong mạng docker, `curl api:8080/metrics` ra số liệu; qua domain công khai thì **không** vào được.
 
-### C2 — Bốn chỉ số nghiệp vụ ✅ *(code + test xong 2026-09-23, chưa deploy)*
+### C2 — Bốn chỉ số nghiệp vụ ✅ *(deploy 2026-09-23; sửa lần 1: tạo sẵn chuỗi lúc khởi động)*
 
 Counter theo Mục 5.2, đặt ở tầng service của module tương ứng (không đặt ở controller — chúng đo nghiệp vụ, không
 đo HTTP).
@@ -833,7 +833,7 @@ sang đếm lượt chạy (xem ghi chú dưới bảng Mục 5.2). Chi tiết v
 
 **Nghiệm thu:** đăng một bài trên staging → `socialapp_posts_created_total` tăng đúng 1.
 
-### C3 — Prometheus trong stack ops 🟡 *(file cấu hình xong 2026-09-23, chờ thi công trên VM)*
+### C3 — Prometheus trong stack ops ✅ *(nghiệm thu trên VM 2026-09-23 — cả ba target UP)*
 
 `deploy/prometheus.yml`: scrape `api:8080/metrics` của stack staging + `node-exporter`. Cần cho stack ops nhìn thấy
 mạng của stack staging (gắn stack ops vào mạng `internal` của staging dưới dạng external network).
