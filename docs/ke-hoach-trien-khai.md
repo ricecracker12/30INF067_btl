@@ -41,7 +41,8 @@ SocialApp.sln
  │   │   └─ Modules/Moderation       (CMP-07: reports, audit_logs, admin)
  │   └─ frontend/ (Next.js 16 + shadcn/ui, pnpm)
  ├─ tests/  (Unit, Integration, Architecture[ArchUnitNET], Load[k6])
- └─ deploy/ (docker-compose.*.yml, Caddyfile, prometheus.yml, grafana/)
+ ├─ deploy/ (= ~/app/deploy/ trên VM: docker-compose.*.yml, Caddyfile, backup.sh, restore.sh)
+ └─ ops/    (= ~/app/ops/ trên VM: docker-compose.ops.yml, prometheus.yml, grafana/ — GĐ7)
 ```
 Mỗi module: `Domain` (entity + business rule) / `Application` (service + DTO + validator) /
 `Infrastructure` (EF repository). Module chỉ giao tiếp qua interface ở Application — ArchUnitNET

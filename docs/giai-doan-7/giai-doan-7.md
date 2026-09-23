@@ -678,11 +678,11 @@ Kiểm ngày 2026-09-19 trên nhánh `develop`. GĐ7 **không** dựng lại th�
 
 > **Hướng dẫn thi công từng bước:** [huong-dan-khoi-b-dong-ho-uptime.md](huong-dan-khoi-b-dong-ho-uptime.md)
 > — lệnh nào, bấm chỗ nào, phá thử thế nào, ảnh bằng chứng lưu ở đâu. File compose stack ops đã có sẵn:
-> [`deploy/docker-compose.ops.yml`](../../deploy/docker-compose.ops.yml).
+> [`ops/docker-compose.ops.yml`](../../ops/docker-compose.ops.yml).
 
 ### B1 — Uptime Kuma trong stack ops
 
-Dựng `deploy/docker-compose.ops.yml` (project `socialapp-ops`, **tách khỏi** stack ứng dụng — Mục 4) với service
+Dựng `ops/docker-compose.ops.yml` (project `socialapp-ops`, **tách khỏi** stack ứng dụng — Mục 4) với service
 `uptime-kuma`, volume riêng, publish `127.0.0.1` thôi. Tạo monitor cho `/health/ready` của staging, chu kỳ 60s.
 
 **Nghiệm thu:** tắt container `api` staging → Kuma chuyển đỏ trong vòng 2 phút.
@@ -835,7 +835,7 @@ sang đếm lượt chạy (xem ghi chú dưới bảng Mục 5.2). Chi tiết v
 
 ### C3 — Prometheus trong stack ops ✅ *(nghiệm thu trên VM 2026-09-23 — cả ba target UP)*
 
-`deploy/prometheus.yml`: scrape `api:8080/metrics` của stack staging + `node-exporter`. Cần cho stack ops nhìn thấy
+`ops/prometheus.yml`: scrape `api:8080/metrics` của stack staging + `node-exporter`. Cần cho stack ops nhìn thấy
 mạng của stack staging (gắn stack ops vào mạng `internal` của staging dưới dạng external network).
 
 **Nghiệm thu:** trang Targets của Prometheus: tất cả **UP**.
@@ -846,7 +846,7 @@ mạng của stack staging (gắn stack ops vào mạng `internal` của staging
 `2GB`; publish `127.0.0.1:9090`. Trước khi C1 lên staging, target API báo **404** — dấu hiệu mạng đã thông. Các bước
 và bảng đọc lỗi ở hướng dẫn khối C, Mục 3.
 
-### C4 — Grafana + dashboard
+### C4 — Grafana + dashboard 🟡 *(file cấu hình xong 2026-09-23, chờ thi công trên VM)*
 
 Một dashboard: RED (rate, error %, p50/p95/p99) + 4 chỉ số nghiệp vụ + đĩa/RAM. Mật khẩu admin qua biến môi trường,
 **không** publish ra host (truy cập qua SSH tunnel — Đ-7.7, R7-06).

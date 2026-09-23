@@ -1,4 +1,4 @@
-# Prometheus của stack ops (GĐ7 C3). Chép tay lên ~/app/ops/prometheus.yml cùng docker-compose.ops.yml — file này
+# Prometheus của stack ops (GĐ7 C3). Chép lên ~/app/ops/prometheus.yml (repo ops/ = ~/app/ops/ trên VM) — file này
 # KHÔNG đi qua CD. Kiểm cú pháp trước khi nạp:
 #   docker run --rm -v ~/app/ops/prometheus.yml:/p.yml:ro --entrypoint promtool prom/prometheus:v3.5.0 check config /p.yml
 # Sửa xong phải recreate (bind mount một file giữ inode cũ):

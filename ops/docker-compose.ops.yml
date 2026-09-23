@@ -2,8 +2,8 @@
 # Lý do (giai-doan-7.md Mục 4): `down`/`up` stack ứng dụng lúc deploy không được kéo theo đồng hồ uptime —
 # chung project thì mỗi lần deploy đồng hồ tự tắt và tự ghi nhận… chính mình đang chết.
 #
-# Khối B: uptime-kuma. Khối C3: prometheus + node-exporter (cần deploy/prometheus.yml chép CÙNG thư mục).
-# Khối C4 sẽ thêm grafana vào ĐÂY.
+# Thư mục ops/ của repo TRÙNG với ~/app/ops/ trên VM — chép nguyên cả thư mục (trừ .env thật, chỉ có trên VM):
+#   docker-compose.ops.yml · prometheus.yml (C3) · grafana/ (C4) · .env.example → cp thành .env, điền mật khẩu (C4).
 # File này KHÔNG đi qua CD (stack ops có trạng thái, hiếm khi đổi) — chép tay lên THƯ MỤC RIÊNG ~/app/ops/
 # (không để chung ~/app/deploy/: Compose nạp .env cùng thư mục với file compose, để chung là stack ops đọc
 # secret của staging khi khối C thêm Grafana có ${...}). Rồi:
@@ -27,6 +27,7 @@ networks:
 volumes:
   kuma-data:                          # lịch sử uptime nằm ở đây — mất volume là mất bằng chứng GOAL-04
   prometheus-data:                    # TSDB — có trần bằng retention bên dưới (đĩa VM đã 72%)
+  grafana-data:                       # người dùng, cảnh báo C5, lịch sử cảnh báo — dashboard thì nằm trong repo
 
 services:
   uptime-kuma:
@@ -66,3 +67,25 @@ services:
     pid: host
     volumes:
       - /:/host:ro,rslave
+
+  grafana:
+    image: grafana/grafana-oss:12.1.1 # kiểm arm64: docker manifest inspect grafana/grafana-oss:12.1.1 | grep arm64
+    restart: unless-stopped
+    # 3000 = frontend staging, 3001 = đã có người dùng, 3002 = Kuma → 3003. Kiểm `ss -ltnp` trước; bận thì chỉ đổi
+    # VẾ TRÁI (Grafana luôn nghe 3000 bên trong container).
+    ports: ["127.0.0.1:3003:3000"]    # chỉ localhost — xem qua SSH tunnel, KHÔNG ProxyPass ra Internet (Đ-7.7, R7-06)
+    environment:
+      # Lấy từ ~/app/ops/.env (Compose tự đọc). Thiếu thì `up` DỪNG với thông báo này — không bao giờ chạy với admin/admin.
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?đặt GRAFANA_ADMIN_PASSWORD trong ~/app/ops/.env (xem .env.example cùng thư mục)}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_SERVER_ROOT_URL: http://localhost:3003   # đường xem qua tunnel — link trong email cảnh báo C5 trỏ về đây
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    # Chỉ mạng default: Grafana gọi prometheus:9090, không cần (và không được) thấy mạng staging.
+    depends_on: [prometheus]

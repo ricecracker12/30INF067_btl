@@ -32,7 +32,7 @@ B1 ─→ B3 ─→ B2
 ```
 
 Ba đầu việc đều thao tác trên VM hoặc trên dashboard bên thứ ba, **không chạm code**. Phần vào repo chỉ có
-`deploy/docker-compose.ops.yml` và thư mục bằng chứng.
+`ops/docker-compose.ops.yml` và thư mục bằng chứng.
 
 ---
 
@@ -62,13 +62,13 @@ Ba đầu việc đều thao tác trên VM hoặc trên dashboard bên thứ ba,
 ### Việc phải làm
 
 **Bước 1 — Đưa file compose lên VM, vào thư mục RIÊNG `~/app/ops/`.** File đã có ở
-[`deploy/docker-compose.ops.yml`](../../deploy/docker-compose.ops.yml). Stack ops **không đi qua CD** (có trạng
+[`ops/docker-compose.ops.yml`](../../ops/docker-compose.ops.yml). Stack ops **không đi qua CD** (có trạng
 thái, hiếm khi đổi), nên chép tay:
 
 ```bash
 # từ máy dev, trong thư mục mxh/
 ssh deploy@<staging-host> mkdir -p app/ops
-scp deploy/docker-compose.ops.yml deploy@<staging-host>:app/ops/
+scp ops/docker-compose.ops.yml deploy@<staging-host>:app/ops/
 ```
 
 Nếu bạn SSH bằng user thường (không phải `deploy`), chép vào `/tmp` rồi trên VM `sudo -iu deploy` và

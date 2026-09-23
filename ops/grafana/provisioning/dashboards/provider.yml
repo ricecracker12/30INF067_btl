@@ -1,0 +1,14 @@
+# Nạp mọi dashboard JSON trong /var/lib/grafana/dashboards (mount từ ~/app/ops/grafana/dashboards).
+# Dashboard sống trong repo: sửa trên giao diện thì Grafana KHÔNG lưu đè được (allowUiUpdates: false) — muốn đổi thì
+# "Export → JSON", chép vào repo, chép lên VM. Như vậy dashboard không mất khi mất volume, và có lịch sử trong git.
+apiVersion: 1
+
+providers:
+  - name: socialapp
+    folder: SocialApp
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    updateIntervalSeconds: 60
+    options:
+      path: /var/lib/grafana/dashboards

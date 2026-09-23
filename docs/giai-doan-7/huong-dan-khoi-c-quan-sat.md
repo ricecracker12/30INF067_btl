@@ -20,9 +20,9 @@
 | Mã | Đầu việc | Kết quả mong đợi | Trạng thái |
 |---|---|---|---|
 | **C1** | `/metrics` RED trên API | `/metrics` 200 không cần token; lỗi 500 được đếm **đúng là 500** | ✅ **Đóng** — deploy + nghiệm thu trên staging (2026-09-23) |
-| **C2** | Bốn chỉ số nghiệp vụ | Đăng một bài trên staging → counter tăng đúng 1 | ✅ Bản sửa đã deploy; `posts_created` = 1 qua Prometheus — còn xác nhận đủ 7 dòng |
+| **C2** | Bốn chỉ số nghiệp vụ | Đăng một bài trên staging → counter tăng đúng 1 | ✅ **Đóng** — đủ 7 chuỗi sau deploy, `posts_created` tăng đúng 1 (2026-09-23) |
 | **C3** | Prometheus trong stack ops | Trang Targets: mọi target **UP** | ✅ **Đóng** — cả ba target UP trên VM (2026-09-23); còn ảnh Targets |
-| **C4** | Grafana + dashboard | Biểu đồ có số liệu thật từ staging | ⬜ Chưa làm |
+| **C4** | Grafana + dashboard | Biểu đồ có số liệu thật từ staging | 🟡 File cấu hình xong (2026-09-23), **chờ thi công trên VM** |
 | **C5** | Cảnh báo + thử cho kêu ⭐ | Ảnh ≥ 3 cảnh báo đã kêu thật, kèm giờ | ⬜ Chưa làm |
 | **C6** | Redact PII + cổng CI + canh `/metrics` | CI đỏ khi cố tình log email; `/metrics` công khai không lộ | ⬜ Chưa làm |
 
@@ -193,7 +193,7 @@ cả **bảy** chuỗi với giá trị 0: 2 không nhãn + `purpose` × {post, 
 
 ### Còn lại để đóng C2 (sau khi deploy bản sửa)
 
-- [ ] Trên VM: `curl -s http://127.0.0.1:18080/metrics | grep '^socialapp_'` — **đủ 7 dòng** ngay sau deploy, giá trị 0
+- [x] Trên VM: `curl -s http://127.0.0.1:18080/metrics | grep '^socialapp_'` — **đủ 7 dòng** (2026-09-23)
 - [x] Đăng một bài trên staging qua UI → `socialapp_posts_created_total` tăng đúng 1 (Prometheus đọc được `1`, 2026-09-23)
 - [ ] Sau ≥ 60 phút (nếu `Media__Cleanup__Enabled=true`): `socialapp_media_cleanup_runs_total{result="ran"}` > 0
 
@@ -214,8 +214,8 @@ qua `127.0.0.1:18080` — Đ-7.7 lớp 3) và gọi node-exporter để lấy đ
 
 | File | Nội dung |
 |---|---|
-| [`deploy/prometheus.yml`](../../deploy/prometheus.yml) | 3 job: `socialapp-api` (`api:8080`), `node` (`node-exporter:9100`), `prometheus` (chính nó). Không có rule — cảnh báo làm ở Grafana (Đ-7.9) |
-| [`deploy/docker-compose.ops.yml`](../../deploy/docker-compose.ops.yml) | Thêm `prometheus` (`v3.5.0`, LTS) và `node-exporter` (`v1.9.1`); mạng external `socialapp-staging_internal`; volume `prometheus-data` |
+| [`ops/prometheus.yml`](../../ops/prometheus.yml) | 3 job: `socialapp-api` (`api:8080`), `node` (`node-exporter:9100`), `prometheus` (chính nó). Không có rule — cảnh báo làm ở Grafana (Đ-7.9) |
+| [`ops/docker-compose.ops.yml`](../../ops/docker-compose.ops.yml) | Thêm `prometheus` (`v3.5.0`, LTS) và `node-exporter` (`v1.9.1`); mạng external `socialapp-staging_internal`; volume `prometheus-data` |
 
 Quyết định trong file, kèm lý do:
 
@@ -246,7 +246,7 @@ docker network ls --format '{{.Name}}' | grep socialapp-staging
 **Bước 2 — Chép hai file lên `~/app/ops/`** (từ máy có repo, PowerShell):
 
 ```powershell
-scp deploy/docker-compose.ops.yml deploy/prometheus.yml deploy@<VM>:~/app/ops/
+scp ops/docker-compose.ops.yml ops/prometheus.yml deploy@<VM>:~/app/ops/
 ```
 
 **Bước 3 — Kiểm cú pháp trên VM, rồi up.**
@@ -323,13 +323,135 @@ tại **không báo lỗi**, nó tạo thư mục — kiểm `ls -l` (dòng bắ
 
 ---
 
-## 4. C4–C6 — chưa làm
+## 4. C4 — Grafana + dashboard 🟡
+
+> File cấu hình xong và đã kiểm cục bộ (2026-09-23). **Chờ thi công trên VM.**
+
+### Mục tiêu
+
+Một dashboard đọc số **thật** từ Prometheus (C3): RED của API, bốn chỉ số nghiệp vụ (C2), đĩa/RAM/CPU của VM. Xem qua
+SSH tunnel, không ra Internet (Đ-7.7, R7-06). Grafana cũng là chỗ đặt ba cảnh báo của C5.
+
+### Đã chuẩn bị
+
+| File | Nội dung |
+|---|---|
+| [`ops/docker-compose.ops.yml`](../../ops/docker-compose.ops.yml) | Thêm `grafana` (`grafana-oss:12.1.1`, có arm64), publish `127.0.0.1:3003`, volume `grafana-data`, **chỉ mạng default** |
+| [`ops/.env.example`](../../ops/.env.example) *(mới)* | `GRAFANA_ADMIN_PASSWORD=` — chép thành `~/app/ops/.env` |
+| [`ops/grafana/provisioning/datasources/prometheus.yml`](../../ops/grafana/provisioning/datasources/prometheus.yml) | Datasource `http://prometheus:9090`, **uid cố định `prometheus`** |
+| [`ops/grafana/provisioning/dashboards/provider.yml`](../../ops/grafana/provisioning/dashboards/provider.yml) | Nạp mọi JSON trong `grafana/dashboards/` vào thư mục *SocialApp* |
+| [`ops/grafana/dashboards/socialapp-overview.json`](../../ops/grafana/dashboards/socialapp-overview.json) | Dashboard *SocialApp — Tổng quan staging*, 17 panel trong 4 hàng |
+| `ops/grafana/provisioning/{plugins,alerting}/.gitkeep` | Thư mục rỗng — thiếu thì Grafana ghi log lỗi mỗi lần khởi động. `alerting/` là chỗ C5 có thể dùng |
+
+Dashboard:
+
+| Hàng | Panel |
+|---|---|
+| **Tổng quan** | API UP/DOWN · Tỷ lệ 5xx (5 phút, vàng 0,5% · đỏ 1%) · p95 toàn API (vàng 300ms · đỏ 500ms) · Đĩa % (đỏ 85%) · RAM % |
+| **RED** | Request/giây theo mã · % 5xx theo thời gian (vạch ngưỡng 1%) · p50/p95/p99 · p95 theo action (top 10) · 5xx theo action |
+| **Nghiệp vụ** | Đăng nhập sai / giờ · Bài mới / giờ · URL ký theo `purpose` / giờ · Lượt worker dọn theo `result` / 3 giờ |
+| **Host** | CPU % · RAM % · Đĩa % theo thời gian |
+
+Quyết định, kèm lý do:
+
+| Quyết định | Vì sao |
+|---|---|
+| Mọi biểu thức RED lọc `controller!=""` | Bỏ request của Prometheus vào `/metrics` (15 giây một lần) và `/health/*` — không lọc thì "request/giây" chủ yếu là chính Prometheus, và tỷ lệ lỗi bị pha loãng |
+| Nhóm theo `controller`/`action`, **không** theo `endpoint` | Nghiệm thu C1: lỗi 500 có `endpoint=""` (bộ xử lý lỗi xóa endpoint gốc) — nhóm theo endpoint là mọi 500 dồn vào một dòng không tên |
+| Tỷ lệ lỗi chia cho `clamp_min(…, 1e-9)` | Không có traffic thì 0/0 = NaN, ô hiện "No data" thay vì 0% |
+| Dashboard là **file trong repo**, `allowUiUpdates: false` | Mất volume không mất dashboard; mọi thay đổi có lịch sử git. Sửa trên giao diện → *Export → JSON* → chép vào repo |
+| uid datasource cố định | Dashboard JSON và cảnh báo C5 trỏ vào uid; để Grafana tự sinh là "datasource not found" sau mỗi lần dựng lại |
+| Mật khẩu admin qua `${GRAFANA_ADMIN_PASSWORD:?…}` | Thiếu biến thì `up` **dừng** — không bao giờ lên với `admin/admin` |
+| Cổng `3003` | 3000 frontend, 3001 đã có người dùng, 3002 Kuma |
+| Grafana không gắn mạng staging | Chỉ cần gọi `prometheus:9090`. Mạng staging là mạng "tin được" của API — càng ít container gắn vào càng tốt |
+
+*Lệch kế hoạch:* Mục 11 ghi "thêm khóa Grafana vào `deploy/.env.example`". Không làm vậy — `.env` đó là của stack
+staging; stack ops đọc `.env` **của thư mục mình** (`~/app/ops/`), nên khóa nằm ở file mẫu riêng `ops/.env.example`.
+
+Kiểm cục bộ: `compose config` hợp lệ, và **thiếu** mật khẩu thì dừng đúng thông báo; chạy Grafana + Prometheus trong
+một mạng tạm → datasource `OK`, dashboard nạp đúng thư mục *SocialApp*, `provisioned: true`; **19/19** biểu thức PromQL
+qua được Prometheus không lỗi cú pháp. Chưa có số thật (máy dev không có API) — đó là việc của bước trên VM.
+
+### Thi công trên VM
+
+**Bước 1 — Kiểm cổng.**
+
+```bash
+ss -ltnp | grep -E ':3003\b' || echo "3003 trống"
+```
+
+Bận thì chỉ đổi **vế trái** trong compose (`127.0.0.1:3004:3000`) và sửa `GF_SERVER_ROOT_URL` cho khớp.
+
+**Bước 2 — Chép file** (máy có repo, PowerShell, trong thư mục `mxh`). Thư mục `ops/` **trong repo** trùng với
+`~/app/ops/` **trên VM** — chép sang y nguyên (không đụng `.env` thật trên VM):
+
+```powershell
+scp -r ops/docker-compose.ops.yml ops/prometheus.yml ops/.env.example ops/grafana deploy@<VM>:~/app/ops/
+```
+
+**Bước 3 — Tạo `.env` có mật khẩu** (trên VM, user `deploy`):
+
+```bash
+cd ~/app/ops
+cp .env.example .env && chmod 600 .env
+sed -i "s|^GRAFANA_ADMIN_PASSWORD=.*|GRAFANA_ADMIN_PASSWORD=$(openssl rand -hex 24)|" .env
+```
+
+Lưu mật khẩu vào trình quản lý mật khẩu của nhóm (xem bằng `grep GRAFANA .env`, **không** dán vào chat hay commit).
+Biến này chỉ có tác dụng ở **lần khởi động đầu** (lúc Grafana tạo DB trong volume); đổi sau đó thì dùng
+`docker compose -f docker-compose.ops.yml exec grafana grafana cli admin reset-admin-password <mới>`.
+
+**Bước 4 — Kiểm là file/thư mục thật** (bài học C3: bind mount thứ chưa có là Docker tự tạo thư mục rỗng):
+
+```bash
+ls -la .env grafana/provisioning/datasources/ grafana/dashboards/
+```
+
+Phải thấy `.env` là file (`-rw-------`), `prometheus.yml` trong `datasources/`, `socialapp-overview.json` trong `dashboards/`.
+
+**Bước 5 — Up.**
+
+```bash
+docker compose -f docker-compose.ops.yml up -d
+docker compose -f docker-compose.ops.yml ps
+```
+
+`grafana` `Up`; `uptime-kuma`, `prometheus`, `node-exporter` **không bị tạo lại** (cấu hình không đổi).
+
+**Bước 6 — Kiểm từ VM** (đọc mật khẩu từ `.env` vào biến, không gõ ra lịch sử shell):
+
+```bash
+set -a; . ./.env; set +a
+curl -s -u "admin:$GRAFANA_ADMIN_PASSWORD" http://127.0.0.1:3003/api/datasources/uid/prometheus/health; echo
+curl -s -u "admin:$GRAFANA_ADMIN_PASSWORD" http://127.0.0.1:3003/api/dashboards/uid/socialapp-overview | grep -o '"title":"SocialApp[^"]*"'
+docker compose -f docker-compose.ops.yml logs grafana | grep 'level=error' | grep -v 'plugin table'
+```
+
+Phải thấy: `"status":"OK"`; `"title":"SocialApp — Tổng quan staging"`; lệnh thứ ba **không in gì**.
+
+**Bước 7 — Xem bằng mắt với số thật** (máy cá nhân):
+
+```powershell
+ssh -L 3003:127.0.0.1:3003 deploy@<VM>
+```
+
+Mở `http://localhost:3003`, đăng nhập `admin`, *Dashboards → SocialApp → SocialApp — Tổng quan staging*. Tạo chút
+traffic để các panel có hình: lướt feed vài lần, đăng một bài, đăng nhập sai một lần; từ VM bắn
+`curl -s -o /dev/null http://127.0.0.1:18080/api/v1/ping/boom` hai–ba lần để panel 5xx có một vạch. Chờ 1–2 phút.
+
+Chụp ảnh dashboard (khung *Last 1 hour*) vào `docs/giai-doan-7/bang-chung/` — ảnh nghiệm thu C4 và NFR-OBS-01.
+
+### Còn lại để đóng C4
+
+- [ ] Bước 1–6 trên VM: datasource `OK`, dashboard nạp, log không lỗi
+- [ ] Bước 7: các hàng RED, Nghiệp vụ, Host có số **thật**; chụp ảnh
+
+---
+
+## 5. C5–C6 — chưa làm
 
 Viết khi bắt đầu từng đầu việc (đúng nếp các khối trước). Những điều đã biết cần mang theo:
 
-- **C4:** Grafana publish `127.0.0.1` thôi, xem qua SSH tunnel như Kuma. Cổng `3001` trên VM đã có người dùng,
-  `3002` là Kuma, `9090` là Prometheus (C3) — kiểm `ss -ltnp` trước khi chọn. Grafana chỉ cần mạng `default` của stack
-  ops (gọi `prometheus:9090`), **không** gắn vào mạng staging.
 - **C5:** Trong năm cảnh báo của Mục 5.3, **hai cái đã có** nhờ Kuma: *dịch vụ chết* (B1) và *backup không chạy*
   (monitor Push, A3). Grafana chỉ cần thêm ba: tỷ lệ lỗi, độ trễ, đĩa. Bắn thử tỷ lệ lỗi **từ VM** qua
   `127.0.0.1:18080/api/v1/ping/boom` — đường công khai đã chặn ở D2.
