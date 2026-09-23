@@ -508,7 +508,8 @@ một lượt nhanh hơn ba lần bấm. Mục "Lời mời đã gửi" là ứn
 | Bạn bè | **Hủy kết bạn** → `AlertDialog` | `unfriend` | Gỡ thẻ |
 | Lời mời đã gửi | **Hủy** | `removeRequest` | Gỡ thẻ |
 
-403 khi Chấp nhận → câu Q-E3 **dưới thẻ**, rồi gỡ thẻ (lời mời không còn). Lỗi khác → câu dưới thẻ, thẻ giữ nguyên.
+403 khi Chấp nhận → câu Q-E3 **ở đầu mục** "Lời mời kết bạn", kèm tên người gửi, rồi gỡ thẻ (lời mời không còn) — *sửa
+2026-09-23: bản đầu ghi "dưới thẻ", tự mâu thuẫn vì thẻ bị gỡ thì câu dưới thẻ mất theo*. Lỗi khác → câu dưới thẻ, thẻ giữ nguyên.
 Mỗi thẻ khóa nút **riêng** trong lúc chờ — khác `E2`: ở đây các thẻ là các người khác nhau, không giẫm lên nhau.
 
 **Bước 3 — phân trang:** mỗi mục một lượt `useCursorPages` (Q-E8), `PAGE_SIZE` 20, nút "Xem thêm" khi `nextCursor !== null`
@@ -1113,6 +1114,8 @@ hỏi. Q-E4 chốt khác đề xuất và đi commit riêng trước (mục Q-E4
 - *Thời gian chờ:* ca "503 ở trang SAU" đỏ 1/8 lượt khi chạy cả bộ với mức chờ mặc định 1s (không giữ được log lượt đỏ; luồng
   state không có chỗ đua — lỗi và `pending=false` gộp một render). Mọi `waitFor`/`findBy` của file dùng hằng `CHO` 5s; sau đó
   6/6 lượt cả bộ xanh. Theo dõi tiếp ở `E6`.
+  **Sửa chẩn đoán (2026-09-23, ở E3):** gốc thật **không** phải mức chờ 1s mà là cuộc đua trong dàn test — `kichHoatGiaoNhau`
+  bắn khi effect tạo observer chưa chạy (xem mục E3 dưới). Chẩn đoán trên sai; `CHO` 5s giữ lại nhưng không phải cách chữa.
 
 **Thử đột biến** — tám đột biến, đều bị bắt:
 
@@ -1191,3 +1194,50 @@ L5: `relationship-buttons` vào danh sách StrictMode của luật frontend Mụ
 **Bằng chứng:** Vitest 41 → 42 file, 505 → 524 ca (+19 `relationship-buttons.test.tsx`), 3/3 lượt cả bộ xanh. `lint`,
 `typecheck`, `build` xanh. `grep` checklist Mục 13 trên `features/friend`: không `@/features/`, không `useRef(new …)`, không
 `console.`, không `fetch`.
+
+### E3 — 2026-09-23
+
+**Đã làm:** `features/friend/friend-card.tsx` (chỉ trình bày: avatar, tên dẫn `/users/{id}`, `since` định dạng như
+`PostCard`, vùng nút và câu lỗi do màn truyền vào) và `features/friend/friends-screen.tsx` — ba mục xếp dọc, mỗi mục **một**
+`useCursorPages` riêng (`friends:incoming`, `friends:list`, `friends:outgoing`), nút "Xem thêm" (Q-E5 chỉ áp cho feed). Mỗi thẻ
+một `useCardAction` — `pending` + câu lỗi riêng, khóa theo thẻ. Chấp nhận → gỡ thẻ + `friends.reload()` (không tự dựng thẻ).
+Trang sau hỏng → câu lỗi + nút "Xem thêm" đổi thành "Thử lại" (nạp lại đúng lô hỏng).
+
+**Chỗ lệch với file này:**
+
+- *403 Chấp nhận:* câu Q-E3 lên **đầu mục** kèm tên (`Trần Bình: Lời mời này không còn hiệu lực.`) — Bước 2 ghi "dưới thẻ rồi
+  gỡ thẻ", tự mâu thuẫn; đã sửa câu ở Bước 2.
+- *Hộp thoại Hủy kết bạn:* nút hủy ghi "Không", cùng nếp `E2`.
+- *Test thêm:* thẻ dẫn `/users/{id}`; lỗi trang đầu của **một** mục không kéo hai mục kia; lỗi khác → câu dưới thẻ, thẻ giữ;
+  khóa theo thẻ dùng chốt do test mở (nếp `E2`).
+
+**Thử đột biến** — sáu đột biến, đều bị bắt:
+
+| Đột biến | Ca đỏ |
+|---|---|
+| Chấp nhận không nạp lại mục Bạn bè | Chấp nhận → … NẠP LẠI |
+| Nút "Xem thêm" theo `items.length >= 20` (suy từ độ dài) | Xem thêm nối trang; trang RỖNG mà `nextCursor ≠ null` |
+| 403 Chấp nhận không gỡ thẻ | 403 Chấp nhận |
+| Thẻ lời mời không khóa khi đang chờ | khóa THEO THẺ |
+| "Rỗng" = `items` rỗng, bỏ điều kiện `nextCursor === null` | trang RỖNG mà `nextCursor ≠ null` |
+| Effect trang đầu của hook chỉ chạy một lần mỗi key | **chỉ** ca StrictMode |
+
+L5: `friends-screen` vào danh sách StrictMode của luật frontend Mục 9 (tám ca).
+
+**Độ ổn định của cả bộ — hai gốc tìm ra khi chạy lặp (2026-09-23, cùng commit E3):**
+
+1. **Cuộc đua trong dàn test của feed** (`feed-list.test.tsx`, từ E4). Log lượt đỏ: ca StrictMode `soObserverDangTheoDoi()`
+   ra 0 thay vì 1; ca cuộn bắn giao nhau mà không có trang sau. Observer tạo trong `useEffect` — chạy SAU khi DOM vẽ;
+   `waitFor` thấy đủ bài là trả về trong lúc observer có thể chưa có, `kichHoatGiaoNhau` bắn vào khoảng không. Trình duyệt
+   thật không có khe này (observer thật tự bắn một lượt khi `observe()`) — lỗi dàn test, không phải lỗi màn. Sửa:
+   `cuonToiDay` chờ có observer sống rồi mới bắn; ca "không giao nhau" chờ observer trước khi bắn; ca "503 ở trang SAU" khẳng
+   định **0** observer sống sau lỗi (mạnh hơn bản cũ). Đây mới là gốc của lượt đỏ E4 ghi nhầm là "thiếu thời gian chờ".
+2. **Thời hạn cả ca bằng thời hạn chờ** (`user-posts.test.tsx`, ca GĐ2, không observer): "Test timed out in 5000ms" 1/10
+   lượt — lượt chờ viết tay 5s bên trong một ca có thời hạn cả ca 5s. Sửa: `testTimeout: 15_000` ở `vitest.config.ts`.
+   *Trình tự thật:* lần đầu tôi áp `testTimeout` dựa trên lượt đỏ của ca "trần" feed — sai gốc (đó là cuộc đua 1), đã hoàn
+   tác; áp lại chỉ khi có bằng chứng riêng từ `user-posts`.
+
+Ghi cả hai vào luật frontend Mục 9. Sau hai sửa: **10/10 lượt cả bộ xanh**; đột biến "bỏ nạp tiếp" và "observer một lần" vẫn
+bị bắt với cách bắn mới.
+
+**Bằng chứng E3:** Vitest 42 → 43 file, 524 → 538 ca (+14 `friends-screen.test.tsx`). `lint`, `typecheck`, `build` xanh.

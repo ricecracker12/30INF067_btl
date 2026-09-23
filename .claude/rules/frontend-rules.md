@@ -171,12 +171,18 @@ Bốn tầng, phụ thuộc **một chiều**: `app/` → `features/` → `compo
   mount một lần, Next dev mount → unmount → mount lại; lớp lỗi chỉ sống ở lần mount thứ hai nên không ca
   thường nào chạm tới. Ca đó khẳng định **trạng thái cuối đạt được**, **không đếm số request** — dưới
   StrictMode số request tăng gấp đôi một cách hợp lệ, trộn hai thứ vào một ca là tự làm ca test giòn.
-  Bảy ca hiện có: `post-composer`, `me-profile`, `post-detail`, `user-posts`, `public-profile`, `feed-list`
-  (GĐ4 E4, L5), `relationship-buttons` (GĐ4 E2, L5). Tài nguyên phải là thứ **thật sự tạo lúc mount**: ở `feed-list` đó là `AbortController` của trang
+  Tám ca hiện có: `post-composer`, `me-profile`, `post-detail`, `user-posts`, `public-profile`, `feed-list`
+  (GĐ4 E4, L5), `relationship-buttons` (GĐ4 E2, L5), `friends-screen` (GĐ4 E3, L5). Tài nguyên phải là thứ **thật sự tạo lúc mount**: ở `feed-list` đó là `AbortController` của trang
   đầu, không phải observer — observer chỉ tạo sau khi trang đầu về, có ca thường riêng canh việc tạo lại nó.
 - **`waitFor` chờ một handler có `delay` thì ghi `timeout` viết tay.** Mặc định 1s đủ khi chạy riêng file
   và KHÔNG đủ khi chạy cả bộ — ca `Xem thêm` của `user-posts` đỏ ~1/3 lượt vì vậy (đo 2026-09-21). Nới
-  thời gian chờ không làm ca yếu đi; khẳng định vẫn y nguyên.
+  thời gian chờ không làm ca yếu đi; khẳng định vẫn y nguyên. Thời hạn **cả ca** (`testTimeout` trong
+  `vitest.config.ts`) phải cao hơn hẳn mức chờ đó — đặt 15s (2026-09-23): mặc định 5s bằng đúng mức chờ tay, nên
+  lượt chờ không bao giờ dùng hết quỹ, máy bận là cả ca hết giờ trước.
+- **Stub `IntersectionObserver` không tự bắn: chờ có observer SỐNG rồi mới gọi `kichHoatGiaoNhau`** (thêm 2026-09-23).
+  Observer tạo trong `useEffect`, chạy SAU khi DOM đã vẽ — `waitFor` thấy nội dung là trả về trong khi observer có thể
+  chưa tồn tại, bắn lúc đó là bắn vào khoảng không và ca chờ tới hết giờ. Trông y hệt "thiếu thời gian chờ" — ở GĐ4 E4
+  đã bị chẩn đoán nhầm như vậy (`cuonToiDay` trong `feed-list.test.tsx` là khuôn đúng).
 - Thêm một luật ESLint hay một cổng CI thì phải **thử cho đỏ một lần** rồi khôi phục — `git status`
   sạch trước và sau.
 

@@ -72,14 +72,22 @@ const renderPost: RenderPost = (post, onChanged) => (
 const baiTrenMan = () =>
   screen.queryAllByTestId("feed-post").map((a) => a.dataset.postId)
 
-const cuonToiDay = () => act(() => kichHoatGiaoNhau(true))
-
 /**
- * Chờ tay 5s cho MỌI `waitFor`/`findBy` của file: nhiều ca nối 2–7 request và cú bấm; chạy cả bộ (41 file jsdom song
- * song) thì mức mặc định 1s đỏ ngẫu nhiên ~1/8 lượt (đo 2026-09-23, ca "503 ở trang SAU"). Nới thời gian chờ không làm
- * ca yếu đi — khẳng định y nguyên (luật frontend Mục 9).
+ * Chờ tay 5s cho MỌI `waitFor`/`findBy` của file: nhiều ca nối 2–7 request và cú bấm; chạy cả bộ (40+ file jsdom song
+ * song) thì mức mặc định 1s là sát. Nới thời gian chờ không làm ca yếu đi — khẳng định y nguyên (luật frontend Mục 9).
  */
 const CHO = { timeout: 5000 }
+
+/**
+ * Chờ có observer SỐNG rồi mới bắn. Observer tạo trong `useEffect` — effect chạy SAU khi DOM đã vẽ, nên `waitFor` thấy đủ
+ * bài là trả về trong khi observer có thể chưa tồn tại: bắn lúc đó là bắn vào khoảng không, không request nào đi, và ca
+ * chờ tới hết giờ. Đây là gốc của các lượt đỏ ngẫu nhiên đo được ở E4/E3 (2026-09-23) — trước đó bị chẩn đoán nhầm là
+ * thiếu thời gian chờ. Trình duyệt thật không có khe này: observer thật tự bắn một lượt ngay khi `observe()`.
+ */
+async function cuonToiDay() {
+  await waitFor(() => expect(soObserverDangTheoDoi()).toBeGreaterThan(0), CHO)
+  await act(() => kichHoatGiaoNhau(true))
+}
 
 beforeEach(() => {
   fakeSession.start()
@@ -211,6 +219,8 @@ describe("FeedList — cuộn theo nextCursor (Đ-4.9, Q-E5)", () => {
     const seen = phucVu({ dau: trang(nhieuBai(2), CURSOR_2) })
     render(<FeedList renderPost={renderPost} />)
     await waitFor(() => expect(baiTrenMan()).toHaveLength(2), CHO)
+    // Có observer thật rồi mới bắn "không giao nhau" — không thì ca xanh vì chẳng có ai nghe.
+    await waitFor(() => expect(soObserverDangTheoDoi()).toBe(1), CHO)
 
     await act(() => kichHoatGiaoNhau(false))
     await delay(30)
@@ -409,8 +419,9 @@ describe("FeedList — lỗi (Đ-4.10, Q-E4)", () => {
     expect(loi).toHaveTextContent("Bảng tin đang quá tải")
     expect(baiTrenMan()).toEqual(["p1", "p2"])
 
-    // Observer đã thôi: bắn thêm không sinh request nào.
-    await cuonToiDay()
+    // Observer đã thôi (đã `disconnect`): không còn observer nào sống, và bắn thêm không sinh request nào.
+    expect(soObserverDangTheoDoi()).toBe(0)
+    await act(() => kichHoatGiaoNhau(true))
     await delay(30)
     expect(seen).toEqual([null, CURSOR_QUA_TAI])
 
@@ -486,7 +497,7 @@ describe("FeedList — StrictMode (luật frontend Mục 9, L5)", () => {
     await waitFor(() => expect(baiTrenMan()).toHaveLength(20), CHO)
     expect(new Set(baiTrenMan()).size).toBe(20)
     // Observer của lần mount đầu đã `disconnect` — chỉ còn cái của lần mount hai.
-    expect(soObserverDangTheoDoi()).toBe(1)
+    await waitFor(() => expect(soObserverDangTheoDoi()).toBe(1), CHO)
 
     await cuonToiDay()
 
