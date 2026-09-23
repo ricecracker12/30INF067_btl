@@ -20,7 +20,7 @@
 | Nơi | Đường dẫn | Ai có | Khi nào dùng |
 |---|---|---|---|
 | **Nóng** — trên VM | `~/app/deploy/backups/{base,wal,dump}/` (user `deploy`) | Ai có SSH | Xóa nhầm, migration hỏng, VM còn sống |
-| **Nguội** — R2 | bucket `socialmedia-backup`, tiền tố `staging/` (sau D4: `production/`) | Token trong `deploy/backup.env` trên VM + bản trong kho bí mật nhóm | **Mất VM** |
+| **Nguội** — R2 | bucket `socialmedia-backup`, tiền tố `staging/` | Token trong `deploy/backup.env` trên VM + bản trong kho bí mật nhóm | **Mất VM** |
 | Log | `~/app/deploy/backup.log` — mỗi bản: tên, kích thước, sha256, trạng thái archiver | | Chọn bản, đối chiếu hash |
 
 Tên bản sao: `daily-20260920T200000Z` / `weekly-…` (UTC). Bản `weekly` chỉ khôi phục được **tới đúng lúc chụp**
@@ -54,6 +54,10 @@ docker run --rm --network socialapp-restore_default --env-file .env \
   ghcr.io/ricecracker12/30inf067_btl/api:staging --migrate
 #    (Không dùng host.docker.internal:15432 — cổng đó chỉ bind 127.0.0.1 của host, từ trong container
 #     đi qua host-gateway là bị từ chối kết nối.)
+#    Bằng chứng no-op: dòng "[migrate] Đã áp dụng migration…" in ra CẢ KHI không có gì để áp — exit 0 chỉ chứng
+#    minh schema tương thích. Đếm lại các bảng __EFMigrationsHistory: số dòng phải BẰNG bảng restore.sh vừa in.
+docker compose -f docker-compose.restore.yml exec -T postgres psql -U socialapp -d socialapp -At -f - \
+  < dem-ban-ghi.sql | grep EFMigrationsHistory
 
 # 4. Đối chiếu — restore.sh đã in bảng đếm; so với bước 1
 # 5. Chỉ mất/hỏng vài dòng → Kịch bản C (Mục 5), KHÔNG dừng dịch vụ. Hỏng diện rộng → Mục 4 (có dừng).
@@ -88,7 +92,7 @@ Chỉ làm sau khi Mục 2/3 đã đối chiếu xong và cả nhóm đồng ý.
 
 ```bash
 cd ~/app/deploy
-S=docker-compose.staging.apache.yml          # hoặc docker-compose.prod.yml sau D4
+S=docker-compose.staging.apache.yml          # môi trường cuối (Đ-7.4) — không có stack production
 
 # 1. Dừng stack ứng dụng (api, frontend, postgres…) — báo nhóm; Kuma sẽ đỏ, đúng như mong đợi
 docker compose -f $S down
