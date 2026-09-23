@@ -782,7 +782,8 @@ CREATE TABLE notification.notifications (
     recipient_id  uuid        NOT NULL,                                 -- KHÔNG FK
     type          varchar(20) NOT NULL,
     group_key     varchar(120) NOT NULL,
-    target_type   varchar(10) NOT NULL,                                 -- post | comment | user | conversation
+    target_type   varchar(20) NOT NULL,                                 -- post | comment | user | conversation
+                                                                        --   (sửa 2026-09-24, A2: varchar(10) chặn 'conversation' 12 ký tự)
     target_id     uuid        NOT NULL,
     post_id       uuid,                                                 -- để FE dẫn tới bài khi đích là bình luận
     last_actor_id uuid,                                                 -- NULL cho type = moderation (không lộ ai kiểm duyệt)
@@ -1366,7 +1367,7 @@ Luật vàng số 8: mọi thứ phải chạy trên ARM64 — không có native
 
 ### 10.3 Unit test
 
-Chuẩn hóa + escape `q` · xếp hạng tìm kiếm (hàm thuần trên danh sách) · `GroupKey.For(event)` cho mọi loại · bảng hợp lệ
+Chuẩn hóa + escape `q` · xếp hạng tìm kiếm (hàm thuần trên danh sách) · `GroupKey` cho tám loại (một hàm mỗi loại, không hàm nào nhận event — sửa 2026-09-23, L-A9) · bảng hợp lệ
 `decision × targetType` · `RolePermissionDiff` (added/removed, cần xác nhận hay không, về 0 hay không) · `AuditActions` không trùng
 chuỗi · `InProcessEventBus` với handler giả (thứ tự, lỗi, tràn) · ghép câu thông báo phía FE (Vitest, không phải .NET).
 
@@ -1625,6 +1626,14 @@ khác (không có kiểu nào để trỏ).
 `NotificationTypes`, `GroupKey`.
 
 **Xong khi:** migration khớp DDL; unit test `GroupKey.For` cho tám loại.
+
+*Sửa 2026-09-24 khi thi công A2* (chi tiết ở `huong-dan-khoi-a-c-nen-du-lieu-va-ha-tang.md`, L-A7..L-A9): `GroupKey` là **một hàm
+cho mỗi loại** (`GroupKey.Comment(postId)`, `.Reaction(kind, id)`…), không `For(event)` — một `CommentCreated` sinh tới ba nhóm.
+Entity tên **`UserNotification`**, không `Notification`: trong namespace `SocialApp.Modules.Notification.*` tên đó tra ra namespace
+(CS0118) — cùng lý do Profile có `UserProfile`. `target_type` là `varchar(20)` (Mục 4 bản đầu ghi `varchar(10)`, chặn
+`conversation`). `NotificationDbContext` **không** tự đóng dấu `updated_at` trong `SaveChanges`: cột đó là khóa sắp danh sách —
+đóng dấu thì đánh dấu đã đọc làm thông báo cũ nhảy lên đầu. Dòng `AddNotificationModule` + migrate vào `Program.cs` **và** hai
+harness, test namespace `Notification_Domain_namespace_must_not_be_empty` — đi cùng A2.
 
 ### A3 — Identity: migration `role.manage` + `description` + trigger vai trò hệ thống
 

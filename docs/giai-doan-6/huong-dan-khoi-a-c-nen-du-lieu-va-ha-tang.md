@@ -1256,6 +1256,48 @@ khuôn `ContentPermissionsTests`. Không lệch.
 **Test:** Architecture 18 → 20 (+2). **Thử cho đỏ — 1/1:** `ReportResolve = "report.reslove"` →
 `Moi_ma_cua_ModerationPermissions_deu_co_trong_PermissionCodes` đỏ, thông điệp nêu đúng `report.reslove`; khôi phục nguyên byte.
 
+### A2 — 2026-09-24
+
+Làm theo Mục 4; L-A7 (Program.cs + hai harness), L-A8 (namespace guard cùng commit), L-A9 (`GroupKey` một hàm mỗi loại) áp như chốt.
+`giai-doan-6.md` sửa cùng commit: Mục 4 (`target_type`), Mục 10.3 (`GroupKey`), B.4 A2 — mỗi chỗ ghi "sửa 2026-09-24".
+
+**Lệch so với chính tài liệu này:**
+- **Entity tên `UserNotification`**, không `Notification` như Mục 4 bước 1: trong namespace `SocialApp.Modules.Notification.*`, tên
+  `Notification` được tra ra **namespace** `SocialApp.Modules.Notification` trước khi tới type của `using` — `CS0118`. Đã thử bằng
+  một file probe trước khi đổi tên (đỏ đúng `CS0118`). Cùng lý do GĐ2 đặt `UserProfile`. `NotificationActor` giữ tên.
+- **`target_type` là `varchar(20)`**, không `varchar(10)` như DDL Mục 4: `conversation` dài 12 ký tự — `varchar(10)` chặn mọi thông
+  báo `message` bằng `22001`, đúng lúc B merge. 20 cho cùng cỡ `audit_logs.target_type`. Có ca canh
+  (`Tam_loai_va_dich_conversation_deu_chen_duoc`) và hằng `NotificationTargetTypes.MaxLength` mà configuration đọc.
+- **`NotificationDbContext` KHÔNG override `SaveChanges` đóng dấu `updated_at`** (Mục 4 bước 2 bảo "chép khuôn"): ở bảng này
+  `updated_at` là "lúc sự kiện mới nhất dồn vào nhóm" — khóa sắp `NotificationPage`. Đóng dấu tự động thì đánh dấu đã đọc qua EF (D11)
+  làm thông báo cũ nhảy lên đầu danh sách. Upsert D9 tự gán cột trong SQL. Ghi ở doc comment của context và của `UpdatedAt`.
+- **`uq_notifications_group` là UNIQUE CONSTRAINT** (`HasAlternateKey`), đúng chữ `CONSTRAINT` của DDL — cạm bẫy Mục 4 bảo "chọn một
+  và ghi vào schema test": `UNIQUE_recipient_group_key_la_constraint_va_chan_cap_trung` đọc `pg_constraint contype = 'u'` +
+  `pg_get_constraintdef`.
+- **Thêm `NotificationTargetTypes.From(ReactionTargetKind)` / `From(ModerationTargetType)`** — `GroupKey` và handler D10 dịch enum
+  SharedKernel → chuỗi DB ở một chỗ (khuôn `ReportTargetTypes.From` của A1). Tiền tố của mọi khóa lấy từ hằng `NotificationTypes`.
+- **Thêm ca ngoài danh sách:** `On_conflict_do_update_gop_vao_mot_dong` (chạy đúng hình dạng `ON CONFLICT (recipient_id, group_key)
+  DO UPDATE … RETURNING (xmax = 0)` của D9), `Hai_index_dung_hinh_dang` (đọc `pg_indexes.indexdef`: `updated_at DESC, id DESC` và
+  `WHERE (is_read = false)`); unit: tiền tố khóa = loại, `Guid` chữ hoa ra cùng khóa, enum lạ thì ném, `All` đủ hằng.
+
+**Kiểm tay trên DB dev** (chung lượt với A4): `--migrate` hai lần, exit 0, dòng log có `"notification"`; `\dn` thấy `notification`;
+`notification."__EFMigrationsHistory"` đúng một dòng `20260923171431_InitialNotification`.
+
+**Test:** Unit 314 → 334 (+20 `GroupKeyTests`), Integration 516 → 524 (+8 `NotificationDbContextSchemaTests`), Architecture 20 → 21
+(+`Notification_Domain_namespace_must_not_be_empty`). Còn đỏ nền R2 trên máy dev.
+
+**Thử cho đỏ — 4/4 đột biến bị bắt**, file khôi phục nguyên byte (`cmp`):
+
+| Đột biến                                                        | Ca đỏ thực tế                                                                                          |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Đổi namespace trong test guard thành `…Notification.Domainx`    | `Notification_Domain_namespace_must_not_be_empty`                                                      |
+| `GroupKey.Reaction` bỏ qua `kind` (luôn `post`)                 | `Moi_loai_ra_dung_chuoi_mau` (reaction:comment), `Khoa_khac_nhau_theo_id_va_theo_loai`, `Enum_la_thi_nem` |
+| Migration `target_type` về `varchar(10)`                        | `Tam_loai_va_dich_conversation_deu_chen_duoc`                                                          |
+| Migration bỏ `UniqueConstraint("uq_notifications_group")`       | `UNIQUE_recipient_group_key_la_constraint_…`, `On_conflict_do_update_gop_vao_mot_dong`                 |
+
+Lượt đầu đột biến 3 không khớp chuỗi (mẫu hai dòng, file migration CRLF) — script dừng ở "0 khớp", không tính; làm lại bằng mẫu
+một dòng.
+
 ### Các đầu việc còn lại
 
 *Chưa thi công.* Điền khi làm, theo khuôn của C0: chỗ nào phải đổi hướng so với Mục 0.4 và vì sao; lệch so với chính tài liệu này;

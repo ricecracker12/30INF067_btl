@@ -17,6 +17,7 @@ using SocialApp.Modules.Content.Presentation;
 using SocialApp.Modules.Identity.DependencyInjection;
 using SocialApp.Modules.Identity.Presentation;
 using SocialApp.Modules.Moderation.DependencyInjection;
+using SocialApp.Modules.Notification.DependencyInjection;
 using SocialApp.Modules.Profile.DependencyInjection;
 using SocialApp.Modules.Profile.Presentation;
 using SocialApp.Modules.SocialGraph.DependencyInjection;
@@ -203,6 +204,9 @@ builder.Services.AddSocialGraphModule(postgres);
 
 // --- Module Moderation: DbContext riêng, schema "moderation" (ADR-001, Đ-6.1) ---
 builder.Services.AddModerationModule(postgres);
+
+// --- Module Notification: DbContext riêng, schema "notification" (ADR-001, Đ-6.1) ---
+builder.Services.AddNotificationModule(postgres);
 
 // Mail xác minh (Đ-D9). Development không đặt gì → Mailpit localhost:1025 + link http://localhost:3000; ngoài
 // Development thiếu Smtp:Host/Port/From hoặc Frontend:BaseUrl thì chết ngay tại đây. KHÔNG đọc từ deploy/.env: file đó
@@ -420,9 +424,11 @@ if (isMigrate)
     await app.Services.MigrateContentModuleAsync();
     await app.Services.MigrateSocialGraphModuleAsync();
     await app.Services.MigrateModerationModuleAsync();
+    await app.Services.MigrateNotificationModuleAsync();
     Console.WriteLine(
         $"[migrate] Đã áp dụng migration cho schema \"{IdentityModuleExtensions.Schema}\", \"{ProfileModuleExtensions.Schema}\", "
-      + $"\"{ContentModuleExtensions.Schema}\", \"{SocialGraphModuleExtensions.Schema}\", \"{ModerationModuleExtensions.Schema}\"; "
+      + $"\"{ContentModuleExtensions.Schema}\", \"{SocialGraphModuleExtensions.Schema}\", \"{ModerationModuleExtensions.Schema}\", "
+      + $"\"{NotificationModuleExtensions.Schema}\"; "
       + $"nạp dữ liệu nền và kiểm tra vai trò hệ thống cho schema \"{IdentityModuleExtensions.Schema}\". Thoát 0.");
     return;
 }

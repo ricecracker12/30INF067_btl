@@ -29,6 +29,8 @@
     <ProjectReference Include="..\..\src\backend\Modules\Profile\SocialApp.Modules.Profile.csproj" />
     <!-- A1 GĐ4: FriendPair / RelationshipState là hàm thuần trong Domain của SocialGraph. -->
     <ProjectReference Include="..\..\src\backend\Modules\SocialGraph\SocialApp.Modules.SocialGraph.csproj" />
+    <!-- A2 GĐ6: GroupKey / NotificationTypes là hàm thuần trong Domain của Notification. -->
+    <ProjectReference Include="..\..\src\backend\Modules\Notification\SocialApp.Modules.Notification.csproj" />
   </ItemGroup>
 
 </Project>
