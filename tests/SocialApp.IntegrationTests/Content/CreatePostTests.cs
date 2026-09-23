@@ -66,6 +66,29 @@ public sealed class CreatePostTests(PostgresFixture postgres, ModulesApiFactory 
     }
 
     /// <summary>
+    /// GĐ7 C2: <c>socialapp_posts_created_total</c> tăng đúng 1 khi bài được lưu, và KHÔNG tăng khi bị từ chối — đếm trước
+    /// lúc lưu thì biểu đồ "bài mới" vẫn lên đều trong khi không ai đăng được bài nào.
+    /// </summary>
+    [Fact]
+    public async Task C2_posts_created_tang_dung_1_khi_luu_khong_tang_khi_bi_tu_choi()
+    {
+        const string Metric = "socialapp_posts_created_total";
+        var client = new ModulesTestClient(factory);
+        using var http = factory.CreateClient();
+        var actor = Guid.NewGuid();
+        var truoc = await MetricsReader.ReadAsync(http, Metric);
+
+        // Chưa có hồ sơ → 403 (Đ-2.4): bị từ chối ở bước (2), không được đếm.
+        using (var biTuChoi = await client.CreatePostAsync(actor, new { body = "Chưa có hồ sơ", privacy = "public" }))
+            Assert.Equal(HttpStatusCode.Forbidden, biTuChoi.StatusCode);
+        Assert.Equal(truoc, await MetricsReader.ReadAsync(http, Metric));
+
+        await OnboardAsync(client, actor);
+        await client.CreatePostOkAsync(actor, new { body = "Bài đầu tiên", privacy = "public" });
+        Assert.Equal(truoc + 1, await MetricsReader.ReadAsync(http, Metric));
+    }
+
+    /// <summary>
     /// <c>reactionCounts</c> ra JSON là <c>{}</c>, không phải <c>null</c> và không vắng mặt (Đ-2.12, Mục 8.2). Khẳng
     /// định trên JSON THÔ: DTO đọc lại được cả ba dạng nên test qua DTO sẽ xanh với bản sai. FE của E5 viết
     /// <c>Object.entries(reactionCounts)</c> một lần và không phân nhánh — đổi sang null là vỡ ở GĐ3.

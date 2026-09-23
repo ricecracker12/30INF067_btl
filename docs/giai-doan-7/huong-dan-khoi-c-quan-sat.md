@@ -20,7 +20,7 @@
 | Mã | Đầu việc | Kết quả mong đợi | Trạng thái |
 |---|---|---|---|
 | **C1** | `/metrics` RED trên API | `/metrics` 200 không cần token; lỗi 500 được đếm **đúng là 500** | ✅ Code + test xong (2026-09-23), **chưa deploy** |
-| **C2** | Bốn chỉ số nghiệp vụ | Đăng một bài trên staging → counter tăng đúng 1 | ⏸️ Chờ nhóm chốt cách làm (Mục 2) |
+| **C2** | Bốn chỉ số nghiệp vụ | Đăng một bài trên staging → counter tăng đúng 1 | ✅ Code + test xong (2026-09-23), **chưa deploy** |
 | **C3** | Prometheus trong stack ops | Trang Targets: mọi target **UP** | ⬜ Chưa làm — cần C1 lên staging trước |
 | **C4** | Grafana + dashboard | Biểu đồ có số liệu thật từ staging | ⬜ Chưa làm |
 | **C5** | Cảnh báo + thử cho kêu ⭐ | Ảnh ≥ 3 cảnh báo đã kêu thật, kèm giờ | ⬜ Chưa làm |
@@ -82,7 +82,7 @@ GĐ1). Prometheus scrape không có token → thiếu dòng này thì target bá
 
 ---
 
-## 2. C2 — Bốn chỉ số nghiệp vụ ⏸️
+## 2. C2 — Bốn chỉ số nghiệp vụ ✅
 
 ### Phát hiện khi thử (2026-09-23): API chuẩn của .NET không tự xuất ra `/metrics`
 
@@ -101,16 +101,69 @@ thư viện Prometheus — giữ ranh giới module sạch), và prometheus-net 
 Chưa tìm ra nguyên nhân và **cố ý không đào tiếp** — không đáng công bằng một cách chắc chắn chạy được. Test tạm đã xóa.
 **Đừng làm C2 theo hướng này** mà không có một test đỏ-rồi-xanh chứng minh counter hiện trên `/metrics`.
 
-### Phương án đề xuất — chờ nhóm chốt
+### Cách đã làm: bốn counter ở một chỗ trong SharedKernel
 
-Khai báo **cả bốn counter ở một chỗ** trong SharedKernel (ví dụ `SocialApp.SharedKernel/Observability/BusinessMetrics.cs`),
-dùng thẳng prometheus-net; mỗi module chỉ thêm **một dòng** `.Inc()` vào service của mình.
+[`SocialApp.SharedKernel/Observability/BusinessMetrics.cs`](../../src/backend/SocialApp.SharedKernel/Observability/BusinessMetrics.cs)
+khai báo cả bốn counter bằng prometheus-net và chỉ lộ ra **phương thức tĩnh** — code nghiệp vụ không chạm kiểu
+`Counter` của Prometheus. SharedKernel thêm gói `prometheus-net` **8.2.1**, cùng version với gói của Api (lệch là hai bản
+prometheus-net trong một process) — dependency thứ tư của SharedKernel, cùng loại với `AWSSDK.S3` (Đ-2.14).
 
-| | |
+| Chỉ số | Nhãn | Gọi ở đâu | Một dòng |
+|---|---|---|---|
+| `socialapp_login_failed_total` | — | `LoginService` — **cả hai** nhánh 401: email không tồn tại và sai mật khẩu | `BusinessMetrics.LoginFailed()` |
+| `socialapp_posts_created_total` | — | `PostService.CreateAsync` — **sau** `AddWithMediaAsync` thành công | `BusinessMetrics.PostCreated()` |
+| `socialapp_presign_issued_total` | `purpose` = `post` \| `avatar` | `UploadTicketService.Create` — cộng **số URL** của lô, không phải 1 | `BusinessMetrics.PresignIssued(…, tickets.Count)` |
+| `socialapp_media_cleanup_runs_total` | `result` = `ran` \| `lock` \| `failed` | `MediaCleanupWorker` — cuối `RunOnceAsync`, nhánh không lấy được khóa, và `catch` của vòng lặp | `BusinessMetrics.MediaCleanupRun(…)` |
+
+### Thực tế thi công — ba chỗ lệch kế hoạch
+
+**1. Chỉ số thứ tư đổi từ "số object mồ côi đã dọn" sang "số lượt worker chạy".** Mục đích ghi trong Mục 5.2 là *chứng
+minh worker thật sự chạy*. Staging gần như không có ảnh mồ côi, nên số object đã dọn nằm ở 0 nhiều ngày liền — và số 0
+không phân biệt được "chạy mà không có gì để dọn" với "worker chết". Đếm lượt chạy thì tăng đều mỗi 60 phút khi worker
+sống. Số object đã dọn vẫn nằm trong log mỗi lượt như trước.
+
+**2. `disabled` cố ý không đếm.** Worker tắt thì `ExecuteAsync` thoát trước vòng lặp, nên nhánh `disabled` của
+`RunOnceAsync` chỉ tới được khi test gọi thẳng — đếm ở đó là số liệu giả. Hệ quả cần nhớ: **worker tắt trên staging thì
+chỉ số này không có dòng nào**, không phải dòng bằng 0. Muốn biết worker bật hay tắt thì xem log lúc khởi động
+("Worker dọn rác media đang TẮT") hoặc biến `Media__Cleanup__Enabled` trong `.env`.
+
+**3. Đếm login thất bại ở cả hai nhánh 401.** Kế hoạch chỉ ghi "đăng nhập thất bại". Chỉ đếm nhánh sai mật khẩu thì kẻ dò
+bằng danh sách email ngẫu nhiên — phần lớn không tồn tại — không hiện lên biểu đồ. Nhánh 423 (đang khóa) và 403 (chưa
+xác minh) không đếm: đó không phải sai thông tin.
+
+### Test — counter tĩnh dùng chung cả process
+
+Bốn test mới, mỗi test nằm trong đúng lớp đã dựng sẵn dữ liệu cho luồng đó, và khẳng định **tăng đúng số** chứ không
+"tăng ít nhất":
+
+| Test | Khẳng định |
 |---|---|
-| **Được** | Một file, tên chỉ số cố định (Mục 5.2), test được đúng kiểu C1 |
-| **Mất** | SharedKernel thêm một gói phụ thuộc — cùng loại với `AWSSDK.S3` đã duyệt ở GĐ2 (Đ-2.14); chạm code của Identity, Content và worker dọn rác — phải báo người đang làm các module đó |
-| **Hoãn được không** | **Được.** RED (C1) đã đủ cho GOAL-01 và cảnh báo tỷ lệ lỗi; C2 không nằm trong ba điều kiện để GĐ7 xong |
+| `LoginTests.C2_login_failed_dem_dung_ca_hai_nhanh_401_khong_dem_dang_nhap_dung` | +1 sai mật khẩu, +1 email không tồn tại, +0 đăng nhập đúng |
+| `CreatePostTests.C2_posts_created_tang_dung_1_khi_luu_khong_tang_khi_bi_tu_choi` | +0 khi 403 (chưa hồ sơ), +1 khi lưu thành công |
+| `MediaUploadsTests.C2_presign_issued_dem_dung_so_url_theo_muc_dich` | Lô 3 file → `post` +3; một avatar → `avatar` +1 |
+| `MediaCleanupWorkerTests.C2_media_cleanup_runs_dem_ran_va_lock_khong_dem_disabled` | `ran` +1; không Redis → `lock` +1; worker tắt → không đổi |
+
+"Tăng đúng số" chỉ đáng tin khi không test nào khác chạm cùng counter **song song**. Đã kiểm: mọi lớp test đi qua bốn
+luồng này đều ở `PostgresCollection` — xUnit chạy tuần tự trong một collection. Các lớp chạy song song còn lại (CORS,
+ProblemDetails, ForwardedClientIp) dùng `ApiFactory` không có DB nên không tới được chỗ tăng counter. Luật này ghi ngay
+trong [`MetricsReader`](../../tests/SocialApp.IntegrationTests/Harness/MetricsReader.cs): **test mới chạm các luồng này
+phải vào `PostgresCollection`**, đặt ngoài là số đếm lệch và test đỏ chập chờn.
+
+### Bằng chứng
+
+| Kiểm | Kết quả |
+|---|---|
+| 4 test C2 | 4/4 xanh |
+| Thử cho đỏ | Tắt cả 7 lời gọi `BusinessMetrics` → **4/4 đỏ**, mỗi test vì đúng chỗ của nó; trả lại → 4/4 xanh |
+| Toàn bộ suite, **chạy hai lần liên tiếp** | Cả hai lần: Unit 295 · Architecture 16 · Integration **489** (485 → 489) — 0 fail, không đỏ chập chờn |
+| Luật kiến trúc | Không đổi — không có luật cấm thư viện ngoài; module chỉ phụ thuộc SharedKernel như trước |
+
+### Còn lại để đóng C2 (sau khi deploy)
+
+- [ ] Trên VM: `curl -s http://127.0.0.1:18080/metrics | grep socialapp_` — thấy `socialapp_login_failed_total` và
+      `socialapp_posts_created_total` (hai counter không nhãn hiện ngay từ đầu, giá trị 0)
+- [ ] Đăng một bài trên staging qua UI → `socialapp_posts_created_total` tăng đúng 1
+- [ ] Sau ≥ 60 phút (nếu `Media__Cleanup__Enabled=true`): có dòng `socialapp_media_cleanup_runs_total{result="ran"}`
 
 ---
 

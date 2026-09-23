@@ -101,6 +101,31 @@ public sealed class LoginTests(PostgresFixture postgres, IdentityApiFactory fact
         Assert.Equal((short)1, row!["failed_login_count"]);
     }
 
+    /// <summary>
+    /// GĐ7 C2: <c>socialapp_login_failed_total</c> tăng đúng 1 ở CẢ HAI nhánh 401 — sai mật khẩu và email không tồn tại.
+    /// Chỉ đếm một nhánh thì kẻ dò mật khẩu bằng danh sách email ngẫu nhiên không hiện lên biểu đồ. Đăng nhập đúng: không tăng.
+    /// </summary>
+    [Fact]
+    public async Task C2_login_failed_dem_dung_ca_hai_nhanh_401_khong_dem_dang_nhap_dung()
+    {
+        const string Metric = "socialapp_login_failed_total";
+        var (_, email) = await VerifiedUserAsync();
+        using var http = factory.CreateClient();
+        var truoc = await MetricsReader.ReadAsync(http, Metric);
+
+        using (var saiMatKhau = await _auth.PostLoginAsync(email, WrongPassword))
+            Assert.Equal(HttpStatusCode.Unauthorized, saiMatKhau.StatusCode);
+        Assert.Equal(truoc + 1, await MetricsReader.ReadAsync(http, Metric));
+
+        using (var khongTonTai = await _auth.PostLoginAsync(AuthTestClient.NewEmail(), WrongPassword))
+            Assert.Equal(HttpStatusCode.Unauthorized, khongTonTai.StatusCode);
+        Assert.Equal(truoc + 2, await MetricsReader.ReadAsync(http, Metric));
+
+        using (var dung = await _auth.PostLoginAsync(email, AuthTestClient.Password))
+            Assert.Equal(HttpStatusCode.OK, dung.StatusCode);
+        Assert.Equal(truoc + 2, await MetricsReader.ReadAsync(http, Metric));
+    }
+
     /// <summary>AC-02: response của "sai mật khẩu" và "email không tồn tại" giống hệt nhau, trừ phần riêng của từng request.</summary>
     [Fact]
     public async Task AC02b_email_khong_ton_tai_va_sai_mat_khau_response_giong_het()

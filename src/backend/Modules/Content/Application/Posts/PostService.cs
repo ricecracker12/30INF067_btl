@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using SocialApp.Modules.Content.Application.Feed;
 using SocialApp.Modules.Content.Domain;
 using SocialApp.SharedKernel.Contracts;
+using SocialApp.SharedKernel.Observability;
 using SocialApp.SharedKernel.Results;
 using SocialApp.SharedKernel.Storage;
 
@@ -120,6 +121,7 @@ public sealed class PostService(
         if (!await posts.AddWithMediaAsync(post, attachments, ct))
             return ContentErrors.MediaAlreadyUsed;   // 409, POST-08
 
+        BusinessMetrics.PostCreated();   // SAU khi lưu thành công — không đếm nhánh bị từ chối ở trên (GĐ7 C2)
         await feedPageCache.InvalidateAsync(actorId, PostCommit);
 
         // Không key, không URL (Mục 1.3 luật 9).

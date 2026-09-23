@@ -382,8 +382,12 @@ nếu chung project thì mỗi lần deploy đồng hồ tự tắt và tự ghi
 |---|---|---|
 | `socialapp_login_failed_total` | Counter | Tăng đột biến = đang bị dò mật khẩu (ISS-04) |
 | `socialapp_posts_created_total` | Counter | Dấu hiệu sống của hệ thống: số 0 kéo dài = hỏng ở đâu đó dù health vẫn xanh |
-| `socialapp_presign_issued_total` | Counter | Đối chiếu với số object trên R2 → phát hiện rác upload dở (GĐ2 Đ-2.13) |
-| `socialapp_orphan_media_cleaned_total` | Counter | Chứng minh worker dọn rác **thật sự chạy**, không phải chỉ được đăng ký |
+| `socialapp_presign_issued_total{purpose}` | Counter | Đối chiếu với số object trên R2 → phát hiện rác upload dở (GĐ2 Đ-2.13) |
+| `socialapp_media_cleanup_runs_total{result}` | Counter | Chứng minh worker dọn rác **thật sự chạy**, không phải chỉ được đăng ký |
+
+*Sửa khi thi công C2 (2026-09-23):* dòng cuối ban đầu là `socialapp_orphan_media_cleaned_total` (số object mồ côi đã
+dọn). Staging hầu như không có mồ côi nên số đó nằm ở 0 nhiều ngày — không phân biệt được với worker chết, tức không
+chứng minh được điều nó sinh ra để chứng minh. Đổi sang đếm **lượt chạy** theo kết quả (`ran` | `lock` | `failed`).
 
 Bốn cái, không hơn. Mỗi chỉ số thêm vào là một thứ phải giữ cho đúng; chỉ số không ai nhìn là nợ, không phải tài sản.
 
@@ -815,14 +819,17 @@ này, đã thử cho đỏ.
 
 **Nghiệm thu:** trong mạng docker, `curl api:8080/metrics` ra số liệu; qua domain công khai thì **không** vào được.
 
-### C2 — Bốn chỉ số nghiệp vụ ⏸️ *(chờ nhóm chốt cách làm)*
+### C2 — Bốn chỉ số nghiệp vụ ✅ *(code + test xong 2026-09-23, chưa deploy)*
 
 Counter theo Mục 5.2, đặt ở tầng service của module tương ứng (không đặt ở controller — chúng đo nghiệp vụ, không
 đo HTTP).
 
-*Thực tế thi công:* counter tạo bằng `System.Diagnostics.Metrics` **không** tự xuất hiện trên `/metrics` (thử 4 cách,
-2026-09-23). Phương án đề xuất: khai báo cả bốn counter bằng prometheus-net ở một chỗ trong SharedKernel. C2 **không**
-nằm trong ba điều kiện để GĐ7 xong — hoãn được. Chi tiết ở hướng dẫn khối C, Mục 2.
+*Thực tế thi công:* counter tạo bằng `System.Diagnostics.Metrics` **không** tự xuất hiện trên `/metrics` (thử 4 cách).
+Đã làm: cả bốn counter khai báo bằng prometheus-net ở **một** chỗ —
+`SocialApp.SharedKernel/Observability/BusinessMetrics.cs` — và mỗi module gọi **một dòng** phương thức tĩnh, không chạm
+kiểu của Prometheus. Chạm code của Identity (`LoginService`) và Content (`PostService`, `UploadTicketService`,
+`MediaCleanupWorker`) — **lệch câu "C1 là toàn bộ phần chạm code backend" của Đ-7.2**, có chủ đích. Chỉ số thứ tư đổi
+sang đếm lượt chạy (xem ghi chú dưới bảng Mục 5.2). Chi tiết và bằng chứng ở hướng dẫn khối C, Mục 2.
 
 **Nghiệm thu:** đăng một bài trên staging → `socialapp_posts_created_total` tăng đúng 1.
 
