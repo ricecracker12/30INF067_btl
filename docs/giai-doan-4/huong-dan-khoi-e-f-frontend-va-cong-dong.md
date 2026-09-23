@@ -1302,3 +1302,35 @@ cả bộ xanh. `lint`, `typecheck`, `build` xanh — `build` liệt kê `/` và
    bản cũ** (tên ca `FEED_07_…khong_co_bai_cua_minh` còn trong danh sách) — kết quả đó bỏ. Build test ra thư mục riêng rồi chạy
    lại; không tắt tiến trình API của người dùng.
 2. **Bỏ liên kết "Trang chủ"** trên header — logo đã dẫn về `/`. Ghi dưới Q-E7.
+
+### E6 — 2026-09-23
+
+**Bước 1 — rà Mục 10.6** (`giai-doan-4.md`) với ca đã có. Không dòng nào thiếu:
+
+| Mục 10.6 | Ca canh |
+|---|---|
+| Nút quan hệ đủ bốn trạng thái | `relationship-buttons.test.tsx` — `friendship = %s` × cả hai `following` |
+| 409 / 403 / 404 | cùng file — 409 Kết bạn + đọc lại; 403 Chấp nhận + đọc lại; 404 Kết bạn / Theo dõi giữ nút |
+| Màn lời mời chấp nhận / từ chối | `friends-screen.test.tsx` — Chấp nhận (nạp lại Bạn bè), 403 Chấp nhận, Từ chối |
+| Feed: trang đầu, cuộn theo `nextCursor` | `feed-list.test.tsx` — skeleton → 20 bài; sentinel giao nhau → nguyên chuỗi `nextCursor` |
+| Trang ngắn / rỗng mà `nextCursor ≠ null` vẫn cuộn tiếp | cùng file — trang RỖNG tự nạp tiếp; `friends-screen` — trang rỗng vẫn có "Xem thêm" |
+| Nhãn gợi ý khi `mode = suggested` | cùng file — `feed-suggested` hiện / không hiện; giữ theo trang đầu |
+| 503 hiện nút Thử lại | cùng file — 503 `feed-overloaded` trang đầu + trang sau |
+| Đúng một ca `<StrictMode>` cho `feed-list` | cùng file (và thêm cho `relationship-buttons`, `friends-screen` — L5) |
+
+Số ca của ba màn: `feed-list` 22, `relationship-buttons` 15, `friends-screen` 14.
+
+**Bước 2–3 — `e2e/friend-feed.spec.ts`:** hai `BrowserContext`, `giuHanMucAuth(8)`, dọn rác trong `afterEach`. Đi đúng tám dòng
+của Bước 3, thêm một vế cho Đ-4.6 vừa đổi: A tự đăng bài `private` qua API, bài đó phải hiện trong feed gợi ý của A. Sau hủy kết
+bạn, khẳng định `F` vắng và nhãn gợi ý trở lại — **không** khẳng định `P` vắng (hết kết nối thì về gợi ý, `P` có thể hiện lại).
+
+**Chỗ lệch với file này:** *không* tạo `e2e/friend-helpers.ts` / `ketBanApi` (Bước 2) — spec đi vòng kết bạn bằng **UI** như
+Bước 3 viết, helper sẽ là mã không ai gọi. Để lại cho spec nào cần dựng sẵn quan hệ.
+
+**Bước 4 — cả bộ `pnpm test:e2e`** (Chrome **153.0.8010.53**, API + FE dev thật, `workers: 1`): **18 passed, 1 skipped,
+0 flaky, 0 failed** — 9,9 phút. `friend-feed.spec.ts` 1,3 phút trong lượt cả bộ (8,6s khi chạy riêng — phần còn lại là chờ hạn
+mức `/auth/*`). Ca skip là `single-flight.spec.ts`: **bỏ qua theo thiết kế** từ GĐ1 — chỉ chạy khi đặt `PLAYWRIGHT_API_URL`
+trỏ một API token 10 giây riêng (cách dựng ở đầu file spec). GĐ4 không chạm luồng refresh (BFF chỉ thêm `type` cho 503 kho
+phiên), nên không dựng lượt riêng ở `E6`; ghi rõ ở PR như một dòng `skipped`, không phải `passed`.
+
+Vitest không đổi ở `E6`: 543 ca, 43 file.

@@ -904,7 +904,7 @@ bộ dữ liệu, cùng nếp `PostVisibilityTests` của GĐ2 (hai bản của 
 |---|---|
 | Vitest + `msw/node` | Nút quan hệ đủ bốn trạng thái + 409/403/404 · màn lời mời chấp nhận / từ chối · feed: trang đầu, cuộn thêm theo `nextCursor`, **trang ngắn hơn `limit` mà `nextCursor` khác null thì vẫn cuộn tiếp**, nhãn gợi ý khi `mode=suggested`, 503 hiện nút Thử lại |
 | Vitest `<StrictMode>` | **Đúng một ca** cho `feed-list` (sở hữu `IntersectionObserver` + request hủy được). Khẳng định trạng thái cuối, **không** đếm request |
-| Playwright (local, `workers: 1`) | Hai tài khoản: A mới tinh thấy feed gợi ý → bấm tên B → Kết bạn → B chấp nhận → A thấy bài `friends` của B trên trang chủ → A hủy kết bạn → bài đó biến mất |
+| Playwright (local, `workers: 1`) | Hai tài khoản: A mới tinh thấy feed gợi ý (kèm bài riêng tư của chính A — Đ-4.6 đổi 2026-09-23) → bấm tên B → Kết bạn → B chấp nhận → A thấy bài `friends` của B trên trang chủ → A hủy kết bạn → bài đó biến mất (`e2e/friend-feed.spec.ts`) |
 
 ---
 
