@@ -1467,6 +1467,12 @@ Nửa quan hệ của Mục 17.4 (bước 4), mỗi dòng sửa tạm → lọc 
   - Gỡ `[Trait("Category","Contract")]` → `--list-tests` mất `SocialGraphContractTests` trong khi cổng
     `Category=Contract` + `TreatNoTestsAsError` vẫn xanh **6/6**. `TreatNoTestsAsError` không bịt được lỗ này: còn lớp
     khác mang trait thì cổng không thấy lớp bị quên.
+    **Bịt 2026-09-23** (sau tự rà cuối khối): `ContractGateCoverageTests` (trait `Contract`, chạy trong cổng) canh ba điều —
+    mọi `Modules/*/Presentation/*-v1.yaml` được chép vào `Contracts/`, có đúng một lớp `ContractTestsBase`, và mọi lớp con
+    mang trait. Đính chính mức độ: lớp quên trait vẫn chạy ở bước test chung của CI (lọc `Category!=Contract` vẫn nhặt nó),
+    nên lệch hợp đồng vẫn làm CI đỏ, chỉ sai bước. Lỗ **thật** là module mới thả yaml mà quên `Content Include` hoặc quên lớp
+    so — khi đó không test nào so hợp đồng đó. Thử đỏ ba kiểu (gỡ trait · thêm `messaging-v1.yaml` không lớp so · bỏ
+    `Content Include` của `socialgraph-v1`) → đều đỏ đúng ca; đã khôi phục.
 - `SocialGraphPermissionsTests` đã thử đỏ ở D0 — không thử lại.
 - `pnpm gen:api` sinh lại bốn yaml, `git status --porcelain -- src/frontend` rỗng. Không sửa `ci.yml`.
 
