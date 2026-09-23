@@ -11,6 +11,7 @@ using SocialApp.SharedKernel.Authentication;
 using SocialApp.SharedKernel.Errors;
 using SocialApp.SharedKernel.Events;
 using SocialApp.SharedKernel.Http;
+using SocialApp.SharedKernel.Moderation;
 
 namespace SocialApp.SharedKernel.DependencyInjection;
 
@@ -89,6 +90,9 @@ public static class SharedKernelExtensions
 
         // Đ-6.2, Đ-6.4: event bus ở đây để Program.cs không có dòng riêng — một chỗ đụng nhau ít hơn với GĐ3, GĐ5 (Mục 9.4).
         services.AddInProcessEventBus();
+
+        // GĐ6 C2 (Đ-6.3): composite của hợp đồng ghi IModerationTargets — provider do module chủ đăng ký.
+        services.AddModerationTargets();
 
         return services;
     }

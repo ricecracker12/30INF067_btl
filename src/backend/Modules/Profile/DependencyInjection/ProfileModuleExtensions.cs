@@ -4,8 +4,10 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using SocialApp.Modules.Profile.Application.Profiles;
 using SocialApp.Modules.Profile.Infrastructure;
+using SocialApp.Modules.Profile.Infrastructure.Moderation;
 using SocialApp.Modules.Profile.Infrastructure.Persistence;
 using SocialApp.SharedKernel.Contracts;
+using SocialApp.SharedKernel.Moderation;
 
 namespace SocialApp.Modules.Profile.DependencyInjection;
 
@@ -39,6 +41,10 @@ public static class ProfileModuleExtensions
         // lúc build — thiếu thì nổ lúc resolve service của request đầu tiên. StartupConfigurationTests có
         // một khẳng định canh đúng chuyện đó.
         services.AddScoped<IUserDirectory, UserDirectory>();
+
+        // C2 (GĐ6, Đ-6.3): provider NGƯỜI DÙNG của IModerationTargets — chỉ đọc (ảnh chụp, thấy-được). Resolve cần
+        // IAccountStatusReader (Identity đăng ký) — chỗ trần không resolve provider nên không sao.
+        services.AddScoped<IModerationTargetProvider, ProfileModerationTargets>();
 
         // D0. Ba dòng dưới đây phải dựng được bằng `new ServiceCollection()` KHÔNG host: PostgresFixture
         // (SeededContentDatabaseAsync), ProfileDbContextSchemaTests và UserDirectoryTests đều làm vậy. Thứ gì cần

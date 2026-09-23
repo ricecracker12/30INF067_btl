@@ -1708,6 +1708,19 @@ status='published' RETURNING …`; không trả gì → `SELECT status` để ph
 
 **Xong khi:** `TX-02`, `HID-*` (phần store) xanh; ArchUnitNET `WriteContracts_are_only_the_two_named` xanh.
 
+*Sửa 2026-09-24 khi thi công C2* (L-C2, L-C8, L-C9 của `huong-dan-khoi-a-c-nen-du-lieu-va-ha-tang.md`):
+- Composite `ModerationTargets` sống ở `SharedKernel/Moderation/` (không ở host), nhận `IEnumerable<IModerationTargetProvider>`; mỗi
+  module đăng ký provider của mình trong `Add<X>Module` (Content: bài; Profile: người dùng; bình luận sau khi A merge). Hai provider
+  cùng loại → ném lúc dựng. `AddSharedKernel` gọi `AddModerationTargets()`.
+- Snapshot mang `AuthorId` + `MediaKeys`, không `UserCard` + URL — D7 hydrate một lô. Hợp đồng thêm `RestoreOutcome` riêng
+  (`Restored | NotHidden | NotFound`).
+- Provider ở `Infrastructure/Moderation/` của module (chạm Npgsql). Ghi trên `tx.Connection`; đọc (ảnh chụp, `CanView`) qua
+  `DbContext` của chính module — ảnh chụp bài `IgnoreQueryFilters` có chủ đích (Moderator thấy cả bài đã xóa).
+- `WriteContracts_are_only_the_two_named` là reflection hai vế (interface nhận `DbTransaction` chỉ ở hai namespace; lớp nhận
+  `DbTransaction` phải hiện thực một interface đó) + canh gác "tìm thấy đúng ba interface". Viết một vế thì đỏ ngay với hai provider hợp lệ.
+- `TX-02`, `HID-*` là bản hạ tầng (`ModerationTargetsTests`); `TX-02` gồm đủ ba bảng của Đ-6.13 (báo cáo + ẩn + audit) trong một
+  transaction của Moderation.
+
 ### C3 — Invalidate cache quyền (Đ-6.10)
 
 **Làm gì:** `Invalidate`, `InvalidateAll`; `PermissionsChangedPublisher` (sau `COMMIT`) + `PermissionsChangedSubscriber`

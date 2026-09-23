@@ -1401,6 +1401,44 @@ lớp đỏ vì lý do sai — không tính; làm lại bằng hàm thay thế, 
 migrate), `ModulesApiFactory.CreateMigratedDatabaseAsync` LOW, `PersistenceBoundaryTests` LOW, `ProfileDbContextSchemaTests` UNKNOWN —
 text search: lớp test, không ai gọi ngoài xUnit.
 
+### C5 → C2 — 2026-09-24
+
+Làm theo thứ tự L-C8 (C5 trước C2). L-C2, L-C9 áp như chốt. `giai-doan-6.md` B.5 C2, C5 sửa cùng lượt; `AGENTS.md` đã có dòng "hai
+hợp đồng ghi" từ C1.
+
+**C5 — lệch so với chính tài liệu này:** không. `AccountStatusReader` ở `Identity/Infrastructure/`, LINQ `Contains` + `Status !=
+Active` (Npgsql dịch thành `= ANY`), danh sách rỗng trả ngay.
+
+**C2 — lệch so với chính tài liệu này:**
+- **Snapshot khác bản nháp Mục 12 bước 1:** `AuthorId` là `Guid` (không nullable — người dùng thì là chính họ), không có `UserCard`;
+  thêm enum **`RestoreOutcome`** riêng thay vì dùng lại `HideOutcome`.
+- **Composite đăng ký qua `AddModerationTargets()`** (public, `TryAddScoped`) — `AddSharedKernel` gọi nó, test dựng container trần
+  cũng gọi được mà không kéo rate limiter, Problem Details… của `AddSharedKernel`.
+- **Đọc qua `DbContext` của module chủ**, không SQL thô như Mục 12 bước 2 gợi ý: ảnh chụp bài dùng `IgnoreQueryFilters()` (có chủ đích,
+  comment ghi), media theo `Position`. Ghi vẫn là `NpgsqlCommand` trên `tx.Connection`.
+- `CanView` bài chỉ hỏi `IFriendshipReader` khi bài là `friends` và người gọi không phải tác giả.
+- Tiểu sử làm `Body`, ảnh đại diện làm `MediaKeys` trong ảnh chụp người dùng.
+- Không làm ca đề xuất `Feed-sau-khi-an`: đường đọc feed đã lọc `status` lúc hydrate (`FindManyPublishedAsync`, kiểm 2026-09-23) và
+  GĐ4 đã có ca khóa hành vi bài `hidden` không vào feed.
+
+**Test:** Unit 334 → 336 (+2 `ModerationTargetsCompositeTests`: trùng loại ném lúc dựng; batch trộn loại mỗi provider một lần, id trùng
+gộp), Integration 529 → 537 (+2 `AccountStatusReaderTests`, +6 `ModerationTargetsTests`: `HID-store-01`, `HID-store-02`, `TX-02`,
+`CanView` theo BR-02, ảnh chụp batch, `NotSupported`), Architecture 21 → 23 (+`WriteContracts_are_only_the_two_named`,
++`WriteContracts_are_found`) + 1 Skip cũ (gỡ ở D2). Còn đỏ nền R2 trên máy dev. Cả bộ Integration 1 phút 50 giây — không chậm thêm.
+Một ca đỏ lượt đầu vì lỗi **test** (so tuple chứa danh sách → so tham chiếu), đã tách khẳng định.
+
+**Thử cho đỏ — 7/7 đột biến bị bắt**, build hợp lệ ở mọi lượt (script dừng nếu `Error(s)` ≠ 0), file khôi phục nguyên byte:
+
+| Đột biến                                                         | Ca đỏ thực tế                                                                 |
+| ---------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| C5 bỏ điều kiện `status <> 'active'`                             | `Chi_tra_tai_khoan_khong_hoat_dong_id_la_vang_mat`                            |
+| C5 danh sách rỗng vẫn truy vấn                                   | `Nam_muoi_id_mot_cau_SQL_danh_sach_rong_khong_cau_nao`                        |
+| `HideAsync` ghi trên kết nối của `ContentDbContext`              | `TX_02_…` — *Expected "published", Actual "hidden"*: bài vẫn bị ẩn sau rollback, đúng lý do |
+| `CanView` bỏ điều kiện `published`                               | `CanView_theo_BR_02_va_chi_bai_dang_published`                                |
+| `HideSql` bỏ `AND status = 'published'`                          | `HID_store_01_…` (lần hai ra `Hidden` và ghi đè lý do)                         |
+| Thêm interface nhận `DbTransaction` ở Content                    | `WriteContracts_are_only_the_two_named`                                       |
+| Composite chọn im lặng khi hai provider cùng loại                | `Hai_provider_cung_loai_thi_nem_luc_dung`                                     |
+
 ### Các đầu việc còn lại
 
 *Chưa thi công:* C5, C2, C6. Điền khi làm, theo khuôn trên: chỗ nào phải đổi hướng so với Mục 0.4 và vì sao; lệch so với chính tài

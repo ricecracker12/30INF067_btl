@@ -9,7 +9,9 @@ using SocialApp.Modules.Content.Application.Posts;
 using SocialApp.Modules.Content.Infrastructure;
 using SocialApp.Modules.Content.Infrastructure.Cleanup;
 using SocialApp.Modules.Content.Infrastructure.Feed;
+using SocialApp.Modules.Content.Infrastructure.Moderation;
 using SocialApp.Modules.Content.Infrastructure.Persistence;
+using SocialApp.SharedKernel.Moderation;
 
 namespace SocialApp.Modules.Content.DependencyInjection;
 
@@ -78,6 +80,11 @@ public static class ContentModuleExtensions
 
         // C2 (GĐ4). Scoped vì FeedStore giữ ContentDbContext.
         services.AddScoped<IFeedStore, FeedStore>();
+
+        // C2 (GĐ6, Đ-6.3): provider BÀI của hợp đồng ghi IModerationTargets — Moderation ẩn/khôi phục bài trong transaction của
+        // nó, SQL vẫn do Content viết. Bình luận: một dòng AddScoped<IModerationTargetProvider, …> nữa sau khi GĐ3 merge.
+        // Resolve cần IFriendshipReader (SocialGraph đăng ký) — chỗ trần không resolve provider nên không sao.
+        services.AddScoped<IModerationTargetProvider, ContentModerationTargets>();
 
         // C4 (GĐ4, Đ-4.8, Q-C2): công tắc bind có điều kiện — có IConfiguration (host) thì đọc Feed:PageCache:Enabled,
         // ServiceCollection trần thì mặc định bật. Cùng khuôn FeedSourceCacheOptions của SocialGraph. Singleton vì chỉ cầm
