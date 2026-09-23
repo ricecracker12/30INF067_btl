@@ -1,6 +1,12 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react"
 
 // Danh sách theo cursor keyset — khuôn DÙNG CHUNG của feed (GĐ4 E4) và ba danh sách của `/friends` (E3), không biết
 // nghiệp vụ (Q-E8). Chép từ `features/post/use-post-page.ts` của GĐ2, giữ nguyên ba luật của cursor:
@@ -76,11 +82,13 @@ export function useCursorPages<T, P extends Page<T>>({
   const current = data !== null && data.key === key ? data : null
 
   // `fetchPage`/`getId` là closure mới mỗi render — giữ bản mới nhất trong ref để effect trang đầu KHÔNG chạy lại mỗi
-  // render. Ghi trong effect, không lúc render (render bị hủy vẫn kịp ghi đè — lý do như `currentRef` dưới).
+  // render. Ghi trong effect, không lúc render (render bị hủy vẫn kịp ghi đè). LAYOUT effect (sửa 2026-09-23, PR #21):
+  // `useEffect` chạy sau khi DOM đã vẽ — nút/sentinel đã hiện mà ref còn cũ, `loadMore` rơi vào khe đó thì không làm gì
+  // (đo được ở `use-post-page.ts`, cùng khuôn). Layout effect chạy đồng bộ trong lượt commit, trước mọi JS khác.
   const fetchRef = useRef(fetchPage)
   const getIdRef = useRef(getId)
   const currentRef = useRef<Loaded<T, P> | null>(null)
-  useEffect(() => {
+  useLayoutEffect(() => {
     fetchRef.current = fetchPage
     getIdRef.current = getId
     currentRef.current = current

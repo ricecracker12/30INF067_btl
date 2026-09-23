@@ -1346,3 +1346,21 @@ GĐ4 chỉ làm nó lộ ở trang chủ. Không test nào bắt vì đó là `c
 Sửa: ba chỗ theo khuôn `verify-email.tsx`; luật ESLint `BUTTON_RENDER_LINK` chặn cả lớp lỗi (thử đỏ một lần, `git status` như
 trước); luật frontend Mục 1 #15. Kiểm lại bằng spec tạm: `/` và `/me` **0** `console.error`, "Đăng bài" là liên kết thật. Không
 spec/ca nào phụ thuộc cách render sai: các `getByRole("button", { name: "Đăng bài" })` của `e2e/` là nút gửi của composer.
+
+### PR #21 — CI đỏ `ci / frontend (pull_request)` (2026-09-23)
+
+Lượt `pull_request` của PR đỏ đúng ca GĐ2 `user-posts` "bấm Xem thêm hai lần KHI LƯỢT ĐẦU CÒN BAY": sau **5 giây** vẫn 1 bài —
+không phải chậm, trang hai **không bao giờ** được nạp. Lượt `push` cùng commit thì xanh.
+
+**Gốc (đo, không đoán):** `loadMore` đọc `currentRef`, mà ref đồng bộ trong `useEffect` — chạy SAU khi DOM vẽ, trong task riêng.
+`waitFor` thấy 1 bài là trả về; `fireEvent.click` rơi vào khe ref còn `null` → `loadMore` lặng lẽ bỏ qua. Gắn tạm bộ đếm "ref
+`null` lúc bấm" rồi chạy lặp file: **2/10 lượt đỏ, trùng đúng 2 lượt có ref `null`** (cả hai cú bấm); sau sửa **0/15 đỏ, 0 lần ref
+`null`**. `hooks/use-cursor-pages.ts` (GĐ4) chép cùng khuôn nên cùng lỗi.
+
+**Sửa:** `useEffect` → `useLayoutEffect` cho ref mà event handler đọc, ở cả `features/post/use-post-page.ts` và
+`hooks/use-cursor-pages.ts`. Impact: `useUserPosts` LOW (1); `useCursorPages` UNKNOWN — tìm chữ: 4 lượt dùng (feed + ba mục
+`/friends`). React 19.2: `useLayoutEffect` khi render phía server không còn cảnh báo.
+
+**Đính chính hai chẩn đoán trước:** lượt "Test timed out in 5000ms" của `user-posts` ghi ở E3 là CHÍNH lỗi này, không phải máy
+bận; `testTimeout` 15s giữ lại như nguyên tắc (thời hạn cả ca > mức chờ từng `waitFor`), không phải cách chữa — đã sửa chú
+thích ở `vitest.config.ts` và luật frontend Mục 9 (thêm gạch về `useLayoutEffect` cho ref mà handler đọc).

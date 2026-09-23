@@ -179,7 +179,12 @@ Bốn tầng, phụ thuộc **một chiều**: `app/` → `features/` → `compo
   và KHÔNG đủ khi chạy cả bộ — ca `Xem thêm` của `user-posts` đỏ ~1/3 lượt vì vậy (đo 2026-09-21). Nới
   thời gian chờ không làm ca yếu đi; khẳng định vẫn y nguyên. Thời hạn **cả ca** (`testTimeout` trong
   `vitest.config.ts`) phải cao hơn hẳn mức chờ đó — đặt 15s (2026-09-23): mặc định 5s bằng đúng mức chờ tay, nên
-  lượt chờ không bao giờ dùng hết quỹ, máy bận là cả ca hết giờ trước.
+  lượt chờ không bao giờ dùng hết quỹ. **Nới thời gian chờ không chữa được ca đỏ ngẫu nhiên do code** — trước khi nới, đo
+  xem ca đỏ vì CHẬM hay vì trạng thái KHÔNG BAO GIỜ tới (xem gạch dưới).
+- **Ref mà event handler đọc (vd. `currentRef` của hook phân trang) đồng bộ bằng `useLayoutEffect`, không `useEffect`**
+  (thêm 2026-09-23, PR #21). `useEffect` chạy SAU khi DOM đã vẽ, trong task riêng — nút đã hiện mà ref còn cũ, cú bấm rơi
+  vào khe đó thì handler lặng lẽ không làm gì. Đo được: `user-posts` "bấm Xem thêm hai lần…" đỏ trên CI đúng những lượt
+  `loadMore` đọc ref `null` (2/10 lượt trước sửa, 0/15 sau). Hai lần trước lượt đỏ này bị chẩn đoán nhầm là "máy bận".
 - **Stub `IntersectionObserver` không tự bắn: chờ có observer SỐNG rồi mới gọi `kichHoatGiaoNhau`** (thêm 2026-09-23).
   Observer tạo trong `useEffect`, chạy SAU khi DOM đã vẽ — `waitFor` thấy nội dung là trả về trong khi observer có thể
   chưa tồn tại, bắn lúc đó là bắn vào khoảng không và ca chờ tới hết giờ. Trông y hệt "thiếu thời gian chờ" — ở GĐ4 E4

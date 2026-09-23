@@ -1,6 +1,12 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react"
 
 import { contentApi } from "@/lib/api/content-api"
 import { errorMessage } from "@/lib/api/messages"
@@ -76,10 +82,14 @@ export function useUserPosts(userId: string | null): PostPageState {
   //
   // Đồng bộ trong EFFECT, không gán thẳng khi render: React cấm ghi `ref.current` lúc render vì một render
   // bị hủy (transition, Suspense) vẫn kịp ghi đè, và lượt đọc sau đó lấy giá trị của render không bao giờ
-  // commit. Effect không deps chạy sau MỌI commit, còn `loadMore` luôn chạy trong event handler — tức là
-  // sau commit — nên nó vẫn thấy đúng giá trị đang hiển thị.
+  // commit.
+  //
+  // LAYOUT effect, không `useEffect` (sửa 2026-09-23, GĐ4 PR #21): `useEffect` chạy SAU khi DOM đã vẽ, trong một
+  // task riêng — nút "Xem thêm" đã hiện mà ref vẫn là `null`, cú bấm rơi vào khe đó thì `loadMore` lặng lẽ không làm
+  // gì. Đo được: ca "bấm Xem thêm hai lần KHI LƯỢT ĐẦU CÒN BAY" đỏ trên CI, và đỏ đúng những lượt mà `loadMore` đọc
+  // ref `null`. Layout effect chạy ĐỒNG BỘ trong lượt commit, trước mọi JS khác — không còn khe.
   const currentRef = useRef<Loaded | null>(null)
-  useEffect(() => {
+  useLayoutEffect(() => {
     currentRef.current = current
   })
   const pendingRef = useRef(false)

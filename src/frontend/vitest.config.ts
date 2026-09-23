@@ -23,9 +23,9 @@ export default defineConfig({
     // tuyệt đối. Test của lib/bff tự chọn môi trường node bằng chú thích `@vitest-environment node`.
     setupFiles: ["test/setup.ts"],
     // Thời hạn CẢ CA phải cao hơn hẳn thời hạn chờ viết tay của từng `waitFor` (5s — luật frontend Mục 9). Mặc định 5s BẰNG
-    // đúng mức đó, nên lượt chờ không bao giờ dùng hết quỹ của nó: máy bận là cả ca hết giờ trước. Đo 2026-09-23 (GĐ4 E3,
-    // 43 file): `user-posts` "bấm Xem thêm hai lần…" — ca GĐ2, không observer — "Test timed out in 5000ms" 1/10 lượt cả bộ.
-    // Nới không làm ca yếu đi: khẳng định y nguyên, chỉ không còn thua vì máy bận.
+    // đúng mức đó, nên lượt chờ không bao giờ dùng hết quỹ của nó. Nguyên tắc, KHÔNG phải cách chữa: lượt "Test timed out"
+    // của `user-posts` đo ở E3 (2026-09-23) ban đầu bị quy cho máy bận — gốc thật là `loadMore` đọc ref chưa đồng bộ
+    // (`useEffect` → `useLayoutEffect`, PR #21), tìm ra khi CI của PR vẫn đỏ đúng ca đó sau khi đã nới thời hạn.
     testTimeout: 15_000,
     // e2e/ là Playwright (`pnpm test:e2e`), không phải Vitest. `.next/`: từ E8 (`output: "standalone"`) bản build chép cả
     // `*.test.js` nội bộ của Next vào `.next/standalone/node_modules` — không loại thì `pnpm test` sau `pnpm build` đỏ 6 file.
