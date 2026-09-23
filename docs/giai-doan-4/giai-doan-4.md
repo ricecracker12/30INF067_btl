@@ -847,7 +847,10 @@ endpoint trọng điểm hiệu năng — k6 thấy N+1 muộn và mơ hồ, tes
 
 - Test khởi động (Đ-4.3): resolve từ host thật → **không** phải `AlwaysStrangers`, đúng một đăng ký.
 - `READ-01..05` của GĐ2 chạy lại **không sửa khẳng định nào**; `READ-06` + `READ-06b` mới.
-- Thử cho đỏ: khôi phục dòng `AlwaysStrangers` trong `AddContentModule` → test khởi động và `READ-06b` phải đỏ.
+- Thử cho đỏ: khôi phục dòng `AlwaysStrangers` trong `AddContentModule` → test khởi động phải đỏ (hai đăng ký).
+  *Sửa 2026-09-23 (thử thật ở B3, B4):* `READ-06b` **vẫn xanh** — `AddContentModule` chạy trước `AddSocialGraphModule` nên
+  đăng ký sau thắng và host vẫn dùng `FriendshipReader`. `READ-06b` chỉ đỏ khi `AlwaysStrangers` đứng **sau**; lưới của
+  đột biến này là test khởi động.
 
 ### 10.4 Unit test
 
@@ -908,7 +911,8 @@ Theo Mục 3.5 của PTTK, áp cho **từng** UC (UC-08, UC-10/11, UC-13). Tick 
 **Bảo mật và đúng quyền**
 
 - [ ] Test khởi động: `IFriendshipReader` không phải `AlwaysStrangers`, đúng một đăng ký
-- [ ] Thử cho đỏ: bỏ vế `requester_id = @other` → `TC-A03-friend-self-accept` đỏ; khôi phục `AlwaysStrangers` → `READ-06b` đỏ
+- [ ] Thử cho đỏ: bỏ vế `requester_id = @other` → `TC-A03-friend-self-accept` đỏ; khôi phục `AlwaysStrangers` → test khởi
+  động đỏ (`READ-06b` vẫn xanh vì đăng ký của SocialGraph đứng sau — Mục 10.3, sửa 2026-09-23)
 - [ ] Redis trên môi trường đo: không khóa `feed:p1:*` nào chứa chuỗi `X-Amz-Signature` hay `myReaction` (lệnh `redis-cli
   --scan --pattern 'feed:*'` + `GET` vài khóa)
 
@@ -948,7 +952,7 @@ Mỗi dòng phải được nhắc lại trong commit tương ứng, mở bằng
 | **PERF-02** | k6 trượt 500ms | Lượt (2) p95 > 400ms ở bước 6 (Mục 9.3) | Theo thứ tự Đ-4.13: `EXPLAIN` → pool kết nối → người dùng ở đuôi. Nếu vẫn trượt: ghi vào DoD là **không đạt sơ bộ**, chuyển việc cụ thể sang GĐ8 — **không** giảm số VU hay tăng thời gian nghỉ cho đẹp số |
 | **PERF-03** | Pool kết nối cạn trước khi CPU cạn | p95 cao nhưng CPU Postgres thấp; log Npgsql "pool exhausted" | Đặt `Maximum Pool Size` tường minh, ≤ `max_connections` trừ dự phòng cho `migrate`/backup; ghi con số vào báo cáo. *Đã xảy ra ở k6 sơ bộ (lượt Redis dừng: pool 100 chiếm hết `max_connections` 100) — sửa 2026-09-23: mặc định 80 trong code (`PostgresPool`), báo cáo k6 Mục 5* |
 | **CACHE-01** | Cache chứa trường theo người xem / URL đã ký | `FEED-10`, `FEED-13` đỏ; khóa Redis chứa `X-Amz-Signature` | Đ-4.9: cache chỉ lưu `post_id`. Tự rà mọi chỗ `StringSet` của feed (B.9) |
-| **DI-01** | `AlwaysStrangers` còn đăng ký, BR-02 chạy giả | `READ-06b` đỏ; bài `friends` của bạn không hiện trên staging | Test khởi động (Đ-4.3) |
+| **DI-01** | `AlwaysStrangers` còn đăng ký, BR-02 chạy giả | Test khởi động đỏ (hai đăng ký); `READ-06b` chỉ đỏ khi `AlwaysStrangers` đăng ký **sau** SocialGraph; bài `friends` của bạn không hiện trên staging | Test khởi động (Đ-4.3) |
 | **GUID-01** | Chuẩn hóa cặp lệch thứ tự `uuid` của Postgres (so mảng byte thay vì `Guid.CompareTo`) | `23514` (vi phạm CHECK) ngẫu nhiên trên khoảng một nửa số cặp | Một hàm `FriendPair.Of` duy nhất + unit test và integration test với cặp id đối nghịch (Mục 4 cạm bẫy 1) |
 | **STAFF-01** | Một người làm cả giai đoạn: lịch trượt âm thầm | Hết bước 5 (Mục 9.3) mà `EXPLAIN` chưa đúng hình dạng — đã tiêu ~4,5/8 ngày | Kiểm tiến độ theo **bước**, không theo cảm giác; trễ thì cắt theo B.9 ngay, không đợi cổng đóng |
 | **REV-01** | Không ai review chéo — lỗi mà chỉ con mắt thứ hai bắt được sẽ lọt | Năm mục "tự rà" ở B.9 chưa chạy trước khi mở PR | Chạy danh sách B.9 trước PR; bảng đột biến `B3` thay một phần việc review: mỗi luật quan trọng đã từng thấy test đỏ |

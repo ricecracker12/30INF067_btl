@@ -1225,7 +1225,7 @@ Mỗi dòng: sửa tạm → chạy lọc → thấy **đúng** test dự kiến
 | ----------------------------------------------------------------------- | ---------------------------------------------------- | ---- | ----------------------------------------- |
 | Bỏ vế `RequesterId == userId` trong câu chấp nhận                        | `TC-A03-friend-self-accept` — **chỉ** dòng đó        | 4    | Tự biến lời mời của mình thành tình bạn    |
 | Đổi 403 của accept thành 404                                             | `TC-A03-friend-accept`, `FRD-10`                     | 4    | Trộn quy ước 3b                            |
-| Khôi phục `AlwaysStrangers` ở `AddContentModule`                         | Test khởi động · `READ-06b` · `FEED-04`              | 4, 5 | DI-01                                     |
+| Khôi phục `AlwaysStrangers` ở `AddContentModule`                         | Test khởi động — **chỉ** ca đó (sửa 2026-09-23: `READ-06b`, `FEED-04` vẫn xanh, xem B3/B4) | 4, 5 | DI-01                                     |
 | `FriendshipReader.AreFriendsAsync` luôn `true`                           | `READ-06` · `READ_02_05(friends, false)`             | 4    | Đối chứng L8                              |
 | Không bắt `23505`                                                        | `FRD-02`, `FRD-06` (500)                             | 4    | Race A↔B thành 500                         |
 | Bỏ kiểm "khác mình" trước DB ở `D2` / `D6`                               | `FRD-03` / `FOL-03` (500 từ CHECK)                   | 4    | CHECK làm việc của validator               |
@@ -1237,7 +1237,7 @@ Mỗi dòng: sửa tạm → chạy lọc → thấy **đúng** test dự kiến
 | Bỏ kiểm lại BR-02 (bước 6 của `FeedService`)                             | `FEED-09b`                                           | 5    | Lộ bài vừa đổi sang `friends`               |
 | Bỏ so dấu nguồn (Q-C1)                                                   | `FEED-07b`                                           | 5    | Kết bạn xong trang chủ vẫn là gợi ý 30s    |
 | Cache trang đầu lưu `PostResponse`                                       | `FEED-10` · `FEED-13`                                | 5    | CACHE-01                                   |
-| Bỏ `status = 'published'` trong LATERAL                                  | `FEED-06`                                            | 5    | BR-07                                      |
+| Bỏ `status = 'published'` trong LATERAL                                  | `FeedStoreTests` đối chiếu (sửa 2026-09-23: `FEED-06` vẫn xanh — bước kiểm lại lọc hộ, xem B4) | 5    | BR-07                                      |
 | Bỏ nhánh `lvl = 3`                                                       | `FEED-05` vế "của mình"                              | 5    | Đ-4.5                                      |
 | Điều kiện `suggested` thành `Friends.Count == 0`                         | `FEED-03` (vế `mode`)                                | 5    | Đ-4.6 — chỉ theo dõi vẫn là mạng lưới      |
 | Hydrate tác giả từng bài (`foreach` gọi `IUserDirectory`)                | `FEED-Q1`                                            | 5    | N+1                                       |
