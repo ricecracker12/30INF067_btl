@@ -69,6 +69,62 @@ public sealed class PermissionCacheTests
         Assert.Equal(["USER", "MODERATOR"], _source.Roles);
     }
 
+    /// <summary>GĐ6 C3 (Đ-6.10): sửa quyền xong gọi Invalidate thì lần đọc kế tiếp về nguồn NGAY — không đợi 60 giây.</summary>
+    [Fact]
+    public async Task Invalidate_doc_lai_nguon_ngay_khong_doi_TTL()
+    {
+        _source.Current = new HashSet<string> { "post.create" };
+        await _cache.GetAsync("USER");
+
+        _source.Current = new HashSet<string>();   // Admin gỡ post.create
+        _cache.Invalidate("USER");
+
+        Assert.Empty(await _cache.GetAsync("USER"));   // cùng giây — đồng hồ không nhúc nhích
+        Assert.Equal(2, _source.Calls);
+    }
+
+    [Fact]
+    public async Task Invalidate_mot_vai_tro_khong_dung_vai_tro_khac_InvalidateAll_xoa_het()
+    {
+        await _cache.GetAsync("USER");
+        await _cache.GetAsync("MODERATOR");
+
+        _cache.Invalidate("USER");
+        await _cache.GetAsync("USER");
+        await _cache.GetAsync("MODERATOR");
+        Assert.Equal(["USER", "MODERATOR", "USER"], _source.Roles);
+
+        _cache.InvalidateAll();
+        await _cache.GetAsync("USER");
+        await _cache.GetAsync("MODERATOR");
+        Assert.Equal(["USER", "MODERATOR", "USER", "USER", "MODERATOR"], _source.Roles);
+    }
+
+    /// <summary>
+    /// PERM-03 (L-C5): lần nạp BẮT ĐẦU trước Invalidate (đọc DB trước COMMIT của thay đổi) không được để kết quả cũ nằm lại trong
+    /// cache. Không có thế hệ thì lần đọc sau trả quyền cũ thêm 60 giây dù đã invalidate — không test một-luồng nào khác thấy.
+    /// Chờ bằng trạng thái (nguồn báo "đã vào"), không bằng thời gian.
+    /// </summary>
+    [Fact]
+    public async Task PERM_03_nap_dang_do_khi_Invalidate_thi_ket_qua_cu_khong_nam_lai_trong_cache()
+    {
+        _source.Current = new HashSet<string> { "post.create" };   // quyền CŨ, đọc trước COMMIT
+        var gate = new TaskCompletionSource();
+        _source.Gate = gate;
+
+        var loading = _cache.GetAsync("USER").AsTask();
+        await _source.Entered.Task;                                  // lần nạp đã đọc nguồn, đang chờ
+
+        _source.Current = new HashSet<string>();                     // Admin COMMIT gỡ post.create …
+        _cache.Invalidate("USER");                                   // … rồi invalidate
+        _source.Gate = null;
+        gate.SetResult();
+
+        Assert.Equal(["post.create"], await loading);                // request đang dở vẫn nhận kết quả của nó
+        Assert.Empty(await _cache.GetAsync("USER"));                 // nhưng lần sau KHÔNG dùng kết quả cũ
+        Assert.Equal(2, _source.Calls);
+    }
+
     private sealed class ManualTime : TimeProvider
     {
         public DateTimeOffset Now { get; set; } = DateTimeOffset.UnixEpoch;
@@ -82,12 +138,23 @@ public sealed class PermissionCacheTests
         public List<string> Roles { get; } = [];
         public int Calls => Roles.Count;
 
-        public Task<IReadOnlySet<string>> GetPermissionsAsync(string roleCode, CancellationToken ct = default)
+        /// <summary>Có giá trị → lần gọi đọc <see cref="Current"/> NGAY, báo <see cref="Entered"/>, rồi chờ cổng mới trả về.</summary>
+        public TaskCompletionSource? Gate { get; set; }
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async Task<IReadOnlySet<string>> GetPermissionsAsync(string roleCode, CancellationToken ct = default)
         {
             Roles.Add(roleCode);
             if (Throw is not null)
                 throw Throw;
-            return Task.FromResult(Current);
+
+            var snapshot = Current;
+            if (Gate is { } gate)
+            {
+                Entered.TrySetResult();
+                await gate.Task;
+            }
+            return snapshot;
         }
     }
 }

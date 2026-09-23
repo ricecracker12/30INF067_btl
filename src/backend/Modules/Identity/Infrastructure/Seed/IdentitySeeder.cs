@@ -4,7 +4,8 @@ using SocialApp.Modules.Identity.Domain;
 namespace SocialApp.Modules.Identity.Infrastructure.Seed;
 
 /// <summary>
-/// Nạp dữ liệu nền phân quyền (Mục 5): 3 vai trò, 17 quyền, 24 dòng gán quyền. Chạy ở hook
+/// Nạp dữ liệu nền phân quyền (Mục 5): 3 vai trò, 18 quyền (17 của GĐ1 + <c>role.manage</c> của GĐ6 — tự có vì đọc
+/// <see cref="PermissionCodes.All"/>), 24 dòng gán quyền. Chạy ở hook
 /// <c>--migrate</c> ngay sau <c>MigrateAsync</c>, mỗi lần deploy — nên phải chạy lại bao nhiêu lần cũng
 /// được, và không được đè cấu hình mà Admin đã sửa lúc runtime (Mục 5.4).
 ///
@@ -115,12 +116,14 @@ public static class IdentitySeeder
         ON CONFLICT DO NOTHING;
         """;
 
-    // permission_id = vị trí trong PermissionCodes.All + 1, khớp Mục 5.2. description để NULL: Mục 5.2
-    // không định nghĩa mô tả, và seeder không tự bịa dữ liệu.
+    // permission_id = vị trí trong PermissionCodes.All + 1, khớp Mục 5.2. description lấy từ PermissionCodes.Descriptions (GĐ6
+    // L-A2): DB MỚI nhận mô tả ngay lúc seed — migration SystemRoleGuardAndPermissionDescriptions chạy TRƯỚC seeder nên không
+    // điền được cho DB mới. DO NOTHING vẫn giữ luật 2: dòng đã có (staging, mô tả Admin đã sửa) không bao giờ bị ghi đè.
     private static string PermissionsSql() =>
         $"""
-        INSERT INTO {S}.permissions (permission_id, code) VALUES
-        {string.Join(",\n", PermissionCodes.All.Select((code, i) => $"  ({i + 1}, {Literal(code)})"))}
+        INSERT INTO {S}.permissions (permission_id, code, description) VALUES
+        {string.Join(",\n", PermissionCodes.All.Select((code, i) =>
+            $"  ({i + 1}, {Literal(code)}, {Literal(PermissionCodes.Descriptions[code])})"))}
         ON CONFLICT DO NOTHING;
         """;
 

@@ -4,6 +4,8 @@ using Npgsql;
 using SocialApp.SharedKernel.Configuration;
 using SocialApp.Modules.Content.DependencyInjection;
 using SocialApp.Modules.Identity.DependencyInjection;
+using SocialApp.Modules.Moderation.DependencyInjection;
+using SocialApp.Modules.Notification.DependencyInjection;
 using SocialApp.Modules.Profile.DependencyInjection;
 using SocialApp.Modules.SocialGraph.DependencyInjection;
 using Testcontainers.PostgreSql;
@@ -15,7 +17,7 @@ namespace SocialApp.IntegrationTests.Harness;
 /// Chia container để nhanh, KHÔNG chia database để test không nhìn thấy dữ liệu của nhau.
 ///
 /// Luật chọn hàm: test SỬA dữ liệu → <see cref="CreateDatabaseAsync"/>; test chỉ ĐỌC dữ liệu nền →
-/// <see cref="SeededContentDatabaseAsync"/> (cả bốn module, từ GĐ4) hoặc <see cref="SeededIdentityDatabaseAsync"/>
+/// <see cref="SeededContentDatabaseAsync"/> (mọi module có schema, từ GĐ4) hoặc <see cref="SeededIdentityDatabaseAsync"/>
 /// (chỉ Identity). Chạy chung DB giữa test sửa và test đọc là đỏ ngẫu nhiên theo thứ tự chạy (SEED-02 xóa một
 /// dòng role_permissions mà AuthZ matrix đang dựa vào).
 ///
@@ -77,13 +79,16 @@ public sealed class PostgresFixture : IAsyncLifetime
         })).Value;
 
     /// <summary>
-    /// Database đã migrate cả bốn module + seed Identity, tạo MỘT lần cho mỗi <paramref name="key"/> rồi dùng lại.
+    /// Database đã migrate mọi module có schema + seed Identity, tạo MỘT lần cho mỗi <paramref name="key"/> rồi dùng lại.
     /// Dành cho test chỉ ĐỌC dữ liệu nền và cần bảng của Profile/Content (AuthZ matrix từ GĐ2: TC-A03 gọi
     /// /api/v1/posts). Test nào SỬA dữ liệu nền thì vẫn dùng CreateDatabaseAsync — luật chọn hàm của GĐ1 không đổi.
     ///
-    /// Thứ tự Identity → Profile → Content → SocialGraph là CỐ Ý ghi ra dù không có phụ thuộc nào giữa chúng (Đ-2.2: không FK
-    /// qua ranh giới schema). Ghi ra để người đọc sau không tưởng thứ tự là ngẫu nhiên rồi đảo nó khi thêm module.
+    /// Thứ tự Identity → Profile → Content → SocialGraph → Moderation → Notification là CỐ Ý ghi ra dù không có phụ thuộc nào
+    /// giữa chúng (Đ-2.2: không FK qua ranh giới schema) — cùng thứ tự hook <c>--migrate</c> của Program.cs. Ghi ra để người
+    /// đọc sau không tưởng thứ tự là ngẫu nhiên rồi đảo nó khi thêm module.
     /// SocialGraph vào harness ở A3 (lệch L3) — trước A5, vì thiếu schema thì READ_02_05 nhận 500 khi BR-02 thật chạy.
+    /// Moderation vào harness ở A1 của GĐ6 (L-A7) — C4 ghi <c>access.denied</c> vào bảng audit trên chính các DB này.
+    /// Notification vào harness ở A2 của GĐ6 (L-A7) — D9/D10 upsert thông báo trên chính các DB này.
     /// Seeder vai trò/quyền nằm trong MigrateIdentityModuleAsync, không nằm trong AddIdentityModule —
     /// quên dòng migrate của Identity là RBAC-02b đỏ với triệu chứng trông hệt "handler hỏng".
     /// </summary>
@@ -96,12 +101,16 @@ public sealed class PostgresFixture : IAsyncLifetime
                 .AddProfileModule(cs)
                 .AddContentModule(cs)
                 .AddSocialGraphModule(cs)
+                .AddModerationModule(cs)
+                .AddNotificationModule(cs)
                 .BuildServiceProvider();
 
             await services.MigrateIdentityModuleAsync();   // migrate → seed vai trò/quyền
             await services.MigrateProfileModuleAsync();
             await services.MigrateContentModuleAsync();
             await services.MigrateSocialGraphModuleAsync();
+            await services.MigrateModerationModuleAsync();
+            await services.MigrateNotificationModuleAsync();
             return cs;
         })).Value;
 }

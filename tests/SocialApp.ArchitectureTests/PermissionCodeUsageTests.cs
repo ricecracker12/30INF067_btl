@@ -40,12 +40,17 @@ public sealed class PermissionCodeUsageTests
             .SelectMany(a => a.GetTypes())
             .Where(t => typeof(ControllerBase).IsAssignableFrom(t) && !t.IsAbstract);
 
+        // GĐ6 C4: đọc cả [RequireAnyPermission] (Mục 10.4 #4) — mỗi mã trong danh sách của nó được kiểm như một [RequirePermission].
+        static IEnumerable<string> Codes(MemberInfo member, bool inherit) =>
+            member.GetCustomAttributes<RequirePermissionAttribute>(inherit).Select(a => a.Permission)
+                .Concat(member.GetCustomAttributes<RequireAnyPermissionAttribute>(inherit).SelectMany(a => a.Permissions));
+
         var unknown = controllers
             .SelectMany(t => t
                 .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
-                .Select(m => (Where: $"{t.FullName}.{m.Name}", Attributes: m.GetCustomAttributes<RequirePermissionAttribute>()))
-                .Prepend((Where: t.FullName!, Attributes: t.GetCustomAttributes<RequirePermissionAttribute>(inherit: true))))
-            .SelectMany(x => x.Attributes.Select(a => (x.Where, a.Permission)))
+                .Select(m => (Where: $"{t.FullName}.{m.Name}", Codes: Codes(m, inherit: false)))
+                .Prepend((Where: t.FullName!, Codes: Codes(t, inherit: true))))
+            .SelectMany(x => x.Codes.Select(code => (x.Where, Permission: code)))
             .Where(x => !known.Contains(x.Permission))
             .Select(x => $"{x.Where}: \"{x.Permission}\"")
             .ToList();
@@ -57,11 +62,12 @@ public sealed class PermissionCodeUsageTests
 
     /// <summary>
     /// Canh gác vế bên kia: đọc hằng số sai cách (vd đổi sang static readonly) thì tập mã rỗng và rule trên
-    /// đỏ với MỌI attribute — hoặc tệ hơn, ai đó "sửa" bằng cách nới rule. Khóa đúng 17 mã của Mục 5.2.
+    /// đỏ với MỌI attribute — hoặc tệ hơn, ai đó "sửa" bằng cách nới rule. Khóa đúng 18 mã: 17 của Mục 5.2 (GĐ1) + <c>role.manage</c>
+    /// (GĐ6 Đ-6.9). Thêm mã mới thì sửa số này có chủ đích, trong cùng commit với migration/seeder.
     /// </summary>
     [Fact]
-    public void PermissionCodes_doc_duoc_du_17_ma()
+    public void PermissionCodes_doc_duoc_du_18_ma()
     {
-        Assert.Equal(17, KnownCodes().Count);
+        Assert.Equal(18, KnownCodes().Count);
     }
 }

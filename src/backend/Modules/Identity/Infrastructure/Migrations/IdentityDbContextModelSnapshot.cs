@@ -25,6 +25,9 @@ namespace SocialApp.Modules.Identity.Infrastructure.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "citext");
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.HasSequence<short>("roles_role_id_seq")
+                .StartsAt(100L);
+
             modelBuilder.Entity("SocialApp.Modules.Identity.Domain.EmailVerificationToken", b =>
                 {
                     b.Property<Guid>("Id")

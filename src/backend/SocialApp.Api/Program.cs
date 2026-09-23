@@ -17,6 +17,8 @@ using SocialApp.Modules.Content.DependencyInjection;
 using SocialApp.Modules.Content.Presentation;
 using SocialApp.Modules.Identity.DependencyInjection;
 using SocialApp.Modules.Identity.Presentation;
+using SocialApp.Modules.Moderation.DependencyInjection;
+using SocialApp.Modules.Notification.DependencyInjection;
 using SocialApp.Modules.Profile.DependencyInjection;
 using SocialApp.Modules.Profile.Presentation;
 using SocialApp.Modules.SocialGraph.DependencyInjection;
@@ -202,6 +204,12 @@ builder.Services.AddContentModule(postgres);
 // --- Module SocialGraph: DbContext riêng, schema "socialgraph" (ADR-001, Đ-4.1) ---
 builder.Services.AddSocialGraphModule(postgres);
 
+// --- Module Moderation: DbContext riêng, schema "moderation" (ADR-001, Đ-6.1) ---
+builder.Services.AddModerationModule(postgres);
+
+// --- Module Notification: DbContext riêng, schema "notification" (ADR-001, Đ-6.1) ---
+builder.Services.AddNotificationModule(postgres);
+
 // Mail xác minh (Đ-D9). Development không đặt gì → Mailpit localhost:1025 + link http://localhost:3000; ngoài
 // Development thiếu Smtp:Host/Port/From hoặc Frontend:BaseUrl thì chết ngay tại đây. KHÔNG đọc từ deploy/.env: file đó
 // mang giá trị staging.
@@ -375,8 +383,24 @@ builder.Services
                 }
 
                 var revocation = ctx.HttpContext.RequestServices.GetRequiredService<ITokenRevocationStore>();
-                if (await revocation.IsRevokedAsync(sub, iat, ctx.HttpContext.RequestAborted))
-                    ctx.Fail("token đã bị thu hồi");   // → 401 problem+json qua UseStatusCodePages
+                switch (await revocation.CheckAsync(sub, iat, ctx.HttpContext.RequestAborted))
+                {
+                    case RevocationCheck.Revoked:
+                        ctx.Fail("token đã bị thu hồi");   // → 401 problem+json qua UseStatusCodePages
+                        break;
+
+                    // Đ-6.8 (GĐ6): endpoint quản trị/kiểm duyệt FAIL-CLOSED khi không kiểm được thu hồi. OnTokenValidated chỉ Fail
+                    // được thành 401 — đặt dấu để AuditingAuthorizationResultHandler đổi lần challenge đó thành 503. GetEndpoint()
+                    // có giá trị ở đây vì WebApplication tự chèn UseRouting ĐẦU pipeline: đừng thêm app.UseRouting() sau
+                    // UseAuthentication.
+                    case RevocationCheck.Unknown
+                        when ctx.HttpContext.GetEndpoint()?.Metadata.GetMetadata<PrivilegedEndpointAttribute>() is not null:
+                        ctx.HttpContext.Items[PrivilegedEndpointAttribute.RevocationUnavailableKey] = true;
+                        ctx.Fail("không kiểm được thu hồi token trên endpoint đặc quyền");
+                        break;
+
+                    // Unknown trên endpoint thường: fail-open như GĐ1 (store đã ghi log cảnh báo có giới hạn tần suất).
+                }
             },
         };
     });
@@ -395,15 +419,18 @@ var app = builder.Build();
 // `set -e` ở CD dừng lại TRƯỚC `up -d` thay vì bật api trên dữ liệu nền hỏng.
 if (isMigrate)
 {
-    // Thứ tự Identity → Profile → Content → SocialGraph là CỐ ĐỊNH (Mục 5, GĐ4): không có FK chéo schema nên DB
-    // không đòi thứ tự, nhưng log deploy phải đọc được theo một thứ tự không đổi.
+    // Thứ tự Identity → Profile → Content → SocialGraph → (Messaging) → Moderation → Notification là CỐ ĐỊNH (Mục 5 GĐ4,
+    // Mục 9.4 GĐ6): không có FK chéo schema nên DB không đòi thứ tự, nhưng log deploy phải đọc được theo một thứ tự không đổi.
     await app.Services.MigrateIdentityModuleAsync();
     await app.Services.MigrateProfileModuleAsync();
     await app.Services.MigrateContentModuleAsync();
     await app.Services.MigrateSocialGraphModuleAsync();
+    await app.Services.MigrateModerationModuleAsync();
+    await app.Services.MigrateNotificationModuleAsync();
     Console.WriteLine(
         $"[migrate] Đã áp dụng migration cho schema \"{IdentityModuleExtensions.Schema}\", \"{ProfileModuleExtensions.Schema}\", "
-      + $"\"{ContentModuleExtensions.Schema}\", \"{SocialGraphModuleExtensions.Schema}\"; "
+      + $"\"{ContentModuleExtensions.Schema}\", \"{SocialGraphModuleExtensions.Schema}\", \"{ModerationModuleExtensions.Schema}\", "
+      + $"\"{NotificationModuleExtensions.Schema}\"; "
       + $"nạp dữ liệu nền và kiểm tra vai trò hệ thống cho schema \"{IdentityModuleExtensions.Schema}\". Thoát 0.");
     return;
 }

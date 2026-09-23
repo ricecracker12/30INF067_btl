@@ -52,6 +52,33 @@ public sealed class PermissionPolicyProviderTests
         Assert.Null(await provider.GetPolicyAsync("khong-ton-tai"));
     }
 
+    /// <summary>
+    /// GĐ6 C4: <c>[RequireAnyPermission]</c> sinh <c>perm-any:a|b|c</c>, provider dựng MỘT <see cref="AnyPermissionRequirement"/> mang
+    /// đủ danh sách. Thiếu nhánh này thì provider rơi về mặc định → policy null → 500 lúc chạy, không phải lúc build.
+    /// </summary>
+    [Fact]
+    public async Task Policy_perm_any_dung_mot_AnyPermissionRequirement_du_danh_sach()
+    {
+        var attribute = new RequireAnyPermissionAttribute("user.lock", "user.unlock", "role.assign");
+        Assert.Equal("perm-any:user.lock|user.unlock|role.assign", attribute.Policy);
+
+        var provider = new PermissionPolicyProvider(Options.Create(new AuthorizationOptions()));
+        var policy = await provider.GetPolicyAsync(attribute.Policy!);
+
+        Assert.NotNull(policy);
+        var any = Assert.Single(policy.Requirements.OfType<AnyPermissionRequirement>());
+        Assert.Equal(["user.lock", "user.unlock", "role.assign"], any.Permissions);
+        Assert.Single(policy.Requirements.OfType<DenyAnonymousAuthorizationRequirement>());
+        Assert.Empty(policy.Requirements.OfType<PermissionRequirement>());
+    }
+
+    [Fact]
+    public void RequireAnyPermission_mot_ma_hoac_ma_chua_dau_phan_cach_thi_nem()
+    {
+        Assert.Throws<ArgumentException>(() => new RequireAnyPermissionAttribute("user.lock"));
+        Assert.Throws<ArgumentException>(() => new RequireAnyPermissionAttribute("user.lock", "a|b"));
+    }
+
     [Fact]
     public async Task Fallback_policy_va_default_policy_van_doc_duoc_qua_provider_moi()
     {
