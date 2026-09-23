@@ -139,9 +139,18 @@ ls -ln backups/base/ backups/dump/
 tail -20 backup.log 2>/dev/null || true       # lần chạy tay in ra màn hình; cron mới ghi vào backup.log
 ```
 
-**Thử hạn giữ THẬT.** Hạn giữ là hằng số trong script (cố ý — để cron không vô tình chạy với biến môi trường
-khác). Cách thử: sửa tạm trong file `KEEP_DAILY_DAYS=7` → `KEEP_DAILY_DAYS=-1` (find `-mtime +-1` khớp mọi file),
-chạy `./backup.sh full` lần nữa, thấy dòng `còn giữ:` chỉ còn bản vừa tạo, rồi **trả lại 7 ngay**. Chụp ảnh log.
+**Thử hạn giữ THẬT — làm già một bản sao, không sửa script.** Hạn giữ là hằng số trong script (cố ý — để cron
+không vô tình chạy với biến môi trường khác). **Đừng** sửa nó thành số âm: `find -mtime +-1` không phải đối số hợp
+lệ, `find` báo lỗi và script dừng giữa chừng. Lùi mtime của bản cũ nhất rồi chạy lại:
+
+```bash
+S=docker-compose.staging.apache.yml
+B=<tên bản cũ nhất trong backups/base/>
+docker compose -f $S exec -T postgres touch -d '10 days ago' /backups/base/$B /backups/dump/$B.dump
+./backup.sh full
+```
+
+Dòng `còn giữ:` phải **không còn `$B`**; `sync` ở cuối cũng xóa nó khỏi R2. Chụp ảnh log.
 
 **Cron** (dưới `deploy`, `crontab -e`):
 
@@ -274,7 +283,10 @@ docker compose -f docker-compose.staging.apache.yml exec -T postgres psql -U soc
 # 2. Ép archive để WAL chứa dữ liệu vừa tạo đã rời VM (đời thật thì là archive_timeout 15 phút + sync)
 docker compose -f docker-compose.staging.apache.yml exec -T postgres psql -U socialapp -d socialapp -Atc "select pg_switch_wal()"
 ./backup.sh sync
-# 3. GIẢ VỜ MẤT VM: đổi tên thư mục bản sao nóng — không xóa
+# 2b. TẠM TẮT CRON suốt buổi drill: sync */15 chạy giữa chừng sẽ đồng bộ thư mục backups/ đang dở dang lên R2
+crontab -l > /tmp/crontab.truoc-drill && crontab -r
+# 3. GIẢ VỜ MẤT VM: đổi tên thư mục bản sao nóng — không xóa.
+#    (postgres staging bind-mount theo inode nên vẫn archive tiếp vào backups.truoc-drill — không mất WAL nào)
 mv backups backups.truoc-drill && mkdir backups
 # 4. Kéo về từ R2 — BẤM GIỜ (bước tốn nhất)
 docker run --rm --env-file backup.env -v "$PWD/backups:/data" rclone/rclone:latest copy r2:socialmedia-backup/staging /data --stats-one-line -v
@@ -282,9 +294,12 @@ docker run --rm --env-file backup.env -v "$PWD/backups:/data" rclone/rclone:late
 ./restore.sh $(ls backups/base | grep daily | tail -1)
 # 6. --migrate phải no-op (runbook Kịch bản A bước 3) — BẤM GIỜ
 # 7. So bảng đếm với bước 1; max(created_at) của content.posts so với giờ bước 0 → RPO thực đo
-# 8. Dọn: down -v; trả lại thư mục nóng
+# 8. Dọn: down -v; trả lại thư mục nóng; bật lại cron
 docker compose -f docker-compose.restore.yml down -v
-rm -rf backups && mv backups.truoc-drill backups
+#    File rclone tải về thuộc root → `rm -rf` bằng user deploy bị "Permission denied". Xóa qua container:
+docker run --rm -v "$PWD:/w" alpine rm -rf /w/backups
+mv backups.truoc-drill backups
+crontab /tmp/crontab.truoc-drill && crontab -l
 ```
 
 Điền biên bản **trong lúc làm**, không phải sau — số giờ nhớ lại luôn đẹp hơn số giờ thật.
