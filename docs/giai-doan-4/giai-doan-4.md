@@ -752,8 +752,8 @@ theo, thay vì âm thầm trượt (Mục 13).
 | 4 | **D0** nền chung · **C1** cache nguồn feed + `InvalidateAsync` · **D1–D6** endpoint quan hệ · **B3** test quan hệ + nửa bảng đột biến phần quan hệ · **B5** cổng hợp đồng `socialgraph-v1` | 1,2 ngày | `FRD-*`, `FOL-*` xanh; matrix 24/24 từ `D3` (`TC-A01-feed` đã xanh 401 từ `B2` — sửa 2026-09-23, trước ghi 23/24 chờ `D7`); cổng `API contract` canh bốn module | [B+C+D](huong-dan-khoi-b-c-d-test-feed-endpoint.md) Phần III |
 | 5 | **C2–C4** LATERAL, hydrate, cache trang đầu, degrade · **D7** `GET /feed` · **B4** test feed + nửa bảng đột biến phần feed | 1,3 ngày | `EXPLAIN` trên bộ dữ liệu tải đúng hình dạng Đ-4.7; `FEED-*`, `FEED-Q1` xanh; matrix 24/24 | [B+C+D](huong-dan-khoi-b-c-d-test-feed-endpoint.md) Phần IV |
 | 6 | **C6** k6 ba lượt + báo cáo sơ bộ | 1 ngày | Báo cáo có số, kể cả khi không đạt — nửa ngày còn lại để sửa theo `EXPLAIN` | [B+C+D](huong-dan-khoi-b-c-d-test-feed-endpoint.md) Phần V |
-| 7 | **E1–E6** toàn bộ lane frontend | 2 ngày | Vitest + Playwright xanh ở local | hướng dẫn khối E (viết khi bắt đầu) |
-| 8 | **F1–F4** cổng đóng | 0,5 ngày | Mục 11, 12 đã tick hoặc ghi "chờ server" | hướng dẫn khối F (viết khi bắt đầu) |
+| 7 | **E1–E6** toàn bộ lane frontend | 2 ngày | Vitest + Playwright xanh ở local | [E+F](huong-dan-khoi-e-f-frontend-va-cong-dong.md) Mục 2–7 |
+| 8 | **F1–F4** cổng đóng | 0,5 ngày | Mục 11, 12 đã tick hoặc ghi "chờ server" | [E+F](huong-dan-khoi-e-f-frontend-va-cong-dong.md) Mục 8–11 |
 
 **Lệch bảng bước (chốt 2026-09-22, lúc viết hướng dẫn B+C+D):**
 
