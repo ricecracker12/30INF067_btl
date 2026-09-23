@@ -118,4 +118,20 @@ public sealed class PersistenceBoundaryTests
             "Không có type nào trong SocialApp.Modules.SocialGraph.Domain — rule persistence boundary "
           + "đang chạy trong chân không. Kiểm tra lại namespace trong PersistenceBoundaryTests.");
     }
+
+    /// <summary>
+    /// Bản Moderation của cùng cái canh gác trên (A1, GĐ6 khối A). Đi cùng commit entity đầu tiên (L-A8 của hướng dẫn khối
+    /// A+C) — trước A1 namespace rỗng nên rule persistence xanh vĩnh viễn trên module này.
+    /// </summary>
+    [Fact]
+    public void Moderation_Domain_namespace_must_not_be_empty()
+    {
+        var types = Architecture.Types
+            .Where(t => t.FullName.StartsWith("SocialApp.Modules.Moderation.Domain", StringComparison.Ordinal))
+            .ToList();
+
+        Assert.True(types.Count > 0,
+            "Không có type nào trong SocialApp.Modules.Moderation.Domain — rule persistence boundary "
+          + "đang chạy trong chân không. Kiểm tra lại namespace trong PersistenceBoundaryTests.");
+    }
 }

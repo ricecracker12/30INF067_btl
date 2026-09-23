@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using SocialApp.Modules.Content.DependencyInjection;
 using SocialApp.Modules.Identity.DependencyInjection;
+using SocialApp.Modules.Moderation.DependencyInjection;
 using SocialApp.Modules.Profile.DependencyInjection;
 using SocialApp.Modules.SocialGraph.DependencyInjection;
 using SocialApp.SharedKernel.Storage;
@@ -67,7 +68,7 @@ public sealed class ModulesApiFactory : WebApplicationFactory<Program>
         : throw new InvalidOperationException("Gọi UseFreshDatabaseAsync trước CreateClient.");
 
     /// <summary>
-    /// Thứ tự Identity → Profile → Content → SocialGraph CỐ Ý ghi ra dù không có FK chéo schema (Đ-2.2) — cùng thứ tự với
+    /// Thứ tự Identity → Profile → Content → SocialGraph → Moderation CỐ Ý ghi ra dù không có FK chéo schema (Đ-2.2) — cùng thứ tự với
     /// <c>PostgresFixture.SeededContentDatabaseAsync</c> và với hook <c>--migrate</c> của Program.cs, để log đọc được theo
     /// một thứ tự không đổi. Seeder vai trò/quyền nằm trong <c>MigrateIdentityModuleAsync</c>: quên dòng đó là mọi test có
     /// <c>[RequirePermission]</c> đỏ với triệu chứng trông hệt "handler hỏng".
@@ -80,12 +81,14 @@ public sealed class ModulesApiFactory : WebApplicationFactory<Program>
             .AddProfileModule(cs)
             .AddContentModule(cs)
             .AddSocialGraphModule(cs)
+            .AddModerationModule(cs)
             .BuildServiceProvider();
 
         await services.MigrateIdentityModuleAsync();   // migrate → seed vai trò/quyền → kiểm tra vai trò hệ thống
         await services.MigrateProfileModuleAsync();
         await services.MigrateContentModuleAsync();
         await services.MigrateSocialGraphModuleAsync();
+        await services.MigrateModerationModuleAsync();
         return cs;
     }
 

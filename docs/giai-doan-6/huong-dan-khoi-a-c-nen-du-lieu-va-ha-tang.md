@@ -353,6 +353,10 @@ DB dev → lần hai không migration nào; `psql -c '\dn'` thấy `moderation`.
 5. **`CREATE FUNCTION` trong chuỗi C# thường** (không raw string) — `$$` và `'` phải thoát, dễ gãy. Dùng raw string `"""`.
 6. **`AuditLog` có setter** → một ngày có người `db.AuditLogs.Update(x)`; trigger chặn ở runtime (500), nhưng tốt hơn là không
    compile được.
+7. **Test schema mỗi ca một DB mà không trả kết nối** → pool Npgsql giữ kết nối rảnh 300 giây, cả collection chung một container
+   `max_connections = 100`; bộ test vốn sát trần tràn sang `53300 too many clients already` ở **lớp khác** chạy sau (gặp thật ở
+   A1: 59 ca Auth đỏ). Lớp test tạo DB riêng mỗi ca phải `IAsyncLifetime` + `NpgsqlConnection.ClearPool` ở `DisposeAsync` —
+   khuôn ở `ModerationDbContextSchemaTests`. A2 chép đúng khuôn đó.
 
 ---
 
@@ -1093,6 +1097,42 @@ PR: hai khối đi chung **một PR khối GĐ6** cùng D, B, E (pull-request-ru
 
 **2026-09-23 — chốt trước khi thi công:** hai mươi chỗ lệch Mục 0.4 đi theo đề xuất (chi tiết ở đó). C6 không chờ, không hỏi người
 GĐ5 — theo quyết định ở C0.
+
+### A1 — 2026-09-23
+
+Làm đúng Mục 3; L-A5 (`AuditActions` ở SharedKernel), L-A6 (chặn `TRUNCATE`), L-A7 (Program.cs + hai harness), L-A8 (namespace
+guard) áp như chốt. `giai-doan-6.md` sửa cùng commit: Đ-6.15 (vị trí `AuditActions`, trigger `TRUNCATE`), Mục 4 (`id` identity,
+trigger thứ hai), B.4 A1 và A5, B.7 B1 — mỗi chỗ ghi "sửa 2026-09-23".
+
+**Lệch so với chính tài liệu này:**
+- **`.gitkeep` giữ nguyên** ở `Moderation/Domain`, `Infrastructure` — Identity, Content, Profile đều còn `.gitkeep` cạnh file thật;
+  xóa là đổi nếp, không có lý do.
+- **Thêm ca ngoài bảng:** `Report_on_conflict_voi_index_mot_phan_khong_chen_trung` — chạy đúng câu `ON CONFLICT … WHERE status =
+  'open' DO NOTHING` mà D6 sẽ viết, để hình dạng câu được khóa từ tầng dữ liệu. CHECK có thêm ca `ck_reports_status`.
+- **`ClearPool` trong test schema** — cạm bẫy 7 Mục 3, gặp thật: lượt đầu Integration 435/495, 59 ca đỏ `53300 too many clients
+  already`; thêm `ClearPool` → 494/495.
+
+**Kiểm tay trên DB dev:** `dotnet run --project src/backend/SocialApp.Api -- --migrate` ba lần, đều exit 0; `moderation."__EFMigrationsHistory"`
+đúng một dòng `20260923151519_InitialModeration`; `\dn` thấy `moderation`; hai trigger `trg_audit_logs_append_only`,
+`trg_audit_logs_no_truncate` có mặt.
+
+**Test:** Unit 303 → 306 (+3 `AuditActionsTests`), Integration 484 → 495 (+11 `ModerationDbContextSchemaTests`), Architecture 16 → 17
+(+`Moderation_Domain_namespace_must_not_be_empty`). Integration còn **một đỏ nền trên máy dev**, có từ trước:
+`StartupConfigurationTests.Development_boots_without_r2_config_and_first_use_names_the_variables` (user-secrets có khóa R2; CI xanh).
+
+**Thử cho đỏ — 3/3 đột biến bị bắt**, file khôi phục nguyên byte (`cmp`):
+
+| Đột biến                                                          | Ca đỏ thực tế                                         |
+| ----------------------------------------------------------------- | ----------------------------------------------------- |
+| Bỏ trigger `BEFORE TRUNCATE` khỏi migration                       | `AUD_02_update_delete_truncate_audit_deu_bi_tu_choi`  |
+| Đổi namespace trong test guard thành `…Moderation.Domainx`        | `Moderation_Domain_namespace_must_not_be_empty`       |
+| `RoleDelete = "role.rename"` (trùng chuỗi)                        | `AuditActionsTests.Khong_hai_hang_nao_trung_chuoi`    |
+
+**detect-changes:** low, 0 luồng (24 file, 17 symbol — `ModulesApiFactory.CreateMigratedDatabaseAsync`, `PersistenceBoundaryTests`,
+các mục tài liệu). Impact trước khi sửa: `PostgresFixture.SeededContentDatabaseAsync` MEDIUM (5 lớp test đọc DB chung — chỉ thêm
+một lượt migrate, không đổi hành vi), `ModulesApiFactory.CreateMigratedDatabaseAsync` LOW.
+
+### Các đầu việc còn lại
 
 *Chưa thi công.* Điền khi làm, theo khuôn của C0: chỗ nào phải đổi hướng so với Mục 0.4 và vì sao; lệch so với chính tài liệu này;
 kết quả `EXPLAIN` của A4; kết quả kiểm extension trên staging; số test trước → sau; bảng đột biến thực tế; `detect-changes` của

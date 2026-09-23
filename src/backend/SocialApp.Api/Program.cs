@@ -16,6 +16,7 @@ using SocialApp.Modules.Content.DependencyInjection;
 using SocialApp.Modules.Content.Presentation;
 using SocialApp.Modules.Identity.DependencyInjection;
 using SocialApp.Modules.Identity.Presentation;
+using SocialApp.Modules.Moderation.DependencyInjection;
 using SocialApp.Modules.Profile.DependencyInjection;
 using SocialApp.Modules.Profile.Presentation;
 using SocialApp.Modules.SocialGraph.DependencyInjection;
@@ -199,6 +200,9 @@ builder.Services.AddContentModule(postgres);
 
 // --- Module SocialGraph: DbContext riêng, schema "socialgraph" (ADR-001, Đ-4.1) ---
 builder.Services.AddSocialGraphModule(postgres);
+
+// --- Module Moderation: DbContext riêng, schema "moderation" (ADR-001, Đ-6.1) ---
+builder.Services.AddModerationModule(postgres);
 
 // Mail xác minh (Đ-D9). Development không đặt gì → Mailpit localhost:1025 + link http://localhost:3000; ngoài
 // Development thiếu Smtp:Host/Port/From hoặc Frontend:BaseUrl thì chết ngay tại đây. KHÔNG đọc từ deploy/.env: file đó
@@ -393,15 +397,16 @@ var app = builder.Build();
 // `set -e` ở CD dừng lại TRƯỚC `up -d` thay vì bật api trên dữ liệu nền hỏng.
 if (isMigrate)
 {
-    // Thứ tự Identity → Profile → Content → SocialGraph là CỐ ĐỊNH (Mục 5, GĐ4): không có FK chéo schema nên DB
-    // không đòi thứ tự, nhưng log deploy phải đọc được theo một thứ tự không đổi.
+    // Thứ tự Identity → Profile → Content → SocialGraph → (Messaging) → Moderation → Notification là CỐ ĐỊNH (Mục 5 GĐ4,
+    // Mục 9.4 GĐ6): không có FK chéo schema nên DB không đòi thứ tự, nhưng log deploy phải đọc được theo một thứ tự không đổi.
     await app.Services.MigrateIdentityModuleAsync();
     await app.Services.MigrateProfileModuleAsync();
     await app.Services.MigrateContentModuleAsync();
     await app.Services.MigrateSocialGraphModuleAsync();
+    await app.Services.MigrateModerationModuleAsync();
     Console.WriteLine(
         $"[migrate] Đã áp dụng migration cho schema \"{IdentityModuleExtensions.Schema}\", \"{ProfileModuleExtensions.Schema}\", "
-      + $"\"{ContentModuleExtensions.Schema}\", \"{SocialGraphModuleExtensions.Schema}\"; "
+      + $"\"{ContentModuleExtensions.Schema}\", \"{SocialGraphModuleExtensions.Schema}\", \"{ModerationModuleExtensions.Schema}\"; "
       + $"nạp dữ liệu nền và kiểm tra vai trò hệ thống cho schema \"{IdentityModuleExtensions.Schema}\". Thoát 0.");
     return;
 }
