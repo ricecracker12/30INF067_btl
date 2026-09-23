@@ -5,8 +5,10 @@ using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Npgsql;
 using SocialApp.SharedKernel.Storage;
+using SocialApp.Modules.Content.Application.Feed;
 using SocialApp.Modules.Content.Application.Posts;
 using SocialApp.Modules.Profile.Application.Profiles;
+using SocialApp.Modules.SocialGraph.Application.Relationships;
 
 namespace SocialApp.IntegrationTests.Harness;
 
@@ -239,6 +241,220 @@ public sealed class ModulesTestClient
         var request = new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/posts/{postId}");
         request.Headers.Authorization = Bearer(userId, role);
         return Http.SendAsync(request);
+    }
+
+    /// <summary>
+    /// <c>GET /relationships/{userId}</c> với tư cách <paramref name="actorId"/> (D1). <paramref name="userId"/> nhận
+    /// <c>object</c> để test gửi được id sai dạng — tham số đã gõ <c>Guid</c> không phát ra nổi.
+    /// </summary>
+    public Task<HttpResponseMessage> GetRelationshipAsync(Guid actorId, object userId)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, $"/api/v1/relationships/{userId}");
+        request.Headers.Authorization = Bearer(actorId);
+        return Http.SendAsync(request);
+    }
+
+    /// <summary>Như <see cref="GetRelationshipAsync"/> nhưng đọc luôn body 200.</summary>
+    public async Task<RelationshipResponse> GetRelationshipOkAsync(Guid actorId, Guid userId)
+    {
+        using var response = await GetRelationshipAsync(actorId, userId);
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<RelationshipResponse>(Json))!;
+    }
+
+    /// <summary>
+    /// <c>POST /friends/requests</c> với tư cách <paramref name="actorId"/> (D2). Nhận
+    /// <paramref name="body"/> dạng ẩn danh vì test phải gửi được <c>userId</c> vắng mặt, rỗng, và
+    /// field lạ — những thứ DTO đã gõ kiểu thì không phát ra nổi.
+    ///
+    /// <paramref name="role"/> mở ra để kiểm tầng 2: <c>"GUEST"</c> không có <c>friend.request</c>.
+    /// </summary>
+    public Task<HttpResponseMessage> SendFriendRequestAsync(
+        Guid actorId, object body, string role = "USER")
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/friends/requests")
+        {
+            Content = JsonContent.Create(body),
+        };
+        request.Headers.Authorization = Bearer(actorId, role);
+        return Http.SendAsync(request);
+    }
+
+    /// <summary>Như <see cref="SendFriendRequestAsync"/> nhưng đọc luôn body 201.</summary>
+    public async Task<RelationshipResponse> SendFriendRequestOkAsync(Guid actorId, Guid userId)
+    {
+        using var response = await SendFriendRequestAsync(actorId, new { userId });
+        Assert.Equal(System.Net.HttpStatusCode.Created, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<RelationshipResponse>(Json))!;
+    }
+
+    /// <summary>
+    /// <c>POST /friends/requests/{userId}/accept</c> với tư cách <paramref name="actorId"/> (D3).
+    /// <paramref name="userId"/> nhận <c>object</c> để test gửi được id sai dạng.
+    /// <paramref name="role"/> mở ra để kiểm tầng 2: <c>"GUEST"</c> không có <c>friend.respond</c>.
+    /// </summary>
+    public Task<HttpResponseMessage> AcceptAsync(Guid actorId, object userId, string role = "USER")
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/friends/requests/{userId}/accept");
+        request.Headers.Authorization = Bearer(actorId, role);
+        return Http.SendAsync(request);
+    }
+
+    /// <summary>Như <see cref="AcceptAsync"/> nhưng đọc luôn body 200.</summary>
+    public async Task<RelationshipResponse> AcceptOkAsync(Guid actorId, Guid userId)
+    {
+        using var response = await AcceptAsync(actorId, userId);
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<RelationshipResponse>(Json))!;
+    }
+
+    /// <summary>
+    /// A gửi lời mời, B chấp nhận — cảnh "đã là bạn" qua API thật (D3). Người nhận phải có hồ sơ
+    /// vì D2 kiểm trước INSERT. Trả body 200 của accept.
+    /// </summary>
+    public async Task<RelationshipResponse> MakeFriendsAsync(Guid requesterId, Guid recipientId)
+    {
+        await SendFriendRequestOkAsync(requesterId, recipientId);
+        return await AcceptOkAsync(recipientId, requesterId);
+    }
+
+    /// <summary>
+    /// <c>DELETE /friends/requests/{userId}</c> — hủy lời đã gửi hoặc từ chối lời nhận được (D4).
+    /// <paramref name="userId"/> nhận <c>object</c> để test gửi được id sai dạng.
+    /// Không có tầng 2 nên không có tham số <c>role</c>: mọi người đã đăng nhập đều gọi được (Đ-4.12).
+    /// </summary>
+    public Task<HttpResponseMessage> DeclineOrCancelAsync(Guid actorId, object userId)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/friends/requests/{userId}");
+        request.Headers.Authorization = Bearer(actorId);
+        return Http.SendAsync(request);
+    }
+
+    /// <summary>Như <see cref="DeclineOrCancelAsync"/> nhưng khẳng định 204.</summary>
+    public async Task DeclineOrCancelOkAsync(Guid actorId, Guid userId)
+    {
+        using var response = await DeclineOrCancelAsync(actorId, userId);
+        Assert.Equal(System.Net.HttpStatusCode.NoContent, response.StatusCode);
+    }
+
+    /// <summary>
+    /// <c>DELETE /friends/{userId}</c> — hủy kết bạn (D4). <paramref name="userId"/> nhận <c>object</c>
+    /// để test gửi được id sai dạng.
+    /// </summary>
+    public Task<HttpResponseMessage> UnfriendAsync(Guid actorId, object userId)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/friends/{userId}");
+        request.Headers.Authorization = Bearer(actorId);
+        return Http.SendAsync(request);
+    }
+
+    /// <summary>Như <see cref="UnfriendAsync"/> nhưng khẳng định 204.</summary>
+    public async Task UnfriendOkAsync(Guid actorId, Guid userId)
+    {
+        using var response = await UnfriendAsync(actorId, userId);
+        Assert.Equal(System.Net.HttpStatusCode.NoContent, response.StatusCode);
+    }
+
+    /// <summary>
+    /// <c>GET /friends</c> với tư cách <paramref name="actorId"/> (D5). <paramref name="query"/> là phần query
+    /// string kể cả <c>?</c> — rỗng là trang đầu, limit mặc định.
+    /// </summary>
+    public Task<HttpResponseMessage> ListFriendsAsync(Guid actorId, string query = "")
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, $"/api/v1/friends{query}");
+        request.Headers.Authorization = Bearer(actorId);
+        return Http.SendAsync(request);
+    }
+
+    /// <summary>Như <see cref="ListFriendsAsync"/> nhưng đọc luôn body 200.</summary>
+    public async Task<FriendPage> ListFriendsOkAsync(Guid actorId, string query = "")
+    {
+        using var response = await ListFriendsAsync(actorId, query);
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<FriendPage>(Json))!;
+    }
+
+    /// <summary><c>GET /friends/requests</c> với tư cách <paramref name="actorId"/> (D5).</summary>
+    public Task<HttpResponseMessage> ListRequestsAsync(Guid actorId, string query = "")
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, $"/api/v1/friends/requests{query}");
+        request.Headers.Authorization = Bearer(actorId);
+        return Http.SendAsync(request);
+    }
+
+    /// <summary>Như <see cref="ListRequestsAsync"/> nhưng đọc luôn body 200.</summary>
+    public async Task<FriendRequestPage> ListRequestsOkAsync(Guid actorId, string query = "")
+    {
+        using var response = await ListRequestsAsync(actorId, query);
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<FriendRequestPage>(Json))!;
+    }
+
+    /// <summary>
+    /// <c>PUT /follows/{userId}</c> với tư cách <paramref name="actorId"/> (D6). <paramref name="userId"/> nhận
+    /// <c>object</c> để test gửi được id sai dạng.
+    ///
+    /// <paramref name="role"/> mở ra để kiểm tầng 2: <c>"GUEST"</c> không có <c>friend.request</c>.
+    /// </summary>
+    public Task<HttpResponseMessage> FollowAsync(Guid actorId, object userId, string role = "USER")
+    {
+        var request = new HttpRequestMessage(HttpMethod.Put, $"/api/v1/follows/{userId}");
+        request.Headers.Authorization = Bearer(actorId, role);
+        return Http.SendAsync(request);
+    }
+
+    /// <summary>Như <see cref="FollowAsync"/> nhưng khẳng định 204.</summary>
+    public async Task FollowOkAsync(Guid actorId, Guid userId)
+    {
+        using var response = await FollowAsync(actorId, userId);
+        Assert.Equal(System.Net.HttpStatusCode.NoContent, response.StatusCode);
+    }
+
+    /// <summary>
+    /// <c>DELETE /follows/{userId}</c> — bỏ theo dõi (D6). <paramref name="userId"/> nhận <c>object</c> để test
+    /// gửi được id sai dạng. Không có tầng 2 nên không có tham số <c>role</c>: mọi người đã đăng nhập đều gọi được
+    /// (Đ-4.12).
+    /// </summary>
+    public Task<HttpResponseMessage> UnfollowAsync(Guid actorId, object userId)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/follows/{userId}");
+        request.Headers.Authorization = Bearer(actorId);
+        return Http.SendAsync(request);
+    }
+
+    /// <summary>
+    /// <c>GET /feed</c> với tư cách <paramref name="actorId"/> (D7, GĐ4). <paramref name="query"/> là phần query string kể cả
+    /// <c>?</c> — rỗng là trang đầu với limit mặc định, tức trang DUY NHẤT được cache (Đ-4.8).
+    /// </summary>
+    public Task<HttpResponseMessage> GetFeedAsync(Guid actorId, string query = "")
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, $"/api/v1/feed{query}");
+        request.Headers.Authorization = Bearer(actorId);
+        return Http.SendAsync(request);
+    }
+
+    /// <summary>Như <see cref="GetFeedAsync"/> nhưng đọc luôn body 200.</summary>
+    public async Task<FeedPage> GetFeedOkAsync(Guid actorId, string query = "")
+    {
+        using var response = await GetFeedAsync(actorId, query);
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<FeedPage>(Json))!;
+    }
+
+    /// <summary>
+    /// Sửa dữ liệu trực tiếp — dùng để dựng cảnh SQL của D1 (bốn trạng thái quan hệ) khi endpoint ghi chưa có.
+    /// Tham số vị trí <c>$1, $2…</c>. Trả số dòng bị ảnh hưởng. Chép khuôn <c>AuthTestClient.ExecuteSqlAsync</c>.
+    /// </summary>
+    public async Task<int> ExecuteSqlAsync(string sql, params object[] parameters)
+    {
+        await using var connection = new NpgsqlConnection(_factory.ConnectionString);
+        await connection.OpenAsync();
+
+        await using var command = new NpgsqlCommand(sql, connection);
+        foreach (var value in parameters)
+            command.Parameters.Add(new NpgsqlParameter { Value = value });
+
+        return await command.ExecuteNonQueryAsync();
     }
 
     /// <summary>

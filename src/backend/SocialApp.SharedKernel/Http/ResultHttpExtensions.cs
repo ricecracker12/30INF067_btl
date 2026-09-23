@@ -83,6 +83,7 @@ public static class ResultHttpExtensions
             return controller.ValidationProblem(modelState);
         }
 
-        return controller.Problem(statusCode: error.Status, detail: error.Message, title: error.Title);
+        // `type: null` → factory điền `https://httpstatuses.io/{status}` (ProblemTitles.TypeFor) — hành vi của mọi lỗi cũ.
+        return controller.Problem(statusCode: error.Status, detail: error.Message, title: error.Title, type: error.Type);
     }
 }

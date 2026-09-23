@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, type ReactNode } from "react"
 
 import { FormAlert } from "@/components/form/form-alert"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -27,7 +27,17 @@ type Loaded =
   | { key: string; notFound: true }
   | { key: string; error: string }
 
-export function PublicProfile({ userId }: { userId: string }) {
+type Props = {
+  userId: string
+  /**
+   * Nút cạnh tên (GĐ4 E5: nút quan hệ). `app/` truyền vào — `features/profile` không import `features/friend` (Đ-E13).
+   * CHỈ gọi khi hồ sơ đã nạp được: người không tồn tại (404) hay lỗi nạp thì không có nút Kết bạn nào để bấm vào hư không.
+   * Dạng HÀM nhận hồ sơ đã nạp — để `app/` lấy tên người kia cho hộp thoại Hủy kết bạn mà không nạp hồ sơ lần hai.
+   */
+  actions?: (profile: ProfileResponse) => ReactNode
+}
+
+export function PublicProfile({ userId, actions }: Props) {
   const [data, setData] = useState<Loaded | null>(null)
   const [attempt, setAttempt] = useState(0)
 
@@ -114,6 +124,11 @@ export function PublicProfile({ userId }: { userId: string }) {
           <p className="text-sm whitespace-pre-line text-muted-foreground">
             {profile.bio}
           </p>
+        )}
+        {actions && (
+          <div className="pt-2" data-testid="public-profile-actions">
+            {actions(profile)}
+          </div>
         )}
       </div>
     </section>

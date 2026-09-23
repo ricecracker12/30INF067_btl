@@ -1,3 +1,5 @@
+import Link from "next/link"
+
 import { AppHeader } from "@/components/shell/app-header"
 import { LogoutButton } from "@/features/auth/logout-button"
 import { RequireAuth } from "@/features/auth/require-auth"
@@ -12,7 +14,21 @@ export default function AppLayout({
   return (
     <RequireAuth>
       <div className="flex min-h-svh flex-col">
-        <AppHeader actions={<LogoutButton />} />
+        <AppHeader
+          // Q-E7: liên kết ở `app/` — shell chỉ đặt chỗ (Đ-E13). Không huy hiệu đếm lời mời: thông báo là GĐ6. Không có
+          // "Trang chủ": logo đã dẫn về `/` (bỏ 2026-09-23 theo yêu cầu — hai lối vào cùng một chỗ trên cùng một hàng).
+          nav={
+            <>
+              <Link href="/friends" className="hover:text-foreground">
+                Bạn bè
+              </Link>
+              <Link href="/me" className="hover:text-foreground">
+                Trang của tôi
+              </Link>
+            </>
+          }
+          actions={<LogoutButton />}
+        />
         <main className="mx-auto w-full max-w-2xl flex-1 p-6">{children}</main>
       </div>
     </RequireAuth>

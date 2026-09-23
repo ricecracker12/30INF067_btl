@@ -4,7 +4,7 @@ import Link from "next/link"
 import type { ReactNode } from "react"
 
 import { FormAlert } from "@/components/form/form-alert"
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
@@ -117,14 +117,23 @@ function PostListSkeleton() {
 // Hai nút cùng trỏ `/compose`, khác câu theo chỗ đứng: một lời mời khi chưa có bài nào, một nút thường
 // trực khi đã có. Ở đây chứ không ở `app/` để màn chỉ còn việc ráp (Đ-E13).
 
+// Điều hướng thì là LINK thật mang style nút của kit (khuôn `verify-email.tsx`), KHÔNG `<Button render={<Link/>}>`: Base UI
+// dán ngữ nghĩa nút lên thẻ <a> và báo lỗi `nativeButton` — lỗi này có từ GĐ2 E5, lộ ra ở trang chủ GĐ4 (Next dev "1 Issue").
 export function ComposeFirstPostButton() {
-  return <Button render={<Link href="/compose" />}>Đăng bài đầu tiên</Button>
+  return (
+    <Link href="/compose" className={buttonVariants()}>
+      Đăng bài đầu tiên
+    </Link>
+  )
 }
 
 export function ComposeButton() {
   return (
-    <Button variant="outline" size="sm" render={<Link href="/compose" />}>
+    <Link
+      href="/compose"
+      className={buttonVariants({ variant: "outline", size: "sm" })}
+    >
       Đăng bài
-    </Button>
+    </Link>
   )
 }

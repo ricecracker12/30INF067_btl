@@ -10,10 +10,11 @@ describe("safeNext", () => {
     )
   })
 
-  it("thiếu hoặc rỗng → fallback", () => {
-    expect(safeNext(null)).toBe("/me")
-    expect(safeNext("")).toBe("/me")
-    expect(safeNext(null, "/")).toBe("/")
+  // Mặc định "/" (GĐ4 Q-E1) — đổi CÓ CHỦ ĐÍCH từ "/me": trang chủ là feed.
+  it("thiếu hoặc rỗng → fallback, mặc định là trang chủ \"/\"", () => {
+    expect(safeNext(null)).toBe("/")
+    expect(safeNext("")).toBe("/")
+    expect(safeNext(null, "/me")).toBe("/me")
   })
 
   it.each([
@@ -25,7 +26,7 @@ describe("safeNext", () => {
     "/\n/evil.example",
     "javascript:alert(1)",
     "me",
-  ])("chặn open redirect: %j → /me", (next) => {
-    expect(safeNext(next)).toBe("/me")
+  ])("chặn open redirect: %j → /", (next) => {
+    expect(safeNext(next)).toBe("/")
   })
 })

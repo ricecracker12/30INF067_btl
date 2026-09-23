@@ -20,10 +20,11 @@ không phải phong cách. Chi tiết và lý do ở
    Không `pnpm dlx shadcn@latest add` — CLI/registry mới hơn sinh component lệch style các cái đã
    có. So bản trong repo với bản gốc: `pnpm exec shadcn add <tên> --diff`. Nâng bản CLI là một
    commit riêng, có lý do.
-3. **Bốn tầng (Đ-E13), phụ thuộc một chiều `app/` → `features/` → `components/` + `lib/`:**
+3. **Bốn tầng (Đ-E13), phụ thuộc một chiều `app/` → `features/` → `components/` + `hooks/` + `lib/`:**
    `components/ui/` là kit — chỉ sửa khi thay đổi áp cho **toàn app**, thêm biến thể bằng `cva`
    ngay trong file đó · `components/form/`, `components/shell/` ghép từ `ui`, **không biết nghiệp
-   vụ** · `features/<màn>/` ghép từ hai tầng trên + `lib/` · `app/**` chỉ ráp, không chứa logic.
+   vụ** · `hooks/` là hook React dùng lại nhiều màn, **không biết nghiệp vụ** (thêm 2026-09-23) ·
+   `features/<màn>/` ghép từ các tầng trên + `lib/` · `app/**` chỉ ráp, không chứa logic.
 4. **Token chỉ ở `app/globals.css`** (`:root`, `.dark`, `@theme inline`). Màn dùng tên token
    (`bg-primary`, `text-muted-foreground`, `text-destructive`, `border-border`); không màu thô,
    không mã màu tùy ý, không đặt radius/bóng riêng theo màn — ESLint chặn.

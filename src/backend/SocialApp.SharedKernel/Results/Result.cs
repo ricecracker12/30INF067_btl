@@ -42,10 +42,14 @@ public readonly record struct Result<T>(bool IsSuccess, T? Value, Error? Error)
 /// <paramref name="Errors"/> là tham số CUỐI và có mặc định (Q-D4, chốt 2026-09-19): mọi lời gọi vị trí đã có của GĐ1
 /// (<c>IdentityErrors</c>) không phải đổi một ký tự nào. Chỉ 400 theo TRƯỜNG mới đặt nó — dựng bằng
 /// <see cref="Validation"/>, đừng tự ghép dictionary ở module.
+///
+/// <paramref name="Type"/> là tham số cuối, có mặc định (GĐ4 Q-E4, chốt 2026-09-23 — cùng nếp chỉ-thêm của Q-D4): <c>type</c>
+/// của Problem Details khi CÙNG một status mang hai nghĩa mà FE phải làm hai việc khác nhau (503 feed quá tải ≠ 503 hạ tầng).
+/// Để trống thì <c>https://httpstatuses.io/{status}</c> như mọi lỗi khác. Giá trị là URI ổn định, khai trong hợp đồng.
 /// </summary>
 public readonly record struct Error(
     string Code, string Message, int Status, string? Title = null,
-    IReadOnlyDictionary<string, string[]>? Errors = null)
+    IReadOnlyDictionary<string, string[]>? Errors = null, string? Type = null)
 {
     /// <summary>
     /// Một thông điệp duy nhất cho mọi 403 tầng 3 — không nêu id. Service trả CÙNG lỗi này cho "không tồn

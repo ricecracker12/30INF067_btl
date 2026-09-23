@@ -197,6 +197,10 @@ Tài liệu gốc chưa nói đủ để gõ code ở những chỗ dưới đâ
 - `fetch` ném `TypeError` (mất mạng, CORS sai, API chưa chạy): "Không kết nối được máy chủ." — không đoán nguyên nhân.
 - 429 **không có** `Retry-After` (limiter không đặt, và CORS không expose header đó): "Bạn thao tác quá nhanh. Vui lòng thử lại
   sau ít phút." — không hiện đồng hồ đếm ngược.
+- *Mở rộng 2026-09-23 (GĐ4 Q-E4, nhóm chốt):* khi **cùng một status** mang hai nghĩa mà người dùng làm hai việc khác nhau,
+  hợp đồng khai một `type` riêng cho Problem Details và `errorMessage` tra bảng `BY_TYPE` **trước** bảng
+  `(endpoint, status)`. Hai giá trị đầu tiên: 503 feed quá tải (`content-v1.yaml`) và 503 BFF mất kho phiên
+  (`lib/api/bff-contract.ts`). So `type`, **không** so `title`. Xem `giai-doan-4.md` Đ-4.10.
 
 **Đ-E7 — MSW là tùy chọn bật tay; mặc định dev dùng API thật.**
 
@@ -340,6 +344,9 @@ mặc định theo hệ thống). Token thật sau init: `--primary: oklch(0.514
   nhất phình theo giai đoạn.
 - **Bốn tầng, phụ thuộc một chiều:** `app/` → `features/` → `components/` + `lib/`. `lib/` **không** import ngược lên
   `features/` hay `app/`; `components/` không import `features/`.
+  *Mở rộng 2026-09-23 (GĐ4 Q-E8): thêm `hooks/` — hook React dùng lại nhiều màn, không biết nghiệp vụ — ngang hàng
+  `components/`, cùng lệnh cấm import ngược (ESLint, đã thử đỏ). Người dùng đầu tiên: `use-cursor-pages.ts` cho feed và ba
+  danh sách của `/friends`. Hook riêng của một màn vẫn nằm trong `features/<màn>/`. Xem `frontend-rules.md` Mục 2.*
 - **`features/` không import chéo nhau.** Cái gì hai feature cùng cần thì đẩy xuống `components/` (nếu là UI) hoặc `lib/`
   (nếu là logic) — không `import '../post/…'` từ `features/feed/`.
 - **`lib/api/` ở ngoài `features/`, vĩnh viễn.** Sẽ có lúc muốn gom `features/post/api/`. Không — `schema.d.ts` là file **sinh

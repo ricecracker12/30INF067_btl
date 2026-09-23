@@ -59,7 +59,8 @@ describe("ProfileForm — onboarding", () => {
     await user.type(screen.getByLabelText("Tên hiển thị"), "  An Nguyễn  ")
     await user.click(screen.getByRole("button", { name: "Bắt đầu" }))
 
-    await waitFor(() => expect(replace).toHaveBeenCalledWith("/me"))
+    // Không `?next` → trang chủ "/" (feed gợi ý cho người mới — GĐ4 Q-E1; trước đó "/me").
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/"))
     expect(bodies).toEqual([{ displayName: "An Nguyễn", bio: null }])
     expect(profileStore.getState().status).toBe("ready")
   })

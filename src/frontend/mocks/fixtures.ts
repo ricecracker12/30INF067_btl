@@ -124,3 +124,106 @@ export const postPage = {
   items: [post],
   nextCursor: null,
 } satisfies T.PostPage
+
+// --- GĐ4: socialgraph-v1.yaml + `/feed` của content-v1.yaml ---
+// `example` của socialgraph-v1 dùng `0192f3c1-…2a10` cho "người kia" — trùng `userId` (người đang đăng nhập) của
+// identity-v1, tức quan hệ với CHÍNH MÌNH, mà hợp đồng trả 400 cho ca đó. Nên "người kia" mặc định là tác giả trong
+// `example` của `GET /feed` (`Nguyễn Văn An`), và mọi kịch bản dưới đây là id khác `userId`.
+
+/** Người kia mặc định: tác giả bài trong `example` của `GET /feed`. Quan hệ `none`, chưa theo dõi. */
+export const userIdKhac = "0192f3c0-1b2d-7e4f-8a6c-9d0e1f2a3b4c"
+
+/**
+ * Kịch bản quan hệ, chọn bằng **dữ liệu nhập** (id người kia) — nếp `SCENARIO_EMAILS` / `MEDIA_SCENARIO`: test đọc là
+ * thấy nhánh nào đang chạy. Mock KHÔNG giữ trạng thái: gửi lời mời xong, `GET /relationships` vẫn trả trạng thái gốc
+ * của id — ca nào cần "đọc lại ra sự thật khác" thì `server.use` riêng.
+ */
+export const SOCIAL_SCENARIO = {
+  /** `friends`, đang theo dõi. */
+  banBe: "0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a30",
+  /** `incoming` — người này đã gửi lời mời cho tôi; chấp nhận được. */
+  loiMoiDen: "0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a31",
+  /** `outgoing` — tôi đã gửi lời mời cho người này. */
+  loiMoiDi: "0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a32",
+  /**
+   * Đọc ra `none` nhưng gửi lời mời thì **409** — ca hai lời mời chéo nhau (US-010 AC-02): người kia vừa gửi trước
+   * một nhịp. `GET` đọc lại sau 409 (qua `server.use`) mới thấy `incoming`.
+   */
+  daCoLoiMoi: "0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a33",
+  /** Không có hồ sơ: gửi lời mời / theo dõi → **404**; `GET /relationships` → 200 `none` (không tiết lộ ai tồn tại). */
+  khongTonTai: "0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a34",
+} as const
+
+export const relationship = (
+  friendship: T.FriendshipState,
+  following: boolean,
+  otherUserId: string = userIdKhac
+) =>
+  ({
+    userId: otherUserId,
+    friendship,
+    following,
+  }) satisfies T.RelationshipResponse
+
+export const userCard = {
+  userId: userIdKhac,
+  displayName: "Nguyễn Văn An",
+  avatarUrl: null,
+} satisfies T.UserCard
+
+export const friendCard = {
+  user: userCard,
+  since: "2026-09-23T08:15:00Z",
+} satisfies T.FriendCard
+
+export const friendPage = {
+  items: [friendCard],
+  nextCursor: null,
+} satisfies T.FriendPage
+
+/** Cursor mở ra trang ngắn (Đ-4.9): `items` rỗng nhưng `nextCursor` KHÁC null — FE phải nạp tiếp, không dừng. */
+export const CURSOR_TRANG_RONG = "rong-con-trang"
+/** `nextCursor` mà trang rỗng ở trên trả về — trang sau đó có bài, hết dữ liệu. */
+export const CURSOR_SAU_TRANG_RONG = "sau-trang-rong"
+/** Cursor làm `GET /feed` trả **503** (Đ-4.10). Chỉ feed — hợp đồng socialgraph-v1 không có 503. */
+export const CURSOR_QUA_TAI = "qua-tai"
+
+/**
+ * 503 của `GET /feed` — giá trị chép từ `example` của `ServiceUnavailable`. `satisfies FeedOverloadedProblem` ghim `type`
+ * vào enum của hợp đồng (Q-E4): yaml đổi `type` thì mock đỏ compile, không lặng lẽ đi nhánh 5xx chung.
+ */
+export const feedOverloadedProblem = () =>
+  ({
+    ...problem(
+      503,
+      "Bảng tin đang quá tải",
+      "Bảng tin đang có quá nhiều người truy cập. Vui lòng thử lại."
+    ),
+    type: "urn:socialapp:problem:feed-overloaded",
+  }) satisfies T.FeedOverloadedProblem
+
+/** Bài trong `example` của `GET /feed`: của người khác, mức `friends`, không sửa được. */
+export const feedPost = {
+  postId: "0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10",
+  author: userCard,
+  body: "Chiều nay trời đẹp quá.",
+  privacy: "friends",
+  media: [],
+  commentCount: 0,
+  reactionCounts: {},
+  createdAt: "2026-09-23T08:15:00Z",
+  editedAt: null,
+  canEdit: false,
+} satisfies T.PostResponse
+
+/**
+ * `mode: "network"` → `example` của hợp đồng. `mode: "suggested"` (Đ-4.6) chứa bài `public` của NGƯỜI KHÁC cộng bài của
+ * CHÍNH MÌNH — bài mẫu là của người khác (`canEdit: false`), nên đổi `privacy`: bài `friends` của người khác không lọt vào gợi ý. `nextCursor` truyền vào khi test cần trang
+ * sau (ví dụ `CURSOR_TRANG_RONG` để dựng ca trang rỗng giữa chừng).
+ */
+export const feedPage = (mode: T.FeedMode, nextCursor: string | null = null) =>
+  ({
+    items: [mode === "network" ? feedPost : { ...feedPost, privacy: "public" }],
+    nextCursor,
+    mode,
+  }) satisfies T.FeedPage

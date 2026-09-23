@@ -18,6 +18,8 @@ using SocialApp.Modules.Identity.DependencyInjection;
 using SocialApp.Modules.Identity.Presentation;
 using SocialApp.Modules.Profile.DependencyInjection;
 using SocialApp.Modules.Profile.Presentation;
+using SocialApp.Modules.SocialGraph.DependencyInjection;
+using SocialApp.Modules.SocialGraph.Presentation;
 using SocialApp.SharedKernel.Authentication;
 using SocialApp.SharedKernel.Authorization;
 using SocialApp.SharedKernel.Configuration;
@@ -53,6 +55,7 @@ builder.Services
     .AddApplicationPart(typeof(IdentityApiGroup).Assembly)
     .AddApplicationPart(typeof(ProfileApiGroup).Assembly)
     .AddApplicationPart(typeof(ContentApiGroup).Assembly)
+    .AddApplicationPart(typeof(SocialGraphApiGroup).Assembly)
     .AddJsonOptions(o =>
     {
         // CamelCase là BẮT BUỘC, không phải trang trí (Q-D4 → Q-D2, chốt 2026-09-19): hợp đồng ghi
@@ -85,6 +88,7 @@ var apiGroups = new[]
     (Name: IdentityApiGroup.Name, Title: IdentityApiGroup.Title),
     (Name: ProfileApiGroup.Name, Title: ProfileApiGroup.Title),
     (Name: ContentApiGroup.Name, Title: ContentApiGroup.Title),
+    (Name: SocialGraphApiGroup.Name, Title: SocialGraphApiGroup.Title),
 };
 
 builder.Services.AddEndpointsApiExplorer();
@@ -102,8 +106,10 @@ builder.Services.AddSwaggerGen(c =>
 // --- Health checks: /health/ready kiểm tra Postgres + Redis (tag "ready") ---
 // Fallback Development của Postgres: compose dev qua localhost, mật khẩu đọc từ deploy/.env — cùng file
 // compose dev dùng, không giữ bản sao ghi cứng trong repo (xem DevEnvFile).
-var postgres = RequireConnectionString("Postgres",
-    () => DevEnvFile.LocalPostgresConnectionString(builder.Environment.ContentRootPath));
+// Trần pool mặc định 80 khi chuỗi kết nối không tự ghi (PERF-03): mặc định 100 của Npgsql bằng đúng max_connections của
+// Postgres, và lúc Redis dừng pool chiếm hết chỗ của migrate/backup/psql. MỘT biến cho bốn module + health check → một pool.
+var postgres = PostgresPool.WithDefaultMaxPoolSize(RequireConnectionString("Postgres",
+    () => DevEnvFile.LocalPostgresConnectionString(builder.Environment.ContentRootPath)));
 var redis = RequireConnectionString("Redis", () => "localhost:6379");
 
 // JWT kiểm SAU chuỗi kết nối, không phải tùy ý: StartupConfigurationTests dựng app thiếu cả hai và khẳng
@@ -190,6 +196,9 @@ builder.Services.AddProfileModule(postgres);
 
 // --- Module Content: DbContext riêng, schema "content" (ADR-001, Đ-2.1) ---
 builder.Services.AddContentModule(postgres);
+
+// --- Module SocialGraph: DbContext riêng, schema "socialgraph" (ADR-001, Đ-4.1) ---
+builder.Services.AddSocialGraphModule(postgres);
 
 // Mail xác minh (Đ-D9). Development không đặt gì → Mailpit localhost:1025 + link http://localhost:3000; ngoài
 // Development thiếu Smtp:Host/Port/From hoặc Frontend:BaseUrl thì chết ngay tại đây. KHÔNG đọc từ deploy/.env: file đó
@@ -384,14 +393,15 @@ var app = builder.Build();
 // `set -e` ở CD dừng lại TRƯỚC `up -d` thay vì bật api trên dữ liệu nền hỏng.
 if (isMigrate)
 {
-    // Thứ tự Identity → Profile → Content là CỐ ĐỊNH (Mục 5, GĐ2): không có FK chéo schema nên DB
+    // Thứ tự Identity → Profile → Content → SocialGraph là CỐ ĐỊNH (Mục 5, GĐ4): không có FK chéo schema nên DB
     // không đòi thứ tự, nhưng log deploy phải đọc được theo một thứ tự không đổi.
     await app.Services.MigrateIdentityModuleAsync();
     await app.Services.MigrateProfileModuleAsync();
     await app.Services.MigrateContentModuleAsync();
+    await app.Services.MigrateSocialGraphModuleAsync();
     Console.WriteLine(
         $"[migrate] Đã áp dụng migration cho schema \"{IdentityModuleExtensions.Schema}\", \"{ProfileModuleExtensions.Schema}\", "
-      + $"\"{ContentModuleExtensions.Schema}\"; "
+      + $"\"{ContentModuleExtensions.Schema}\", \"{SocialGraphModuleExtensions.Schema}\"; "
       + $"nạp dữ liệu nền và kiểm tra vai trò hệ thống cho schema \"{IdentityModuleExtensions.Schema}\". Thoát 0.");
     return;
 }

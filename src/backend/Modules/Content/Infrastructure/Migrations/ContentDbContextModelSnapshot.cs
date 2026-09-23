@@ -242,6 +242,11 @@ namespace SocialApp.Modules.Content.Infrastructure.Migrations
 
                     b.HasKey("PostId");
 
+                    b.HasIndex("CreatedAt", "PostId")
+                        .IsDescending(true, true)
+                        .HasDatabaseName("idx_posts_public_recent")
+                        .HasFilter("status = 'published' AND privacy = 'public'");
+
                     b.HasIndex("AuthorId", "CreatedAt", "PostId")
                         .IsDescending(false, true, true)
                         .HasDatabaseName("idx_posts_author_created")

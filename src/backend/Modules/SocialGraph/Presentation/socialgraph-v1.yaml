@@ -1,0 +1,748 @@
+# ---------------------------------------------------------------------------------------------
+# HỢP ĐỒNG API — module SocialGraph, v1 (GĐ4 · UC-10/11 kết bạn, UC-13 theo dõi)
+#
+# Artifact BẮT BUỘC của cổng mở GĐ4 (docs/giai-doan-4/giai-doan-4.md Mục 8.1, Mục 9.2 bước 2).
+# Lane frontend sinh type TypeScript từ chính file này (`pnpm gen:api` → lib/api/socialgraph/schema.d.ts,
+# tự tìm theo glob — không ai thêm script), nên nó là NGUỒN SỰ THẬT của hợp đồng cho tới cổng đóng.
+#
+# VÌ SAO NẰM Ở ĐÂY: module sở hữu tầng HTTP của chính nó (`Presentation/`). Tên nhóm Swagger
+# `socialgraph-v1` phải khớp ở ĐÚNG BA CHỖ: [ApiExplorerSettings(GroupName)] trên controller, SwaggerDoc
+# trong Program.cs, và tên file này (Đ-4.1: cũng trùng tên schema `socialgraph` và thư mục lib/api/socialgraph/).
+#
+# CHƯA CÓ MÁY CANH cho tới B5: SocialGraphContractTests (chép khuôn ContentContractTests) + dòng
+# <Content Include … Link=Contracts/socialgraph-v1.yaml> trong csproj test cần controller có thật (D0).
+# Từ B5, lệch tập (path × method), tập status code, hoặc required field của request body là CI đỏ.
+#
+# LUẬT SỬA FILE NÀY: đổi hợp đồng → sửa file này TRONG CÙNG COMMIT với code và chạy lại `pnpm gen:api`.
+#
+# QUYẾT ĐỊNH ĐÃ CHỐT chạm tới hợp đồng này (giai-doan-4.md Mục 3):
+#   Đ-4.2   File riêng cho quan hệ; `GET /feed` nằm trong content-v1 (feed trả bài, không phải quan hệ).
+#   Đ-4.5   "Bạn bè" và "theo dõi" là hai sự thật độc lập: kết bạn KHÔNG tự tạo dòng theo dõi, hủy kết bạn không bỏ
+#           theo dõi. RelationshipResponse vì vậy có hai trường tách biệt `friendship` và `following`.
+#   Đ-4.12  Không thêm mã quyền. Theo dõi dùng `friend.request`; hủy lời mời / từ chối / hủy kết bạn / bỏ theo dõi
+#           chỉ cần [Authorize] — gỡ một quan hệ có mình trong đó là quyền của chủ dữ liệu.
+#   Đ-4.14  Chấp nhận là MỘT câu UPDATE có điều kiện: 0 dòng → 403, MỘT phản hồi cho mọi lý do (không có lời mời ·
+#           lời mời do chính mình gửi · đã là bạn · người thứ ba). Gửi lời mời khi đã có quan hệ theo bất kỳ chiều
+#           nào → 409 (không tự chấp nhận hộ). Mọi thao tác gỡ là idempotent: 0 dòng vẫn 204.
+#   Mục 6.2 Không endpoint nào nhận HAI id người dùng từ client: cặp luôn dựng từ (người gọi, userId của route/body),
+#           nên không có đường để A thao tác trên quan hệ giữa B và C.
+#
+# CHỐT LÚC VIẾT (2026-09-22) — Mục 8.1 để ngỏ, ghi ngược vào giai-doan-4.md Mục 8.1 cùng commit:
+#   - `direction` của GET /friends/requests mặc định `incoming` (màn lời mời mở ở tab "Nhận được"); giá trị lạ → 400.
+#   - `limit` của hai danh sách: mặc định 20, tối đa 50 — cùng AGENTS.md Mục 9 và content-v1.
+#   - Tự gửi lời mời / tự theo dõi → 400 với `errors.userId`, thông điệp nêu ở từng operation (luật frontend Mục 6:
+#     client dùng đúng câu của server).
+#   - POST /friends/requests và PUT /follows có thêm **403**: bảng 8.1 không ghi, nhưng cả hai mang mã quyền
+#     `friend.request` ([RequirePermission]) nên thiếu quyền là 403 — cùng cách content-v1 ghi 403 cho POST /posts.
+#   - GET /relationships/{userId} với `userId` không tồn tại → 200 `none/false`, không 404: endpoint đọc quan hệ không
+#     phải chỗ để dò ai có tài khoản.
+# ---------------------------------------------------------------------------------------------
+openapi: 3.0.3
+
+info:
+  title: SocialApp — SocialGraph API
+  version: 1.0.0-gd4
+  description: |
+    Quan hệ xã hội của GĐ4: lời mời kết bạn (gửi, chấp nhận, hủy / từ chối), danh sách bạn bè và lời mời (cursor
+    keyset), hủy kết bạn, theo dõi một chiều, và trạng thái quan hệ với một người để vẽ nút trên trang hồ sơ.
+
+    ### Luồng kết bạn (Mục 7.1)
+
+    1. A mở hồ sơ B → `GET /relationships/{B}` → `{ friendship: "none", following: false }`.
+    2. A bấm Kết bạn → `POST /friends/requests { userId: B }` → `201 RelationshipResponse { friendship: "outgoing" }`.
+    3. B mở màn lời mời → `GET /friends/requests?direction=incoming` → thấy A.
+    4. B bấm Chấp nhận → `POST /friends/requests/{A}/accept` → `200 RelationshipResponse { friendship: "friends" }`.
+
+    Mọi thao tác ghi trả `RelationshipResponse` (hoặc 204) để FE vẽ lại nút mà **không** gọi thêm `GET`. Nút quan hệ
+    **không optimistic** (Đ-4.16): bấm → khóa nút → vẽ theo phản hồi.
+
+    ### Lỗi
+
+    Mọi lỗi trả **RFC 7807 Problem Details** kèm `traceId`. 400 validation có `errors` theo tên trường (`userId`,
+    `direction`, `cursor`, `limit`) — FE hiện dưới đúng trường (luật frontend Mục 6).
+
+    ### Rate limit
+
+    100 req/phút/user.
+
+    ### Ghi chú cho lane frontend
+
+    - Mọi lời gọi đi qua proxy chung `/bff/api/...` (Đ-E14) — không thêm route BFF.
+    - `friendship` có **bốn** giá trị; `following` là sự thật **độc lập** (Đ-4.5) — đừng suy cái này từ cái kia.
+    - Hết dữ liệu khi và chỉ khi `nextCursor` là `null`.
+
+  contact:
+    name: Nhóm 4 — 30INF067
+
+servers:
+  - url: http://localhost:5259/api/v1
+    description: Dev — backend chạy local (`dotnet run`)
+  - url: https://mxh.banhgao.net/api/v1
+    description: Staging — HTTPS thật, đích của cổng đóng
+
+tags:
+  - name: friends
+    description: Lời mời kết bạn và bạn bè (UC-10, UC-11, FR-010, FR-011, BR-03).
+  - name: follows
+    description: Theo dõi một chiều (UC-13, FR-012).
+  - name: relationships
+    description: Trạng thái quan hệ giữa người gọi và một người khác.
+
+paths:
+
+  /friends/requests:
+    post:
+      tags: [friends]
+      operationId: sendFriendRequest
+      summary: Gửi lời mời kết bạn (UC-10, FR-010, BR-03)
+      description: |
+        Thứ tự kiểm là **một phần của hợp đồng** vì nó quyết định mã lỗi (Mục 6.1):
+
+        1. Tầng 2: quyền `friend.request`.
+        2. `userId` là chính người gọi → **400** `errors.userId` (US-010 AC-03). Kiểm **trước** khi chạm DB.
+        3. `userId` không có hồ sơ (tra `IUserDirectory`) → **404**: người chưa onboarding không tồn tại với phần còn
+           lại của hệ thống (Đ-2.4).
+        4. INSERT cặp chuẩn hóa `(min, max)`, `status = 'pending'`, `requester = người gọi`. Đã có lời mời hoặc quan hệ
+           bạn bè **theo bất kỳ chiều nào** (kể cả B đã gửi cho A) → đụng PK → **409**. Hai lời mời chéo nhau cùng lúc:
+           một cái thành công, cái kia 409 — không bao giờ 500 (AC-02).
+
+        Server **không** tự chấp nhận hộ khi người kia đã gửi lời mời trước — FE đọc `GET /relationships/{userId}` nên
+        thường hiện nút "Chấp nhận" chứ không để người dùng bấm "Kết bạn" ở tình huống đó.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateFriendRequest'
+            example:
+              userId: 0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10
+      responses:
+        '201':
+          description: Lời mời đã gửi — `friendship` là `outgoing`.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RelationshipResponse'
+              example:
+                userId: 0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10
+                friendship: outgoing
+                following: false
+        '400':
+          description: '`userId` thiếu, sai dạng UUID, hoặc là chính người gọi. `errors.userId`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: https://httpstatuses.io/400
+                title: Dữ liệu không hợp lệ
+                status: 400
+                detail: Dữ liệu đầu vào không hợp lệ
+                instance: /api/v1/friends/requests
+                traceId: 5e7a9c1b3d5f7092a4c6e8b0d2f4a6c8
+                errors:
+                  userId:
+                    - Không thể gửi lời mời kết bạn cho chính mình.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+        '409':
+          description: Đã có lời mời (theo bất kỳ chiều nào) hoặc đã là bạn (FRD-06).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: https://httpstatuses.io/409
+                title: Xung đột dữ liệu
+                status: 409
+                detail: Đã có lời mời hoặc quan hệ bạn bè giữa hai người.
+                instance: /api/v1/friends/requests
+                traceId: 9f2c7b1e4a6d4f0b8c3e5a7d9b1f3c5e
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    get:
+      tags: [friends]
+      operationId: listFriendRequests
+      summary: Lời mời đang chờ của chính người gọi — nhận được hoặc đã gửi
+      description: |
+        `[Authorize]`, không mã quyền: luôn là dữ liệu của chính người gọi (Đ-4.12). Chỉ lời mời `pending`; mới trước
+        theo `created_at DESC`. `since` của mỗi thẻ là thời điểm gửi lời mời.
+
+        Người kia chưa có hồ sơ (hoặc hồ sơ đã mất) thì thẻ đó **vắng mặt** — trang có thể ngắn hơn `limit`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: direction
+          in: query
+          required: false
+          description: '`incoming` = người khác gửi cho tôi (mặc định) · `outgoing` = tôi gửi đi. Giá trị khác → 400 `errors.direction`.'
+          schema:
+            $ref: '#/components/schemas/FriendRequestDirection'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Một trang lời mời.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendRequestPage'
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /friends/requests/{userId}/accept:
+    post:
+      tags: [friends]
+      operationId: acceptFriendRequest
+      summary: Chấp nhận lời mời mà `userId` gửi tới người gọi (UC-10 bước 3)
+      description: |
+        Tầng 2: `friend.respond`. Tầng 3 là **một câu `UPDATE` có điều kiện** (Đ-4.14): cặp chuẩn hóa từ
+        (người gọi, `userId`), `status = 'pending'`, **`requester_id = userId`** — tức người gọi phải là người **nhận**.
+
+        0 dòng bị đổi → **403**, **một** phản hồi cho mọi lý do: không có lời mời nào · lời mời do chính người gọi gửi
+        (tự chấp nhận lời mời của mình, `TC-A03-friend-self-accept`) · đã là bạn · người gọi là người thứ ba
+        (`TC-A03-friend-accept`, US-010 AC-04). Không có `SELECT` rồi mới `UPDATE` nên không có cửa sổ race.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: Đã là bạn — `friendship` là `friends`.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RelationshipResponse'
+              example:
+                userId: 0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10
+                friendship: friends
+                following: false
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /friends/requests/{userId}:
+    delete:
+      tags: [friends]
+      operationId: deleteFriendRequest
+      summary: Hủy lời mình đã gửi, hoặc từ chối lời mời nhận được (FR-011)
+      description: |
+        `[Authorize]`, không mã quyền (Đ-4.12). Xóa lời mời `pending` giữa người gọi và `userId`, **theo chiều nào cũng
+        được** — cùng một endpoint cho "hủy" (tôi gửi) và "từ chối" (tôi nhận). Từ chối là **xóa dòng**, không có trạng
+        thái "đã từ chối": người kia gửi lại được (FRD-07).
+
+        Idempotent: không có lời mời nào (hoặc hai người đã là bạn) → vẫn **204**, không đụng gì. Quan hệ đã `accepted`
+        **không** bị xóa ở đây — hủy kết bạn là `DELETE /friends/{userId}`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '204':
+          description: Không còn lời mời nào giữa hai người.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /friends:
+    get:
+      tags: [friends]
+      operationId: listFriends
+      summary: Bạn bè của chính người gọi, mới kết bạn trước
+      description: |
+        `[Authorize]`, không mã quyền: luôn là dữ liệu của chính người gọi (Đ-4.12). Sắp theo `accepted_at DESC`;
+        `since` của mỗi thẻ là thời điểm trở thành bạn.
+
+        Cursor opaque cùng bộ mã hóa keyset của GĐ2 (`thời điểm|id của người kia`) — FE chỉ chuyển tiếp `nextCursor`.
+        Người kia chưa có hồ sơ thì thẻ đó **vắng mặt** — trang có thể ngắn hơn `limit`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Một trang bạn bè.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendPage'
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /friends/{userId}:
+    delete:
+      tags: [friends]
+      operationId: unfriend
+      summary: Hủy kết bạn (FR-011)
+      description: |
+        `[Authorize]`, không mã quyền (Đ-4.12): người bị Admin gỡ quyền kết bạn vẫn phải hủy kết bạn được. Xóa quan hệ
+        `accepted` giữa người gọi và `userId`.
+
+        Có hiệu lực **ngay** với `GET /posts/{id}` (`IFriendshipReader` không cache, Đ-4.3) và với feed kế tiếp của cả
+        hai người (FRD-09, Mục 7.3). Dòng theo dõi riêng (nếu có) **không** bị xóa theo (Đ-4.5).
+
+        Idempotent: không phải bạn → vẫn **204**. Lời mời `pending` **không** bị xóa ở đây.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '204':
+          description: Hai người không còn là bạn.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /follows/{userId}:
+    put:
+      tags: [follows]
+      operationId: follow
+      summary: Theo dõi một người (UC-13, FR-012)
+      description: |
+        Tầng 2: `friend.request` (Đ-4.12 — cùng là "chủ động tạo một kết nối xã hội"). `userId` là chính người gọi →
+        **400** `errors.userId`; không có hồ sơ → **404**.
+
+        `INSERT … ON CONFLICT DO NOTHING`: đã theo dõi rồi → vẫn **204** (idempotent — vì vậy là `PUT`, không phải
+        `POST`). Theo dõi không cần người kia đồng ý và không tạo lời mời kết bạn nào.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '204':
+          description: Người gọi đang theo dõi `userId`.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+        '400':
+          description: '`userId` sai dạng UUID, hoặc là chính người gọi. `errors.userId`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: https://httpstatuses.io/400
+                title: Dữ liệu không hợp lệ
+                status: 400
+                detail: Dữ liệu đầu vào không hợp lệ
+                instance: /api/v1/follows/0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10
+                traceId: 5e7a9c1b3d5f7092a4c6e8b0d2f4a6c8
+                errors:
+                  userId:
+                    - Không thể theo dõi chính mình.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    delete:
+      tags: [follows]
+      operationId: unfollow
+      summary: Bỏ theo dõi
+      description: |
+        `[Authorize]`, không mã quyền (Đ-4.12). Idempotent: chưa theo dõi → vẫn **204**. Không chạm quan hệ bạn bè
+        (Đ-4.5): bỏ theo dõi một người bạn thì vẫn là bạn, vẫn thấy bài của họ trong feed.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '204':
+          description: Người gọi không còn theo dõi `userId`.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /relationships/{userId}:
+    get:
+      tags: [relationships]
+      operationId: getRelationship
+      summary: Quan hệ giữa người gọi và `userId` — để vẽ nút trên trang hồ sơ (Đ-4.16)
+      description: |
+        `[Authorize]`, không mã quyền. Hai sự thật độc lập (Đ-4.5): `friendship` (bốn trạng thái, nhìn **từ phía người
+        gọi**) và `following` (người gọi có đang theo dõi `userId` không).
+
+        `userId` là chính người gọi → **400** `errors.userId` (không có quan hệ nào với chính mình để hỏi). `userId` không
+        tồn tại → **200** `{ friendship: "none", following: false }`, không 404: endpoint này không tiết lộ ai có tài
+        khoản.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: Quan hệ hiện tại.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RelationshipResponse'
+              example:
+                userId: 0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10
+                friendship: incoming
+                following: true
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+
+  securitySchemes:
+
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Access token JWT HS256 của module Identity (hợp đồng `identity-v1`), sống 15 phút. Trình duyệt
+        **không** cầm token — BFF gắn bearer ở server (Đ-E14).
+
+  parameters:
+
+    UserId:
+      name: userId
+      in: path
+      required: true
+      description: UUID v7 của người kia trong quan hệ. Sai dạng → 400 `errors.userId`.
+      schema:
+        type: string
+        format: uuid
+
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: '`nextCursor` của trang trước. Bỏ trống để lấy trang đầu. Cursor rác → 400 `errors.cursor`.'
+      schema:
+        type: string
+
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Số thẻ mỗi trang, mặc định 20, tối đa 50 (AGENTS.md Mục 9). Ngoài `1..50` → 400 `errors.limit`.
+      schema:
+        type: integer
+        format: int32
+        minimum: 1
+        maximum: 50
+        default: 20
+
+  headers:
+
+    XCorrelationId:
+      description: |
+        Correlation ID của request, bằng đúng `traceId` trong Problem Details khi có lỗi.
+        Client gửi header cùng tên thì server dùng lại giá trị đó.
+      schema:
+        type: string
+      example: 9f2c7b1e4a6d4f0b8c3e5a7d9b1f3c5e
+
+  responses:
+
+    ValidationProblem:
+      description: |
+        Dữ liệu đầu vào không hợp lệ. `errors` là map `tên trường → danh sách thông điệp`.
+
+        Cũng là mã trả về khi body chứa **field lạ** (`UnmappedMemberHandling = Disallow`, AGENTS.md Mục 9), khi tham số
+        path sai dạng UUID, khi `cursor` rác, `limit` ngoài `1..50`, hay `direction` lạ.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://httpstatuses.io/400
+            title: Dữ liệu không hợp lệ
+            status: 400
+            detail: Dữ liệu đầu vào không hợp lệ
+            instance: /api/v1/friends
+            traceId: 5e7a9c1b3d5f7092a4c6e8b0d2f4a6c8
+            errors:
+              cursor:
+                - Cursor không hợp lệ.
+
+    Unauthorized:
+      description: Thiếu access token, token sai chữ ký, hết hạn, hoặc đã bị thu hồi. Dòng `TC-A01-friends` của AuthZ matrix.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://httpstatuses.io/401
+            title: Chưa xác thực
+            status: 401
+            detail: Yêu cầu access token hợp lệ.
+            instance: /api/v1/friends/requests
+            traceId: a4c6e8b0d2f4a6c8e0b2d4f6a8c0e2b4
+
+    Forbidden:
+      description: |
+        Tầng 2 (thiếu `friend.request` / `friend.respond`) hoặc tầng 3 từ chối. Ở chấp nhận lời mời: không có lời mời,
+        lời mời do chính mình gửi, đã là bạn, hay người gọi là người thứ ba đều trả **cùng** phản hồi này (Đ-4.14) —
+        thông điệp không nêu lý do.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://httpstatuses.io/403
+            title: Bị từ chối
+            status: 403
+            detail: Bạn không có quyền thực hiện thao tác này.
+            instance: /api/v1/friends/requests/0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10/accept
+            traceId: c6e8b0d2f4a6c8e0b2d4f6a8c0e2b4d6
+
+    UserNotFound:
+      description: Người được mời / được theo dõi không có hồ sơ (Đ-2.4) — kể cả khi tài khoản tồn tại nhưng chưa onboarding.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://httpstatuses.io/404
+            title: Không tìm thấy tài nguyên
+            status: 404
+            detail: Không tìm thấy người dùng.
+            instance: /api/v1/friends/requests
+            traceId: d2f4a6c8e0b2d4f6a8c0e2b4d6f8a0c2
+
+    TooManyRequests:
+      description: Vượt hạn mức 100 req/phút/user (ISS-04). Không có `Retry-After`.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://httpstatuses.io/429
+            title: Quá nhiều yêu cầu
+            status: 429
+            detail: Bạn đã gửi quá nhiều yêu cầu. Vui lòng thử lại sau ít phút.
+            instance: /api/v1/friends
+            traceId: e0b2d4f6a8c0e2b4d6f8a0c2e4b6d8f0
+
+    InternalError:
+      description: |
+        Lỗi không mong muốn. **Không bao giờ có `detail`** — `GlobalExceptionHandler` giấu chi tiết nội bộ, chỉ
+        `traceId` đi ra ngoài để đối chiếu với log.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://httpstatuses.io/500
+            title: Đã xảy ra lỗi không mong muốn
+            status: 500
+            instance: /api/v1/friends
+            traceId: b6d8f0a2c4e6b8d0f2a4c6e8b0d2f4a6
+
+  schemas:
+
+    ProblemDetails:
+      type: object
+      description: |
+        RFC 7807 Problem Details — dạng lỗi duy nhất của toàn dự án. Sinh bởi
+        `SocialApp.SharedKernel.Errors.GlobalExceptionHandler`; `traceId` và `type` gắn thống nhất
+        trong `AddSharedKernel`.
+      properties:
+        type:
+          type: string
+          format: uri
+          description: Mặc định `https://httpstatuses.io/{status}`.
+        title:
+          type: string
+          description: Nhãn ngắn, ổn định theo loại lỗi. **Không** chứa dữ liệu người dùng.
+        status:
+          type: integer
+          format: int32
+        detail:
+          type: string
+          nullable: true
+          description: Thông điệp cho người đọc. Vắng mặt ở lỗi 500.
+        instance:
+          type: string
+          description: Path của request gây lỗi.
+        traceId:
+          type: string
+          description: Bằng header `X-Correlation-ID` của chính request đó — dùng để tra log.
+        errors:
+          type: object
+          nullable: true
+          description: Chỉ có ở lỗi validation (400). Map `tên trường → danh sách thông điệp`.
+          additionalProperties:
+            type: array
+            items:
+              type: string
+      required: [title, status, traceId]
+
+    CreateFriendRequest:
+      type: object
+      additionalProperties: false
+      description: Chỉ MỘT id — người kia. Người gửi luôn là người gọi (Mục 6.2), không nhận từ body.
+      properties:
+        userId:
+          type: string
+          format: uuid
+          description: Người được mời. Là chính người gọi → 400 `errors.userId`.
+      required: [userId]
+
+    FriendshipState:
+      type: string
+      enum: [none, outgoing, incoming, friends]
+      description: |
+        Nhìn **từ phía người gọi** — trùng tên `FriendshipView` ở `SocialGraph.Domain` (khối A, lệch L1):
+        `none` chưa có gì · `outgoing` tôi đã gửi lời mời · `incoming` người kia gửi cho tôi · `friends` đã là bạn.
+
+    FriendRequestDirection:
+      type: string
+      enum: [incoming, outgoing]
+      default: incoming
+
+    RelationshipResponse:
+      type: object
+      description: Trả từ mọi thao tác ghi có body, để FE vẽ lại nút mà không gọi thêm `GET` (Mục 7.1).
+      properties:
+        userId:
+          type: string
+          format: uuid
+          description: Người kia trong quan hệ.
+        friendship:
+          $ref: '#/components/schemas/FriendshipState'
+        following:
+          type: boolean
+          description: Người gọi có đang theo dõi `userId` không. **Độc lập** với `friendship` (Đ-4.5).
+      required: [userId, friendship, following]
+
+    UserCard:
+      type: object
+      description: |
+        Cùng hình dạng `PostAuthor` của `content-v1` nhưng **định nghĩa lại ở đây** (Mục 8.1): hai file hợp đồng độc
+        lập, không `$ref` chéo file. Từ `IUserDirectory` — một lời gọi batch cho cả trang.
+      properties:
+        userId:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+        avatarUrl:
+          type: string
+          format: uri
+          nullable: true
+          description: Presigned GET 15 phút, `null` khi chưa có avatar.
+      required: [userId, displayName]
+
+    FriendCard:
+      type: object
+      properties:
+        user:
+          $ref: '#/components/schemas/UserCard'
+        since:
+          type: string
+          format: date-time
+          description: Danh sách bạn bè → thời điểm trở thành bạn (`accepted_at`); danh sách lời mời → thời điểm gửi (`created_at`).
+      required: [user, since]
+
+    FriendPage:
+      type: object
+      description: Bạn bè, `accepted_at DESC`.
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/FriendCard'
+        nextCursor:
+          type: string
+          nullable: true
+          description: Opaque. `items` có thể ít hơn `limit`. Hết dữ liệu khi và chỉ khi `nextCursor` là `null`.
+      required: [items, nextCursor]
+
+    FriendRequestPage:
+      type: object
+      description: Lời mời `pending`, `created_at DESC`.
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/FriendCard'
+        nextCursor:
+          type: string
+          nullable: true
+          description: Opaque. `items` có thể ít hơn `limit`. Hết dữ liệu khi và chỉ khi `nextCursor` là `null`.
+      required: [items, nextCursor]

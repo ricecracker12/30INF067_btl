@@ -1,20 +1,11 @@
 import { BFF_ROUTES } from "./bff-contract"
 import { request } from "./http"
+import { pageQuery } from "./page-query"
 import type * as T from "./types"
 
-// Kiểu payload lấy từ hợp đồng `content-v1.yaml`. Sáu endpoint đi qua proxy chung `/bff/api/*` (Đ-E14) —
-// GĐ2 KHÔNG thêm route BFF nào. Proxy chuyển nguyên `new URL(request.url).search` sang API, nên query
-// string dựng ở đây là đủ.
-
-/** `cursor`/`limit` chỉ vào query string KHI CÓ — `?cursor=undefined` là 400 `errors.cursor`. */
-function pageQuery(opts: { cursor?: string | null; limit?: number }): string {
-  const params = new URLSearchParams()
-  // `nextCursor` là chuỗi opaque (Đ-2.11): truyền lại NGUYÊN VẸN, FE không tự dựng và không tự sửa.
-  if (opts.cursor) params.set("cursor", opts.cursor)
-  if (opts.limit !== undefined) params.set("limit", String(opts.limit))
-  const qs = params.toString()
-  return qs ? `?${qs}` : ""
-}
+// Kiểu payload lấy từ hợp đồng `content-v1.yaml`. Bảy endpoint (sáu của GĐ2 + `GET /feed` của GĐ4) đi qua
+// proxy chung `/bff/api/*` (Đ-E14) — không thêm route BFF nào. Proxy chuyển nguyên
+// `new URL(request.url).search` sang API, nên query string dựng ở đây là đủ.
 
 export const contentApi = {
   /**
@@ -62,4 +53,17 @@ export const contentApi = {
       `${BFF_ROUTES.api}/users/${encodeURIComponent(userId)}/posts${pageQuery(opts)}`,
       { signal }
     ),
+
+  /**
+   * Bảng tin của người gọi (GĐ4). Hết dữ liệu KHI VÀ CHỈ KHI `nextCursor === null` — trang ngắn hơn `limit`,
+   * kể cả trang rỗng, là hợp lệ (Đ-4.9). `mode: "suggested"` = chưa có kết nối nào (Đ-4.6). 503 khi quá tải
+   * (Đ-4.10) — màn hiện Thử lại, không đọc `Retry-After`.
+   */
+  feed: (
+    opts: { cursor?: string | null; limit?: number } = {},
+    signal?: AbortSignal
+  ) =>
+    request<T.FeedPage>(`${BFF_ROUTES.api}/feed${pageQuery(opts)}`, {
+      signal,
+    }),
 }

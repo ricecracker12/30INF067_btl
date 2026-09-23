@@ -1,9 +1,11 @@
 using System.Collections.Concurrent;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
+using SocialApp.SharedKernel.Configuration;
 using SocialApp.Modules.Content.DependencyInjection;
 using SocialApp.Modules.Identity.DependencyInjection;
 using SocialApp.Modules.Profile.DependencyInjection;
+using SocialApp.Modules.SocialGraph.DependencyInjection;
 using Testcontainers.PostgreSql;
 
 namespace SocialApp.IntegrationTests.Harness;
@@ -13,7 +15,7 @@ namespace SocialApp.IntegrationTests.Harness;
 /// Chia container để nhanh, KHÔNG chia database để test không nhìn thấy dữ liệu của nhau.
 ///
 /// Luật chọn hàm: test SỬA dữ liệu → <see cref="CreateDatabaseAsync"/>; test chỉ ĐỌC dữ liệu nền →
-/// <see cref="SeededContentDatabaseAsync"/> (cả ba module, từ GĐ2) hoặc <see cref="SeededIdentityDatabaseAsync"/>
+/// <see cref="SeededContentDatabaseAsync"/> (cả bốn module, từ GĐ4) hoặc <see cref="SeededIdentityDatabaseAsync"/>
 /// (chỉ Identity). Chạy chung DB giữa test sửa và test đọc là đỏ ngẫu nhiên theo thứ tự chạy (SEED-02 xóa một
 /// dòng role_permissions mà AuthZ matrix đang dựa vào).
 ///
@@ -49,8 +51,14 @@ public sealed class PostgresFixture : IAsyncLifetime
             await cmd.ExecuteNonQueryAsync();
         }
 
-        return new NpgsqlConnectionStringBuilder(_container.GetConnectionString()) { Database = name }
-            .ConnectionString;
+        // Trần pool ghi SẴN trong chuỗi (PERF-03): app chỉ thêm "Maximum Pool Size" khi chuỗi chưa có, và Npgsql khóa pool
+        // theo NGUYÊN VĂN chuỗi. Không ghi sẵn thì app (chuỗi đã thêm trần) và helper của test (chuỗi gốc) mở HAI pool cho mỗi
+        // database; kết nối rỗi gấp đôi và cả bộ test chạm max_connections 100 của container ("too many clients already").
+        return new NpgsqlConnectionStringBuilder(_container.GetConnectionString())
+        {
+            Database = name,
+            MaxPoolSize = PostgresPool.DefaultMaxPoolSize,
+        }.ConnectionString;
     }
 
     /// <summary>
@@ -69,13 +77,14 @@ public sealed class PostgresFixture : IAsyncLifetime
         })).Value;
 
     /// <summary>
-    /// Database đã migrate CẢ BA module + seed Identity, tạo MỘT lần cho mỗi <paramref name="key"/> rồi dùng lại.
+    /// Database đã migrate cả bốn module + seed Identity, tạo MỘT lần cho mỗi <paramref name="key"/> rồi dùng lại.
     /// Dành cho test chỉ ĐỌC dữ liệu nền và cần bảng của Profile/Content (AuthZ matrix từ GĐ2: TC-A03 gọi
     /// /api/v1/posts). Test nào SỬA dữ liệu nền thì vẫn dùng CreateDatabaseAsync — luật chọn hàm của GĐ1 không đổi.
     ///
-    /// Thứ tự Identity → Profile → Content là CỐ Ý ghi ra dù không có phụ thuộc nào giữa chúng (Đ-2.2: không FK
-    /// qua ranh giới schema). Ghi ra để người đọc sau không tưởng thứ tự là ngẫu nhiên rồi đảo nó khi thêm module
-    /// thứ tư ở GĐ5. Seeder vai trò/quyền nằm trong MigrateIdentityModuleAsync, không nằm trong AddIdentityModule —
+    /// Thứ tự Identity → Profile → Content → SocialGraph là CỐ Ý ghi ra dù không có phụ thuộc nào giữa chúng (Đ-2.2: không FK
+    /// qua ranh giới schema). Ghi ra để người đọc sau không tưởng thứ tự là ngẫu nhiên rồi đảo nó khi thêm module.
+    /// SocialGraph vào harness ở A3 (lệch L3) — trước A5, vì thiếu schema thì READ_02_05 nhận 500 khi BR-02 thật chạy.
+    /// Seeder vai trò/quyền nằm trong MigrateIdentityModuleAsync, không nằm trong AddIdentityModule —
     /// quên dòng migrate của Identity là RBAC-02b đỏ với triệu chứng trông hệt "handler hỏng".
     /// </summary>
     public Task<string> SeededContentDatabaseAsync(string key) =>
@@ -86,11 +95,13 @@ public sealed class PostgresFixture : IAsyncLifetime
                 .AddIdentityModule(cs)
                 .AddProfileModule(cs)
                 .AddContentModule(cs)
+                .AddSocialGraphModule(cs)
                 .BuildServiceProvider();
 
             await services.MigrateIdentityModuleAsync();   // migrate → seed vai trò/quyền
             await services.MigrateProfileModuleAsync();
             await services.MigrateContentModuleAsync();
+            await services.MigrateSocialGraphModuleAsync();
             return cs;
         })).Value;
 }

@@ -10,7 +10,10 @@ namespace SocialApp.SharedKernel.Authentication;
 /// bất kể bao nhiêu thiết bị.
 /// </summary>
 internal sealed class RedisTokenRevocationStore(
-    RedisConnection redis, IOptions<JwtOptions> jwt, ILogger<RedisTokenRevocationStore> logger)
+    RedisConnection redis,
+    IOptions<JwtOptions> jwt,
+    FailOpenLogThrottle failOpenLog,
+    ILogger<RedisTokenRevocationStore> logger)
     : ITokenRevocationStore
 {
     public const string KeyPrefix = "revoked:user:";
@@ -53,6 +56,13 @@ internal sealed class RedisTokenRevocationStore(
         }
     }
 
-    private void LogFailOpen(Exception? ex) =>
-        logger.LogWarning(ex, "Redis không sẵn sàng — bỏ qua kiểm tra thu hồi access token (fail-open, Mục 7.5)");
+    /// <summary>Chạy trên MỌI request có token khi Redis chết — giới hạn tần suất, xem <see cref="FailOpenLogThrottle"/>.</summary>
+    private void LogFailOpen(Exception? ex)
+    {
+        if (failOpenLog.ShouldLog("token-revocation", out var suppressed))
+            logger.LogWarning(
+                ex,
+                "Redis không sẵn sàng — bỏ qua kiểm tra thu hồi access token (fail-open, Mục 7.5); {Suppressed} lần cùng loại trước đó không ghi log",
+                suppressed);
+    }
 }

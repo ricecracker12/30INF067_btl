@@ -1,13 +1,15 @@
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using SocialApp.Modules.Content.Application.Feed;
 using SocialApp.Modules.Content.Application.Media;
 using SocialApp.Modules.Content.Application.Posts;
 using SocialApp.Modules.Content.Infrastructure;
 using SocialApp.Modules.Content.Infrastructure.Cleanup;
+using SocialApp.Modules.Content.Infrastructure.Feed;
 using SocialApp.Modules.Content.Infrastructure.Persistence;
-using SocialApp.SharedKernel.Contracts;
 
 namespace SocialApp.Modules.Content.DependencyInjection;
 
@@ -17,6 +19,9 @@ namespace SocialApp.Modules.Content.DependencyInjection;
 ///
 /// Mỏng như bản Profile và vì cùng một lý do: GĐ2 KHÔNG seed gì (Mục 5). Kho lưu trữ R2, worker dọn rác
 /// và các service của khối C/D đăng ký vào chính hàm này khi tới lượt — đừng mở hàm thứ hai.
+///
+/// Content tiêu thụ <c>IUserDirectory</c> (Profile đăng ký) và <c>IFriendshipReader</c> (SocialGraph đăng ký) —
+/// thiếu module chủ trong host thì request đầu tiên đọc bài nổ lúc resolve.
 /// </summary>
 public static class ContentModuleExtensions
 {
@@ -31,14 +36,6 @@ public static class ContentModuleExtensions
         // Cấu hình Npgsql + bảng lịch sử migration nằm ở ContentDbContextOptions — dùng chung với
         // design-time factory để hai đường không lệch nhau.
         services.AddDbContext<ContentDbContext>(options => options.UseContentNpgsql(connectionString));
-
-        // GĐ4 ĐỔI ĐÚNG DÒNG NÀY sang hiện thực thật của module SocialGraph và không chạm gì khác trong
-        // module Content (Đ-2.9, Mục 7.4). Tới lúc đó, nếu thấy mình đang sửa file khác trong Content để
-        // bật kết bạn thì contract này đã bị đi vòng.
-        //
-        // Cho tới lúc đó: bài để chế độ "friends" chỉ chính tác giả xem được — đó là hành vi ĐÃ CHỐT của
-        // GĐ2, không phải thiếu sót. Singleton vì AlwaysStrangers không giữ trạng thái gì.
-        services.AddSingleton<IFriendshipReader, AlwaysStrangers>();
 
         // C4 (Đ-2.13): worker dọn rác media. Đăng ký LUÔN, kiểm công tắc BÊN TRONG worker — đăng ký có điều kiện thì cấu hình
         // sai im lặng, còn kiểm bên trong thì log được một dòng "đang tắt" lúc khởi động. Mặc định tắt (Q-C2); staging bật bằng
@@ -76,15 +73,31 @@ public static class ContentModuleExtensions
         // D6. Đường ĐỌC tách khỏi đường ghi: hai service không dùng chung phụ thuộc nào ngoài store và mapper.
         services.AddScoped<PostReadService>();
 
+        // C3 (GĐ4). Scoped theo thứ nó cầm (IPostStore). Một chỗ dựng PostResponse cho mọi danh sách — GĐ3 cắm myReaction ở đây.
+        services.AddScoped<PostHydrator>();
+
+        // C2 (GĐ4). Scoped vì FeedStore giữ ContentDbContext.
+        services.AddScoped<IFeedStore, FeedStore>();
+
+        // C4 (GĐ4, Đ-4.8, Q-C2): công tắc bind có điều kiện — có IConfiguration (host) thì đọc Feed:PageCache:Enabled,
+        // ServiceCollection trần thì mặc định bật. Cùng khuôn FeedSourceCacheOptions của SocialGraph. Singleton vì chỉ cầm
+        // RedisConnection (singleton, HOST đăng ký bằng AddSharedKernelRedis). Chỗ dựng trần nào resolve PostService,
+        // FeedService hay IFeedPageCache thì thêm AddSharedKernelRedis (cổng 1 = fail-open) — cùng luật L12 của C1.
+        services.AddOptions<FeedPageCacheOptions>()
+            .Configure<IServiceProvider>((o, sp) =>
+                sp.GetService<IConfiguration>()?.GetSection(FeedPageCacheOptions.Section).Bind(o));
+        services.AddSingleton<IFeedPageCache, RedisFeedPageCache>();
+        services.AddScoped<FeedService>();
+
         return services;
     }
 
     /// <summary>
-    /// Chạy ở hook <c>--migrate</c> (service `migrate` one-shot lúc deploy), KHÔNG chạy khi api khởi động
+    /// Chạy ở hook <c>--migrate</c> (service <c>migrate</c> one-shot lúc deploy), KHÔNG chạy khi api khởi động
     /// (AGENTS.md Mục 13). Chỉ apply migration: Content không có dữ liệu nền (Mục 5).
     ///
     /// Ngoại lệ PHẢI thoát ra ngoài, người gọi không được bọc try/catch: migration hỏng thì bước deploy
-    /// phải thoát khác 0 để `set -e` ở CD dừng TRƯỚC `up -d`.
+    /// phải thoát khác 0 để <c>set -e</c> ở CD dừng TRƯỚC <c>up -d</c>.
     /// </summary>
     public static async Task MigrateContentModuleAsync(this IServiceProvider services, CancellationToken ct = default)
     {

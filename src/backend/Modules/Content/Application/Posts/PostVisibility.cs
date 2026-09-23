@@ -18,15 +18,14 @@ namespace SocialApp.Modules.Content.Application.Posts;
 public static class PostVisibility
 {
     /// <param name="areFriends">
-    /// Kết quả <c>IFriendshipReader.AreFriendsAsync</c>. Ở GĐ2 LUÔN <c>false</c> (<c>AlwaysStrangers</c>, Đ-2.9) nên bài
-    /// <c>friends</c> chỉ chính tác giả xem được — đó là hành vi ĐÃ CHỐT, không phải thiếu sót.
+    /// Kết quả <c>IFriendshipReader.AreFriendsAsync</c> — tra thật qua SocialGraph (Đ-4.3), đọc thẳng DB.
     /// </param>
     public static bool CanView(PostPrivacy privacy, Guid authorId, Guid actorId, bool areFriends) => privacy switch
     {
         PostPrivacy.Public => true,
         PostPrivacy.Private => authorId == actorId,
 
-        // Tác giả đứng trước `areFriends`: AlwaysStrangers trả false kể cả khi hai id bằng nhau (bản thân mình không
+        // Tác giả đứng trước `areFriends`: AreFriendsAsync trả false khi hai id bằng nhau (bản thân mình không
         // phải "bạn" của mình), nên bỏ vế đầu là tác giả không xem được bài friends của chính mình.
         PostPrivacy.Friends => authorId == actorId || areFriends,
 

@@ -6,7 +6,7 @@ using SocialApp.Modules.Content.Domain;
 
 namespace SocialApp.Modules.Content.Infrastructure.Configurations;
 
-/// <summary>Bảng <c>posts</c> (ENT-02, Mục 4): bốn CHECK, một index một phần, và global query filter của Đ-2.10.</summary>
+/// <summary>Bảng <c>posts</c> (ENT-02, Mục 4): bốn CHECK, hai index một phần (UC-09 + feed gợi ý Đ-4.6), và global query filter của Đ-2.10.</summary>
 internal sealed class PostConfiguration : IEntityTypeConfiguration<Post>
 {
     private const string StatusColumn = "status";
@@ -83,6 +83,15 @@ internal sealed class PostConfiguration : IEntityTypeConfiguration<Post>
             .IsDescending(false, true, true)
             // Chuỗi SQL thô này KHÔNG đi qua converter — lấy từ LowercaseEnum để không lệch (cạm bẫy 2 của A5).
             .HasFilter(LowercaseEnum.EqualsSql(StatusColumn, PostStatus.Published));
+
+        // Feed gợi ý (Đ-4.6, GĐ4): bài công khai mới nhất TOÀN HỆ THỐNG. idx_posts_author_created không phục vụ được
+        // truy vấn không có author_id. Hai literal lấy từ LowercaseEnum — chuỗi HasFilter không đi qua converter.
+        builder.HasIndex(x => new { x.CreatedAt, x.PostId })
+            .HasDatabaseName("idx_posts_public_recent")
+            .IsDescending(true, true)
+            .HasFilter(
+                $"{LowercaseEnum.EqualsSql(StatusColumn, PostStatus.Published)} AND " +
+                $"{LowercaseEnum.EqualsSql(PrivacyColumn, PostPrivacy.Public)}");
 
         // Xóa bài là xóa mềm (Đ-2.10): bài đã xóa biến khỏi MỌI truy vấn đọc qua DbSet, không phải nhớ
         // thêm 'where' ở từng chỗ.

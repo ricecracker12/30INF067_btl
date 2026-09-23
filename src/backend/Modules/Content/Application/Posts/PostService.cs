@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using SocialApp.Modules.Content.Application.Feed;
 using SocialApp.Modules.Content.Domain;
 using SocialApp.SharedKernel.Contracts;
 using SocialApp.SharedKernel.Results;
@@ -9,15 +10,23 @@ namespace SocialApp.Modules.Content.Application.Posts;
 /// <summary>
 /// Nghiệp vụ ghi của bài đăng. Nhận <see cref="IPostStore"/> chứ không nhận <c>ContentDbContext</c>, và bốn bề mặt trừu
 /// tượng của SharedKernel/BCL — nhờ vậy lớp này test được mà không cần Postgres lẫn R2.
+///
+/// C4 (GĐ4, Đ-4.8): cả ba thao tác ghi xóa khóa <c>feed:p1:</c> của TÁC GIẢ sau khi lưu thành công — với tác giả, trang đầu
+/// cache 30s trông như "đăng bài không lên". Truyền <see cref="PostCommit"/> chứ không truyền token của request: bài đã
+/// lưu thì client ngắt không được bỏ dở việc xóa (cùng bài học của <c>RelationshipService</c>).
 /// </summary>
 public sealed class PostService(
     IPostStore posts,
     IUserDirectory directory,
     IObjectStorage storage,
     PostResponseMapper mapper,
+    IFeedPageCache feedPageCache,
     TimeProvider clock,
     ILogger<PostService> logger)
 {
+    /// <summary>Token cho việc chạy SAU khi đã lưu — xem phần đầu lớp.</summary>
+    private static readonly CancellationToken PostCommit = CancellationToken.None;
+
     /// <summary>
     /// <c>POST /posts</c> — đường dài nhất của giai đoạn (SEQ-01 bước 6–7).
     ///
@@ -111,6 +120,8 @@ public sealed class PostService(
         if (!await posts.AddWithMediaAsync(post, attachments, ct))
             return ContentErrors.MediaAlreadyUsed;   // 409, POST-08
 
+        await feedPageCache.InvalidateAsync(actorId, PostCommit);
+
         // Không key, không URL (Mục 1.3 luật 9).
         logger.LogInformation("Đã tạo bài {PostId} với {MediaCount} ảnh", post.PostId, post.MediaCount);
 
@@ -164,6 +175,7 @@ public sealed class PostService(
 
         post.EditedAt = clock.GetUtcNow();
         await posts.SaveAsync(ct);
+        await feedPageCache.InvalidateAsync(actorId, PostCommit);
 
         logger.LogInformation("Đã sửa bài {PostId}", post.PostId);
 
@@ -202,6 +214,7 @@ public sealed class PostService(
         post.Status = PostStatus.Deleted;
         post.DeletedAt = clock.GetUtcNow();
         await posts.SaveAsync(ct);
+        await feedPageCache.InvalidateAsync(actorId, PostCommit);
 
         logger.LogInformation("Đã xóa mềm bài {PostId}", post.PostId);
 

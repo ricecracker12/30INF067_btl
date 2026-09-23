@@ -1,26 +1,52 @@
+"use client"
+
+import { use } from "react"
+
+import { RelationshipButtons } from "@/features/friend/relationship-buttons"
 import { UserPosts } from "@/features/post/user-posts"
 import { PublicProfile } from "@/features/profile/public-profile"
+import { useProfile } from "@/features/profile/use-profile"
 
-// Hồ sơ người khác + bài của họ (Q-E6). Chỉ ráp (Đ-E13) — và đây là LÝ DO tầng `app/` tồn tại: nó là chỗ
-// duy nhất được biết cả `features/profile` lẫn `features/post`, hai feature không được import chéo nhau.
+// Hồ sơ một người + bài của họ + nút quan hệ (GĐ2 Q-E6, GĐ4 E5). Chỉ ráp (Đ-E13) — tầng DUY NHẤT được biết cả
+// `features/profile` (ai đang đăng nhập), `features/friend` và `features/post`.
 //
-// `params` là Promise từ Next 15; server component `async` await nó rồi truyền chuỗi xuống hai client
-// component bên dưới.
-export default async function UserPage({
+// Q-E2 (chốt 2026-09-23): hồ sơ của CHÍNH MÌNH không có nút quan hệ — `GET /relationships/{mình}` là 400. Quyết ở đây,
+// không để `RelationshipButtons` tự bắt 400 (dùng mã lỗi để suy "đây là tôi" là đoán luật server từ status).
+//
+// `"use client"` từ GĐ4: cần `profile` của người đang đăng nhập từ store (khuôn `me/page.tsx`). Nằm dưới
+// `(with-profile)` nên `profile` luôn có khi trang này render. `params` vẫn là Promise — mở bằng `use()`.
+export default function UserPage({
   params,
 }: {
   params: Promise<{ userId: string }>
 }) {
-  const { userId } = await params
+  const { userId } = use(params)
+  const { profile } = useProfile()
+  const laChinhMinh = profile?.userId === userId
 
   return (
     <div className="flex flex-col gap-8">
-      <PublicProfile userId={userId} />
+      <PublicProfile
+        userId={userId}
+        actions={
+          laChinhMinh
+            ? undefined
+            : (nguoiKia) => (
+                <RelationshipButtons
+                  userId={userId}
+                  displayName={nguoiKia.displayName}
+                />
+              )
+        }
+      />
       <UserPosts
         userId={userId}
         title="Bài đã đăng"
-        // Không có nút mời đăng bài: đây là hồ sơ của người khác.
-        emptyMessage="Người này chưa có bài nào bạn xem được."
+        emptyMessage={
+          laChinhMinh
+            ? "Bạn chưa đăng bài nào."
+            : "Người này chưa có bài nào bạn xem được."
+        }
       />
     </div>
   )

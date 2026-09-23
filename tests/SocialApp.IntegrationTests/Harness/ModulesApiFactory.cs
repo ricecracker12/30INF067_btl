@@ -7,6 +7,7 @@ using Microsoft.Extensions.Hosting;
 using SocialApp.Modules.Content.DependencyInjection;
 using SocialApp.Modules.Identity.DependencyInjection;
 using SocialApp.Modules.Profile.DependencyInjection;
+using SocialApp.Modules.SocialGraph.DependencyInjection;
 using SocialApp.SharedKernel.Storage;
 
 namespace SocialApp.IntegrationTests.Harness;
@@ -17,7 +18,7 @@ namespace SocialApp.IntegrationTests.Harness;
 ///
 /// Theo khuôn <see cref="Auth.IdentityApiFactory"/> của GĐ1, khác ở bốn chỗ:
 /// <list type="number">
-/// <item>Database riêng mỗi lớp test, migrate CẢ BA module: test khối D SỬA dữ liệu (luật B1), và tầng 2 đọc
+/// <item>Database riêng mỗi lớp test, migrate CẢ BỐN module: test khối D SỬA dữ liệu (luật B1), và tầng 2 đọc
 /// <c>identity.role_permissions</c> nên Identity phải được seed dù không endpoint nào của khối D thuộc Identity.</item>
 /// <item><see cref="Storage"/> là <see cref="FakeObjectStorage"/> — chép nguyên cách <see cref="AuthZ.AuthZApiFactory"/>
 /// thay <see cref="IObjectStorage"/> (C5). CI không có khóa R2 và sẽ không bao giờ có.</item>
@@ -27,11 +28,13 @@ namespace SocialApp.IntegrationTests.Harness;
 /// không có FK sang <c>identity.users</c> (Đ-2.2), tầng 1 chỉ cần chữ ký hợp lệ và tầng 2 chỉ cần claim <c>role</c>. Đây là
 /// điểm khác GĐ1 có chủ đích: ở đó <c>/me</c> đọc bảng <c>users</c> nên <c>sub</c> phải là người có thật.</item>
 /// </list>
-/// Redis không tới được như <see cref="ApiFactory"/> — bên đọc thu hồi token fail-open nên tầng 1 vẫn chạy.
+/// Redis mặc định không tới được như <see cref="ApiFactory"/> — bên đọc thu hồi token fail-open nên tầng 1 vẫn chạy.
+/// B1 (GĐ4): test cache feed gọi <see cref="UseRedis"/> với Redis thật; không gọi thì Redis vẫn cổng 1.
 /// </summary>
 public sealed class ModulesApiFactory : WebApplicationFactory<Program>
 {
     private Task<string>? _database;
+    private string _redis = ApiFactory.UnreachableRedis;   // mặc định GIỮ NGUYÊN: mọi lớp cũ vẫn chạy không Redis
 
     /// <summary>
     /// C5: lưu trữ đối tượng giả. Test dựng sẵn object bằng <c>Storage.Put(...)</c> rồi gọi API thật. MỘT instance cho cả
@@ -45,12 +48,18 @@ public sealed class ModulesApiFactory : WebApplicationFactory<Program>
     /// </summary>
     public Task UseFreshDatabaseAsync(PostgresFixture postgres) => _database ??= CreateMigratedDatabaseAsync(postgres);
 
+    /// <summary>
+    /// B1 (GĐ4): Redis THẬT cho test cache feed. Gọi ở InitializeAsync, trước CreateClient đầu tiên — cùng luật với
+    /// UseFreshDatabaseAsync. Không gọi thì Redis là cổng 1: cache fail-open, và test cache xanh vì lý do sai.
+    /// </summary>
+    public void UseRedis(string connectionString) => _redis = connectionString;
+
     public string ConnectionString => _database is { IsCompletedSuccessfully: true } db
         ? db.Result
         : throw new InvalidOperationException("Gọi UseFreshDatabaseAsync trước CreateClient.");
 
     /// <summary>
-    /// Thứ tự Identity → Profile → Content CỐ Ý ghi ra dù không có FK chéo schema (Đ-2.2) — cùng thứ tự với
+    /// Thứ tự Identity → Profile → Content → SocialGraph CỐ Ý ghi ra dù không có FK chéo schema (Đ-2.2) — cùng thứ tự với
     /// <c>PostgresFixture.SeededContentDatabaseAsync</c> và với hook <c>--migrate</c> của Program.cs, để log đọc được theo
     /// một thứ tự không đổi. Seeder vai trò/quyền nằm trong <c>MigrateIdentityModuleAsync</c>: quên dòng đó là mọi test có
     /// <c>[RequirePermission]</c> đỏ với triệu chứng trông hệt "handler hỏng".
@@ -62,11 +71,13 @@ public sealed class ModulesApiFactory : WebApplicationFactory<Program>
             .AddIdentityModule(cs)
             .AddProfileModule(cs)
             .AddContentModule(cs)
+            .AddSocialGraphModule(cs)
             .BuildServiceProvider();
 
         await services.MigrateIdentityModuleAsync();   // migrate → seed vai trò/quyền → kiểm tra vai trò hệ thống
         await services.MigrateProfileModuleAsync();
         await services.MigrateContentModuleAsync();
+        await services.MigrateSocialGraphModuleAsync();
         return cs;
     }
 
@@ -74,7 +85,7 @@ public sealed class ModulesApiFactory : WebApplicationFactory<Program>
     {
         builder.UseEnvironment(Environments.Development);
         builder.UseSetting("ConnectionStrings:Postgres", ConnectionString);
-        builder.UseSetting("ConnectionStrings:Redis", ApiFactory.UnreachableRedis);
+        builder.UseSetting("ConnectionStrings:Redis", _redis);
         TestJwt.Configure(builder);
 
         builder.ConfigureTestServices(services =>

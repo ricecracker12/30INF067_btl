@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event"
 import { http, HttpResponse } from "msw"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
+import { BFF_PROBLEM_TYPES } from "@/lib/api/bff-contract"
 import { BFF_URL } from "@/lib/api/config"
 import { tokenStore } from "@/lib/auth/token-store"
 import { server } from "@/mocks/node"
@@ -101,6 +102,35 @@ describe("LoginForm — lỗi cấp form (Đ-E6)", () => {
     )
   })
 
+  it("503 BFF mất kho phiên (Redis): câu gián đoạn đăng nhập, KHÔNG mã tra cứu — đổi có chủ đích ở GĐ4 Q-E4", async () => {
+    // Hình dạng đúng như `sessionUnavailable()` của lib/bff/handlers.ts: `type` riêng, không `traceId` (BFF không có).
+    // Trước Q-E4 ca này ra câu chung "Đã xảy ra lỗi không mong muốn." — người dùng tưởng mình nhập sai gì đó.
+    server.use(
+      http.post(`${BFF_URL}/auth/login`, () =>
+        HttpResponse.json(
+          {
+            type: BFF_PROBLEM_TYPES.sessionUnavailable,
+            title: "Dịch vụ phiên đăng nhập tạm thời không sẵn sàng",
+            status: 503,
+          },
+          {
+            status: 503,
+            headers: { "Content-Type": "application/problem+json" },
+          }
+        )
+      )
+    )
+
+    await submit("an@example.com")
+
+    const alert = await screen.findByRole("alert")
+    expect(alert).toHaveTextContent(
+      "Dịch vụ đăng nhập tạm thời gián đoạn. Vui lòng thử lại sau ít phút."
+    )
+    expect(alert).not.toHaveTextContent("Mã tra cứu")
+    expect(replace).not.toHaveBeenCalled()
+  })
+
   it("cùng một lỗi hai lần liên tiếp: focus quay lại thông báo", async () => {
     const user = await submit("sai@example.com")
     const first = await screen.findByRole("alert")
@@ -162,8 +192,9 @@ describe("LoginForm — lỗi theo trường (Đ-E5)", () => {
 describe("LoginForm — thành công", () => {
   it.each([
     ["/me", "/me"],
-    ["//evil.example", "/me"],
-    ["https://evil.example/", "/me"],
+    // Chặn open redirect → về trang chủ "/" (GĐ4 Q-E1 đổi mặc định từ "/me").
+    ["//evil.example", "/"],
+    ["https://evil.example/", "/"],
     ["/posts/1?tab=comments", "/posts/1?tab=comments"],
   ])(
     "?next=%s → router.replace(%s), phiên authenticated",
@@ -177,9 +208,9 @@ describe("LoginForm — thành công", () => {
     }
   )
 
-  it("không có ?next → /me", async () => {
+  it("không có ?next → trang chủ \"/\" (feed — GĐ4 Q-E1, trước đó /me)", async () => {
     await submit("an@example.com")
-    await waitFor(() => expect(replace).toHaveBeenCalledWith("/me"))
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/"))
   })
 
   it("đang chờ: nút disabled, bấm thêm không gửi lần hai", async () => {

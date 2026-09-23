@@ -1,6 +1,13 @@
 import { expectTypeOf, test } from "vitest"
 
-import type { PostMedia, PostPage, PostPrivacy, PostResponse } from "../types"
+import type {
+  FeedMode,
+  FeedPage,
+  PostMedia,
+  PostPage,
+  PostPrivacy,
+  PostResponse,
+} from "../types"
 
 // Pin vài hình dạng DỄ TRÔI của content-v1.yaml. Hợp đồng đổi một trong số này thì file này đỏ
 // compile — không phải màn nào đó đỏ lúc chạy trên staging.
@@ -30,4 +37,23 @@ test("PostPrivacy là union ba mức chữ thường, khớp CHECK ck_posts_priv
 test("PostMedia có `url` đã ký và KHÔNG có `mediaKey` — key là chi tiết nội bộ (Đ-2.9)", () => {
   expectTypeOf<PostMedia>().toHaveProperty("url").toEqualTypeOf<string>()
   expectTypeOf<PostMedia>().not.toHaveProperty("mediaKey")
+})
+
+// --- GĐ4: `GET /feed` ---
+
+test("FeedPage.nextCursor là `string | null` — trang ngắn, kể cả rỗng, vẫn có thể còn trang sau (Đ-4.9)", () => {
+  expectTypeOf<FeedPage>()
+    .toHaveProperty("nextCursor")
+    .toEqualTypeOf<string | null>()
+})
+
+test("FeedPage.mode là `network | suggested` và bắt buộc — nhãn gợi ý đọc từ đây, không suy từ items (Đ-4.6)", () => {
+  expectTypeOf<FeedMode>().toEqualTypeOf<"network" | "suggested">()
+  expectTypeOf<FeedPage>().toHaveProperty("mode").toEqualTypeOf<FeedMode>()
+})
+
+test("FeedPage.items là PostResponse — GĐ3 thêm field vào bài thì feed tự có, không khai lại", () => {
+  expectTypeOf<FeedPage>()
+    .toHaveProperty("items")
+    .toEqualTypeOf<PostResponse[]>()
 })

@@ -1,6 +1,6 @@
 import "server-only"
 
-import type { BffSessionState } from "@/lib/api/bff-contract"
+import { BFF_PROBLEM_TYPES, type BffSessionState } from "@/lib/api/bff-contract"
 import type { TokenResponse } from "@/lib/api/types"
 
 import type { BffConfig } from "./config"
@@ -34,8 +34,15 @@ const unavailable = () =>
     "Đã xảy ra lỗi không mong muốn",
     "Không kết nối được máy chủ API."
   )
+// `type` riêng (Q-E4): cùng 503 với feed quá tải của API, nhưng người dùng làm việc khác — trình duyệt tách bằng `type`.
 const sessionUnavailable = () =>
-  problem(503, "Dịch vụ phiên đăng nhập tạm thời không sẵn sàng")
+  problem(
+    503,
+    "Dịch vụ phiên đăng nhập tạm thời không sẵn sàng",
+    undefined,
+    {},
+    BFF_PROBLEM_TYPES.sessionUnavailable
+  )
 const unauthenticated = () =>
   problem(401, "Chưa xác thực", "Phiên đăng nhập không còn hiệu lực.", {
     "Set-Cookie": clearSessionCookie(),

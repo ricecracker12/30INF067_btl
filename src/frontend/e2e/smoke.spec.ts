@@ -10,7 +10,7 @@ test("Chrome dùng để chạy", async ({ browser }) => {
   expect(browser.version()).not.toBe("")
 })
 
-test("vào trang gốc chưa đăng nhập: / → /me → /login?next=%2Fme, không lỗi console, Web Storage rỗng", async ({
+test("vào trang gốc chưa đăng nhập: / → /login?next=%2F, không lỗi console, Web Storage rỗng", async ({
   page,
 }) => {
   const loi: string[] = []
@@ -20,9 +20,10 @@ test("vào trang gốc chưa đăng nhập: / → /me → /login?next=%2Fme, kh�
   })
   page.on("pageerror", (e) => loi.push(e.message))
 
-  // `/` redirect phía server sang /me; guard ở client (không proxy.ts) đưa tiếp về /login.
+  // `/` là trang chủ feed dưới `(app)/(with-profile)` (GĐ4 Q-E1 — trước đó redirect server sang /me): guard ở client
+  // (không proxy.ts) đưa người chưa đăng nhập về /login với `next` là CHÍNH `/`. Khẳng định đổi CÓ CHỦ ĐÍCH.
   await page.goto("/")
-  await expect(page).toHaveURL(/\/login\?next=%2Fme$/)
+  await expect(page).toHaveURL(/\/login\?next=%2F$/)
   // `CardTitle` của kit render ra `div`, không phải thẻ heading, và chữ "Đăng nhập" còn nằm trên
   // nút submit nữa — nên bám `data-slot` của kit thay vì tìm theo text hay theo role heading.
   await expect(page.locator('[data-slot="card-title"]')).toHaveText("Đăng nhập")

@@ -24,7 +24,7 @@ quyết định mới, có ngày tháng, ghi vào tài liệu gốc trong cùng 
 - Đọc mục tương ứng trong hướng dẫn khối E trước khi làm một việc `E*` — mỗi mục có sẵn phần
   "cạm bẫy đã biết".
 
-## 1. Mười bốn điều không bao giờ làm
+## 1. Mười lăm điều không bao giờ làm
 
 | # | Cấm | Vì |
 |---|---|---|
@@ -37,15 +37,16 @@ quyết định mới, có ngày tháng, ghi vào tài liệu gốc trong cùng 
 | 7 | Tạo `app/api/**`, hoặc route FE dưới `/api`, `/health`, `/swagger` — Route Handler chỉ dưới `app/bff/**` | Đ-E11, Đ-E14 — apache đẩy hết `/api` về backend |
 | 8 | Guard hay logic đăng nhập trong `proxy.ts` — file đó CHỈ gắn CSP có nonce | Đ-E3, Đ-E15 |
 | 9 | `npm`/`yarn`, hoặc thêm `^`/`~` vào `package.json` | Đ-E9 — pnpm, ghim chính xác |
-| 10 | `features/` import chéo nhau; `lib/` hay `components/` import ngược lên `features/`, `app/` | Đ-E13 |
+| 10 | `features/` import chéo nhau; `lib/`, `components/` hay `hooks/` import ngược lên `features/`, `app/` | Đ-E13 |
 | 11 | Trả access/refresh token (hay `Set-Cookie` của API) ra trình duyệt từ bất kỳ route BFF nào | Đ-E14 — trình duyệt không bao giờ cầm JWT |
 | 12 | Module server của BFF thiếu `import "server-only"`, hoặc biến cấu hình server mang tiền tố `NEXT_PUBLIC_` | Đ-E14 — `NEXT_PUBLIC_*` bị nhúng vào bundle |
 | 13 | Script inline tự viết không mang nonce, `dangerouslySetInnerHTML` chứa script, thêm `'unsafe-inline'` / `'strict-dynamic'` / domain lạ vào CSP | Đ-E15 — CSP chặn; nới CSP là quyết định mới |
 | 14 | `useRef(new Thing())` — controller, subscription, timer, observer khởi tạo ở tham số của `useRef` | StrictMode mount lại trả về **đúng cái vừa bị hủy**; ESLint chặn. Tạo trong effect, ref chỉ là hộp đựng |
+| 15 | `<Button render={<Link …/>}>` cho điều hướng | Base UI dán ngữ nghĩa nút lên `<a>` và báo lỗi `nativeButton` — chỉ `console.error` ở bản dev, không test nào bắt (lọt từ GĐ2 tới GĐ4). Dùng `<Link className={buttonVariants(…)}>`; ESLint chặn (thêm 2026-09-23) |
 
 ## 2. Đặt file ở đâu (Đ-E13)
 
-Bốn tầng, phụ thuộc **một chiều**: `app/` → `features/` → `components/` + `lib/`.
+Bốn tầng, phụ thuộc **một chiều**: `app/` → `features/` → `components/` + `hooks/` + `lib/`.
 
 | Thư mục | Chứa gì | Nhận biết |
 |---|---|---|
@@ -53,11 +54,12 @@ Bốn tầng, phụ thuộc **một chiều**: `app/` → `features/` → `compo
 | `features/<màn>/` | Nghiệp vụ: form, card, composer, hook riêng của màn | Biết nghiệp vụ |
 | `components/ui/` | Kit shadcn | Sinh bởi CLI, không viết tay |
 | `components/form/`, `components/shell/` | UI dùng lại nhiều màn | **Không** biết nghiệp vụ |
+| `hooks/` | Hook React dùng lại nhiều màn (phân trang theo cursor…) — tầng ngang `components/` | **Không** biết nghiệp vụ; ESLint cấm import `@/features/*`, `@/app/*` (thêm 2026-09-23, GĐ4 Q-E8) |
 | `lib/api/`, `lib/auth/`, `lib/validation/` | Hạ tầng, logic không phải React | Test được bằng Vitest, không cần render |
 | `lib/bff/` | Server của BFF (Đ-E14): phiên, Redis, gọi API | `import "server-only"`; test môi trường `node` |
 
-Đặt file mới thì hỏi hai câu, theo thứ tự: *có biết nghiệp vụ không?* (không → `components/`) ·
-*có phải logic không phải React không?* (đúng → `lib/`). Còn lại vào `features/<màn>/`.
+Đặt file mới thì hỏi hai câu, theo thứ tự: *có biết nghiệp vụ không?* (không → `components/`, hoặc
+`hooks/` nếu là hook) · *có phải logic không phải React không?* (đúng → `lib/`). Còn lại vào `features/<màn>/`.
 
 **Tên `features/` theo màn, không theo module backend.** Chỉ `lib/api/<module>/` mới bám tên module
 1-1 (vì sinh từ `<nhóm>.yaml`). Một module đẻ ra nhiều màn: `Content` → `post/`, `comment/`,
@@ -94,6 +96,9 @@ Bốn tầng, phụ thuộc **một chiều**: `app/` → `features/` → `compo
 - Thông điệp lỗi lấy từ `errorMessage(context, error)` trong `lib/api/messages.ts`, ánh xạ theo
   `(endpoint, status)`. `detail` của server chỉ là dự phòng. 500 phải hiện `traceId`. Mất mạng
   không đoán nguyên nhân. 429 không hiện đồng hồ đếm ngược (server không gửi `Retry-After`).
+- Cùng status mà hai nghĩa (503 feed quá tải ≠ 503 BFF mất kho phiên) → phân nhánh theo **`type`** của Problem Details
+  (`PROBLEM_TYPES`, `hasProblemType` trong `lib/api/problem.ts`), **không** theo `title`. `type` mới phải khai trong
+  hợp đồng (API: `.yaml`; BFF: `bff-contract.ts`) — thêm 2026-09-23, GĐ4 Q-E4.
 
 ## 5. Token, phiên, guard (Đ-E14, Đ-E3)
 
@@ -159,17 +164,31 @@ Bốn tầng, phụ thuộc **một chiều**: `app/` → `features/` → `compo
   dán vào PR — cùng nếp "kiểm tay ghi bằng chứng" của khối D — **kèm bản Chrome đã chạy** (lệch Đ-E8:
   dùng Chrome hệ thống, bản khác nhau giữa các máy).
 - File test nằm **cạnh mã nguồn** (`lib/validation/auth.test.ts`). `test/` chỉ chứa **harness của Vitest**,
-  không chứa ca test nào: `setup.ts` và `server-only.ts` (shim cho alias `server-only`, Đ-E14) — *sửa câu
-  này 2026-09-21, trước đó ghi "chỉ chứa `setup.ts`" và đã lệch thực tế từ GĐ1*. `e2e/` chứa spec
+  không chứa ca test nào: `setup.ts`, `server-only.ts` (shim cho alias `server-only`, Đ-E14) và
+  `intersection-observer.ts` (stub điều khiển tay — jsdom không có `IntersectionObserver`; thêm 2026-09-23, GĐ4 E4)
+  — *sửa câu này 2026-09-21, trước đó ghi "chỉ chứa `setup.ts`" và đã lệch thực tế từ GĐ1*. `e2e/` chứa spec
   Playwright, `e2e/fixtures/` chứa ảnh thật commit vào repo (Q-E8).
 - **Màn nào sở hữu tài nguyên hủy được thì có ĐÚNG một ca `<StrictMode>`** (thêm 2026-09-21). `render(<X />)`
   mount một lần, Next dev mount → unmount → mount lại; lớp lỗi chỉ sống ở lần mount thứ hai nên không ca
   thường nào chạm tới. Ca đó khẳng định **trạng thái cuối đạt được**, **không đếm số request** — dưới
   StrictMode số request tăng gấp đôi một cách hợp lệ, trộn hai thứ vào một ca là tự làm ca test giòn.
-  Năm ca hiện có: `post-composer`, `me-profile`, `post-detail`, `user-posts`, `public-profile`.
+  Tám ca hiện có: `post-composer`, `me-profile`, `post-detail`, `user-posts`, `public-profile`, `feed-list`
+  (GĐ4 E4, L5), `relationship-buttons` (GĐ4 E2, L5), `friends-screen` (GĐ4 E3, L5). Tài nguyên phải là thứ **thật sự tạo lúc mount**: ở `feed-list` đó là `AbortController` của trang
+  đầu, không phải observer — observer chỉ tạo sau khi trang đầu về, có ca thường riêng canh việc tạo lại nó.
 - **`waitFor` chờ một handler có `delay` thì ghi `timeout` viết tay.** Mặc định 1s đủ khi chạy riêng file
   và KHÔNG đủ khi chạy cả bộ — ca `Xem thêm` của `user-posts` đỏ ~1/3 lượt vì vậy (đo 2026-09-21). Nới
-  thời gian chờ không làm ca yếu đi; khẳng định vẫn y nguyên.
+  thời gian chờ không làm ca yếu đi; khẳng định vẫn y nguyên. Thời hạn **cả ca** (`testTimeout` trong
+  `vitest.config.ts`) phải cao hơn hẳn mức chờ đó — đặt 15s (2026-09-23): mặc định 5s bằng đúng mức chờ tay, nên
+  lượt chờ không bao giờ dùng hết quỹ. **Nới thời gian chờ không chữa được ca đỏ ngẫu nhiên do code** — trước khi nới, đo
+  xem ca đỏ vì CHẬM hay vì trạng thái KHÔNG BAO GIỜ tới (xem gạch dưới).
+- **Ref mà event handler đọc (vd. `currentRef` của hook phân trang) đồng bộ bằng `useLayoutEffect`, không `useEffect`**
+  (thêm 2026-09-23, PR #21). `useEffect` chạy SAU khi DOM đã vẽ, trong task riêng — nút đã hiện mà ref còn cũ, cú bấm rơi
+  vào khe đó thì handler lặng lẽ không làm gì. Đo được: `user-posts` "bấm Xem thêm hai lần…" đỏ trên CI đúng những lượt
+  `loadMore` đọc ref `null` (2/10 lượt trước sửa, 0/15 sau). Hai lần trước lượt đỏ này bị chẩn đoán nhầm là "máy bận".
+- **Stub `IntersectionObserver` không tự bắn: chờ có observer SỐNG rồi mới gọi `kichHoatGiaoNhau`** (thêm 2026-09-23).
+  Observer tạo trong `useEffect`, chạy SAU khi DOM đã vẽ — `waitFor` thấy nội dung là trả về trong khi observer có thể
+  chưa tồn tại, bắn lúc đó là bắn vào khoảng không và ca chờ tới hết giờ. Trông y hệt "thiếu thời gian chờ" — ở GĐ4 E4
+  đã bị chẩn đoán nhầm như vậy (`cuonToiDay` trong `feed-list.test.tsx` là khuôn đúng).
 - Thêm một luật ESLint hay một cổng CI thì phải **thử cho đỏ một lần** rồi khôi phục — `git status`
   sạch trước và sau.
 

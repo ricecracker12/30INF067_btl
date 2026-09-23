@@ -23,6 +23,15 @@ public sealed class FakeObjectStorage : IObjectStorage
     public int HeadCalls => _headCalls;
     private int _headCalls;
 
+    /// <summary>
+    /// B1 (GĐ4, lệch L2): bật thì mỗi lần ký GET ra một URL KHÁC (<c>?sig=&lt;n&gt;</c>) — để FEED-10 phân biệt "hydrate ký lại" với
+    /// "cache trả URL cũ". Tắt mặc định: AvatarTests và UpsertProfileTests so nguyên chuỗi URL.
+    /// </summary>
+    public bool DistinctGetUrls { get; set; }
+
+    public int PresignGetCalls => _presignGetCalls;
+    private int _presignGetCalls;
+
     /// <summary>Key đã bị xóa, theo thứ tự — cho test của worker dọn rác (C4).</summary>
     public List<string> Deleted { get; } = [];
 
@@ -38,7 +47,11 @@ public sealed class FakeObjectStorage : IObjectStorage
     public string CreatePresignedPut(string key, string contentType, long contentLength) =>
         $"https://fake.invalid/put/{key}";
 
-    public string CreatePresignedGet(string key) => $"https://fake.invalid/get/{key}";
+    public string CreatePresignedGet(string key)
+    {
+        var n = Interlocked.Increment(ref _presignGetCalls);
+        return DistinctGetUrls ? $"https://fake.invalid/get/{key}?sig={n}" : $"https://fake.invalid/get/{key}";
+    }
 
     public Task<ObjectHead?> HeadAsync(string key, CancellationToken ct = default)
     {

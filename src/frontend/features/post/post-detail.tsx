@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { useCallback, useEffect, useState } from "react"
 
 import { FormAlert } from "@/components/form/form-alert"
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { contentApi } from "@/lib/api/content-api"
@@ -122,9 +122,10 @@ function PostNotFound() {
         <p className="text-sm text-muted-foreground">
           Bài có thể đã bị xóa, hoặc bạn không có quyền xem bài này.
         </p>
-        <Button variant="outline" render={<Link href="/me" />}>
+        {/* LINK thật mang style nút (khuôn `verify-email.tsx`) — không `<Button render={<Link/>}>` (lỗi `nativeButton`). */}
+        <Link href="/me" className={buttonVariants({ variant: "outline" })}>
           Về trang của tôi
-        </Button>
+        </Link>
       </CardContent>
     </Card>
   )

@@ -28,6 +28,8 @@ namespace SocialApp.IntegrationTests;
 /// <item>Hai thuộc tính abstract bên dưới, và tên nhóm lấy từ hằng <c>&lt;Module&gt;ApiGroup.Name</c> chứ không gõ chuỗi:
 /// tên đó phải khớp cả ba chỗ (<c>[ApiExplorerSettings]</c> · <c>SwaggerDoc</c> · tên file yaml).</item>
 /// </list>
+/// Điều 1, và việc mỗi <c>Modules/*/Presentation/*-v1.yaml</c> có dòng <c>Content Include</c> + đúng một lớp con, do
+/// <see cref="ContractGateCoverageTests"/> canh (GĐ4) — quên thì cổng đỏ, không còn chỉ dựa vào trí nhớ.
 /// </summary>
 public abstract class ContractTestsBase(ApiFactory factory)
 {

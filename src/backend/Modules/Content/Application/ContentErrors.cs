@@ -62,4 +62,23 @@ public static class ContentErrors
     /// một loại lỗi có hai cách nói.
     /// </summary>
     public const string DuplicateMediaKeysMessage = "Một ảnh không được đính kèm hai lần.";
+
+    /// <summary>
+    /// 503 của <c>GET /feed</c> khi truy vấn feed vượt 5s (Đ-4.10, UC-08 luồng E3): "đông quá, thử lại", không phải 500 "hệ
+    /// thống hỏng". <c>feed.unavailable</c> là mã NỘI BỘ — Problem Details không mang <c>Error.Code</c>. Title đặt riêng vì
+    /// bảng mặc định gộp mọi <c>&gt;= 500</c> vào "Đã xảy ra lỗi không mong muốn" — sai nghĩa với 503. Header
+    /// <c>Retry-After: 5</c> gắn ở controller: <c>Result → Problem</c> không gắn header nào. Không hứa thời điểm trong câu chữ.
+    ///
+    /// <c>type</c> riêng (<see cref="FeedOverloadedType"/>, GĐ4 Q-E4): 503 tới trình duyệt còn có thể là BFF mất kho phiên —
+    /// FE phân nhánh theo <c>type</c>, không theo <c>title</c> (nhãn hiển thị, không phải định danh).
+    /// </summary>
+    public static readonly Error FeedUnavailable = new(
+        "feed.unavailable",
+        "Bảng tin đang có quá nhiều người truy cập. Vui lòng thử lại.",
+        503,
+        Title: "Bảng tin đang quá tải",
+        Type: FeedOverloadedType);
+
+    /// <summary><c>type</c> của 503 feed quá tải — khai ở <c>FeedOverloadedProblem</c> trong <c>content-v1.yaml</c>.</summary>
+    public const string FeedOverloadedType = "urn:socialapp:problem:feed-overloaded";
 }

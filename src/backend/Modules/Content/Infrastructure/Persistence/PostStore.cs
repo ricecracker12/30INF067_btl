@@ -66,6 +66,12 @@ public sealed class PostStore(ContentDbContext db) : IPostStore
     /// thẳng <c>idx_posts_author_created</c>. LINQ không có so sánh bộ nên tách thành hai vế; <c>Guid</c> không có toán
     /// tử <c>&lt;</c> trong C# nên dùng <c>CompareTo</c> (xem "Thực tế thi công" của D6 về việc Npgsql có dịch được
     /// không).
+    ///
+    /// <b><c>Status == Published</c> tường minh</b> (Đ-4.11, GĐ4): query filter chỉ nói <c>status &lt;&gt; 'deleted'</c>, và
+    /// Postgres không suy ra được <c>status = 'published'</c> từ đó — nên không chứng minh được điều kiện của index MỘT PHẦN
+    /// <c>idx_posts_author_created</c>. <c>EXPLAIN</c> trên 1M bài: thiếu vế này là <c>Parallel Seq Scan</c> cả bảng
+    /// (~29 ms, ~16.700 buffer), có vế này là <c>Index Scan</c> (~0,2 ms, 32 buffer). Kèm theo: bài <c>hidden</c> (GĐ6)
+    /// không lọt vào trang cá nhân.
     /// </summary>
     public async Task<IReadOnlyList<Post>> ListByAuthorAsync(
         Guid authorId, Guid actorId, bool areFriends, PostCursor? cursor, int take, CancellationToken ct)
@@ -73,6 +79,7 @@ public sealed class PostStore(ContentDbContext db) : IPostStore
         var query = db.Posts
             .AsNoTracking()
             .Where(p => p.AuthorId == authorId)
+            .Where(p => p.Status == PostStatus.Published)
             .Where(p => p.Privacy == PostPrivacy.Public
                      || p.AuthorId == actorId
                      || (areFriends && p.Privacy == PostPrivacy.Friends));
@@ -109,6 +116,23 @@ public sealed class PostStore(ContentDbContext db) : IPostStore
         return rows
             .GroupBy(m => m.OwnerId)
             .ToDictionary(g => g.Key, g => (IReadOnlyList<MediaAttachment>)[.. g.OrderBy(m => m.Position)]);
+    }
+
+    /// <summary>
+    /// Đường trúng cache của feed (C4). <c>Status == Published</c> tường minh cùng lý do Đ-4.11 — query filter chỉ loại
+    /// <c>deleted</c>, còn bài <c>hidden</c> (GĐ6) cũng không được lên feed. Tra theo PK nên không cần index một phần.
+    /// </summary>
+    public async Task<IReadOnlyList<Post>> FindManyPublishedAsync(IReadOnlyCollection<Guid> postIds, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(postIds);
+
+        if (postIds.Count == 0)
+            return [];
+
+        return await db.Posts
+            .AsNoTracking()
+            .Where(p => postIds.Contains(p.PostId) && p.Status == PostStatus.Published)
+            .ToListAsync(ct);
     }
 
     /// <summary>

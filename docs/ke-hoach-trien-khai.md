@@ -368,6 +368,14 @@ còn biên độ thêm index/cache nếu trượt; và thứ cắt được thì
 > (xem "Đường lõi & thứ tự ưu tiên"). Kế hoạch gốc đã chừa sẵn: *"GĐ3 chèn linh hoạt sau GĐ2"*.
 
 ### GĐ 4 — Social Graph + News Feed: UC-10/11, UC-13, UC-08 (Ngày 9–13) ⚠️ trọng điểm hiệu năng
+
+> 📄 **Tài liệu thi công chi tiết: [`giai-doan-4.md`](./giai-doan-4/giai-doan-4.md)** — 16 quyết định thiết kế
+> (Đ-4.1–Đ-4.16, trạng thái đề xuất, chốt ở cổng mở), DDL schema `socialgraph`, truy vấn feed `LATERAL`, hai tầng cache
+> chỉ lưu `post_id`, môi trường đo k6 riêng, ba chỗ dựng sẵn cho GĐ3 cắm vào, lịch một người làm tuần tự, checklist nghiệm thu.
+>
+> **Ba chỗ lệch mục này, có chủ đích:** feed có thêm **bài của chính mình** và **feed gợi ý** cho người chưa có kết nối
+> (UC-08 luồng A1 mà mục này bỏ sót); dòng DI `AlwaysStrangers` bị **xóa** ở Content chứ không "đổi tại chỗ" (Content không
+> được thấy kiểu của SocialGraph); **một người** làm cả hai lane, tuần tự, ước lượng ~8 ngày làm việc thay vì 4.
 - **Làm gì:** Kết bạn Pending→Accepted (FR-010/011, BR-03), theo dõi 1 chiều (FR-012),
   News Feed fan-out-on-read + cache Redis (FR-009, BR-02/07, ADR-004).
 - **Làm như nào:**
@@ -398,6 +406,14 @@ còn biên độ thêm index/cache nếu trượt; và thứ cắt được thì
   (NFR-PERF-01) — mốc kiểm chứng GOAL-01, chạy lại cuối GĐ8 sau tối ưu index.
 
 ### GĐ 3 — Tương tác: bình luận 3 cấp + cảm xúc: UC-06, UC-07 (Ngày 13–15)
+
+> 📄 **Tài liệu thi công chi tiết: [`giai-doan-3.md`](./giai-doan-3/giai-doan-3.md)** — 14 quyết định thiết kế
+> (Đ-3.1–Đ-3.14, trạng thái đề xuất, chốt ở cổng mở), migration chỉ-thêm của `comments`, khuôn giao dịch bộ đếm, hợp
+> đồng 8 endpoint mới trong `content-v1`, kế hoạch 3 người theo ngày, checklist nghiệm thu.
+>
+> **Hai chỗ lệch mục này, có chủ đích:** bài không được xem trả **404** chứ không 403 cho cả đọc/viết bình luận lẫn thả
+> cảm xúc (Đ-3.3, quy ước 3b của GĐ1); `PUT /reactions` tách thành `PUT`/`DELETE …/{đối tượng}/reactions/me` (Đ-3.7).
+> **Chốt 2026-09-21:** GĐ3 làm **sau** GĐ4 (giữ thứ tự gốc), **một người** làm cả hai lane, ước lượng ~6 ngày làm việc.
 - **Làm gì:** Bình luận ≤1000 ký tự, trả lời tối đa 3 cấp, xóa giữ nhánh (FR-007, BR-08);
   thả/đổi/gỡ 1 cảm xúc/đối tượng + cập nhật bộ đếm (FR-008, BR-05).
 - **Làm như nào:**
