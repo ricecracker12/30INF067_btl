@@ -204,8 +204,11 @@ UptimeRobot vì gói miễn phí đủ dùng: 50 monitor, chu kỳ 5 phút, cả
 2. *Add New Monitor* → **HTTP(s)** → URL `https://mxh.banhgao.net/health/ready` → tên `SocialApp staging ready`
    → interval **5 phút** (giới hạn gói miễn phí; đủ cho con số tháng).
    Nếu dịch vụ có loại **Keyword**, dùng keyword `Healthy` như Kuma.
-3. *Alert Contacts*: thêm **Telegram** (dịch vụ sẽ hướng dẫn gắn bot của họ vào group ở B3) và **email nhóm**.
-   Gắn cả hai vào monitor.
+3. *Alert Contacts*: gắn **email nhóm** vào monitor.
+   > **Thực tế thi công (2026-09-23):** gói miễn phí của UptimeRobot **không cho gửi Telegram** (yêu cầu premium),
+   > nên monitor ngoài chỉ báo qua email. Chấp nhận được: vai trò của nó là **nguồn con số uptime** (Đ-7.3), còn
+   > cảnh báo tức thì đã có Kuma → Telegram. Điều kiện đi kèm: email phải là **hộp thư nhóm** cả ba người đọc —
+   > nếu VM chết cả máy thì Kuma im lặng cùng, và email này là **kênh duy nhất** còn báo được.
 4. Sau D4: thêm monitor cho domain production. Từ lúc đó, **monitor production** là con số báo cáo.
 
 ### Kết quả mong đợi — checklist nghiệm thu B2
