@@ -122,8 +122,8 @@ localhost; đừng bao giờ đổi thành `0.0.0.0` "cho tiện".)*
 | `staging · api ping` | HTTP(s) | `https://mxh.banhgao.net/api/v1/ping` · expect 200 | Chứng minh route `/api` không bị Next nuốt (cạm bẫy ProxyPass đã ghi từ GĐ1) |
 | `staging · frontend` | HTTP(s) | `https://mxh.banhgao.net/login` · expect 200 | Frontend chết mà API sống thì người dùng vẫn không dùng được |
 
-Sau khi có D4 (stack production), **thêm ba monitor y hệt** cho domain production — và từ lúc đó monitor
-production mới là thứ báo cáo.
+Staging là môi trường cuối (Đ-7.4, sửa 2026-09-23) nên **ba monitor này chính là thứ báo cáo** — không có monitor
+production nào thêm sau.
 
 ### Kết quả mong đợi — checklist nghiệm thu B1
 
@@ -209,7 +209,7 @@ UptimeRobot vì gói miễn phí đủ dùng: 50 monitor, chu kỳ 5 phút, cả
    > nên monitor ngoài chỉ báo qua email. Chấp nhận được: vai trò của nó là **nguồn con số uptime** (Đ-7.3), còn
    > cảnh báo tức thì đã có Kuma → Telegram. Điều kiện đi kèm: email phải là **hộp thư nhóm** cả ba người đọc —
    > nếu VM chết cả máy thì Kuma im lặng cùng, và email này là **kênh duy nhất** còn báo được.
-4. Sau D4: thêm monitor cho domain production. Từ lúc đó, **monitor production** là con số báo cáo.
+4. Monitor này theo dõi staging — môi trường cuối — nên **chính nó là con số báo cáo** (Đ-7.4).
 
 ### Kết quả mong đợi — checklist nghiệm thu B2
 
@@ -274,5 +274,5 @@ Sau khi commit, cập nhật `README.md` Mục 1: dòng GĐ7 ghi **"Khối B (đ
 |---|---|
 | `docker-compose.ops.yml` project `socialapp-ops` | **Khối C** thêm prometheus/grafana/node-exporter vào đúng file này |
 | Kênh Telegram | **C5** — Grafana alerting đổ về cùng group |
-| Ba monitor staging | **D4** — nhân bản cho production |
+| Ba monitor staging | **Báo cáo GOAL-04** — staging là môi trường cuối (Đ-7.4) |
 | Ngày bắt đầu đồng hồ | **F2** — mốc tính con số GOAL-04 trong báo cáo |
