@@ -659,9 +659,7 @@ FriendRequestPage     { items: [FriendCard], nextCursor: string | null }        
   (tên `UserCard`): hai file hợp đồng độc lập, không `$ref` chéo file — `ContractTestsBase` đọc từng file riêng, và `$ref`
   chéo file là một cổng CI phải hiểu thêm một thứ.
 - Cursor của `FriendPage` dùng cùng bộ mã hóa keyset của GĐ2 (`thời điểm|id của người kia`), mờ với client.
-  Lệch B.6 (nhóm chốt, L13 của hướng dẫn B+C+D): cùng **cách mã hóa**, không cùng **kiểu** — `FriendCursor` là bản chép
-  của `PostCursor` trong `SocialGraph/Application/`. Import `PostCursor` của Content là import chéo module
-  (`ModuleBoundaryTests` chặn), cùng lập luận L5 khối A (`LowercaseEnum`).
+  Cùng cách mã hóa, không cùng kiểu: `FriendCursor` là bản chép của `PostCursor` (lệch L13, ghi ở B.6 `D5`).
 - `GET /relationships/{userId}` với chính mình → 400 (không có quan hệ nào với chính mình để hỏi).
 
 **Chốt lúc viết hợp đồng (2026-09-22, cổng mở).** Bảng trên để ngỏ năm chỗ; `socialgraph-v1.yaml` chốt như sau:
@@ -1181,6 +1179,10 @@ Idempotent, 204. Xóa cache sau `COMMIT` chỉ khi có dòng bị xóa.
 ### D5 — `GET /friends` + `GET /friends/requests?direction=`
 
 Keyset theo `accepted_at` / `created_at` + id người kia; một lô `IUserDirectory` cho cả trang. `direction` thiếu hoặc lạ → 400.
+
+Lệch B.4/B.5/B.6 (nhóm chốt, L13): cursor dùng cùng **cách mã hóa** keyset của GĐ2 (Mục 8.1), nhưng không dùng lại **kiểu**
+`PostCursor` — `FriendCursor` là bản chép trong `SocialGraph/Application/Relationships/`. `PostCursor` thuộc Content; import
+nó là import chéo module (`ModuleBoundaryTests` chặn). Cùng lập luận L5 khối A (`LowercaseEnum`).
 
 ### D6 — `PUT` + `DELETE /follows/{userId}`
 

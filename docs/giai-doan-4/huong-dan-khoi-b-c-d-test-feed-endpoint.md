@@ -1247,7 +1247,7 @@ Mỗi dòng: sửa tạm → chạy lọc → thấy **đúng** test dự kiến
 ### 17.5 Luật repo
 
 - [x] Mười lăm chỗ lệch L1–L15 và Q-B4, Q-C1, Q-C2 đã ghi ngược vào `giai-doan-4.md`, mỗi cái ở commit của nó — trừ L13,
-      ghi muộn ở commit tự rà B.9
+      ghi muộn sau tự rà B.9 (dưới B.6 `D5`)
 - [x] Năm mục tự rà B.9 đã chạy trước khi mở PR, kết quả vào "Thực tế thi công"
 - [x] Không kỳ vọng test nào đọc hằng code sản phẩm; không `Skip` mới
 - [x] Không secret trong diff; khóa JWT đo không ở repo/`deploy/.env`; `users.csv` không commit
@@ -1696,4 +1696,5 @@ Rà kèm các dòng còn trống của Mục 17.1 và 17.5:
   lệ không vi phạm: `e166b7b` chỉ sửa tài liệu (luật chỉ bắt `detect-changes:` với commit chạm code), `093afc7` là tài liệu
   GĐ5 của người khác vào qua `develop`, `71a70e4` là commit "Merge" không đổi file.
 - L1–L15 và Q-B4, Q-C1, Q-C2: đối chiếu từng mã với `giai-doan-4.md` — thiếu đúng **L13** (`FriendCursor` chép `PostCursor`).
-  Đã thêm vào Mục 8.1 gốc trong commit này.
+  Bản ghi đầu (`42df85b`) đặt ở Mục 8.1 với tiền tố lệch nếp; sửa ở commit kế tiếp: ghi chuẩn dưới B.6 `D5` với tiền tố
+  "Lệch B.4/B.5/B.6 (nhóm chốt, L13)" như L12 dưới C1, Mục 8.1 chỉ còn một câu trỏ sang.
