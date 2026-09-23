@@ -2,8 +2,11 @@ using System.Globalization;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
+using Npgsql;
 using SocialApp.IntegrationTests.Harness;
+using SocialApp.Modules.Content.Infrastructure;
 using SocialApp.Modules.Identity.Application.Email;
 using SocialApp.SharedKernel.Contracts;
 using SocialApp.SharedKernel.Storage;
@@ -367,5 +370,21 @@ public sealed class StartupConfigurationTests
         Assert.Single(readers);
         Assert.IsNotType<AlwaysStrangers>(readers[0]);
         Assert.NotNull(scope.ServiceProvider.GetRequiredService<IFeedSourceReader>());
+    }
+
+    /// <summary>
+    /// PERF-03 (báo cáo k6 sơ bộ GĐ4 Mục 5): chuỗi kết nối KHÔNG ghi trần pool thì host đặt 80, không để mặc định 100 của
+    /// Npgsql — bằng đúng max_connections 100 của Postgres, và lúc Redis dừng pool chiếm hết chỗ của migrate/backup/psql.
+    /// Đọc từ DbContext THẬT của host: canh chỗ nối trong Program.cs, không chỉ hàm PostgresPool (unit test đã canh hàm).
+    /// </summary>
+    [Fact]
+    public void Chuoi_ket_noi_khong_ghi_tran_pool_thi_host_dat_80()
+    {
+        using var factory = new ApiFactory();
+        using var scope = factory.Services.CreateScope();
+
+        var connectionString = scope.ServiceProvider.GetRequiredService<ContentDbContext>().Database.GetConnectionString();
+
+        Assert.Equal(80, new NpgsqlConnectionStringBuilder(connectionString).MaxPoolSize);
     }
 }

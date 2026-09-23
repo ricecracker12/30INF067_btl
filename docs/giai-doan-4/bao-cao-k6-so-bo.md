@@ -9,12 +9,15 @@
 **Đạt sơ bộ.** Lượt (2), con số kết luận (cache trang đầu **tắt**), cho **p95 = 40,6 ms**, p99 = 62,1 ms, **0 % lỗi** trên
 251.440 request, tức khoảng 1/12 ngưỡng 500 ms. Lượt (3) (Redis dừng ở phút 4) giữ **0 % lỗi**, p95 = 308 ms.
 
+**Sau hai sửa của Mục 5** (code cuối, đo lại 2026-09-23): lượt (2) **p95 37,6 ms**, 0 % lỗi; lượt (3) **p95 190 ms**, p99
+300 ms, 0 % lỗi, kết nối DB đỉnh 81 thay vì chạm trần 100, 27 dòng Warning thay vì khoảng 436.000.
+
 Hai vấn đề lộ ra ở lượt (3), dù ngưỡng đã đạt; cách xử lý và số trước/sau ở Mục 5:
 
 1. **Redis dừng thì kết nối DB chạm trần.** Pool Npgsql mặc định 100 bằng đúng `max_connections` 100 của Postgres, nên app
    chiếm hết 100 chỗ. Chính app không lỗi, nhưng `psql`, `migrate` hay một instance thứ hai bị từ chối (`too many clients
-   already`). Đây là PERF-03. Đã đo lại với `Maximum Pool Size=80` (Mục 5): đỉnh 81, p95 269 ms, 0 % lỗi, không kém
-   pool 100. Đề xuất đặt 80 cho staging/production.
+   already`). Đây là PERF-03. **Đã sửa**: app tự đặt `Maximum Pool Size=80` khi chuỗi kết nối không ghi (Mục 5.3). Kết
+   nối đỉnh 81, bộ đếm `psql` không lần nào bị từ chối, 0 % lỗi.
 2. **Redis dừng thì log bị ngập.** Mỗi request ghi 3 dòng Warning fail-open (thu hồi token, cache nguồn, cache trang
    đầu): khoảng 436.000 dòng trong 4 phút, đúng lúc api chạm trần 2 CPU. **Đã sửa**: mỗi loại tối đa một dòng mỗi 30s, kèm
    số lần bỏ qua. Lượt (3) đo lại: 27 dòng Warning, p95 308/264 → **201 ms**, trung bình 90/80 → 60 ms.
@@ -116,6 +119,23 @@ với image build từ code đã sửa, **pool để 100** như hai lần đo đ
 - Kết nối DB không còn chạm trần (84): request xong nhanh hơn thì giữ kết nối ngắn hơn. Nhưng 84 vẫn chỉ cách trần 16,
   nên trần pool vẫn cần (Mục 5.1 và 5.3).
 
+### 5.3 Trần pool 80 mặc định trong code (commit `fix(gd4-c)` sau 5.2)
+
+`PostgresPool.WithDefaultMaxPoolSize` (SharedKernel) thêm `Maximum Pool Size=80` khi chuỗi kết nối chưa ghi; ghi rồi thì
+giữ nguyên. Compose đo **không** ghi trần nữa, để đo đúng mặc định của code (đã kiểm biến môi trường của container: không
+có khóa pool). Đo lại cả lượt (2) lẫn lượt (3) trên code cuối, có cả sửa 5.2:
+
+| Lượt | Code | Request | p50 | p95 | p99 | Lỗi | Kết nối DB đỉnh | Dòng Warning |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | --- | ---: |
+| (2) | `e50ed66` (Mục 4) | 251.440 | 11,6 ms | 40,6 ms | 62,1 ms | 0 % | 64 | 0 |
+| **(2)** | **cuối** | 251.852 | 11,0 ms | **37,6 ms** | 59,3 ms | **0 %** | 68 | 0 |
+| (3) | `e50ed66`, pool 100 (Mục 4) | 240.017 | 17,3 ms | 308,3 ms | 456,0 ms | 0 % | chạm trần 100 | ≈ 436.000 |
+| **(3)** | **cuối** | 245.792 | 15,6 ms | **190,2 ms** | **299,6 ms** | **0 %** | **81** (80 app + 1 bộ đếm), bộ đếm không lần nào bị từ chối | **27** |
+
+- Lượt (2) không đổi đáng kể (40,6 → 37,6 ms, trong nhiễu): lúc bình thường pool chỉ dùng 68 kết nối, trần 80 không chạm.
+- Lượt (3): hai sửa cộng lại đưa p95 308 → 190 ms, p99 456 → 300 ms. Trần 80 chạm đúng lúc Redis dừng mà không sinh lỗi
+  (Npgsql cho request chờ kết nối rảnh, tối đa 15 s) và không làm đuôi dài thêm.
+
 ## 6. Truy vấn chậm nhất
 
 Bật `log_min_duration_statement = 200` trong cả năm lượt (kể cả hai lần đo lại lượt 3): **không câu SQL nào vượt
@@ -138,6 +158,6 @@ Trong lúc chạy smoke có cache: `redis-cli --scan --pattern 'feed:*'` trả 5
 
 | Việc | Vì sao | Chuyển cho |
 | --- | --- | --- |
-| Đặt `Maximum Pool Size=80` trong chuỗi kết nối staging/production (`deploy/.env`), nhỏ hơn `max_connections` 100 và chừa 20 chỗ cho `migrate`/backup/`psql` (Mục 5) | PERF-03: không đặt thì pool 100 = `max_connections` 100, khi Redis dừng không còn chỗ cho `migrate`, `psql`, instance thứ hai | Người giữ `deploy/.env` trước F1; kiểm lại ở GĐ8 |
+| ~~Đặt `Maximum Pool Size=80`~~ — **đã làm** trong code, mặc định khi chuỗi kết nối không ghi (Mục 5.3); `deploy/.env` không phải sửa | PERF-03 | Kiểm lại ở GĐ8 nếu `max_connections` của VPS khác 100 |
 | ~~Giới hạn tần suất log fail-open~~ — **đã làm** trong GĐ4 (Mục 5.2) | Redis dừng thì mỗi request 3 dòng Warning: ngập log và tốn CPU api đúng lúc hệ thống đang degrade | — |
 | Đo lại trên hạ tầng giống VPS: Postgres chung 2 OCPU với api, k6 ở máy khác | Mục 1: Postgres ở đây có nhiều nhân hơn thật, và k6 chung VM | GĐ8, bản chính thức |

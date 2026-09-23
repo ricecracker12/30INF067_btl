@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
+using SocialApp.SharedKernel.Configuration;
 using SocialApp.Modules.Content.DependencyInjection;
 using SocialApp.Modules.Identity.DependencyInjection;
 using SocialApp.Modules.Profile.DependencyInjection;
@@ -50,8 +51,14 @@ public sealed class PostgresFixture : IAsyncLifetime
             await cmd.ExecuteNonQueryAsync();
         }
 
-        return new NpgsqlConnectionStringBuilder(_container.GetConnectionString()) { Database = name }
-            .ConnectionString;
+        // Trần pool ghi SẴN trong chuỗi (PERF-03): app chỉ thêm "Maximum Pool Size" khi chuỗi chưa có, và Npgsql khóa pool
+        // theo NGUYÊN VĂN chuỗi. Không ghi sẵn thì app (chuỗi đã thêm trần) và helper của test (chuỗi gốc) mở HAI pool cho mỗi
+        // database; kết nối rỗi gấp đôi và cả bộ test chạm max_connections 100 của container ("too many clients already").
+        return new NpgsqlConnectionStringBuilder(_container.GetConnectionString())
+        {
+            Database = name,
+            MaxPoolSize = PostgresPool.DefaultMaxPoolSize,
+        }.ConnectionString;
     }
 
     /// <summary>

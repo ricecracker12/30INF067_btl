@@ -207,6 +207,11 @@ cd src/frontend && pnpm dev      # pnpm, không npm — lockfile là pnpm-lock.y
   khác thì đặt `ConnectionStrings__Postgres` — nhưng đừng chép nguyên biến đó từ `deploy/.env`
   (`Host=postgres` chỉ phân giải được trong mạng compose). **Repo không giữ mật khẩu ghi cứng nào**, kể cả
   cho dev.
+- **Trần pool Postgres mặc định 80** (`SharedKernel/Configuration/PostgresPool.cs`, PERF-03 của GĐ4): chuỗi kết nối không
+  ghi `Maximum Pool Size` thì `Program.cs` thêm 80 — mặc định 100 của Npgsql bằng đúng `max_connections` 100 của Postgres,
+  và lúc Redis dừng pool chiếm hết chỗ của `migrate`/backup/`psql`. Chuỗi đã ghi con số thì giữ nguyên. Harness test ghi sẵn
+  trần trong chuỗi của mỗi database (`PostgresFixture`) để app và helper chung MỘT pool — Npgsql khóa pool theo nguyên văn
+  chuỗi.
 - **Cấu hình thiếu = TỪ CHỐI chạy, ở MỌI môi trường.** Ngoài Development: thiếu
   `ConnectionStrings__Postgres` / `__Redis` thì `Program.cs` ném `InvalidOperationException` nêu
   thẳng key và chỗ sửa, ngay tại dòng đọc config. Cố ý không rơi về `localhost`: app khởi động được

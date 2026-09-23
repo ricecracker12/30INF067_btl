@@ -106,8 +106,10 @@ builder.Services.AddSwaggerGen(c =>
 // --- Health checks: /health/ready kiểm tra Postgres + Redis (tag "ready") ---
 // Fallback Development của Postgres: compose dev qua localhost, mật khẩu đọc từ deploy/.env — cùng file
 // compose dev dùng, không giữ bản sao ghi cứng trong repo (xem DevEnvFile).
-var postgres = RequireConnectionString("Postgres",
-    () => DevEnvFile.LocalPostgresConnectionString(builder.Environment.ContentRootPath));
+// Trần pool mặc định 80 khi chuỗi kết nối không tự ghi (PERF-03): mặc định 100 của Npgsql bằng đúng max_connections của
+// Postgres, và lúc Redis dừng pool chiếm hết chỗ của migrate/backup/psql. MỘT biến cho bốn module + health check → một pool.
+var postgres = PostgresPool.WithDefaultMaxPoolSize(RequireConnectionString("Postgres",
+    () => DevEnvFile.LocalPostgresConnectionString(builder.Environment.ContentRootPath)));
 var redis = RequireConnectionString("Redis", () => "localhost:6379");
 
 // JWT kiểm SAU chuỗi kết nối, không phải tùy ý: StartupConfigurationTests dựng app thiếu cả hai và khẳng

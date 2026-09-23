@@ -945,7 +945,7 @@ Mỗi dòng phải được nhắc lại trong commit tương ứng, mở bằng
 | Mã | Rủi ro | Dấu hiệu sớm | Ứng phó |
 |---|---|---|---|
 | **PERF-02** | k6 trượt 500ms | Lượt (2) p95 > 400ms ở bước 6 (Mục 9.3) | Theo thứ tự Đ-4.13: `EXPLAIN` → pool kết nối → người dùng ở đuôi. Nếu vẫn trượt: ghi vào DoD là **không đạt sơ bộ**, chuyển việc cụ thể sang GĐ8 — **không** giảm số VU hay tăng thời gian nghỉ cho đẹp số |
-| **PERF-03** | Pool kết nối cạn trước khi CPU cạn | p95 cao nhưng CPU Postgres thấp; log Npgsql "pool exhausted" | Đặt `Maximum Pool Size` tường minh, ≤ `max_connections` trừ dự phòng cho `migrate`/backup; ghi con số vào báo cáo |
+| **PERF-03** | Pool kết nối cạn trước khi CPU cạn | p95 cao nhưng CPU Postgres thấp; log Npgsql "pool exhausted" | Đặt `Maximum Pool Size` tường minh, ≤ `max_connections` trừ dự phòng cho `migrate`/backup; ghi con số vào báo cáo. *Đã xảy ra ở k6 sơ bộ (lượt Redis dừng: pool 100 chiếm hết `max_connections` 100) — sửa 2026-09-23: mặc định 80 trong code (`PostgresPool`), báo cáo k6 Mục 5* |
 | **CACHE-01** | Cache chứa trường theo người xem / URL đã ký | `FEED-10`, `FEED-13` đỏ; khóa Redis chứa `X-Amz-Signature` | Đ-4.9: cache chỉ lưu `post_id`. Tự rà mọi chỗ `StringSet` của feed (B.9) |
 | **DI-01** | `AlwaysStrangers` còn đăng ký, BR-02 chạy giả | `READ-06b` đỏ; bài `friends` của bạn không hiện trên staging | Test khởi động (Đ-4.3) |
 | **GUID-01** | Chuẩn hóa cặp lệch thứ tự `uuid` của Postgres (so mảng byte thay vì `Guid.CompareTo`) | `23514` (vi phạm CHECK) ngẫu nhiên trên khoảng một nửa số cặp | Một hàm `FriendPair.Of` duy nhất + unit test và integration test với cặp id đối nghịch (Mục 4 cạm bẫy 1) |

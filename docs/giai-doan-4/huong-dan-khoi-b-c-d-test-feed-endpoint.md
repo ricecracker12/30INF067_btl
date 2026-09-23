@@ -1645,12 +1645,17 @@ Nửa feed của Mục 17.4 (bước 5), mỗi dòng sửa tạm → chạy mọ
   **p95 40,6 ms**, 0 % lỗi @ 1.000 VU; lượt (3), Redis dừng, 0 % lỗi.
 - Máy không cài k6: chạy image ghim `grafana/k6:2.3.0` **trong** mạng compose `socialapp-perf_default`. `--env-file`
   chuyển `PERF_JWT_KEY` mà không in ra. README thêm mục 6 "Chạy k6".
-- Compose đo thêm hai núm: `FEED_PAGE_CACHE` → `Feed__PageCache__Enabled` (lượt 2) và `PERF_POOL_MAX` → `Maximum Pool
-  Size` (PERF-03). Mặc định giữ nguyên hành vi cũ.
+- Compose đo thêm núm `FEED_PAGE_CACHE` → `Feed__PageCache__Enabled` (lượt 2). Núm `PERF_POOL_MAX` của `84e4f1a` đã gỡ ở
+  commit pool: chuỗi đo không ghi trần, để đo đúng mặc định 80 của code.
 - Bước 4 (không đạt thì làm gì) **không kích hoạt**: không câu SQL nào quá 200 ms (log câu chậm đã kiểm là hoạt động).
   Nhưng lượt (3) chạy hai lần đều cho kết nối DB chạm `max_connections` 100 sau khi Redis dừng (`too many clients
-  already` cho `psql`), tức PERF-03. Đo lại với pool 80: đỉnh 81, p95 269 ms, 0 % lỗi. Đề xuất đặt pool 80 cho
-  staging/production. **Không** sửa `deploy/.env` trong commit này — việc của người giữ file đó trước F1.
+  already` cho `psql`), tức PERF-03. Đo lại với pool 80: đỉnh 81, p95 269 ms, 0 % lỗi. **Sửa 2026-09-23** (nhóm chốt cách
+  b — mặc định trong code, không phụ thuộc `deploy/.env`): `PostgresPool.WithDefaultMaxPoolSize` thêm 80 khi chuỗi chưa
+  ghi. Chỗ dễ sai lộ ra lúc làm: Npgsql khóa pool theo nguyên văn chuỗi, nên app (chuỗi đã thêm trần) và helper test (chuỗi
+  gốc) mở hai pool cho mỗi database — cả bộ integration chạm `max_connections` của container (132 ca đỏ `53300`).
+  `PostgresFixture` ghi sẵn trần trong chuỗi. "Max Pool Size" (cách viết của SqlClient) Npgsql không nhận — không đưa vào
+  danh sách khóa. Đo lại trên code cuối (log giới hạn + pool 80 mặc định): lượt (2) p95 37,6 ms; lượt (3) p95 190 ms, p99
+  300 ms, kết nối đỉnh 81, 0 % lỗi (báo cáo k6 Mục 5.3).
 - Lượt (3) còn lộ ra chuyện log bị ngập: 3 dòng Warning fail-open mỗi request, khoảng 440.000 dòng trong 4 phút.
   **Sửa 2026-09-23 ngay trong GĐ4** (nhóm chốt làm luôn, không chờ GĐ8): `FailOpenLogThrottle` trong SharedKernel, singleton
   theo host — không `static`, vì `FEED-11`, `RV04`, `FeedSourceCacheTests` mỗi ca dựng host mới và cần thấy dòng đầu tiên.
