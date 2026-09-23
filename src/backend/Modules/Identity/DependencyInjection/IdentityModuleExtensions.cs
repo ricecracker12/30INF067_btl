@@ -19,6 +19,7 @@ using SocialApp.Modules.Identity.Infrastructure.Persistence;
 using SocialApp.Modules.Identity.Infrastructure.Security;
 using SocialApp.Modules.Identity.Infrastructure.Seed;
 using SocialApp.SharedKernel.Authorization;
+using SocialApp.SharedKernel.Contracts;
 
 namespace SocialApp.Modules.Identity.DependencyInjection;
 
@@ -45,6 +46,9 @@ public static class IdentityModuleExtensions
 
         // Nguồn thật của ma trận quyền cho tầng 2 (C5): đọc role_permissions. SharedKernel chỉ biết interface.
         services.AddScoped<IRolePermissionSource, RolePermissionSource>();
+
+        // GĐ6 C5 (Đ-6.19): hợp đồng ĐỌC trạng thái tài khoản cho Profile (tìm kiếm, ảnh chụp người dùng) — batch, không bản đơn.
+        services.AddScoped<IAccountStatusReader, AccountStatusReader>();
 
         // Viên gạch chung của khối D (D0). Cả hai stateless → singleton. JwtAccessTokenIssuer đọc IOptions<JwtOptions>
         // do HOST đăng ký sau khi validate + giải fallback deploy/.env — module KHÔNG bind lại section "Jwt".

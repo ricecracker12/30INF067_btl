@@ -1746,6 +1746,10 @@ rộng `PermissionPolicyProvider`; test reflection `Privileged_controllers_carry
 Interface batch ở SharedKernel, hiện thực ở Identity (`SELECT user_id FROM identity.users WHERE user_id = ANY(@ids) AND status <>
 'active'`). **Xong khi:** `SRCH-05` xanh (dùng ở D12).
 
+*Sửa 2026-09-24 khi thi công C5* (L-C2, L-C8 của `huong-dan-khoi-a-c-nen-du-lieu-va-ha-tang.md`): làm **trước** C2 — ảnh chụp người
+dùng của C2 cần `active|disabled` mà Profile không có cột đó. "Xong khi" ở C5 là bản hạ tầng (`AccountStatusReaderTests`: chỉ tài
+khoản không hoạt động, id lạ vắng mặt, 50 id một câu SQL, danh sách rỗng không truy vấn); `SRCH-05` đầy đủ là của D12.
+
 ### C6 — `NotificationHub` *(sau khi B merge vé)*
 
 **Làm gì:** hub rỗng phương thức ở `Notification/Presentation`, `[Authorize(AuthenticationSchemes = RealtimeTicketDefaults.Scheme)]`,
