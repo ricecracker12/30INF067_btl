@@ -1151,3 +1151,43 @@ checklist Mục 13: không `@/features/` trong `features/feed` + `hooks`, không
 
 **Bằng chứng cuối:** Vitest 41 file / 483 → 505 ca (+21 `feed-list.test.tsx`, +1 `login-form.test.tsx`), 3/3 lượt cả bộ
 xanh. `lint`, `typecheck`, `build` xanh. Backend: chỉ đổi yaml (version + chú thích) — `Contract` 12/12.
+
+### E2 — 2026-09-23
+
+Không câu Q-E* nào chặn `E2`: Q-E2 (hồ sơ chính mình) quyết ở `app/` — việc của `E5`; component không tự hỏi "có phải tôi".
+
+**Đã làm:** `features/friend/relationship-buttons.tsx` theo đúng Bước 1–4 — khuôn "key + suy ra" của `PublicProfile`,
+`AbortController` tạo trong effect; bảng vẽ nút hai hàng độc lập (Đ-4.5); một `pending` cho cả cụm, nút vừa bấm có
+`Spinner` + `aria-busy`; 204 vẽ theo kết quả tất định **sau** khi phản hồi về; 409 kết bạn / 403 chấp nhận → đọc lại; lỗi ghi
+đi qua `fieldMessage(e, "userId", <ngữ cảnh>)` để 400 tự-quan-hệ hiện đúng câu server (Đ-E5). `AlertDialog` Hủy kết bạn nêu
+tên từ prop `displayName?`, nút huỷ trong hộp thoại ghi "Không" (tránh hai nút cùng chữ "Hủy").
+
+**Lỗi tìm ra khi tự rà, đã sửa trước commit:** phản hồi ghi của người **cũ** về sau khi đã sang hồ sơ khác ghi đè thẳng slot
+`data` → slot mang `key` cũ, hồ sơ người mới quay lại skeleton mãi. Sửa: cập nhật hàm chỉ khi `prev.key` còn là lượt đã bấm;
+đọc lại sau 409/403 chỉ khi vẫn đang xem đúng lượt đó (`shownKeyRef`, ghi trong effect). Có ca test riêng.
+
+**Chỗ lệch với file này:**
+
+- *Lỗi thao tác ghi gắn theo `userId`*, không theo lượt đọc: đọc lại sau 409/403 đổi `key` mà câu lỗi phải còn.
+- *Test:* ca "đang chờ → mọi nút disabled" và ca "sang hồ sơ khác" dùng **chốt do test mở** thay `delay(80)` — lượt đầu ca
+  khóa cụm đỏ vì POST về trước cú bấm thứ hai của `userEvent` (dàn test sai, không phải component: `pendingRef` chặn mọi
+  lượt khi đang bay). Thêm ca 404 Theo dõi và ca lỗi nạp → Thử lại.
+
+**Thử đột biến** — tám đột biến, bảy bị bắt, một tương đương:
+
+| Đột biến | Ca đỏ |
+|---|---|
+| Optimistic: vẽ "Đã gửi lời mời" trước khi 201 về | khóa cả cụm; 404 Kết bạn |
+| Không khóa cả cụm (`disabled={false}`) | khóa cả cụm |
+| Ghi đè thẳng slot bằng phản hồi của người cũ | sang hồ sơ khác khi thao tác đang bay |
+| Không đọc lại sau 409/403 | 409 Kết bạn; 403 Chấp nhận |
+| Hủy kết bạn bỏ luôn theo dõi (sai Đ-4.5) | Hủy kết bạn … vẫn đang theo dõi |
+| Nút "Không" trong hộp thoại vẫn gửi DELETE | hộp thoại → Không → 0 DELETE |
+| Effect đọc chỉ chạy một lần mỗi key | **chỉ** ca StrictMode |
+| Bỏ chốt `pendingRef` | **Không đỏ — tương đương qua UI**: React commit sự kiện rời rạc đồng bộ, `disabled` có trên DOM trước cú bấm kế; chốt giữ lại làm lớp phòng thủ thứ hai |
+
+L5: `relationship-buttons` vào danh sách StrictMode của luật frontend Mục 9 (bảy ca).
+
+**Bằng chứng:** Vitest 41 → 42 file, 505 → 524 ca (+19 `relationship-buttons.test.tsx`), 3/3 lượt cả bộ xanh. `lint`,
+`typecheck`, `build` xanh. `grep` checklist Mục 13 trên `features/friend`: không `@/features/`, không `useRef(new …)`, không
+`console.`, không `fetch`.

@@ -171,8 +171,8 @@ Bốn tầng, phụ thuộc **một chiều**: `app/` → `features/` → `compo
   mount một lần, Next dev mount → unmount → mount lại; lớp lỗi chỉ sống ở lần mount thứ hai nên không ca
   thường nào chạm tới. Ca đó khẳng định **trạng thái cuối đạt được**, **không đếm số request** — dưới
   StrictMode số request tăng gấp đôi một cách hợp lệ, trộn hai thứ vào một ca là tự làm ca test giòn.
-  Sáu ca hiện có: `post-composer`, `me-profile`, `post-detail`, `user-posts`, `public-profile`, `feed-list`
-  (GĐ4 E4, L5). Tài nguyên phải là thứ **thật sự tạo lúc mount**: ở `feed-list` đó là `AbortController` của trang
+  Bảy ca hiện có: `post-composer`, `me-profile`, `post-detail`, `user-posts`, `public-profile`, `feed-list`
+  (GĐ4 E4, L5), `relationship-buttons` (GĐ4 E2, L5). Tài nguyên phải là thứ **thật sự tạo lúc mount**: ở `feed-list` đó là `AbortController` của trang
   đầu, không phải observer — observer chỉ tạo sau khi trang đầu về, có ca thường riêng canh việc tạo lại nó.
 - **`waitFor` chờ một handler có `delay` thì ghi `timeout` viết tay.** Mặc định 1s đủ khi chạy riêng file
   và KHÔNG đủ khi chạy cả bộ — ca `Xem thêm` của `user-posts` đỏ ~1/3 lượt vì vậy (đo 2026-09-21). Nới
