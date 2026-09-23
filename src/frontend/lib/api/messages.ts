@@ -23,6 +23,12 @@ export type ErrorContext =
   | "post-create"
   | "post-read"
   | "post-write"
+  // GĐ4 (Q-E3, lệch B.7): năm ngữ cảnh — `relationship` cho mọi lời gọi quan hệ KHÔNG có mã riêng.
+  | "relationship"
+  | "friend-request"
+  | "friend-respond"
+  | "follow"
+  | "feed"
 
 const COMMON = {
   400: "Dữ liệu không hợp lệ.",
@@ -94,6 +100,41 @@ const BY_CONTEXT: Record<ErrorContext, Partial<Record<number, string>>> = {
   "post-write": {
     403: "Không tìm thấy bài viết, hoặc bạn không có quyền với bài này.",
   },
+
+  // --- GĐ4 (Q-E3) ---
+
+  // `GET /relationships/{id}`, `GET /friends`, `GET /friends/requests`, ba `DELETE` (lời mời, bạn bè, theo dõi):
+  // không có mã riêng (chỉ 400/401/429/5xx) — nhánh chung đủ. Để trống CÓ CHỦ ĐÍCH: mượn `friend-request` cho một
+  // lời gọi `GET` là mời người sau thêm câu 409 "đã có lời mời" vào một màn đọc.
+  relationship: {},
+
+  // `POST /friends/requests`. 404 và 409 chép NGUYÊN VĂN `detail` của socialgraph-v1.yaml — một lỗi không hiện hai
+  // cách nói (Đ-E5). 403 = thiếu quyền `friend.request`; không nêu tên quyền, như `upload`.
+  "friend-request": {
+    403: "Tài khoản của bạn chưa được phép kết bạn.",
+    404: "Không tìm thấy người dùng.",
+    409: "Đã có lời mời hoặc quan hệ bạn bè giữa hai người.",
+  },
+
+  // `POST /friends/requests/{id}/accept`. MỘT câu cho mọi lý do (Đ-4.14): không có lời mời · lời mời của chính mình
+  // · đã là bạn · người thứ ba — server cố ý không phân biệt, FE không được đoán.
+  "friend-respond": {
+    403: "Lời mời này không còn hiệu lực.",
+  },
+
+  // `PUT /follows/{id}`. 403 dùng chung quyền `friend.request` (Đ-4.12) nhưng người dùng đang bấm "Theo dõi" — nói
+  // đúng việc họ vừa làm.
+  follow: {
+    403: "Tài khoản của bạn chưa được phép theo dõi người khác.",
+    404: "Không tìm thấy người dùng.",
+  },
+
+  // `GET /feed` 503 = quá tải (Đ-4.10) — KHÔNG kèm `traceId`: không phải lỗi hệ thống, và không đếm ngược. Nhánh
+  // `BY_CONTEXT` chạy TRƯỚC nhánh `>= 500` nên câu này thắng. 503 của BFF khi Redis phiên chết cũng rơi vào đây
+  // (Q-E4): việc phải làm giống nhau — đợi rồi thử lại — nên không so `title` để tách hai loại.
+  feed: {
+    503: "Bảng tin đang quá tải. Vui lòng thử lại sau ít phút.",
+  },
 }
 
 /** Thông điệp cấp form cho một lỗi bất kỳ ném ra từ `request()`. */
@@ -155,7 +196,7 @@ export const R2_PUT_FAILED =
   "Không tải được ảnh lên. Kiểm tra kết nối rồi thử lại."
 
 /**
- * Các key mà `errors` của Problem Details dùng ở hai hợp đồng GĐ2. Union chứ không `string`: `fieldMessage`
+ * Các key mà `errors` của Problem Details dùng ở các hợp đồng (GĐ1, GĐ2, GĐ4). Union chứ không `string`: `fieldMessage`
  * đọc `error.fieldErrors[key]`, nên một key gõ nhầm (`"file"` thay vì `"files"`) im lặng lùi về bảng chung
  * và người dùng mất đúng câu server muốn nói. Thêm key mới ở `.yaml` thì thêm một dòng ở đây.
  */
@@ -172,6 +213,9 @@ export type FieldErrorKey =
   | "password"
   | "cursor"
   | "limit"
+  // GĐ4 — socialgraph-v1: tự gửi lời mời / tự theo dõi → `errors.userId`; `direction` lạ → `errors.direction`.
+  | "userId"
+  | "direction"
 
 /**
  * 400 của một endpoint đọc ĐÚNG CÂU SERVER dưới key của `errors` trước, RỒI MỚI lùi về bảng

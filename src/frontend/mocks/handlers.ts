@@ -5,7 +5,14 @@ import { BFF_URL } from "@/lib/api/config"
 import type * as T from "@/lib/api/types"
 
 import {
+  CURSOR_QUA_TAI,
+  CURSOR_SAU_TRANG_RONG,
+  CURSOR_TRANG_RONG,
   MEDIA_SCENARIO,
+  SOCIAL_SCENARIO,
+  feedPage,
+  friendCard,
+  friendPage,
   me,
   mediaKeyDaDung,
   post,
@@ -16,6 +23,7 @@ import {
   profile,
   r2Host,
   registerResponse,
+  relationship,
   uploadTicket,
   userId,
   userIdChuaCoHoSo,
@@ -45,6 +53,52 @@ const validationResponse = (errors: Record<string, string[]>) =>
     status: 400,
     headers: PROBLEM_HEADERS,
   })
+
+/**
+ * Câu 400 THẬT của `SocialGraphErrors` khi `userId` là chính người gọi — mỗi endpoint một câu. `errors.userId` là
+ * thứ FE hiện nguyên văn (Đ-E5), nên mock chép đúng chữ server.
+ */
+const TU_QUAN_HE = {
+  sendRequest: "Không thể gửi lời mời kết bạn cho chính mình.",
+  accept: "Không thể chấp nhận lời mời kết bạn với chính mình.",
+  removeRequest: "Không thể hủy lời mời kết bạn với chính mình.",
+  unfriend: "Không thể hủy kết bạn với chính mình.",
+  follow: "Không thể theo dõi chính mình.",
+  relationship: "Không thể xem quan hệ với chính mình.",
+} as const
+
+/** 400 `errors.userId` khi người kia là chính người gọi, `null` khi không. Server kiểm TRƯỚC mọi thứ khác. */
+const tuQuanHe = (otherUserId: unknown, op: keyof typeof TU_QUAN_HE) =>
+  otherUserId === userId
+    ? validationResponse({ userId: [TU_QUAN_HE[op]] })
+    : null
+
+/** Trạng thái đọc được của từng id kịch bản. Id lạ (kể cả `khongTonTai`) → `none`, như server. */
+function relationshipOf(otherUserId: string): T.RelationshipResponse {
+  switch (otherUserId) {
+    case SOCIAL_SCENARIO.banBe:
+      return relationship("friends", true, otherUserId)
+    case SOCIAL_SCENARIO.loiMoiDen:
+      return relationship("incoming", false, otherUserId)
+    case SOCIAL_SCENARIO.loiMoiDi:
+      return relationship("outgoing", false, otherUserId)
+    default:
+      return relationship("none", false, otherUserId)
+  }
+}
+
+/**
+ * Trang theo cursor, dùng chung cho `/friends`, `/friends/requests`, `/feed`. `CURSOR_TRANG_RONG` mở ra trang RỖNG mà
+ * `nextCursor` vẫn khác null (Đ-4.9) — ca "không suy hết từ độ dài trang"; trang sau nó có dữ liệu và là trang cuối.
+ */
+function cursorPage<P extends { items: unknown[]; nextCursor: string | null }>(
+  cursor: string | null,
+  firstPage: P
+): P {
+  if (cursor === CURSOR_TRANG_RONG)
+    return { ...firstPage, items: [], nextCursor: CURSOR_SAU_TRANG_RONG }
+  return firstPage
+}
 
 const EXPIRED_TOKEN = "a".repeat(64)
 const BAD_TOKEN = "b".repeat(64)
@@ -349,6 +403,144 @@ export const handlers = [
   http.get(url(`${BFF_ROUTES.api}/users/:userId/posts`), () =>
     HttpResponse.json(postPage)
   ),
+
+  // --- GĐ4 (E1): chín endpoint của socialgraph-v1 + `GET /feed`, tất cả qua proxy chung `/bff/api/*` (Mục 1.2 luật 2).
+
+  http.get(
+    url(`${BFF_ROUTES.api}/relationships/:userId`),
+    ({ params }) =>
+      tuQuanHe(params.userId, "relationship") ??
+      HttpResponse.json(relationshipOf(String(params.userId)))
+  ),
+
+  http.post(url(`${BFF_ROUTES.api}/friends/requests`), async ({ request }) => {
+    const body = (await request.json()) as T.CreateFriendRequest
+    const tu = tuQuanHe(body.userId, "sendRequest")
+    if (tu) return tu
+    if (body.userId === SOCIAL_SCENARIO.khongTonTai) {
+      return problemResponse(
+        404,
+        "Không tìm thấy tài nguyên",
+        "Không tìm thấy người dùng."
+      )
+    }
+    // Đã có lời mời theo BẤT KỲ chiều nào, hoặc đã là bạn → đụng PK → 409 (FRD-06).
+    if (
+      body.userId === SOCIAL_SCENARIO.daCoLoiMoi ||
+      relationshipOf(body.userId).friendship !== "none"
+    ) {
+      return problemResponse(
+        409,
+        "Xung đột dữ liệu",
+        "Đã có lời mời hoặc quan hệ bạn bè giữa hai người."
+      )
+    }
+    return HttpResponse.json(
+      { ...relationshipOf(body.userId), friendship: "outgoing" },
+      { status: 201 }
+    )
+  }),
+
+  http.post(
+    url(`${BFF_ROUTES.api}/friends/requests/:userId/accept`),
+    ({ params }) => {
+      const tu = tuQuanHe(params.userId, "accept")
+      if (tu) return tu
+      const other = String(params.userId)
+      // Đ-4.14: MỘT 403 cho mọi lý do — chỉ `incoming` mới chấp nhận được.
+      if (relationshipOf(other).friendship !== "incoming") {
+        return problemResponse(
+          403,
+          "Bị từ chối",
+          "Bạn không có quyền thực hiện thao tác này."
+        )
+      }
+      return HttpResponse.json({
+        ...relationshipOf(other),
+        friendship: "friends",
+      } satisfies T.RelationshipResponse)
+    }
+  ),
+
+  // Hủy (tôi gửi) và từ chối (tôi nhận) — cùng endpoint, idempotent.
+  http.delete(
+    url(`${BFF_ROUTES.api}/friends/requests/:userId`),
+    ({ params }) =>
+      tuQuanHe(params.userId, "removeRequest") ??
+      new HttpResponse(null, { status: 204 })
+  ),
+
+  http.get(url(`${BFF_ROUTES.api}/friends/requests`), ({ request }) => {
+    const q = new URL(request.url).searchParams
+    // Server mặc định `incoming` khi thiếu — mock làm y hệt, để test của FE (không phải mock) bắt lỗi quên `direction`.
+    const direction = q.get("direction") ?? "incoming"
+    if (direction !== "incoming" && direction !== "outgoing") {
+      return validationResponse({
+        // Câu thật của `ListFriendRequestsQueryValidator.DirectionInvalid`.
+        direction: ["Chiều lời mời phải là incoming hoặc outgoing."],
+      })
+    }
+    const other =
+      direction === "incoming"
+        ? SOCIAL_SCENARIO.loiMoiDen
+        : SOCIAL_SCENARIO.loiMoiDi
+    return HttpResponse.json(
+      cursorPage(q.get("cursor"), {
+        items: [{ ...friendCard, user: { ...friendCard.user, userId: other } }],
+        nextCursor: null,
+      } satisfies T.FriendRequestPage)
+    )
+  }),
+
+  http.get(url(`${BFF_ROUTES.api}/friends`), ({ request }) =>
+    HttpResponse.json(
+      cursorPage(new URL(request.url).searchParams.get("cursor"), friendPage)
+    )
+  ),
+
+  http.delete(
+    url(`${BFF_ROUTES.api}/friends/:userId`),
+    ({ params }) =>
+      tuQuanHe(params.userId, "unfriend") ??
+      new HttpResponse(null, { status: 204 })
+  ),
+
+  http.put(url(`${BFF_ROUTES.api}/follows/:userId`), ({ params }) => {
+    const tu = tuQuanHe(params.userId, "follow")
+    if (tu) return tu
+    if (params.userId === SOCIAL_SCENARIO.khongTonTai) {
+      return problemResponse(
+        404,
+        "Không tìm thấy tài nguyên",
+        "Không tìm thấy người dùng."
+      )
+    }
+    return new HttpResponse(null, { status: 204 })
+  }),
+
+  // Bỏ theo dõi: idempotent. `SocialGraphErrors` không có câu tự-quan-hệ cho endpoint này — mock không bịa thêm.
+  http.delete(
+    url(`${BFF_ROUTES.api}/follows/:userId`),
+    () => new HttpResponse(null, { status: 204 })
+  ),
+
+  http.get(url(`${BFF_ROUTES.api}/feed`), ({ request }) => {
+    const cursor = new URL(request.url).searchParams.get("cursor")
+    if (cursor === CURSOR_QUA_TAI) {
+      // Đ-4.10: 503 là problem+json NHƯ MỌI LỖI KHÁC, có `title`/`traceId` như server. Body không phải JSON (trang HTML
+      // của apache) thì `toApiError` trả `problem: null` và ca 503 xanh vì lý do sai — `http.test.ts` canh điều đó.
+      // `Retry-After` có mặt như server, FE không đọc (Q-E4).
+      return HttpResponse.json(
+        problem(
+          503,
+          "Bảng tin đang quá tải",
+          "Bảng tin đang có quá nhiều người truy cập. Vui lòng thử lại."
+        ),
+        { status: 503, headers: { ...PROBLEM_HEADERS, "Retry-After": "5" } }
+      )
+    }
+    return HttpResponse.json(cursorPage(cursor, feedPage("network")))
+  }),
 
   ...upstreamHandlers,
 ]

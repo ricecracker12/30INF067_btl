@@ -340,6 +340,9 @@ mặc định theo hệ thống). Token thật sau init: `--primary: oklch(0.514
   nhất phình theo giai đoạn.
 - **Bốn tầng, phụ thuộc một chiều:** `app/` → `features/` → `components/` + `lib/`. `lib/` **không** import ngược lên
   `features/` hay `app/`; `components/` không import `features/`.
+  *Mở rộng 2026-09-23 (GĐ4 Q-E8): thêm `hooks/` — hook React dùng lại nhiều màn, không biết nghiệp vụ — ngang hàng
+  `components/`, cùng lệnh cấm import ngược (ESLint, đã thử đỏ). Người dùng đầu tiên: `use-cursor-pages.ts` cho feed và ba
+  danh sách của `/friends`. Hook riêng của một màn vẫn nằm trong `features/<màn>/`. Xem `frontend-rules.md` Mục 2.*
 - **`features/` không import chéo nhau.** Cái gì hai feature cùng cần thì đẩy xuống `components/` (nếu là UI) hoặc `lib/`
   (nếu là logic) — không `import '../post/…'` từ `features/feed/`.
 - **`lib/api/` ở ngoài `features/`, vĩnh viễn.** Sẽ có lúc muốn gom `features/post/api/`. Không — `schema.d.ts` là file **sinh

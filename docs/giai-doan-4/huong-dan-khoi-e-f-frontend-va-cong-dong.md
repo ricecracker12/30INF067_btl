@@ -234,6 +234,8 @@ gọi `GET` là mời người sau thêm câu 409 "đã có lời mời" vào m�
   chính mình."*). UI không cho bấm hai nút đó trên hồ sơ mình (Q-E2), nhưng Đ-E5 vẫn đòi hiện đúng câu server nếu 400 tới.
 - Ghi ngược vào B.7 `E1`: "Lệch B.7 (nhóm chốt): năm ngữ cảnh — thêm `relationship` …".
 
+*✅ chốt 2026-09-23: năm ngữ cảnh như đề xuất. Đã ghi ngược vào B.7 `E1` trong commit `E1`.*
+
 #### Q-E4 — 503 từ BFF không phải lúc nào cũng là feed quá tải
 
 BFF tự trả 503 *"Dịch vụ phiên đăng nhập tạm thời không sẵn sàng"* khi Redis của **phiên** chết (`lib/bff/handlers.ts`).
@@ -295,6 +297,9 @@ của feed"* — nhưng đó là hai bản; `/friends` làm thành bốn.
 - **Phương án dự phòng nếu không muốn mở tầng mới:** chép như B.7, **một** bản trong `features/feed/`, **một** bản trong
   `features/friend/` dùng chung cho ba danh sách. Cái giá: ba bản của cùng một khuôn đã từng có lỗi StrictMode (GĐ2 dọn nợ
   2026-09-21) — sửa một lỗi phải nhớ sửa ba chỗ.
+
+*✅ chốt 2026-09-23: hook chung `hooks/use-cursor-pages.ts`. Commit `E1` mở tầng (luật frontend Mục 2, `src/frontend/AGENTS.md`,
+Đ-E13 ghi mở rộng có ngày, ESLint đã thử đỏ) và ghi "Lệch B.7" dưới B.7 `E1`; hook viết ở `E4`.*
 
 ---
 
@@ -382,7 +387,7 @@ hiện hai cách nói (luật frontend Mục 6).
 | Gọi `follow` bằng `POST` | 405 | Bảng Bước 4, test method trong `E2` |
 | `listRequests` bỏ `direction` "vì server mặc định `incoming`" | Mục "lời mời đã gửi" hiện lời mời **đến** | Luôn gửi `direction` |
 | Câu 409 tự viết khác `detail` của server | Hai cách nói cho một lỗi | Chép nguyên văn |
-| Handler 503 trả `application/json` | Test 503 đi nhánh "không đọc được body", xanh vì lý do sai | `PROBLEM_HEADERS` như mọi handler lỗi |
+| Handler 503 trả body không phải JSON (trang HTML) | `problem: null` — test 503 xanh vì lý do sai | `PROBLEM_HEADERS` như mọi handler lỗi; `http.test.ts` khẳng định `problem.title`. *Sửa 2026-09-23: bản đầu ghi "`application/json`" — sai, `toApiError` nhận mọi content-type có chữ `json`, đột biến đó tương đương* |
 
 ### Kết quả mong đợi
 
@@ -980,3 +985,55 @@ khi được bảo** (Mục 9.3; luật PR Mục 2). Mô tả theo khuôn luật
 
 *Ghi khi làm, mỗi đầu việc một mục `### <mã> — <ngày>`: câu Q-E* đã chốt thế nào, số test trước → sau, chỗ lệch mới,
 bằng chứng. Nếp của hướng dẫn B+C+D.*
+
+### E1 — 2026-09-23
+
+**Câu đã chốt:** Q-E3 (năm ngữ cảnh) và Q-E8 (hook chung `hooks/`) — cả hai theo đề xuất, dòng *✅ chốt* ngay dưới câu hỏi.
+Sáu câu còn lại chốt ở đầu việc dùng tới chúng.
+
+**Đã làm:**
+
+- `lib/api/types.ts`: tám kiểu `socialgraph` + `FeedMode`/`FeedPage`, toàn alias — không khai tay dòng nào.
+- `lib/api/page-query.ts`: `pageQuery` dời khỏi `content-api.ts`, thân hàm và chú thích nguyên vẹn. Impact: **LOW**, một
+  người gọi (`contentApi.listUserPosts`).
+- `lib/api/socialgraph-api.ts` (`socialGraphApi`): chín endpoint theo bảng Bước 4; `contentApi.feed` thêm vào `content-api.ts`.
+  `listRequests` luôn gửi `direction` trước `cursor`/`limit`. Không route BFF mới.
+- `lib/api/messages.ts`: năm ngữ cảnh, `FieldErrorKey` thêm `userId`, `direction`. Impact `ErrorContext` **LOW** (3 người
+  gọi trực tiếp), `FieldErrorKey` **LOW** (1) — chỉ thêm thành viên union, không đổi câu cũ nào.
+- `mocks/`: fixture `relationship()`, `userCard`, `friendCard`, `friendPage`, `feedPost`, `feedPage(mode, nextCursor)`; handler
+  cho chín endpoint + `/feed`. Kịch bản chọn bằng dữ liệu nhập: `SOCIAL_SCENARIO` (năm id: `banBe`, `loiMoiDen`, `loiMoiDi`,
+  `daCoLoiMoi` → 409, `khongTonTai` → 404) và ba cursor (`CURSOR_TRANG_RONG` → trang rỗng có `nextCursor`, `CURSOR_QUA_TAI` →
+  503). Hỏi quan hệ / gửi lời mời / theo dõi với chính mình → 400 `errors.userId` bằng **đúng câu** của `SocialGraphErrors`;
+  `direction` lạ → câu thật của `ListFriendRequestsQueryValidator`.
+- Tầng `hooks/` (Q-E8): khối ESLint cấm import ngược thêm `hooks/**`; dòng mới ở luật frontend Mục 1 #10 và Mục 2,
+  `src/frontend/AGENTS.md` mục 3, và mở rộng có ngày dưới Đ-E13. Chưa có hook nào — `use-cursor-pages.ts` viết ở `E4`.
+
+**Chỗ lệch với file này:**
+
+- *Fixture "người kia":* `example` của `socialgraph-v1` dùng `0192f3c1-…2a10` cho người kia — trùng `userId` (người đang
+  đăng nhập) của `identity-v1`, tức quan hệ với chính mình, mà hợp đồng trả 400 ca đó. Người kia mặc định lấy tác giả trong
+  `example` của `GET /feed` (`0192f3c0-…3b4c`, "Nguyễn Văn An").
+- *Ghim kiểu feed:* `FeedPage`/`FeedMode` ghim ở `lib/api/content/schema.test-d.ts`, không ở `socialgraph/` như Mục "Test" ghi
+  — kiểu sinh từ `content-v1`, hợp đồng đổi thì file của đúng hợp đồng đó đỏ.
+- *Mock không giữ trạng thái:* gửi lời mời xong `GET /relationships` vẫn trả trạng thái gốc của id. `E2` cần "đọc lại ra sự
+  thật khác" (sau 409) thì `server.use` riêng — ghi trong chú thích `SOCIAL_SCENARIO`.
+- *`http.test.ts`:* thêm 9 ca dù Mục "Test" ghi "không cần ca mới" — cái không cần là ca `Content-Type` (đã có); chín ca mới
+  canh method/đường (`follow` là `PUT`), `direction` luôn gửi, `encodeURIComponent`, cursor nguyên vẹn, và 503 đọc được
+  Problem Details.
+- *Cạm bẫy 503:* bản đầu ghi "handler trả `application/json`" — sai (đã sửa trong bảng cạm bẫy). Xem thử đột biến dưới.
+
+**Thử đột biến** — năm đột biến bị bắt, một tương đương:
+
+| Đột biến | Ca đỏ |
+|---|---|
+| `follow` gửi `POST` thay `PUT` | 2 ca `http.test.ts` (bảng method, ca `PUT` không body) |
+| `listRequests("incoming")` bỏ `direction` | `listRequests LUÔN gửi direction` |
+| Bỏ câu `feed` 503 khỏi bảng | `feed 503: câu quá tải, KHÔNG kèm Mã tra cứu` |
+| Bỏ `encodeURIComponent` ở `relationship` | `userId luôn qua encodeURIComponent` |
+| Handler 503 trả body HTML | `feed 503 là ApiError có Problem Details đọc được` |
+| Handler 503 trả `application/json` thay `problem+json` | **Không đỏ — tương đương**: `toApiError` nhận mọi content-type có `json` |
+| ESLint: `hooks/do-thu.ts` import `@/features/post/post-item`, `@/app/layout` | 2 lỗi `no-restricted-imports` (thông điệp mới); xóa file, `git status` như trước |
+
+**Bằng chứng:** `pnpm gen:api` → không file sinh nào đổi. `lint`, `typecheck`, `build` xanh. Vitest **39 → 40 file, 453 → 478
+ca** (+9 `messages.test.ts`, +9 `http.test.ts`, +4 `socialgraph/schema.test-d.ts` mới, +3 `content/schema.test-d.ts`).
+Không file nào trong `features/` hay `app/` đổi.

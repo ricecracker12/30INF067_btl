@@ -131,8 +131,9 @@ const eslintConfig = defineConfig([
       ],
     },
   },
+  // `hooks/` (GĐ4 Q-E8): hook React dùng lại, không biết nghiệp vụ — tầng ngang `components/`, cùng một lệnh cấm.
   {
-    files: ["lib/**", "components/**"],
+    files: ["lib/**", "components/**", "hooks/**"],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -142,7 +143,7 @@ const eslintConfig = defineConfig([
             {
               group: ["@/features", "@/features/*", "@/app", "@/app/*"],
               message:
-                "Đ-E13: lib/ và components/ không biết nghiệp vụ, không import ngược lên.",
+                "Đ-E13: lib/, components/ và hooks/ không biết nghiệp vụ, không import ngược lên.",
             },
           ],
         },

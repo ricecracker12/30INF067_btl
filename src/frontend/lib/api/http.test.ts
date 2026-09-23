@@ -1,7 +1,14 @@
 import { http, HttpResponse } from "msw"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { postId, userId } from "@/mocks/fixtures"
+import {
+  CURSOR_QUA_TAI,
+  CURSOR_TRANG_RONG,
+  postId,
+  SOCIAL_SCENARIO,
+  userId,
+  userIdKhac,
+} from "@/mocks/fixtures"
 import { server } from "@/mocks/node"
 import { fakeSession } from "@/mocks/session"
 
@@ -9,8 +16,9 @@ import { authApi } from "./auth-api"
 import { BFF_URL } from "./config"
 import { contentApi } from "./content-api"
 import { configureSessionExpired } from "./http"
-import { NetworkError } from "./problem"
+import { ApiError, NetworkError } from "./problem"
 import { profileApi } from "./profile-api"
+import { socialGraphApi } from "./socialgraph-api"
 
 /** Ghi lại request thật sự đi ra — thứ duy nhất chứng minh được đích, `credentials` và header. */
 function recordRequests() {
@@ -231,6 +239,128 @@ describe("api client — dựng đường đi (E1)", () => {
     expect(tickets.map((t) => t.requiredHeaders["Content-Type"])).toEqual([
       "image/jpeg",
       "image/png",
+    ])
+  })
+})
+
+describe("api client — quan hệ và bảng tin (GĐ4 E1)", () => {
+  it("chín endpoint quan hệ + feed đi đúng method, đúng đường, qua /bff cùng origin, KHÔNG route BFF mới", async () => {
+    const seen = recordRequests()
+    const id = userIdKhac
+
+    await socialGraphApi.relationship(id)
+    await socialGraphApi.sendRequest(id)
+    await socialGraphApi.accept(SOCIAL_SCENARIO.loiMoiDen)
+    await socialGraphApi.removeRequest(id)
+    await socialGraphApi.unfriend(id)
+    await socialGraphApi.follow(id)
+    await socialGraphApi.unfollow(id)
+    await socialGraphApi.listFriends()
+    await socialGraphApi.listRequests("outgoing")
+    await contentApi.feed()
+
+    // `follow` là PUT — POST là 405 (cạm bẫy E1).
+    expect(seen.map((r) => `${r.method} ${new URL(r.url).pathname}`)).toEqual([
+      `GET /bff/api/relationships/${id}`,
+      "POST /bff/api/friends/requests",
+      `POST /bff/api/friends/requests/${SOCIAL_SCENARIO.loiMoiDen}/accept`,
+      `DELETE /bff/api/friends/requests/${id}`,
+      `DELETE /bff/api/friends/${id}`,
+      `PUT /bff/api/follows/${id}`,
+      `DELETE /bff/api/follows/${id}`,
+      "GET /bff/api/friends",
+      "GET /bff/api/friends/requests",
+      "GET /bff/api/feed",
+    ])
+    for (const r of seen) {
+      expect(r.credentials).toBe("same-origin")
+      expect(r.headers.get("authorization")).toBeNull()
+    }
+  })
+
+  it("gửi lời mời: body CHỈ có userId của người kia — người gửi lấy từ token, không từ body", async () => {
+    const seen = recordRequests()
+
+    const res = await socialGraphApi.sendRequest(userIdKhac)
+
+    expect(await seen[0].json()).toEqual({ userId: userIdKhac })
+    expect(res.friendship).toBe("outgoing")
+  })
+
+  it("PUT theo dõi không có body: không gửi Content-Type, 204 trả undefined", async () => {
+    const seen = recordRequests()
+
+    await expect(socialGraphApi.follow(userIdKhac)).resolves.toBeUndefined()
+
+    expect(seen[0].headers.get("content-type")).toBeNull()
+    expect(await seen[0].text()).toBe("")
+  })
+
+  it("userId luôn qua encodeURIComponent ở mọi endpoint có id trên đường", async () => {
+    const seen = recordRequests()
+
+    await socialGraphApi.relationship("a/b").catch(() => {})
+    await socialGraphApi.accept("a/b").catch(() => {})
+    await socialGraphApi.follow("a/b").catch(() => {})
+
+    expect(seen.map((r) => new URL(r.url).pathname)).toEqual([
+      "/bff/api/relationships/a%2Fb",
+      "/bff/api/friends/requests/a%2Fb/accept",
+      "/bff/api/follows/a%2Fb",
+    ])
+  })
+
+  it("listRequests LUÔN gửi direction — kể cả incoming, không dựa vào mặc định của server", async () => {
+    const seen = recordRequests()
+
+    await socialGraphApi.listRequests("incoming")
+    await socialGraphApi.listRequests("outgoing", { cursor: "Y3Vy", limit: 5 })
+
+    expect(seen.map((r) => new URL(r.url).search)).toEqual([
+      "?direction=incoming",
+      "?direction=outgoing&cursor=Y3Vy&limit=5",
+    ])
+  })
+
+  it("feed và listFriends dùng chung pageQuery: trang đầu không có `?`, cursor chuyển nguyên vẹn", async () => {
+    const seen = recordRequests()
+
+    await contentApi.feed()
+    await contentApi.feed({ cursor: "MjAy+/=", limit: 20 })
+    await socialGraphApi.listFriends({ cursor: null })
+
+    expect(seen.map((r) => new URL(r.url).search)).toEqual([
+      "",
+      "?cursor=MjAy%2B%2F%3D&limit=20",
+      "",
+    ])
+    expect(new URL(seen[1].url).searchParams.get("cursor")).toBe("MjAy+/=")
+  })
+
+  it("trang rỗng mà nextCursor KHÁC null là hợp lệ — mock dựng được ca Đ-4.9 cho E3/E4", async () => {
+    const page = await contentApi.feed({ cursor: CURSOR_TRANG_RONG })
+
+    expect(page.items).toEqual([])
+    expect(page.nextCursor).not.toBeNull()
+  })
+
+  it("feed 503 là ApiError có Problem Details đọc được (problem+json) — không phải nhánh 'không đọc được body'", async () => {
+    const err = await contentApi
+      .feed({ cursor: CURSOR_QUA_TAI })
+      .catch((e: unknown) => e)
+
+    expect(err).toBeInstanceOf(ApiError)
+    expect((err as ApiError).status).toBe(503)
+    expect((err as ApiError).problem?.title).toBe("Bảng tin đang quá tải")
+  })
+
+  it("mock trả 400 errors.userId khi hỏi quan hệ với chính mình — đúng câu SocialGraphErrors", async () => {
+    const err = await socialGraphApi
+      .relationship(userId)
+      .catch((e: unknown) => e)
+
+    expect((err as ApiError).fieldErrors.userId).toEqual([
+      "Không thể xem quan hệ với chính mình.",
     ])
   })
 })

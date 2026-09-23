@@ -1216,6 +1216,16 @@ ghép ở `app/` (Đ-4.16).
 ngữ cảnh `friend-request`, `friend-respond`, `follow`, `feed`. Bốn ngữ cảnh vì 403/404/409 mang nghĩa khác nhau trên từng
 endpoint (nếp `Q-E4` của GĐ2). Fixture `msw/node` chép `example` của hợp đồng, gắn kiểu bằng `satisfies`.
 
+Lệch B.7 (nhóm chốt 2026-09-23, Q-E3, L3): **năm** ngữ cảnh — thêm `relationship` cho `GET /relationships/{id}`,
+`GET /friends`, `GET /friends/requests` và ba `DELETE` (lời mời, bạn bè, theo dõi). Các lời gọi đó không có mã riêng; mượn
+`friend-request` cho một lời gọi `GET` là mời người sau thêm câu 409 "đã có lời mời" vào một màn đọc. `FieldErrorKey` thêm
+`userId`, `direction` (hai key `errors` mới của `socialgraph-v1`).
+
+Lệch B.7 (nhóm chốt 2026-09-23, Q-E8): mở tầng `hooks/` — hook React dùng lại, không biết nghiệp vụ, tầng ngang
+`components/` (`frontend-rules.md` Mục 2, ESLint cấm import `@/features/*`, `@/app/*`, đã thử đỏ). `E4` và `E3` dùng **một**
+`hooks/use-cursor-pages.ts` thay vì chép logic cuộn của `use-post-page.ts` thành hai bản; `use-post-page.ts` giữ nguyên ở GĐ4
+(nợ có địa chỉ: chuyển khi GĐ5 thêm người dùng thứ ba của khuôn).
+
 ### E2 — Nút quan hệ trên hồ sơ người khác
 
 `features/friend/relationship-buttons.tsx`: bốn trạng thái kết bạn (Kết bạn · Đã gửi – Hủy · Chấp nhận / Từ chối · Bạn bè –

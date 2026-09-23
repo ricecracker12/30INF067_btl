@@ -37,7 +37,7 @@ quyết định mới, có ngày tháng, ghi vào tài liệu gốc trong cùng 
 | 7 | Tạo `app/api/**`, hoặc route FE dưới `/api`, `/health`, `/swagger` — Route Handler chỉ dưới `app/bff/**` | Đ-E11, Đ-E14 — apache đẩy hết `/api` về backend |
 | 8 | Guard hay logic đăng nhập trong `proxy.ts` — file đó CHỈ gắn CSP có nonce | Đ-E3, Đ-E15 |
 | 9 | `npm`/`yarn`, hoặc thêm `^`/`~` vào `package.json` | Đ-E9 — pnpm, ghim chính xác |
-| 10 | `features/` import chéo nhau; `lib/` hay `components/` import ngược lên `features/`, `app/` | Đ-E13 |
+| 10 | `features/` import chéo nhau; `lib/`, `components/` hay `hooks/` import ngược lên `features/`, `app/` | Đ-E13 |
 | 11 | Trả access/refresh token (hay `Set-Cookie` của API) ra trình duyệt từ bất kỳ route BFF nào | Đ-E14 — trình duyệt không bao giờ cầm JWT |
 | 12 | Module server của BFF thiếu `import "server-only"`, hoặc biến cấu hình server mang tiền tố `NEXT_PUBLIC_` | Đ-E14 — `NEXT_PUBLIC_*` bị nhúng vào bundle |
 | 13 | Script inline tự viết không mang nonce, `dangerouslySetInnerHTML` chứa script, thêm `'unsafe-inline'` / `'strict-dynamic'` / domain lạ vào CSP | Đ-E15 — CSP chặn; nới CSP là quyết định mới |
@@ -45,7 +45,7 @@ quyết định mới, có ngày tháng, ghi vào tài liệu gốc trong cùng 
 
 ## 2. Đặt file ở đâu (Đ-E13)
 
-Bốn tầng, phụ thuộc **một chiều**: `app/` → `features/` → `components/` + `lib/`.
+Bốn tầng, phụ thuộc **một chiều**: `app/` → `features/` → `components/` + `hooks/` + `lib/`.
 
 | Thư mục | Chứa gì | Nhận biết |
 |---|---|---|
@@ -53,11 +53,12 @@ Bốn tầng, phụ thuộc **một chiều**: `app/` → `features/` → `compo
 | `features/<màn>/` | Nghiệp vụ: form, card, composer, hook riêng của màn | Biết nghiệp vụ |
 | `components/ui/` | Kit shadcn | Sinh bởi CLI, không viết tay |
 | `components/form/`, `components/shell/` | UI dùng lại nhiều màn | **Không** biết nghiệp vụ |
+| `hooks/` | Hook React dùng lại nhiều màn (phân trang theo cursor…) — tầng ngang `components/` | **Không** biết nghiệp vụ; ESLint cấm import `@/features/*`, `@/app/*` (thêm 2026-09-23, GĐ4 Q-E8) |
 | `lib/api/`, `lib/auth/`, `lib/validation/` | Hạ tầng, logic không phải React | Test được bằng Vitest, không cần render |
 | `lib/bff/` | Server của BFF (Đ-E14): phiên, Redis, gọi API | `import "server-only"`; test môi trường `node` |
 
-Đặt file mới thì hỏi hai câu, theo thứ tự: *có biết nghiệp vụ không?* (không → `components/`) ·
-*có phải logic không phải React không?* (đúng → `lib/`). Còn lại vào `features/<màn>/`.
+Đặt file mới thì hỏi hai câu, theo thứ tự: *có biết nghiệp vụ không?* (không → `components/`, hoặc
+`hooks/` nếu là hook) · *có phải logic không phải React không?* (đúng → `lib/`). Còn lại vào `features/<màn>/`.
 
 **Tên `features/` theo màn, không theo module backend.** Chỉ `lib/api/<module>/` mới bám tên module
 1-1 (vì sinh từ `<nhóm>.yaml`). Một module đẻ ra nhiều màn: `Content` → `post/`, `comment/`,
