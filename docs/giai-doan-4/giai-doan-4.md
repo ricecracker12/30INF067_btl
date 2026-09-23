@@ -659,6 +659,9 @@ FriendRequestPage     { items: [FriendCard], nextCursor: string | null }        
   (tên `UserCard`): hai file hợp đồng độc lập, không `$ref` chéo file — `ContractTestsBase` đọc từng file riêng, và `$ref`
   chéo file là một cổng CI phải hiểu thêm một thứ.
 - Cursor của `FriendPage` dùng cùng bộ mã hóa keyset của GĐ2 (`thời điểm|id của người kia`), mờ với client.
+  Lệch B.6 (nhóm chốt, L13 của hướng dẫn B+C+D): cùng **cách mã hóa**, không cùng **kiểu** — `FriendCursor` là bản chép
+  của `PostCursor` trong `SocialGraph/Application/`. Import `PostCursor` của Content là import chéo module
+  (`ModuleBoundaryTests` chặn), cùng lập luận L5 khối A (`LowercaseEnum`).
 - `GET /relationships/{userId}` với chính mình → 400 (không có quan hệ nào với chính mình để hỏi).
 
 **Chốt lúc viết hợp đồng (2026-09-22, cổng mở).** Bảng trên để ngỏ năm chỗ; `socialgraph-v1.yaml` chốt như sau:

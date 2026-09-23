@@ -1199,7 +1199,7 @@ Tick từng dòng, có bằng chứng. Dòng không áp dụng thì ghi lý do, 
 - [x] Giờ bộ integration trước/sau trong commit #1; < ~3 phút hoặc đã tách collection
 - [x] `AuthZMatrix.cs` 23 dòng; commit #2 chỉ chạm file đó; link CI đỏ đã lưu (24/24 sau `D3`)
 - [x] `SocialGraphContractTests` trong `--list-tests --filter Category=Contract`; ba kiểu thử đỏ đã làm
-- [ ] `pnpm gen:api` → worktree sạch; không sửa `ci.yml`; CI xanh cả năm nhóm trên commit cuối
+- [x] `pnpm gen:api` → worktree sạch; không sửa `ci.yml`; CI xanh cả năm nhóm trên commit cuối
 
 ### 17.2 Endpoint
 
@@ -1246,11 +1246,12 @@ Mỗi dòng: sửa tạm → chạy lọc → thấy **đúng** test dự kiến
 
 ### 17.5 Luật repo
 
-- [ ] Mười lăm chỗ lệch L1–L15 và Q-B4, Q-C1, Q-C2 đã ghi ngược vào `giai-doan-4.md`, mỗi cái ở commit của nó
-- [ ] Năm mục tự rà B.9 đã chạy trước khi mở PR, kết quả vào "Thực tế thi công"
-- [ ] Không kỳ vọng test nào đọc hằng code sản phẩm; không `Skip` mới
-- [ ] Không secret trong diff; khóa JWT đo không ở repo/`deploy/.env`; `users.csv` không commit
-- [ ] Mọi commit có `Test:` và `detect-changes:`; footer sạch bút ký
+- [x] Mười lăm chỗ lệch L1–L15 và Q-B4, Q-C1, Q-C2 đã ghi ngược vào `giai-doan-4.md`, mỗi cái ở commit của nó — trừ L13,
+      ghi muộn ở commit tự rà B.9
+- [x] Năm mục tự rà B.9 đã chạy trước khi mở PR, kết quả vào "Thực tế thi công"
+- [x] Không kỳ vọng test nào đọc hằng code sản phẩm; không `Skip` mới
+- [x] Không secret trong diff; khóa JWT đo không ở repo/`deploy/.env`; `users.csv` không commit
+- [x] Mọi commit có `Test:` và `detect-changes:`; footer sạch bút ký
 
 ---
 
@@ -1662,4 +1663,37 @@ Nửa feed của Mục 17.4 (bước 5), mỗi dòng sửa tạm → chạy mọ
   Đo lại lượt (3): 27 dòng Warning, p95 308/264 → 201 ms, 0 % lỗi (báo cáo k6 Mục 5.2).
 - Không sửa code sản phẩm theo `EXPLAIN` — không có gì chậm để sửa. Theo Mục 16, C6 vì thế là commit `docs`.
 
-*Còn lại trước PR: năm mục tự rà B.9.*
+### Tự rà B.9 — 2026-09-23
+
+Năm mục test tự động không bắt được, rà trên HEAD `3f58d3e` (thay người review chéo — Mục 9.3 gốc). Cả năm **đạt**,
+không phải sửa code:
+
+1. **`actorId` từ token.** Mười action (chín của SocialGraph + `GET /feed`) đều truyền `User.GetUserId()` làm tham số đầu;
+   mọi hàm của `RelationshipService` có chữ ký `(actorId, userId)`. Body/query không mang id người gọi — `CreateFriendRequest`
+   chỉ có `UserId` của người **được mời**.
+2. **Xóa cache và event sau `COMMIT`.** Content và SocialGraph không có `BeginTransaction` hay `TransactionScope` nào; mỗi
+   `SaveChangesAsync` / `ExecuteUpdateAsync` / `ExecuteDeleteAsync` / `ExecuteSqlAsync` tự `COMMIT` trước khi trả về. Sáu chỗ
+   `InvalidateAsync` + hai `_events.*` của `RelationshipService` và ba chỗ `feedPageCache.InvalidateAsync` của `PostService`
+   đều đứng **sau** lời gọi store đó, truyền `CancellationToken.None`.
+3. **SQL tham số hóa.** Hai module chỉ có `FromSql` / `ExecuteSqlAsync` với chuỗi nội suy viết thẳng tại chỗ gọi
+   (`FormattableString` — mỗi `{…}` thành tham số); không `FromSqlRaw` / `ExecuteSqlRaw` / `SqlQueryRaw`. Literal
+   `'published'`/`'public'`/`'friends'` là hằng trong code.
+4. **Cache feed không chứa `PostResponse` / URL.** Hai `StringSetAsync` của feed đều serialize qua kiểu riêng chỉ có id:
+   `FeedSourceReader.CachedPayload` (`f`, `fo` — mảng `Guid`), `RedisFeedPageCache.Payload` (`ids`, `mode`, `next`, `fp`).
+   Bằng chứng chạy: `FEED-10`, `FEED-13`, và lần quét Redis đo ở C6 (0 URL, 0 `X-Amz-Signature`, 0 `canEdit`).
+5. **Khóa JWT đo.** Đếm, không in giá trị: 0 lần trong cây HEAD, 0 trong lịch sử git (pickaxe mọi nhánh), 0 trong
+   `deploy/.env`, 0 trong worktree ngoài `.env`; khác khóa staging; `tests/load/feed/.env` và `users.csv` bị gitignore;
+   giá trị trong `.env.example` rỗng.
+
+Rà kèm các dòng còn trống của Mục 17.1 và 17.5:
+
+- `pnpm gen:api` trên HEAD → `git status --porcelain -- src/frontend` rỗng; `.github/` không đổi từ `e120090`; CI xanh trên
+  `3f58d3e`.
+- Không `Skip` nào trong `tests/`. Kỳ vọng của mọi ca mới viết tay (`FEED-Q1` = 5, trần pool 80, title 503, câu lỗi limit).
+  Hai chỗ test đọc hằng sản phẩm đều là **đầu vào**, không phải kỳ vọng: `FeedService.DefaultLimit` làm tham số trong
+  `FeedServiceTests`, `PostgresPool.DefaultMaxPoolSize` để harness ghi sẵn trần.
+- 34 commit không-merge từ `e120090`: 0 trailer ghi công. Mọi commit chạm code có `Test:` và `detect-changes:`. Ba ngoại
+  lệ không vi phạm: `e166b7b` chỉ sửa tài liệu (luật chỉ bắt `detect-changes:` với commit chạm code), `093afc7` là tài liệu
+  GĐ5 của người khác vào qua `develop`, `71a70e4` là commit "Merge" không đổi file.
+- L1–L15 và Q-B4, Q-C1, Q-C2: đối chiếu từng mã với `giai-doan-4.md` — thiếu đúng **L13** (`FriendCursor` chép `PostCursor`).
+  Đã thêm vào Mục 8.1 gốc trong commit này.
