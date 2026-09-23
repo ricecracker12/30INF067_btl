@@ -24,7 +24,7 @@ quyết định mới, có ngày tháng, ghi vào tài liệu gốc trong cùng 
 - Đọc mục tương ứng trong hướng dẫn khối E trước khi làm một việc `E*` — mỗi mục có sẵn phần
   "cạm bẫy đã biết".
 
-## 1. Mười bốn điều không bao giờ làm
+## 1. Mười lăm điều không bao giờ làm
 
 | # | Cấm | Vì |
 |---|---|---|
@@ -42,6 +42,7 @@ quyết định mới, có ngày tháng, ghi vào tài liệu gốc trong cùng 
 | 12 | Module server của BFF thiếu `import "server-only"`, hoặc biến cấu hình server mang tiền tố `NEXT_PUBLIC_` | Đ-E14 — `NEXT_PUBLIC_*` bị nhúng vào bundle |
 | 13 | Script inline tự viết không mang nonce, `dangerouslySetInnerHTML` chứa script, thêm `'unsafe-inline'` / `'strict-dynamic'` / domain lạ vào CSP | Đ-E15 — CSP chặn; nới CSP là quyết định mới |
 | 14 | `useRef(new Thing())` — controller, subscription, timer, observer khởi tạo ở tham số của `useRef` | StrictMode mount lại trả về **đúng cái vừa bị hủy**; ESLint chặn. Tạo trong effect, ref chỉ là hộp đựng |
+| 15 | `<Button render={<Link …/>}>` cho điều hướng | Base UI dán ngữ nghĩa nút lên `<a>` và báo lỗi `nativeButton` — chỉ `console.error` ở bản dev, không test nào bắt (lọt từ GĐ2 tới GĐ4). Dùng `<Link className={buttonVariants(…)}>`; ESLint chặn (thêm 2026-09-23) |
 
 ## 2. Đặt file ở đâu (Đ-E13)
 

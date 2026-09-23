@@ -65,6 +65,13 @@ const USE_REF_NEW =
   "CallExpression[callee.name='useRef'] > NewExpression," +
   "CallExpression[callee.property.name='useRef'] > NewExpression"
 
+// Điều hướng mang style nút: `<Link className={buttonVariants(…)}>`, KHÔNG `<Button render={<Link …/>}>`. Base UI coi phần tử
+// render ra là nút thật (`nativeButton` mặc định), dán ngữ nghĩa nút lên thẻ <a> và báo lỗi — chỉ là `console.error` ở bản
+// dev nên không test nào bắt: lỗi có từ GĐ2 E5, tới GĐ4 mới lộ (Next dev "1 Issue" ở trang chủ, 2026-09-23). Khuôn đúng có
+// từ GĐ1 ở `verify-email.tsx`.
+const BUTTON_RENDER_LINK =
+  "JSXAttribute[name.name='render'] > JSXExpressionContainer > JSXElement[openingElement.name.name='Link']"
+
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
@@ -107,6 +114,11 @@ const eslintConfig = defineConfig([
           selector: USE_REF_NEW,
           message:
             "Tài nguyên có vòng đời không khởi tạo bằng useRef(new Thing()) — StrictMode mount lại trả về đúng cái đã hủy. Tạo trong effect, ref chỉ là hộp đựng.",
+        },
+        {
+          selector: BUTTON_RENDER_LINK,
+          message:
+            "Điều hướng mang style nút: <Link className={buttonVariants(…)}>, không <Button render={<Link/>}> — Base UI dán ngữ nghĩa nút lên <a> (lỗi nativeButton).",
         },
       ],
     },

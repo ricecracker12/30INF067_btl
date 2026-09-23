@@ -1334,3 +1334,15 @@ trỏ một API token 10 giây riêng (cách dựng ở đầu file spec). GĐ4 
 phiên), nên không dựng lượt riêng ở `E6`; ghi rõ ở PR như một dòng `skipped`, không phải `passed`.
 
 Vitest không đổi ở `E6`: 543 ca, 43 file.
+
+### Trước khi mở PR — lỗi `nativeButton` ở trang chủ (2026-09-23)
+
+Chụp ảnh cho mô tả PR thì huy hiệu dev của Next ở trang chủ báo **"1 Issue"**. Ghi console: Base UI báo *"A component that acts
+as a button expected a native <button>…"* từ `ComposeButton` (`features/post/post-list.tsx`). Gốc: ba chỗ của GĐ2 E5 (`e48a5c0`)
+dùng `<Button render={<Link …/>}>` cho điều hướng — `ComposeFirstPostButton`, `ComposeButton`, nút "Về trang của tôi" ở
+`post-detail.tsx` — trái khuôn đã có từ GĐ1 (`verify-email.tsx`: `<Link className={buttonVariants()}>`). Có từ GĐ2 (ở `/me`),
+GĐ4 chỉ làm nó lộ ở trang chủ. Không test nào bắt vì đó là `console.error` của bản dev.
+
+Sửa: ba chỗ theo khuôn `verify-email.tsx`; luật ESLint `BUTTON_RENDER_LINK` chặn cả lớp lỗi (thử đỏ một lần, `git status` như
+trước); luật frontend Mục 1 #15. Kiểm lại bằng spec tạm: `/` và `/me` **0** `console.error`, "Đăng bài" là liên kết thật. Không
+spec/ca nào phụ thuộc cách render sai: các `getByRole("button", { name: "Đăng bài" })` của `e2e/` là nút gửi của composer.
