@@ -34,6 +34,21 @@ Hướng dẫn thi công từng bước (lệnh nào, file nào, cạm bẫy nà
 > và lý do ngay dưới quyết định đó. Làm một mình thì "cổng mở" là một buổi tự rà **có sản phẩm**: hợp đồng commit trước,
 > code sau — không bỏ bước này (Mục 0C).
 
+> **Bàn giao từ GĐ4 (2026-09-23, GĐ4 `F4` — PR #21 đã merge vào `develop` ở `0d0a093`).** Thêm vào, không sửa quyết định nào
+> của tài liệu này:
+>
+> - `IFriendshipReader` **thật** (SocialGraph) — BR-09 / `TC-A07*` dựa vào nó. `SocialGraph` D2/D3 **đã có**: `ArrangePath`
+>   dựng quan hệ bạn bè qua API (`POST /friends/requests` + `accept`), **không** cần nhánh `INSERT` thẳng + TODO.
+> - Event sau `COMMIT`: `SocialGraphEvents.FriendRequestSent(a, b)`, `FriendRequestAccepted(a, b)` (chỉ log ở GĐ4, Đ-4.15).
+> - Slot `actions` của `PublicProfile` giờ là **hàm** `(profile) => ReactNode`, chỉ gọi khi hồ sơ đã nạp (lệch Đ-4.16, GĐ4
+>   E5): `StartChatButton` ráp **trong hàm đó** cạnh `RelationshipButtons`. `RelationshipButtons` không xuất trạng thái
+>   quan hệ ra ngoài — nút "Nhắn tin" (chỉ khi `friendship = friends`) cần tự đọc `GET /relationships/{id}` hoặc nâng trạng
+>   thái lên `app/`: quyết định của GĐ5.
+> - `hooks/use-cursor-pages.ts` (GĐ4 Q-E8): hook phân trang cursor dùng chung, không biết nghiệp vụ — lịch sử hội thoại / danh
+>   sách hội thoại dùng lại; `use-post-page.ts` của GĐ2 chuyển sang hook này là nợ có địa chỉ ghi cho GĐ5.
+> - Lỗi cùng status khác nghĩa phân nhánh theo `type` của Problem Details (GĐ4 Q-E4, luật frontend Mục 4).
+> - Báo cáo k6 sơ bộ GĐ4 (`docs/giai-doan-4/bao-cao-k6-so-bo.md`) là mốc so sánh.
+
 ---
 
 # Phần A — Thiết kế và quyết định

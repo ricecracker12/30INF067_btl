@@ -9,11 +9,16 @@
 # `socialgraph-v1` phải khớp ở ĐÚNG BA CHỖ: [ApiExplorerSettings(GroupName)] trên controller, SwaggerDoc
 # trong Program.cs, và tên file này (Đ-4.1: cũng trùng tên schema `socialgraph` và thư mục lib/api/socialgraph/).
 #
-# CHƯA CÓ MÁY CANH cho tới B5: SocialGraphContractTests (chép khuôn ContentContractTests) + dòng
-# <Content Include … Link=Contracts/socialgraph-v1.yaml> trong csproj test cần controller có thật (D0).
-# Từ B5, lệch tập (path × method), tập status code, hoặc required field của request body là CI đỏ.
+# MÁY CANH (từ B5, `bcd507d` — đã thử đỏ ba kiểu): SocialGraphContractTests so file này với Swagger runtime — lệch tập
+# (path × method), tập status code, hoặc required field của request body là CI đỏ. ContractGateCoverageTests (`1a70225`)
+# canh mọi *-v1.yaml đều có máy canh.
 #
 # LUẬT SỬA FILE NÀY: đổi hợp đồng → sửa file này TRONG CÙNG COMMIT với code và chạy lại `pnpm gen:api`.
+#
+# ĐÓNG BĂNG (2026-09-23, cổng đóng GĐ4 — F4): file này KHÔNG đổi hình dạng trong phạm vi GĐ4. Đổi sau mốc này thuộc cổng
+# mở của giai đoạn cần đổi (GĐ5 BR-09 chỉ ĐỌC quan hệ qua IFriendshipReader, không cần đổi file này; GĐ6 thông báo
+# lời mời…), theo luật CHỈ-THÊM, hoặc là hotfix blocking cả nhóm thống nhất. Sửa comment/mô tả không đổi schema thì không
+# tính là đổi hình dạng.
 #
 # QUYẾT ĐỊNH ĐÃ CHỐT chạm tới hợp đồng này (giai-doan-4.md Mục 3):
 #   Đ-4.2   File riêng cho quan hệ; `GET /feed` nằm trong content-v1 (feed trả bài, không phải quan hệ).

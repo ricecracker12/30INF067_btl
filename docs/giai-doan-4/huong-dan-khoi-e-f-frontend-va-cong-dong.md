@@ -1364,3 +1364,105 @@ không phải chậm, trang hai **không bao giờ** được nạp. Lượt `pu
 **Đính chính hai chẩn đoán trước:** lượt "Test timed out in 5000ms" của `user-posts` ghi ở E3 là CHÍNH lỗi này, không phải máy
 bận; `testTimeout` 15s giữ lại như nguyên tắc (thời hạn cả ca > mức chờ từng `waitFor`), không phải cách chữa — đã sửa chú
 thích ở `vitest.config.ts` và luật frontend Mục 9 (thêm gạch về `useLayoutEffect` cho ref mà handler đọc).
+
+### F1 — 2026-09-23
+
+PR #21 merge vào `develop` lúc 08:37Z (`0d0a093`, người trong nhóm bấm). CD `deploy-staging` tự chạy và **xanh**
+(https://github.com/ricecracker12/30INF067_btl/actions/runs/35838138084):
+
+- Image `api` build từ **đúng** `0d0a093` (nhãn `vcs:revision`) — không có nguy cơ staging chạy image cũ còn `AlwaysStrangers`.
+- Log `migrate`: *"Đã áp dụng migration cho schema "identity", "profile", "content", "socialgraph"; … Thoát 0."* — đủ bốn
+  schema, đúng thứ tự Mục 5.
+- Bốn container `healthy` sau `up --wait`.
+- Từ ngoài bằng `curl` (không trình duyệt): `/health/ready` **200**; `socialgraph-v1/swagger.json` **200**, đủ 7 path;
+  `content-v1/swagger.json` có `/api/v1/feed`.
+- **Chờ server:** psql `__EFMigrationsHistory` ở bốn schema (Bước 2) — người trong nhóm chạy, xem khối lệnh ở `F3`. Agent không
+  có quyền vào VPS (host/SSH không nằm trong repo).
+
+### F2 — kịch bản đi tay (soạn 2026-09-23, **chờ chạy**)
+
+Chốt 2026-09-23: **người trong nhóm đi tay** trên hai hồ sơ Chrome (không dùng script). Kịch bản Mục 9 chỉnh theo hai quyết
+định mới sau khi viết hướng dẫn: Đ-4.6 đổi (feed gợi ý có bài của chính mình) và Q-E7 đổi (header không còn "Trang chủ").
+
+```
+Hồ sơ 2 (B): đăng nhập tài khoản staging của nhóm; đăng bài public "P-<ngày>" + bài friends "F-<ngày>"
+Hồ sơ 1 (A): ĐĂNG KÝ MỚI qua UI (Gmail nhóm dạng +f2-<ngày>) → bấm link trong mail → đăng nhập → onboarding
+A: trang chủ → nhãn "Gợi ý cho bạn…", CÓ "P", KHÔNG có "F"                                   [ảnh 1]
+A: bấm tên B trên bài "P" → hồ sơ B → Kết bạn → thấy "Đã gửi lời mời"
+B: header "Bạn bè" → Lời mời kết bạn → Chấp nhận A
+A: trang chủ → Làm mới → KHÔNG còn nhãn gợi ý; CÓ "P" và "F" (nhãn riêng tư "Bạn bè")          [ảnh 2]
+A: hồ sơ B → Hủy kết bạn → xác nhận → trang chủ → Làm mới → KHÔNG còn "F"                      [ảnh 3]
+   (nhãn gợi ý trở lại, "P" có thể hiện lại dưới nhãn đó — đúng Đ-4.6, không phải lỗi)
+```
+
+Bằng chứng giữ lại (bảng Mục 9): ba ảnh (che email, id); bảng tab Network của hồ sơ 1 cả lượt — mọi origin (không lọc
+trước), 0 `Authorization`, 0 JWT trong body, Local/Session Storage trống, `Set-Cookie` chỉ `__Host-sid`; bản Chrome
+(`chrome://version`) + giờ chạy. Đỏ thì loại trừ theo bảng "Nếu đỏ" của Mục 9.
+
+### F3 — 2026-09-23
+
+Rà `giai-doan-4.md` Mục 11 + Mục 12 **kèm bằng chứng tại dòng**: **12 dòng tick**, **5 dòng chờ** (không xóa dòng nào):
+
+| Dòng chờ | Chờ gì |
+|---|---|
+| Mục 11 — chạy thử staging hai tài khoản | `F2` |
+| Mục 11 — không lộ secret/PII (nửa log) | Server: `grep X-Amz-Signature` log api |
+| Mục 12 — schema `socialgraph`, `--migrate` hai lần (nửa) | Server: psql + `migrate` lần hai. Nửa đã có: log CD áp đủ bốn schema |
+| Mục 12 — không FK chéo schema | Server: psql |
+| Mục 12 — lát cắt dọc staging | `F2` |
+
+Một dòng **kiểm mới tại chỗ** thay vì trỏ bằng chứng cũ — "Redis trên môi trường đo": môi trường đo đang có 0 khóa
+`feed:p1:*` (TTL 30s, lượt k6 đã xong), nên gọi `GET /feed` cho 5 người dùng đo (JWT ký bằng khóa của `tests/load/feed/.env`,
+đọc trong tiến trình, không in) → 200 `network` 20 bài × 5 → 5 khóa; `GET` cả 5: **0** khóa chứa `X-Amz-Signature`,
+`myReaction`, `canEdit` hay URL. Ghi ngược **L1**: Mục 11 "Tick ở `F4`" → `F3`; "(`F3`)" của dòng staging và dòng lát cắt dọc
+→ `F2`.
+
+**Khối lệnh cho các dòng chờ server** — chạy trong `~/app/deploy` trên VPS, dán đầu ra (không có secret) vào đây:
+
+```bash
+C="docker compose -f docker-compose.staging.apache.yml"
+# 1) __EFMigrationsHistory ở bốn schema → content, identity, profile, socialgraph
+$C exec postgres psql -U socialapp -d socialapp -At -c "select table_schema from information_schema.tables where table_name = '__EFMigrationsHistory' order by 1;"
+# 2) migrate lần hai: exit 0, không áp migration mới
+$C run --rm migrate; echo "exit=$?"
+# 3) FK chéo schema → 0
+$C exec postgres psql -U socialapp -d socialapp -At -c "select count(*) from information_schema.referential_constraints rc join information_schema.table_constraints a on a.constraint_name=rc.constraint_name and a.constraint_schema=rc.constraint_schema join information_schema.table_constraints b on b.constraint_name=rc.unique_constraint_name and b.constraint_schema=rc.unique_constraint_schema where a.table_schema<>b.table_schema;"
+# 4) log api: 0 URL đã ký
+$C logs api | grep -c "X-Amz-Signature"
+```
+
+### F4 — 2026-09-23
+
+- **Đóng băng:** khối `ĐÓNG BĂNG (2026-09-23 …)` ở đầu `socialgraph-v1.yaml` (thay đoạn "CHƯA CÓ MÁY CANH cho tới B5" đã
+  lỗi thời bằng "MÁY CANH từ B5"), và một khối ngay trên path `/feed` của `content-v1.yaml`. Chỉ chú thích: `pnpm gen:api` →
+  worktree sạch; cổng hợp đồng backend **12/12** (build test ra thư mục trong `bin/` — API dev của người dùng giữ khóa DLL).
+- **Hoãn có địa chỉ** (Mục 2 thêm hai dòng): `use-post-page.ts` → hook chung (**GĐ5**, Q-E8); Swagger runtime lệch tên schema
+  503 (**GĐ8**, Q-E4). Không mục nào bị cắt ở Mục 0.5.
+- **Bàn giao GĐ3** (`giai-doan-3.md`): sửa dòng "ráp `PostCard`" → `PostItem` + chữ ký `renderPost(post, onChanged)`; thêm hai
+  dòng (hook chung, feed gợi ý có bài của mình); khối bàn giao ba chỗ cắm + hai việc làm lại.
+- **Bàn giao GĐ5** (`giai-doan-5.md`, khối có ngày, không sửa quyết định của GĐ5): `IFriendshipReader` thật, D2/D3 đã có
+  (không cần `INSERT` thẳng + TODO), tên hai event, slot `actions` là **hàm**, hook chung, `type` Problem Details, mốc k6.
+- **Ba điều kiện B.11** ghi ở `giai-doan-4.md` ("Xác nhận ba điều kiện"): 2 và 3 **đạt**, 1 **chờ `F2`** — GĐ3 bắt đầu khi
+  điều kiện 1 xong.
+
+### F2 + các dòng chờ server — kết quả (2026-09-23)
+
+**F2 — đi tay trên `https://mxh.banhgao.net`, người trong nhóm, hai tài khoản.** Báo cáo: **Kết bạn** · **Xem bài viết** ·
+**Bài viết giới hạn bạn bè** · **Hủy kết bạn** — cả bốn đạt. Điều kiện 1 của B.11 ghi **đạt**.
+
+*Chỗ bằng chứng yếu hơn Mục 9:* **không** đính kèm ba ảnh, bảng tab Network, bản Chrome. Hệ quả: dòng "chỉ `/bff/*` + `GET` ảnh
+R2 + script Cloudflare, 0 `Authorization`, Web Storage trống" **không** có bằng chứng staging ở GĐ4 — bằng chứng gần nhất là
+`login-storage.spec.ts` (local, cả bộ E2E xanh) và `F2` của GĐ2 trên cùng domain. Báo cáo cũng không tách riêng hai vế "nhãn gợi
+ý ở tài khoản mới" và "không còn nhãn ngay sau khi chấp nhận" (dấu nguồn cache, `FEED-07b`) — hai vế này có `FEED-07b`
+(integration, Redis thật) và `friend-feed.spec.ts` (E2E trên API + FE dev) canh.
+
+**Lệnh server** (`~/app/deploy` trên VPS, người trong nhóm chạy, đầu ra dán nguyên văn):
+
+| Lệnh | Kết quả | Kỳ vọng |
+|---|---|---|
+| psql `__EFMigrationsHistory` | `content` · `identity` · `profile` · `socialgraph` | Bốn schema ✓ |
+| `$C run --rm migrate` lần hai | *"Đã áp dụng migration cho schema … Thoát 0."*, `exit=0` | Exit 0 ✓ — dòng log là câu tóm tắt cố định của `migrate`, không liệt kê migration nào mới |
+| FK chéo schema | `0` | 0 ✓ |
+| `logs api \| grep -c X-Amz-Signature` | `0` | 0 ✓ |
+
+Mục 11 + Mục 12 của `giai-doan-4.md`: **17/17 dòng tick**, mỗi dòng kèm bằng chứng tại dòng. Ba điều kiện B.11 đạt — **GĐ4 xong**.
