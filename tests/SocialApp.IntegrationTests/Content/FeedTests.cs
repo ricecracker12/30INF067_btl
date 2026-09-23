@@ -261,6 +261,8 @@ public sealed class FeedTests(PostgresFixture postgres, ModulesApiFactory factor
 
             using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
             Assert.Equal("Bảng tin đang quá tải", json.RootElement.GetProperty("title").GetString());
+            // Q-E4: FE phân nhánh theo `type`, không theo `title` — giá trị khai ở FeedOverloadedProblem của content-v1.yaml.
+            Assert.Equal("urn:socialapp:problem:feed-overloaded", json.RootElement.GetProperty("type").GetString());
             Assert.Equal(503, json.RootElement.GetProperty("status").GetInt32());
             Assert.False(string.IsNullOrEmpty(json.RootElement.GetProperty("traceId").GetString()));
             Assert.DoesNotContain("feed.unavailable", json.RootElement.GetRawText(), StringComparison.Ordinal);

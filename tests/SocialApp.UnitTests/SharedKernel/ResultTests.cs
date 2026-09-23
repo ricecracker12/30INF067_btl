@@ -92,7 +92,25 @@ public sealed class ResultTests
 
         Assert.Equal(403, problem.Status);
         Assert.Equal(ProblemTitles.Forbidden, problem.Title);
+        Assert.Equal(ProblemTitles.TypeFor(403), problem.Type);
         Assert.IsNotType<ValidationProblemDetails>(problem);
+    }
+
+    /// <summary>
+    /// GĐ4 Q-E4: <c>Error.Type</c> đặt thì lên dây nguyên vẹn — đó là thứ FE phân nhánh (503 feed quá tải ≠ 503 hạ tầng).
+    /// Để trống thì mặc định theo status (ca đối chứng ở trên).
+    /// </summary>
+    [Fact]
+    public void ToActionResult_giu_nguyen_Type_rieng_cua_loi()
+    {
+        var error = new Error("x.busy", "Đông quá.", 503, Title: "Bận", Type: "urn:socialapp:problem:x-busy");
+
+        var result = error.ToActionResult(NewController());
+
+        var problem = Assert.IsType<ProblemDetails>(Assert.IsType<ObjectResult>(result).Value);
+        Assert.Equal(503, problem.Status);
+        Assert.Equal("urn:socialapp:problem:x-busy", problem.Type);
+        Assert.Equal("Bận", problem.Title);
     }
 
     /// <summary>

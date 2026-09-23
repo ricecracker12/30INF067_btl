@@ -329,6 +329,13 @@ Hydrate còn **kiểm lại BR-02** cho từng bài bằng nguồn feed hiện t
   hình; test `FEED-12` chờ đủ 5s (Q-B4).
 - FE: 503 → thẻ "Bảng tin đang quá tải" + nút Thử lại, **không** màn trắng, **không** đồng hồ đếm ngược (luật frontend
   Mục 4 cho 429 áp tương tự: không hứa thời điểm).
+- *Bổ sung 2026-09-23 (khối E, Q-E4 — quyết định mới, nhóm chốt):* 503 của feed mang **`type` riêng**
+  `urn:socialapp:problem:feed-overloaded` (schema `FeedOverloadedProblem` trong `content-v1.yaml`; `Error.Type` — tham số
+  cuối có mặc định, cùng nếp chỉ-thêm của Q-D4). Lý do: tới trình duyệt, 503 còn có thể là **BFF mất kho phiên** (Redis) —
+  BFF gắn `urn:socialapp:problem:bff-session-unavailable` (`lib/api/bff-contract.ts`). FE phân nhánh theo `type`, **không**
+  theo `title` (nhãn hiển thị, đổi chữ không báo ai) và **không** chỉ theo status: 503 không mang `type` riêng (trang HTML
+  của apache) là lỗi hệ thống, hiện mã tra cứu như 5xx khác. Dòng "Problem Details không mang mã lỗi" ở trên vẫn đúng —
+  `type` là định danh RFC 7807, không phải `Error.Code`; `feed.unavailable` vẫn không lên dây.
 
 ### Đ-4.11 Danh sách bài theo tác giả thêm `status = 'published'` tường minh — sửa một lỗ nhỏ của GĐ2
 
@@ -680,7 +687,7 @@ FriendRequestPage     { items: [FriendCard], nextCursor: string | null }        
 
 | Method | Path | Auth | Thành công | Lỗi |
 |---|---|---|---|---|
-| GET | `/feed?cursor=&limit=` | Bearer + `post.read.public` | 200 `FeedPage` | 400 cursor sai · 401 · **503** + `Retry-After` |
+| GET | `/feed?cursor=&limit=` | Bearer + `post.read.public` | 200 `FeedPage` | 400 cursor sai · 401 · **503** + `Retry-After`, `type` `feed-overloaded` (Q-E4) |
 
 ```
 FeedPage { items: [PostResponse], nextCursor: string | null, mode: "network" | "suggested" }
@@ -831,7 +838,7 @@ sơ bộ; **đóng băng `socialgraph-v1`** và phần `/feed` của `content-v1
 | `FEED-09b` | Tác giả đổi bài `public` → `friends` khi trang đầu của người **chỉ theo dõi** đang cache | bài **không** còn — lưới duy nhất của bước kiểm lại BR-02 ở hydrate (dấu nguồn không đổi nên cache vẫn trúng) |
 | `FEED-10` | Trúng cache (`FakeObjectStorage` ký mỗi lần một URL khác) | URL ảnh lần 2 **khác** lần 1; giá trị thô trong Redis không chứa URL |
 | `FEED-11` | Redis dừng | 200, cùng nội dung, log cảnh báo |
-| `FEED-12` | Truy vấn feed chậm quá 5s (khóa `content.posts` từ kết nối khác) | 503 + `Retry-After: 5` + `title`; `feed.unavailable` không lên dây (Đ-4.10) |
+| `FEED-12` | Truy vấn feed chậm quá 5s (khóa `content.posts` từ kết nối khác) | 503 + `Retry-After: 5` + `title` + `type` `urn:socialapp:problem:feed-overloaded` (Q-E4); `feed.unavailable` không lên dây (Đ-4.10) |
 | `FEED-13` | Hai người xem cùng trang đầu đã cache của **mỗi người** | `canEdit`/`myReaction` của ai đúng người đó; giá trị thô chỉ `{ids, mode, next, fp}` (canh Đ-4.9) |
 
 *Sửa ngày 2026-09-22 (hướng dẫn B+C+D, L2/L3/L5/L9/L11/L15):* thêm `FEED-07b`, `FEED-09b`; `FEED-10` bỏ đồng hồ giả vì

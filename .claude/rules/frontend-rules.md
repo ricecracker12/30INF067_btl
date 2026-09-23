@@ -95,6 +95,9 @@ Bốn tầng, phụ thuộc **một chiều**: `app/` → `features/` → `compo
 - Thông điệp lỗi lấy từ `errorMessage(context, error)` trong `lib/api/messages.ts`, ánh xạ theo
   `(endpoint, status)`. `detail` của server chỉ là dự phòng. 500 phải hiện `traceId`. Mất mạng
   không đoán nguyên nhân. 429 không hiện đồng hồ đếm ngược (server không gửi `Retry-After`).
+- Cùng status mà hai nghĩa (503 feed quá tải ≠ 503 BFF mất kho phiên) → phân nhánh theo **`type`** của Problem Details
+  (`PROBLEM_TYPES`, `hasProblemType` trong `lib/api/problem.ts`), **không** theo `title`. `type` mới phải khai trong
+  hợp đồng (API: `.yaml`; BFF: `bff-contract.ts`) — thêm 2026-09-23, GĐ4 Q-E4.
 
 ## 5. Token, phiên, guard (Đ-E14, Đ-E3)
 

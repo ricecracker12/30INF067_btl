@@ -15,3 +15,12 @@ export const BFF_ROUTES = {
   /** Proxy chung tới API: /bff/api/<đường của API sau /api/v1>. */
   api: "/api",
 } as const
+
+/**
+ * `type` riêng của Problem Details do CHÍNH BFF sinh (GĐ4 Q-E4). Tới trình duyệt, 503 có hai nghĩa: API quá tải (feed —
+ * `type` khai trong content-v1.yaml) và BFF mất kho phiên (Redis). Trình duyệt phân nhánh theo `type`, không theo `title`.
+ * Lỗi còn lại của BFF giữ `https://httpstatuses.io/{status}`.
+ */
+export const BFF_PROBLEM_TYPES = {
+  sessionUnavailable: "urn:socialapp:problem:bff-session-unavailable",
+} as const

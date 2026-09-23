@@ -10,6 +10,7 @@ import {
   CURSOR_TRANG_RONG,
   MEDIA_SCENARIO,
   SOCIAL_SCENARIO,
+  feedOverloadedProblem,
   feedPage,
   friendCard,
   friendPage,
@@ -527,17 +528,13 @@ export const handlers = [
   http.get(url(`${BFF_ROUTES.api}/feed`), ({ request }) => {
     const cursor = new URL(request.url).searchParams.get("cursor")
     if (cursor === CURSOR_QUA_TAI) {
-      // Đ-4.10: 503 là problem+json NHƯ MỌI LỖI KHÁC, có `title`/`traceId` như server. Body không phải JSON (trang HTML
-      // của apache) thì `toApiError` trả `problem: null` và ca 503 xanh vì lý do sai — `http.test.ts` canh điều đó.
-      // `Retry-After` có mặt như server, FE không đọc (Q-E4).
-      return HttpResponse.json(
-        problem(
-          503,
-          "Bảng tin đang quá tải",
-          "Bảng tin đang có quá nhiều người truy cập. Vui lòng thử lại."
-        ),
-        { status: 503, headers: { ...PROBLEM_HEADERS, "Retry-After": "5" } }
-      )
+      // Đ-4.10: 503 là problem+json NHƯ MỌI LỖI KHÁC, mang `type` riêng (Q-E4) và `title`/`traceId` như server. Body
+      // không phải JSON (trang HTML của apache) thì `toApiError` trả `problem: null` và ca 503 xanh vì lý do sai —
+      // `http.test.ts` canh điều đó. `Retry-After` có mặt như server, FE không đọc (Q-E4).
+      return HttpResponse.json(feedOverloadedProblem(), {
+        status: 503,
+        headers: { ...PROBLEM_HEADERS, "Retry-After": "5" },
+      })
     }
     return HttpResponse.json(cursorPage(cursor, feedPage("network")))
   }),

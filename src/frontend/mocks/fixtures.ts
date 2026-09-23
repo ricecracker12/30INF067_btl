@@ -188,6 +188,20 @@ export const CURSOR_SAU_TRANG_RONG = "sau-trang-rong"
 /** Cursor làm `GET /feed` trả **503** (Đ-4.10). Chỉ feed — hợp đồng socialgraph-v1 không có 503. */
 export const CURSOR_QUA_TAI = "qua-tai"
 
+/**
+ * 503 của `GET /feed` — giá trị chép từ `example` của `ServiceUnavailable`. `satisfies FeedOverloadedProblem` ghim `type`
+ * vào enum của hợp đồng (Q-E4): yaml đổi `type` thì mock đỏ compile, không lặng lẽ đi nhánh 5xx chung.
+ */
+export const feedOverloadedProblem = () =>
+  ({
+    ...problem(
+      503,
+      "Bảng tin đang quá tải",
+      "Bảng tin đang có quá nhiều người truy cập. Vui lòng thử lại."
+    ),
+    type: "urn:socialapp:problem:feed-overloaded",
+  }) satisfies T.FeedOverloadedProblem
+
 /** Bài trong `example` của `GET /feed`: của người khác, mức `friends`, không sửa được. */
 export const feedPost = {
   postId: "0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10",
@@ -207,14 +221,9 @@ export const feedPost = {
  * nên đổi `privacy` của bài mẫu: bài `friends` không bao giờ lọt vào feed gợi ý. `nextCursor` truyền vào khi test cần trang
  * sau (ví dụ `CURSOR_TRANG_RONG` để dựng ca trang rỗng giữa chừng).
  */
-export const feedPage = (
-  mode: T.FeedMode,
-  nextCursor: string | null = null
-) =>
+export const feedPage = (mode: T.FeedMode, nextCursor: string | null = null) =>
   ({
-    items: [
-      mode === "network" ? feedPost : { ...feedPost, privacy: "public" },
-    ],
+    items: [mode === "network" ? feedPost : { ...feedPost, privacy: "public" }],
     nextCursor,
     mode,
   }) satisfies T.FeedPage

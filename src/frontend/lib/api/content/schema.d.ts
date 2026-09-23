@@ -187,7 +187,7 @@ export interface components {
         ProblemDetails: {
             /**
              * Format: uri
-             * @description Mặc định `https://httpstatuses.io/{status}`.
+             * @description Mặc định `https://httpstatuses.io/{status}`. Lỗi có `type` riêng khai bằng schema riêng (`FeedOverloadedProblem`).
              */
             type?: string;
             /** @description Nhãn ngắn, ổn định theo loại lỗi. **Không** chứa dữ liệu người dùng. */
@@ -336,6 +336,14 @@ export interface components {
             nextCursor: string | null;
         };
         /**
+         * @description 503 của `GET /feed` (Đ-4.10, Q-E4). Cùng hình dạng `ProblemDetails`, nhưng `type` là định danh ổn định của ca "bảng tin
+         *     quá tải" — FE so `type` để tách nó khỏi 503 của hạ tầng (BFF mất kho phiên), không so `title`.
+         */
+        FeedOverloadedProblem: components["schemas"]["ProblemDetails"] & {
+            /** @enum {string} */
+            type: "urn:socialapp:problem:feed-overloaded";
+        };
+        /**
          * @description `network` — có ít nhất một kết nối (bạn hoặc đang theo dõi), kể cả khi feed rỗng. `suggested` — chưa có kết nối
          *     nào, `items` là bài công khai mới nhất của người khác (Đ-4.6); FE hiện nhãn "Gợi ý cho bạn".
          * @enum {string}
@@ -459,7 +467,7 @@ export interface components {
         };
         /**
          * @description Hệ thống đang quá tải — truy vấn feed vượt thời hạn (Đ-4.10). Không phải lỗi hệ thống (500): thử lại sau số giây
-         *     trong `Retry-After`.
+         *     trong `Retry-After`. `type` luôn là `urn:socialapp:problem:feed-overloaded` (Q-E4) — định danh để FE nhận ra ca này.
          */
         ServiceUnavailable: {
             headers: {
@@ -474,7 +482,7 @@ export interface components {
             content: {
                 /**
                  * @example {
-                 *       "type": "https://httpstatuses.io/503",
+                 *       "type": "urn:socialapp:problem:feed-overloaded",
                  *       "title": "Bảng tin đang quá tải",
                  *       "status": 503,
                  *       "detail": "Bảng tin đang có quá nhiều người truy cập. Vui lòng thử lại.",
@@ -482,7 +490,7 @@ export interface components {
                  *       "traceId": "f8a0c2e4b6d8f0a2c4e6b8d0f2a4c6e8"
                  *     }
                  */
-                "application/problem+json": components["schemas"]["ProblemDetails"];
+                "application/problem+json": components["schemas"]["FeedOverloadedProblem"];
             };
         };
         /**

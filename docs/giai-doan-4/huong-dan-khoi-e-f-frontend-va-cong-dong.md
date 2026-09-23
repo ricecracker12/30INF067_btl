@@ -246,6 +246,13 @@ Với `/bff/api/feed`, FE không phân biệt được hai loại 503.
   Details để chọn câu: `title` là nhãn của server, FE dựa vào nó là dựa vào một chuỗi không có trong hợp đồng.
 - `Retry-After` **không** dùng ở FE (Đ-4.10: không hứa thời điểm). Không cần kiểm proxy BFF có chuyển header đó hay không.
 
+*✅ chốt 2026-09-23 — **khác đề xuất**: phân biệt, bằng `type` khai trong hợp đồng.* 503 feed mang
+`urn:socialapp:problem:feed-overloaded` (schema `FeedOverloadedProblem` trong `content-v1.yaml`, `Error.Type` ở SharedKernel);
+503 BFF mất kho phiên mang `urn:socialapp:problem:bff-session-unavailable` (`bff-contract.ts`). `errorMessage` tra `type`
+**trước** `(ngữ cảnh, status)`; 503 không mang `type` riêng là lỗi hệ thống (có mã tra cứu). Vẫn không so `title`, vẫn
+không đọc `Retry-After`. **Lệch Mục 1.2 luật 3** (chạm `src/backend/**` sau `D7`): nhóm chốt mở lại hợp đồng theo luật
+chỉ-thêm — một commit riêng trước `E4`, `.yaml` + `pnpm gen:api` + test backend cùng commit. Ghi ngược Đ-4.10 và Đ-E6.
+
 #### Q-E5 — Cuộn vô hạn: observer tự nạp + nút "Xem thêm" dự phòng
 
 GĐ2 chọn **nút** (`post-list.tsx`): cuộn tự động làm người dùng bàn phím không tới được cuối trang và nuốt lỗi. B.7 lại
@@ -1037,3 +1044,27 @@ Sáu câu còn lại chốt ở đầu việc dùng tới chúng.
 **Bằng chứng:** `pnpm gen:api` → không file sinh nào đổi. `lint`, `typecheck`, `build` xanh. Vitest **39 → 40 file, 453 → 478
 ca** (+9 `messages.test.ts`, +9 `http.test.ts`, +4 `socialgraph/schema.test-d.ts` mới, +3 `content/schema.test-d.ts`).
 Không file nào trong `features/` hay `app/` đổi.
+
+### Q-E4 — 2026-09-23 (commit riêng, trước `E4`)
+
+Chốt **khác đề xuất** (xem dòng ✅ dưới Q-E4): 503 phân biệt bằng `type` khai trong hợp đồng.
+
+- **Backend (lệch Mục 1.2 luật 3, nhóm chốt):** `Error` thêm tham số cuối `Type` có mặc định — cùng nếp chỉ-thêm của Q-D4;
+  `ResultHttpExtensions.Problem` truyền `type: error.Type`, factory vẫn điền `https://httpstatuses.io/{status}` khi `null`.
+  `ContentErrors.FeedUnavailable` mang `FeedOverloadedType`. Impact: `Problem` LOW (3); `Error` UNKNOWN (tên trùng) — tìm
+  chữ xác nhận không chỗ nào dùng `Error` theo vị trí (deconstruct / pattern), nên thêm tham số cuối biên dịch an toàn; đường
+  ra của mọi lỗi ở 24 action, hành vi không đổi khi `Type = null` (ca đối chứng trong `ResultTests` khẳng định `type` mặc định).
+- **Hợp đồng:** `content-v1.yaml` thêm schema `FeedOverloadedProblem` (`allOf` `ProblemDetails` + `type` enum một giá trị),
+  response `ServiceUnavailable` trỏ vào nó. Không đổi tập status, không đổi required của request — `ContentContractTests`
+  không so schema response. `pnpm gen:api` sinh `type: "urn:socialapp:problem:feed-overloaded"` (literal).
+- **BFF:** `problem()` của `lib/bff/http.ts` thêm tham số cuối `type` (impact MEDIUM, 6 người gọi trực tiếp — chỉ-thêm, mặc
+  định như cũ); `sessionUnavailable` mang `BFF_PROBLEM_TYPES.sessionUnavailable` (`bff-contract.ts`).
+- **FE:** `PROBLEM_TYPES` + `hasProblemType` ở `lib/api/problem.ts` (giá trị API ràng bằng `satisfies` vào kiểu sinh);
+  `errorMessage` tra `BY_TYPE` trước `BY_CONTEXT`. `feed: { 503 }` của `E1` **bỏ** — đổi có chủ đích: 503 không mang `type`
+  riêng giờ là lỗi hệ thống, hiện mã tra cứu. Fixture `feedOverloadedProblem()` gắn `satisfies FeedOverloadedProblem`.
+- **Ca mới:** `ResultTests` (Type lên dây nguyên vẹn + đối chứng mặc định), `FEED-12` và `FeedServiceTests` khẳng định `type`,
+  BFF "Redis phiên chết → 503 bff-session-unavailable" (trước đó **không** có ca nào canh nhánh này), `hasProblemType`,
+  `messages.test.ts` phân nhánh theo `type` (gồm ca "title đúng mà type mặc định vẫn là lỗi hệ thống").
+
+**Bằng chứng:** Unit 291 → 292, Architecture 16, Integration 483 (482 đạt + 1 đỏ nền `StartupConfigurationTests` R2 của máy
+dev). Vitest 478 → 483.

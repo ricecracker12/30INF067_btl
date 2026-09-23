@@ -16,7 +16,12 @@ import { authApi } from "./auth-api"
 import { BFF_URL } from "./config"
 import { contentApi } from "./content-api"
 import { configureSessionExpired } from "./http"
-import { ApiError, NetworkError } from "./problem"
+import {
+  ApiError,
+  hasProblemType,
+  NetworkError,
+  PROBLEM_TYPES,
+} from "./problem"
 import { profileApi } from "./profile-api"
 import { socialGraphApi } from "./socialgraph-api"
 
@@ -352,6 +357,8 @@ describe("api client — quan hệ và bảng tin (GĐ4 E1)", () => {
     expect(err).toBeInstanceOf(ApiError)
     expect((err as ApiError).status).toBe(503)
     expect((err as ApiError).problem?.title).toBe("Bảng tin đang quá tải")
+    // Q-E4: FE nhận ra ca này bằng `type`, không bằng `title`.
+    expect(hasProblemType(err, PROBLEM_TYPES.feedOverloaded)).toBe(true)
   })
 
   it("mock trả 400 errors.userId khi hỏi quan hệ với chính mình — đúng câu SocialGraphErrors", async () => {

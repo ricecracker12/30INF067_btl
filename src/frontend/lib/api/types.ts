@@ -52,6 +52,8 @@ export type PostPage = C["PostPage"]
 // --- Content, thêm ở GĐ4 E1 (`GET /feed`) ---
 export type FeedMode = C["FeedMode"]
 export type FeedPage = C["FeedPage"]
+/** 503 feed quá tải — `type` là literal sinh từ enum của hợp đồng (Q-E4). */
+export type FeedOverloadedProblem = C["FeedOverloadedProblem"]
 
 // --- SocialGraph (socialgraph-v1.yaml) — GĐ4 E1 ---
 export type FriendshipState = G["FriendshipState"]

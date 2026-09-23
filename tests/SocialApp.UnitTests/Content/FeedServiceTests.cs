@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging.Abstractions;
+using SocialApp.Modules.Content.Application;
 using SocialApp.Modules.Content.Application.Feed;
 using SocialApp.Modules.Content.Application.Posts;
 using SocialApp.Modules.Content.Domain;
@@ -183,6 +184,7 @@ public sealed class FeedServiceTests
 
         Assert.True(result.IsFailure);
         Assert.Equal(503, result.Error!.Value.Status);
+        Assert.Equal(ContentErrors.FeedOverloadedType, result.Error!.Value.Type);
         Assert.Empty(_cache.Sets);
     }
 

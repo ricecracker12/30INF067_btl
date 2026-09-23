@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { errorMessage, fieldMessage, validationErrors } from "./messages"
-import { ApiError, NetworkError } from "./problem"
+import { ApiError, NetworkError, PROBLEM_TYPES } from "./problem"
 import type { ProblemDetails } from "./types"
 
 const problem = (status: number, extra: Partial<ProblemDetails> = {}) =>
@@ -232,20 +232,8 @@ describe("errorMessage — năm ngữ cảnh GĐ4 (Q-E3, lệch B.7)", () => {
     )
   })
 
-  it("feed 503: câu quá tải, KHÔNG kèm Mã tra cứu (Đ-4.10) — dù Problem Details có traceId", () => {
-    const msg = errorMessage("feed", problem(503))
-    expect(msg).toBe("Bảng tin đang quá tải. Vui lòng thử lại sau ít phút.")
-    expect(msg).not.toContain("Mã tra cứu")
-  })
-
-  it("feed 500 VẪN là lỗi hệ thống: có Mã tra cứu — chỉ 503 được miễn", () => {
+  it("feed 500 VẪN là lỗi hệ thống: có Mã tra cứu", () => {
     expect(errorMessage("feed", problem(500))).toBe(
-      "Đã xảy ra lỗi không mong muốn. Mã tra cứu: 0af7651916cd43dd8448eb211c80319c"
-    )
-  })
-
-  it("503 của ngữ cảnh KHÁC feed vẫn đi nhánh 5xx — câu quá tải không rò sang màn quan hệ", () => {
-    expect(errorMessage("relationship", problem(503))).toBe(
       "Đã xảy ra lỗi không mong muốn. Mã tra cứu: 0af7651916cd43dd8448eb211c80319c"
     )
   })
@@ -278,6 +266,44 @@ describe("errorMessage — năm ngữ cảnh GĐ4 (Q-E3, lệch B.7)", () => {
     expect(fieldMessage(selfRequest, "direction", "relationship")).toBe(
       "Dữ liệu không hợp lệ."
     )
+  })
+})
+
+describe("errorMessage — phân nhánh theo `type` của Problem Details (Q-E4)", () => {
+  const SYSTEM =
+    "Đã xảy ra lỗi không mong muốn. Mã tra cứu: 0af7651916cd43dd8448eb211c80319c"
+
+  it("503 feed-overloaded: câu quá tải, KHÔNG kèm Mã tra cứu (Đ-4.10) — dù Problem Details có traceId", () => {
+    const msg = errorMessage(
+      "feed",
+      problem(503, { type: PROBLEM_TYPES.feedOverloaded })
+    )
+    expect(msg).toBe("Bảng tin đang quá tải. Vui lòng thử lại sau ít phút.")
+    expect(msg).not.toContain("Mã tra cứu")
+  })
+
+  it("503 bff-session-unavailable: câu gián đoạn đăng nhập — ở MỌI ngữ cảnh, kể cả feed, không Mã tra cứu", () => {
+    for (const ctx of ["feed", "relationship", "post-read", "me"] as const) {
+      expect(
+        errorMessage(
+          ctx,
+          problem(503, { type: PROBLEM_TYPES.bffSessionUnavailable })
+        )
+      ).toBe(
+        "Dịch vụ đăng nhập tạm thời gián đoạn. Vui lòng thử lại sau ít phút."
+      )
+    }
+  })
+
+  it("503 KHÔNG mang type riêng là lỗi hệ thống — kể cả ở feed (đổi có chủ đích so với E1: bảng không còn đoán theo status)", () => {
+    expect(errorMessage("feed", problem(503))).toBe(SYSTEM)
+    expect(errorMessage("relationship", problem(503))).toBe(SYSTEM)
+  })
+
+  it("so `type`, KHÔNG so `title`: title 'Bảng tin đang quá tải' mà type mặc định vẫn là lỗi hệ thống", () => {
+    expect(
+      errorMessage("feed", problem(503, { title: "Bảng tin đang quá tải" }))
+    ).toBe(SYSTEM)
   })
 })
 

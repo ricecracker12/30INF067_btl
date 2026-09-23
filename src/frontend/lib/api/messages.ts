@@ -1,4 +1,10 @@
-import { ApiError, NetworkError } from "./problem"
+import {
+  ApiError,
+  hasProblemType,
+  NetworkError,
+  PROBLEM_TYPES,
+  type ProblemType,
+} from "./problem"
 
 // Đ-E6: thông điệp lỗi do FE sở hữu, ánh xạ theo (màn/endpoint, status). `detail` của server chỉ là
 // dự phòng cho status chưa có trong bảng — hiện `detail` cho 401 đăng nhập là để AC-02 phụ thuộc vào
@@ -129,18 +135,33 @@ const BY_CONTEXT: Record<ErrorContext, Partial<Record<number, string>>> = {
     404: "Không tìm thấy người dùng.",
   },
 
-  // `GET /feed` 503 = quá tải (Đ-4.10) — KHÔNG kèm `traceId`: không phải lỗi hệ thống, và không đếm ngược. Nhánh
-  // `BY_CONTEXT` chạy TRƯỚC nhánh `>= 500` nên câu này thắng. 503 của BFF khi Redis phiên chết cũng rơi vào đây
-  // (Q-E4): việc phải làm giống nhau — đợi rồi thử lại — nên không so `title` để tách hai loại.
-  feed: {
-    503: "Bảng tin đang quá tải. Vui lòng thử lại sau ít phút.",
-  },
+  // `GET /feed`: câu 503 "quá tải" KHÔNG nằm ở đây mà ở `BY_TYPE` (Q-E4, chốt 2026-09-23) — 503 không mang
+  // `feed-overloaded` (trang HTML của apache, proxy hỏng) là lỗi hệ thống thật, đi nhánh `>= 500` như mọi màn.
+  feed: {},
+}
+
+/**
+ * Câu theo `type` của Problem Details (GĐ4 Q-E4) — chạy TRƯỚC `BY_CONTEXT`, cho MỌI ngữ cảnh: cùng một status mang hai
+ * nghĩa mà người dùng làm hai việc khác nhau. Cả hai KHÔNG kèm `traceId` (không phải lỗi hệ thống) và KHÔNG đếm ngược
+ * (Đ-4.10: không hứa thời điểm, không đọc `Retry-After`).
+ */
+const BY_TYPE: Record<ProblemType, string> = {
+  [PROBLEM_TYPES.feedOverloaded]:
+    "Bảng tin đang quá tải. Vui lòng thử lại sau ít phút.",
+  // BFF mất Redis phiên: không phải "bạn bị đăng xuất" — phiên vẫn còn, chỉ tạm không đọc được.
+  [PROBLEM_TYPES.bffSessionUnavailable]:
+    "Dịch vụ đăng nhập tạm thời gián đoạn. Vui lòng thử lại sau ít phút.",
 }
 
 /** Thông điệp cấp form cho một lỗi bất kỳ ném ra từ `request()`. */
 export function errorMessage(context: ErrorContext, error: unknown): string {
   if (error instanceof NetworkError) return COMMON.network
   if (!(error instanceof ApiError)) return COMMON.unexpected
+
+  const byType = Object.values(PROBLEM_TYPES).find((t) =>
+    hasProblemType(error, t)
+  )
+  if (byType) return BY_TYPE[byType]
 
   const known = BY_CONTEXT[context][error.status]
   if (known) return known

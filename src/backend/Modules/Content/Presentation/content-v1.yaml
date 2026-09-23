@@ -41,6 +41,9 @@
 #   Đ-4.6   Chưa có kết nối nào → feed gợi ý (`mode: suggested`): bài public mới nhất toàn hệ thống, trừ bài của mình.
 #   Đ-4.9   `items` có thể ít hơn `limit`; hết dữ liệu khi và chỉ khi `nextCursor` là null.
 #   Đ-4.10  Truy vấn feed quá 5s → 503 + `Retry-After: 5`.
+#   Q-E4    (khối E, 2026-09-23) 503 của feed mang `type` riêng `urn:socialapp:problem:feed-overloaded` (schema
+#           `FeedOverloadedProblem`): tới trình duyệt, 503 còn có thể là BFF mất kho phiên — FE phân nhánh theo `type`,
+#           không theo `title`. Chỉ thêm giá trị cho `type`, không đổi tập status hay trường bắt buộc nào.
 #
 # ĐIỂM CẦN NHÓM XÁC NHẬN Ở CỔNG MỞ (Q-D1): `mediaKeys` của POST /posts là MẢNG OBJECT {mediaKey, contentType, sizeBytes},
 #   không phải mảng chuỗi. Lý do: Đ-2.8 lớp 2 đối chiếu HEAD với "khai báo lúc presign", mà server không giữ trạng thái
@@ -674,7 +677,7 @@ components:
     ServiceUnavailable:
       description: |
         Hệ thống đang quá tải — truy vấn feed vượt thời hạn (Đ-4.10). Không phải lỗi hệ thống (500): thử lại sau số giây
-        trong `Retry-After`.
+        trong `Retry-After`. `type` luôn là `urn:socialapp:problem:feed-overloaded` (Q-E4) — định danh để FE nhận ra ca này.
       headers:
         Retry-After:
           description: Số giây nên chờ trước khi thử lại.
@@ -687,9 +690,9 @@ components:
       content:
         application/problem+json:
           schema:
-            $ref: '#/components/schemas/ProblemDetails'
+            $ref: '#/components/schemas/FeedOverloadedProblem'
           example:
-            type: https://httpstatuses.io/503
+            type: urn:socialapp:problem:feed-overloaded
             title: Bảng tin đang quá tải
             status: 503
             detail: Bảng tin đang có quá nhiều người truy cập. Vui lòng thử lại.
@@ -723,7 +726,7 @@ components:
         type:
           type: string
           format: uri
-          description: Mặc định `https://httpstatuses.io/{status}`.
+          description: Mặc định `https://httpstatuses.io/{status}`. Lỗi có `type` riêng khai bằng schema riêng (`FeedOverloadedProblem`).
         title:
           type: string
           description: Nhãn ngắn, ổn định theo loại lỗi. **Không** chứa dữ liệu người dùng.
@@ -968,6 +971,19 @@ components:
           nullable: true
           description: Opaque. `null` khi hết dữ liệu — không phải chuỗi rỗng (Đ-2.11).
       required: [items, nextCursor]
+
+    FeedOverloadedProblem:
+      description: |
+        503 của `GET /feed` (Đ-4.10, Q-E4). Cùng hình dạng `ProblemDetails`, nhưng `type` là định danh ổn định của ca "bảng tin
+        quá tải" — FE so `type` để tách nó khỏi 503 của hạ tầng (BFF mất kho phiên), không so `title`.
+      allOf:
+        - $ref: '#/components/schemas/ProblemDetails'
+        - type: object
+          properties:
+            type:
+              type: string
+              enum: ['urn:socialapp:problem:feed-overloaded']
+          required: [type]
 
     FeedMode:
       type: string
