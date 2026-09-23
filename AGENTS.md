@@ -91,7 +91,11 @@ CI GATE nhắm `tests/SocialApp.IntegrationTests/...csproj`, và các link `../.
 - **Module KHÔNG tham chiếu chéo trực tiếp** — chỉ giao tiếp qua interface ở tầng Application (vd
   `IAreFriendsQuery` do SocialGraph export cho Content/Messaging dùng). **ArchUnitNET test chặn vi phạm** →
   đừng thêm project reference chéo.
-- **SharedKernel** chứa hạ tầng dùng chung (auth middleware, error model, correlation ID, rate limit).
+- **SharedKernel** chứa hạ tầng dùng chung (auth middleware, error model, correlation ID, rate limit, event bus trong
+  tiến trình).
+- **Event giữa module** (`SharedKernel/Events/`, Đ-6.2 của GĐ6): phát **sau `COMMIT`** bằng `IEventPublisher.Publish`
+  (không chờ handler, không ném); đăng ký handler **chỉ** bằng `AddIntegrationEventHandler<TEvent, THandler>()`. Record
+  event là `sealed record` chỉ mang id/enum/số/cờ — `IntegrationEventShapeTests` chặn vi phạm.
 
 ## 6. Module ↔ chức năng ↔ FR
 | Module | API | Chức năng | FR |
