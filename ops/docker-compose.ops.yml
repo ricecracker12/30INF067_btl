@@ -71,15 +71,15 @@ services:
   grafana:
     image: grafana/grafana-oss:12.1.1 # kiểm arm64: docker manifest inspect grafana/grafana-oss:12.1.1 | grep arm64
     restart: unless-stopped
-    # 3000 = frontend staging, 3001 = đã có người dùng, 3002 = Kuma → 3003. Kiểm `ss -ltnp` trước; bận thì chỉ đổi
+    # 2998: dải 3000–3003 trên VM đã kín (3000 frontend, 3001 + 3003 ứng dụng khác, 3002 Kuma). Kiểm `ss -ltnp` trước; bận thì chỉ đổi
     # VẾ TRÁI (Grafana luôn nghe 3000 bên trong container).
-    ports: ["127.0.0.1:3003:3000"]    # chỉ localhost — xem qua SSH tunnel, KHÔNG ProxyPass ra Internet (Đ-7.7, R7-06)
+    ports: ["127.0.0.1:2998:3000"]    # chỉ localhost — xem qua SSH tunnel, KHÔNG ProxyPass ra Internet (Đ-7.7, R7-06)
     environment:
       # Lấy từ ~/app/ops/.env (Compose tự đọc). Thiếu thì `up` DỪNG với thông báo này — không bao giờ chạy với admin/admin.
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?đặt GRAFANA_ADMIN_PASSWORD trong ~/app/ops/.env (xem .env.example cùng thư mục)}
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_AUTH_ANONYMOUS_ENABLED: "false"
-      GF_SERVER_ROOT_URL: http://localhost:3003   # đường xem qua tunnel — link trong email cảnh báo C5 trỏ về đây
+      GF_SERVER_ROOT_URL: http://localhost:2998   # đường xem qua tunnel — link trong email cảnh báo C5 trỏ về đây
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
       GF_NEWS_NEWS_FEED_ENABLED: "false"

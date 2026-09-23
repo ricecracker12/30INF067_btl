@@ -22,8 +22,8 @@
 | **C1** | `/metrics` RED trên API | `/metrics` 200 không cần token; lỗi 500 được đếm **đúng là 500** | ✅ **Đóng** — deploy + nghiệm thu trên staging (2026-09-23) |
 | **C2** | Bốn chỉ số nghiệp vụ | Đăng một bài trên staging → counter tăng đúng 1 | ✅ **Đóng** — đủ 7 chuỗi sau deploy, `posts_created` tăng đúng 1 (2026-09-23) |
 | **C3** | Prometheus trong stack ops | Trang Targets: mọi target **UP** | ✅ **Đóng** — cả ba target UP trên VM (2026-09-23); còn ảnh Targets |
-| **C4** | Grafana + dashboard | Biểu đồ có số liệu thật từ staging | 🟡 File cấu hình xong (2026-09-23), **chờ thi công trên VM** |
-| **C5** | Cảnh báo + thử cho kêu ⭐ | Ảnh ≥ 3 cảnh báo đã kêu thật, kèm giờ | ⬜ Chưa làm |
+| **C4** | Grafana + dashboard | Biểu đồ có số liệu thật từ staging | ✅ **Đóng** — mọi panel có số thật trên VM, có ảnh (2026-09-24) |
+| **C5** | Cảnh báo + thử cho kêu ⭐ | Ảnh ≥ 3 cảnh báo đã kêu thật, kèm giờ | 🟡 Ba luật xong, kiểm cục bộ kêu đúng (2026-09-24), **chờ thi công trên VM** |
 | **C6** | Redact PII + cổng CI + canh `/metrics` | CI đỏ khi cố tình log email; `/metrics` công khai không lộ | ⬜ Chưa làm |
 
 ---
@@ -323,9 +323,9 @@ tại **không báo lỗi**, nó tạo thư mục — kiểm `ls -l` (dòng bắ
 
 ---
 
-## 4. C4 — Grafana + dashboard 🟡
+## 4. C4 — Grafana + dashboard ✅
 
-> File cấu hình xong và đã kiểm cục bộ (2026-09-23). **Chờ thi công trên VM.**
+> Chạy trên VM từ 2026-09-24, mọi panel có số thật — ảnh ở `bang-chung/C4-dashboard-2026-09-24.png`.
 
 ### Mục tiêu
 
@@ -336,7 +336,7 @@ SSH tunnel, không ra Internet (Đ-7.7, R7-06). Grafana cũng là chỗ đặt b
 
 | File | Nội dung |
 |---|---|
-| [`ops/docker-compose.ops.yml`](../../ops/docker-compose.ops.yml) | Thêm `grafana` (`grafana-oss:12.1.1`, có arm64), publish `127.0.0.1:3003`, volume `grafana-data`, **chỉ mạng default** |
+| [`ops/docker-compose.ops.yml`](../../ops/docker-compose.ops.yml) | Thêm `grafana` (`grafana-oss:12.1.1`, có arm64), publish `127.0.0.1:2998`, volume `grafana-data`, **chỉ mạng default** |
 | [`ops/.env.example`](../../ops/.env.example) *(mới)* | `GRAFANA_ADMIN_PASSWORD=` — chép thành `~/app/ops/.env` |
 | [`ops/grafana/provisioning/datasources/prometheus.yml`](../../ops/grafana/provisioning/datasources/prometheus.yml) | Datasource `http://prometheus:9090`, **uid cố định `prometheus`** |
 | [`ops/grafana/provisioning/dashboards/provider.yml`](../../ops/grafana/provisioning/dashboards/provider.yml) | Nạp mọi JSON trong `grafana/dashboards/` vào thư mục *SocialApp* |
@@ -358,11 +358,11 @@ Quyết định, kèm lý do:
 |---|---|
 | Mọi biểu thức RED lọc `controller!=""` | Bỏ request của Prometheus vào `/metrics` (15 giây một lần) và `/health/*` — không lọc thì "request/giây" chủ yếu là chính Prometheus, và tỷ lệ lỗi bị pha loãng |
 | Nhóm theo `controller`/`action`, **không** theo `endpoint` | Nghiệm thu C1: lỗi 500 có `endpoint=""` (bộ xử lý lỗi xóa endpoint gốc) — nhóm theo endpoint là mọi 500 dồn vào một dòng không tên |
-| Tỷ lệ lỗi chia cho `clamp_min(…, 1e-9)` | Không có traffic thì 0/0 = NaN, ô hiện "No data" thay vì 0% |
+| Tỷ lệ lỗi = `(sum(5xx) or vector(0)) / clamp_min(sum(tất cả) or vector(0), 1e-9)` | Không có lỗi 5xx trong 5 phút thì chuỗi 5xx **không tồn tại** — `sum()` trả rỗng, cả phép chia rỗng, ô hiện "No data" thay vì 0%. `clamp_min` chặn 0/0 khi không có request. *Bản đầu thiếu `or vector(0)` — gặp trên staging 2026-09-24, sửa và kiểm lại: không dữ liệu → `0`.* **C5 dùng đúng biểu thức này** cho cảnh báo |
 | Dashboard là **file trong repo**, `allowUiUpdates: false` | Mất volume không mất dashboard; mọi thay đổi có lịch sử git. Sửa trên giao diện → *Export → JSON* → chép vào repo |
 | uid datasource cố định | Dashboard JSON và cảnh báo C5 trỏ vào uid; để Grafana tự sinh là "datasource not found" sau mỗi lần dựng lại |
 | Mật khẩu admin qua `${GRAFANA_ADMIN_PASSWORD:?…}` | Thiếu biến thì `up` **dừng** — không bao giờ lên với `admin/admin` |
-| Cổng `3003` | 3000 frontend, 3001 đã có người dùng, 3002 Kuma |
+| Cổng `2998` | 3000 frontend, 3001 và 3003 ứng dụng khác trên VM, 3002 Kuma — xem "Vấp khi thi công" bên dưới |
 | Grafana không gắn mạng staging | Chỉ cần gọi `prometheus:9090`. Mạng staging là mạng "tin được" của API — càng ít container gắn vào càng tốt |
 
 *Lệch kế hoạch:* Mục 11 ghi "thêm khóa Grafana vào `deploy/.env.example`". Không làm vậy — `.env` đó là của stack
@@ -377,10 +377,16 @@ qua được Prometheus không lỗi cú pháp. Chưa có số thật (máy dev 
 **Bước 1 — Kiểm cổng.**
 
 ```bash
-ss -ltnp | grep -E ':3003\b' || echo "3003 trống"
+ss -ltnp | grep -E ':2998\b' || echo "2998 trống"
 ```
 
-Bận thì chỉ đổi **vế trái** trong compose (`127.0.0.1:3004:3000`) và sửa `GF_SERVER_ROOT_URL` cho khớp.
+Bận thì chỉ đổi **vế trái** trong compose (`127.0.0.1:<cổng>:3000`) và sửa `GF_SERVER_ROOT_URL` cho khớp.
+
+> *Vấp khi thi công (2026-09-23):* bản đầu chọn `3003` mà bỏ qua bước này. Trên VM `3003` đã có một ứng dụng khác —
+> `curl` bước 6 nhận về `Welcome to the WebSocket server!` thay vì JSON của Grafana, **kèm mật khẩu admin trong header
+> Basic**. Grafana chưa từng khởi động nên chỉ cần sinh mật khẩu mới trước lần chạy đầu. Đổi sang `2998` (đã kiểm trống).
+> Cùng lúc phát hiện `~/app/ops/docker-compose.ops.yml` trên VM vẫn là bản C3 (`no such service: grafana`) — chép lại
+> file compose. Bài học: kiểm cổng **trước**, và `grep -c grafana docker-compose.ops.yml` > 0 trước khi `up`.
 
 **Bước 2 — Chép file** (máy có repo, PowerShell, trong thư mục `mxh`). Thư mục `ops/` **trong repo** trùng với
 `~/app/ops/` **trên VM** — chép sang y nguyên (không đụng `.env` thật trên VM):
@@ -422,8 +428,8 @@ docker compose -f docker-compose.ops.yml ps
 
 ```bash
 set -a; . ./.env; set +a
-curl -s -u "admin:$GRAFANA_ADMIN_PASSWORD" http://127.0.0.1:3003/api/datasources/uid/prometheus/health; echo
-curl -s -u "admin:$GRAFANA_ADMIN_PASSWORD" http://127.0.0.1:3003/api/dashboards/uid/socialapp-overview | grep -o '"title":"SocialApp[^"]*"'
+curl -s -u "admin:$GRAFANA_ADMIN_PASSWORD" http://127.0.0.1:2998/api/datasources/uid/prometheus/health; echo
+curl -s -u "admin:$GRAFANA_ADMIN_PASSWORD" http://127.0.0.1:2998/api/dashboards/uid/socialapp-overview | grep -o '"title":"SocialApp[^"]*"'
 docker compose -f docker-compose.ops.yml logs grafana | grep 'level=error' | grep -v 'plugin table'
 ```
 
@@ -432,10 +438,10 @@ Phải thấy: `"status":"OK"`; `"title":"SocialApp — Tổng quan staging"`; l
 **Bước 7 — Xem bằng mắt với số thật** (máy cá nhân):
 
 ```powershell
-ssh -L 3003:127.0.0.1:3003 deploy@<VM>
+ssh -L 2998:127.0.0.1:2998 deploy@<VM>
 ```
 
-Mở `http://localhost:3003`, đăng nhập `admin`, *Dashboards → SocialApp → SocialApp — Tổng quan staging*. Tạo chút
+Mở `http://localhost:2998`, đăng nhập `admin`, *Dashboards → SocialApp → SocialApp — Tổng quan staging*. Tạo chút
 traffic để các panel có hình: lướt feed vài lần, đăng một bài, đăng nhập sai một lần; từ VM bắn
 `curl -s -o /dev/null http://127.0.0.1:18080/api/v1/ping/boom` hai–ba lần để panel 5xx có một vạch. Chờ 1–2 phút.
 
@@ -443,18 +449,159 @@ Chụp ảnh dashboard (khung *Last 1 hour*) vào `docs/giai-doan-7/bang-chung/`
 
 ### Còn lại để đóng C4
 
-- [ ] Bước 1–6 trên VM: datasource `OK`, dashboard nạp, log không lỗi
-- [ ] Bước 7: các hàng RED, Nghiệp vụ, Host có số **thật**; chụp ảnh
+- [x] Bước 1–6 trên VM (2026-09-24): `grafana` Up ở `127.0.0.1:2998`, datasource `OK`, dashboard *SocialApp — Tổng quan staging* nạp, log không lỗi; ba container cũ không bị tạo lại
+- [x] Bước 7 (2026-09-24): mọi panel có số thật (sau khi sửa ô tỷ lệ lỗi — `or vector(0)`)
+- [x] Ảnh dashboard: [`bang-chung/C4-dashboard-2026-09-24.png`](bang-chung/C4-dashboard-2026-09-24.png)
 
 ---
 
-## 5. C5–C6 — chưa làm
+## 5. C5 — Cảnh báo + thử cho kêu ⭐ 🟡
 
-Viết khi bắt đầu từng đầu việc (đúng nếp các khối trước). Những điều đã biết cần mang theo:
+> Luật cảnh báo xong và đã kiểm cục bộ (2026-09-24). **Chờ thi công trên VM.**
 
-- **C5:** Trong năm cảnh báo của Mục 5.3, **hai cái đã có** nhờ Kuma: *dịch vụ chết* (B1) và *backup không chạy*
-  (monitor Push, A3). Grafana chỉ cần thêm ba: tỷ lệ lỗi, độ trễ, đĩa. Bắn thử tỷ lệ lỗi **từ VM** qua
-  `127.0.0.1:18080/api/v1/ping/boom` — đường công khai đã chặn ở D2.
+### Mục tiêu
+
+Đủ năm cảnh báo của Mục 5.3, tất cả về **một** nhóm Telegram (B3), và **ít nhất ba cái đã kêu thật** — có ảnh kèm giờ.
+Cảnh báo chưa từng kêu là cảnh báo chưa tồn tại.
+
+### Năm cảnh báo nằm ở đâu
+
+| Cảnh báo (Mục 5.3) | Ở đâu | Ngưỡng | Trạng thái |
+|---|---|---|---|
+| Dịch vụ chết | Kuma, monitor HTTP (B1) | `/health/ready` fail 2 lần liên tiếp | Có từ khối B; đã kêu thật khi thử B3 |
+| Backup không chạy | Kuma, monitor Push (A3) | Không có push trong 26 giờ | Có từ khối A |
+| **Tỷ lệ lỗi 5xx cao** | Grafana — `socialapp-error-rate` | 5xx > **1%** (cửa sổ 5 phút), giữ **2 phút** | Mới — C5 |
+| **API chậm bất thường** | Grafana — `socialapp-latency-p95` | p95 > **500ms**, giữ **10 phút** | Mới — C5 |
+| **Đĩa VM sắp đầy** | Grafana — `socialapp-disk-full` | Đã dùng > **80%** (còn < 20%), giữ **5 phút** | Mới — C5 |
+
+Ba luật Grafana nằm trong [`ops/grafana/provisioning/alerting/rules.yml`](../../ops/grafana/provisioning/alerting/rules.yml):
+Grafana tự nạp lúc khởi động, **không sửa được trên giao diện** (đổi ngưỡng = sửa file, chép lên, restart Grafana).
+
+| Quyết định | Vì sao |
+|---|---|
+| Tỷ lệ lỗi dùng **đúng** biểu thức của ô dashboard (có `or vector(0)`) | Không lỗi = 0 → trạng thái *Normal*. Thiếu `or vector(0)` thì mỗi lúc không có lỗi là *No data* |
+| `noDataState: OK` cho tỷ lệ lỗi và độ trễ | Staging vắng người là chuyện thường; p95 không có request là NaN, không phải sự cố |
+| `noDataState: NoData` cho đĩa | Mất số đĩa (node-exporter chết) cũng phải báo — không thấy đĩa là mù đúng chỗ nguy hiểm nhất |
+| Không dùng dấu đô-la trong file luật | Grafana thay biến môi trường trong file provisioning trước khi đọc — chuỗi có dấu đô-la sẽ bị thay mất |
+| Kênh Telegram và notification policy tạo **trên giao diện**, không provision | Xem "Thực tế thi công" dưới đây |
+
+### Thực tế thi công — kênh Telegram không provision được
+
+Bản đầu provision cả kênh Telegram (token và chat id qua biến môi trường từ `~/app/ops/.env`). Chạy thử cục bộ,
+Grafana 12.1.1 **từ chối cả thư mục alerting**:
+
+```
+failed to unmarshal settings: json: cannot unmarshal number into Go struct field Config.chatid of type string
+```
+
+Sau khi thay biến, Grafana đọc chat id nhóm (`-100…`) thành **số**, trong khi Telegram đòi **chuỗi**; đặt ngoặc kép
+quanh biến không cứu được. Không đào tiếp: kênh gửi tạo **một lần** trên giao diện, token nằm trong volume
+`grafana-data` — đúng cách Kuma đang giữ token của nó. Được thêm một điều: token Telegram không nằm trong `.env` nào.
+Luật cảnh báo — phần đáng có lịch sử git — vẫn nằm trong repo.
+
+### Kiểm cục bộ
+
+Dựng Prometheus + node-exporter + Grafana + một **API giả** (tên `api:8080`, `/metrics` trả 50% lỗi 500) trong một mạng
+tạm, nạp đúng thư mục `ops/grafana/provisioning`:
+
+| Kiểm | Kết quả |
+|---|---|
+| Nạp provisioning | 0 lỗi; ba luật trong thư mục *SocialApp*, nhóm `socialapp-staging`; health `ok` |
+| Không lỗi → trạng thái | Cả ba *Normal* (tỷ lệ lỗi ra 0 nhờ `or vector(0)`, không rơi vào *No data*) |
+| API giả 50% lỗi 500 | *Tỷ lệ lỗi 5xx cao*: **Pending** sau ~1,5 phút → **Firing** đúng 2 phút sau (giữ `for: 2m`) — tổng ~3,5 phút |
+| Đĩa, độ trễ | *Normal* (máy dev đĩa thấp, API giả không có histogram) |
+
+*Vấp khi kiểm:* API giả ban đầu không gửi `Content-Type` → Prometheus 3 từ chối scrape ("non-compliant scrape target
+sending blank Content-Type"). Lỗi của API giả, không phải của luật — API thật gửi đúng header (C3: target `up`).
+Chưa kiểm được: **gửi Telegram thật** (máy dev không có token) — đó là bước 2–4 trên VM.
+
+### Thi công trên VM
+
+**Bước 1 — Chép luật lên và nạp** (máy có repo, trong `mxh`):
+
+```powershell
+scp -r ops/grafana ops/docker-compose.ops.yml deploy@<VM>:~/app/ops/
+```
+
+Trên VM (`deploy`):
+
+```bash
+cd ~/app/ops
+ls grafana/provisioning/alerting/                       # rules.yml
+docker compose -f docker-compose.ops.yml restart grafana
+docker compose -f docker-compose.ops.yml logs grafana | grep -i 'provision' | grep -i 'error'   # không in gì
+```
+
+Mở Grafana (tunnel `2998`) → *Alerting → Alert rules* → thư mục **SocialApp**, nhóm `socialapp-staging`: ba luật, trạng
+thái **Normal**.
+
+**Bước 2 — Tạo kênh Telegram (một lần, trên giao diện).** Lấy lại Bot Token và Chat ID trong Kuma: *Settings →
+Notifications* → mở thông báo Telegram.
+
+1. *Alerting → Contact points → + Add contact point*. Name `telegram-nhom`, Integration **Telegram**, dán **BOT API
+   Token** và **Chat ID**.
+2. Bấm **Test** → nhóm Telegram phải nhận tin thử. Không nhận = sai token/chat id, hoặc bot chưa được thêm vào nhóm.
+3. **Save contact point**.
+
+**Bước 3 — Cho mọi cảnh báo đi về kênh đó.** *Alerting → Notification policies → Default policy → ⋯ → Edit*:
+
+| Trường | Giá trị | Vì sao |
+|---|---|---|
+| Default contact point | `telegram-nhom` | Mặc định là email chưa cấu hình — cảnh báo kêu vào khoảng không |
+| Group by | `grafana_folder`, `alertname` | 200 request lỗi = **một** tin, không phải 200 |
+| Group wait / interval / repeat | `30s` / `5m` / `4h` | Lỗi kéo dài thì nhắc lại mỗi 4 giờ, không spam |
+
+**Bước 4 — Phá thật, lần 1: tỷ lệ lỗi** (Mục 10.1). Trên VM:
+
+```bash
+for i in $(seq 1 200); do curl -s -o /dev/null http://127.0.0.1:18080/api/v1/ping/boom; done; date
+```
+
+Trong khoảng **3–4 phút**: luật *Tỷ lệ lỗi 5xx cao* qua *Pending* rồi *Firing*, Telegram nhận tin **[FIRING]**. Khoảng
+5–7 phút sau (cửa sổ 5 phút trôi qua) nhận **[RESOLVED]**. **Chụp cả hai tin** (thấy giờ).
+
+**Bước 5 — Phá thật, lần 2: đĩa** — hạ tạm ngưỡng xuống dưới mức đang dùng (~72%), **không** lấp đầy đĩa thật (đĩa đầy là
+Postgres dừng ghi):
+
+```bash
+cd ~/app/ops
+sed -i 's/params: \[80\]/params: [60]/' grafana/provisioning/alerting/rules.yml
+docker compose -f docker-compose.ops.yml restart grafana; date
+```
+
+Sau khoảng **6–7 phút** (giữ 5 phút + chu kỳ 1 phút): Telegram nhận **[FIRING] Đĩa VM sắp đầy**. Chụp. Rồi **trả lại
+ngay**:
+
+```bash
+sed -i 's/params: \[60\]/params: [80]/' grafana/provisioning/alerting/rules.yml
+grep -n 'params: \[80\]' grafana/provisioning/alerting/rules.yml    # phải thấy đúng một dòng
+docker compose -f docker-compose.ops.yml restart grafana
+```
+
+→ nhận **[RESOLVED]**. **Không được quên bước trả lại** — để ngưỡng 60 là cảnh báo kêu mãi, và cảnh báo kêu mãi là
+cảnh báo bị tắt tiếng.
+
+**Bước 6 — Cảnh báo thứ ba.** Đủ một là đạt "≥ 3":
+
+- *Dịch vụ chết* (Kuma): ảnh tin Telegram từ lúc thử B3 (`bang-chung/B3-telegram-down-up.png`) — đã kêu thật.
+- *API chậm* (Grafana): hạ tạm `params: [0.5]` → `[0.001]` như bước 5, lướt staging liên tục hơn 10 phút (luật giữ
+  10 phút và cần có request) → chụp → **trả lại 0.5**. Tốn thời gian hơn; làm nếu muốn đủ cả ba luật Grafana.
+
+### Còn lại để đóng C5
+
+- [ ] Bước 1: ba luật nạp, *Normal*, log không lỗi
+- [ ] Bước 2–3: kênh `telegram-nhom` Test nhận được; default policy trỏ về nó
+- [ ] Bước 4: ảnh [FIRING] + [RESOLVED] tỷ lệ lỗi
+- [ ] Bước 5: ảnh [FIRING] đĩa; ngưỡng đã **trả về 80**
+- [ ] Bước 6: ảnh cảnh báo thứ ba
+- [ ] Ảnh vào `docs/giai-doan-7/bang-chung/`, tên có mã việc (vd. `C5-error-rate-firing.png`)
+
+---
+
+## 6. C6 — chưa làm
+
+Viết khi bắt đầu. Điều đã biết cần mang theo:
+
 - **C6:** Canh `/metrics` không lộ ra Internet bằng một monitor Kuma loại **Keyword**, URL
   `https://mxh.banhgao.net/metrics`, keyword `http_request_duration_seconds`, bật **Upside Down Mode** — monitor xanh
   khi **không** thấy keyword, đỏ ngay khi `/metrics` lộ ra ngoài. Canh liên tục thay vì một test chạy một lần.

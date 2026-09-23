@@ -846,14 +846,14 @@ mạng của stack staging (gắn stack ops vào mạng `internal` của staging
 `2GB`; publish `127.0.0.1:9090`. Trước khi C1 lên staging, target API báo **404** — dấu hiệu mạng đã thông. Các bước
 và bảng đọc lỗi ở hướng dẫn khối C, Mục 3.
 
-### C4 — Grafana + dashboard 🟡 *(file cấu hình xong 2026-09-23, chờ thi công trên VM)*
+### C4 — Grafana + dashboard ✅ *(chạy trên VM 2026-09-24, mọi panel có số thật)*
 
 Một dashboard: RED (rate, error %, p50/p95/p99) + 4 chỉ số nghiệp vụ + đĩa/RAM. Mật khẩu admin qua biến môi trường,
 **không** publish ra host (truy cập qua SSH tunnel — Đ-7.7, R7-06).
 
 **Nghiệm thu:** biểu đồ có dữ liệu **thật** từ staging, không phải dữ liệu mẫu.
 
-### C5 — Năm cảnh báo + thử cho kêu ⭐
+### C5 — Năm cảnh báo + thử cho kêu ⭐ 🟡 *(ba luật Grafana xong, kiểm cục bộ kêu đúng 2026-09-24; chờ thi công trên VM)*
 
 Cấu hình đủ năm dòng Mục 5.3, đổ về kênh của B3. Rồi **phá thật** theo Mục 10.1.
 
