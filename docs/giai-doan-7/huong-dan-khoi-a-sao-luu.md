@@ -12,10 +12,10 @@
 | **Người làm** | Một người, có SSH vào VM (user `deploy`) và quyền vào dashboard Cloudflare R2 |
 | **Thời lượng** | Ngày 1: A1–A4 (~1 ngày) · Ngày 2 sáng: A5 (~nửa ngày) |
 | **Khối này cần trước** | **B1** (Kuma — để có monitor Push cho "backup không chạy") |
-| **Khối này chặn** | NFR-REL-02; **D4** kế thừa nguyên cấu hình này cho production |
+| **Khối này chặn** | NFR-REL-02 |
 
-**Dựng ở đâu:** trên **staging** — DB thật duy nhất đang có. Cơ chế được chứng minh ở đây **trước khi** production
-có dữ liệu; D4 chỉ việc chép sang `docker-compose.prod.yml` với `BACKUP_PREFIX=production`.
+**Dựng ở đâu:** trên **staging** — môi trường cuối (Đ-7.4, sửa 2026-09-23: không có production riêng). Dữ liệu
+staging là dữ liệu thật, và bản sao của nó là bản được báo cáo.
 
 ---
 
@@ -354,8 +354,8 @@ Sau khi merge: `README.md` Mục 1 dòng GĐ7 thêm **"Khối A (sao lưu) chạ
 
 | Di sản | Ai dùng |
 |---|---|
-| `command:` + `./backups` trong compose staging | **D4** — chép nguyên sang `docker-compose.prod.yml`, đổi `BACKUP_PREFIX=production` |
-| `backup.sh` / `restore.sh` / `dem-ban-ghi.sql` | **D4** (production), **GĐ8** (trước khi bắn k6 nên có một bản `full` tay) |
+| `command:` + `./backups` trong compose staging | **Khối E** — nếu làm `edge` + 2 bản sao, giữ nguyên phần `postgres` |
+| `backup.sh` / `restore.sh` / `dem-ban-ghi.sql` | **GĐ8** — bắt buộc một bản `full` tay ngay trước mỗi buổi k6/ZAP (Đ-7.4) |
 | Monitor Push "backup hằng ngày" | **C5** — một trong năm cảnh báo Mục 5.3 đã xong từ đây |
 | Biên bản drill | **F2** — bằng chứng NFR-REL-02 trong báo cáo |
 | Runbook Mục 4 (đưa dữ liệu vào stack) | **E4** — cùng khuôn với rollback theo tag |

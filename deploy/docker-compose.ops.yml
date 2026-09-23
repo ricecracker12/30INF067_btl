@@ -1,4 +1,4 @@
-# Stack quan sát (ops) — project RIÊNG, không chung với socialapp-staging / socialapp-prod.
+# Stack quan sát (ops) — project RIÊNG, không chung với socialapp-staging.
 # Lý do (giai-doan-7.md Mục 4): `down`/`up` stack ứng dụng lúc deploy không được kéo theo đồng hồ uptime —
 # chung project thì mỗi lần deploy đồng hồ tự tắt và tự ghi nhận… chính mình đang chết.
 #

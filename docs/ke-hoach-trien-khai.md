@@ -510,12 +510,16 @@ còn biên độ thêm index/cache nếu trượt; và thứ cắt được thì
 > (Đ-7.1–Đ-7.14), chính sách sao lưu RPO/RTO, khuôn biên bản restore drill, bảng chỉ số + ngưỡng cảnh báo,
 > sáu khối việc A–F kèm checklist nghiệm thu.
 >
-> **Hai chỗ lệch mục này, có chủ đích:**
+> **Ba chỗ lệch mục này, có chủ đích:**
 > - **Thứ tự ưu tiên xếp lại** (Đ-7.1): backup + restore drill → đồng hồ uptime → Grafana → nợ bảo mật →
 >   **HA 2 instance đứng cuối và là phần cắt được duy nhất** (báo cáo v5.0 xếp "≥ 2 instance" vào Roadmap,
 >   còn backup/Grafana là hạng mục đã cam kết chạy thật).
 > - **Khối A–E không phụ thuộc GĐ2–GĐ6** nên **làm song song được ngay từ bây giờ** (Đ-7.2): GĐ7 không thêm
 >   endpoint nào nên không có cổng mở hợp đồng để chờ. Chỉ khối F (lane frontend) phải đợi đúng nhịp.
+> - **Không có production riêng — staging `mxh.banhgao.net` là môi trường cuối** (Đ-7.4, nhóm chốt 2026-09-23).
+>   Những chỗ bên dưới nói "production", "2 API container", "deploy theo tag", "TẮT Swagger ở production" đọc theo
+>   Đ-7.4 / Đ-7.13 của `giai-doan-7.md`: Swagger giữ trên staging nhưng khóa bằng mật khẩu ở apache; GĐ8 bắn k6 và
+>   quét ZAP vào chính staging theo quy tắc riêng (báo nhóm, backup trước, không chạy 48 giờ trước bảo vệ).
 >
 > **Đồng hồ uptime phải bật sớm nhất có thể** — GOAL-04 đo bằng thời gian tích lũy, bật muộn là mất bằng
 > chứng vĩnh viễn, không có cách bù.
