@@ -652,6 +652,11 @@ CREATE INDEX idx_profiles_display_name_search ON profile.profiles
   USING gin (profile.search_norm(display_name) gin_trgm_ops);
 ```
 
+*Sửa 2026-09-24 khi thi công A4:* migration dùng `CREATE EXTENSION … WITH SCHEMA public` và `public.gin_trgm_ops` — hàm gọi
+`public.unaccent` nguyên tên nên extension phải chắc chắn nằm ở `public`, không phụ thuộc `search_path` của phiên chạy migrate.
+`EXPLAIN (ANALYZE)` trên 20.000 hồ sơ tên Việt: cả ba loại `q` ra `BitmapOr` của hai `Bitmap Index Scan`, 4–12 ms (kết quả ở
+"Thực tế thi công" A4 của hướng dẫn khối A+C; script `tests/load/search/`).
+
 Truy vấn phải dùng **đúng** biểu thức `profile.search_norm(display_name)` thì mới trúng index — viết `lower(unaccent(…))` ở chỗ
 khác là Seq Scan. Kiểm bằng `EXPLAIN` ở A4.
 
@@ -1657,6 +1662,9 @@ gỡ — lớp 2 vẫn phải bắt); `FK-01` dùng vai trò tự tạo (với v
 **Làm gì:** migration `AddDisplayNameSearch` đúng khối SQL của Đ-6.19. **Làm như nào:** extension trước hàm, hàm trước index; hàm
 gọi `public.unaccent` dạng hai tham số. **Xong khi:** `EXPLAIN` trên 20.000 hồ sơ giả có `Bitmap Index Scan` (ghi kết quả vào hướng
 dẫn khối A — nếp GĐ4 A5).
+
+*Sửa 2026-09-24 khi thi công A4* (L-A10): 20.000 hồ sơ tên Việt từ `tests/load/search/seed-profiles.sql` (chặn theo tên DB
+`socialapp_search`, hạt giống cố định), ba câu `EXPLAIN` ở `tests/load/search/explain.sql` — D12 dùng lại cho `SRCH-07`.
 
 ### A5 — Guard namespace + hằng quyền cục bộ
 

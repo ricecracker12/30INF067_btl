@@ -1298,8 +1298,111 @@ Làm theo Mục 4; L-A7 (Program.cs + hai harness), L-A8 (namespace guard cùng 
 Lượt đầu đột biến 3 không khớp chuỗi (mẫu hai dòng, file migration CRLF) — script dừng ở "0 khớp", không tính; làm lại bằng mẫu
 một dòng.
 
+### A4 — 2026-09-24
+
+Làm đúng Mục 6; L-A10 (script seed riêng) áp như chốt. `giai-doan-6.md` sửa cùng commit: Đ-6.19 (`WITH SCHEMA public`,
+`public.gin_trgm_ops`, kết quả `EXPLAIN`), B.4 A4.
+
+**Lệch so với chính tài liệu này:**
+- **Thêm `tests/load/search/explain.sql`** cạnh `seed-profiles.sql` — ba câu `EXPLAIN` là bằng chứng lặp lại được, D12 chạy lại cho
+  `SRCH-07` thay vì chép từ tài liệu. Seed có `setseed(0.42)` (hai lượt ra cùng bộ tên), `BEGIN/COMMIT`, `ANALYZE` ngoài transaction,
+  chặn cả "bảng đã có dữ liệu" như `tests/load/feed/seed.sql`.
+- **`COMMENT ON FUNCTION profile.search_norm`** ghi luật "D12 gọi đúng hàm này ở cả hai vế" và "đổi từ điển thì REINDEX" — cạm bẫy 4, 5
+  nằm ở DB, người đọc `\df+` thấy, không chỉ người đọc C#.
+- **`ProfileDbContextSchemaTests` thêm `IAsyncLifetime` + `ClearPool`** (cạm bẫy 7 Mục 3) cho năm ca mới; ba ca GĐ2 giữ nguyên.
+- Test tầng hàm thêm hai tên: `ĐẶNG THỊ HẠNH` (Đ hoa, chữ hoa có dấu) và `Perf User 7` (không dấu đi qua nguyên vẹn).
+
+**`EXPLAIN (ANALYZE, BUFFERS)` trên 20.000 hồ sơ** — Postgres 16 của compose dev, DB `socialapp_search` tạo riêng, `--migrate` sáu
+schema, `seed-profiles.sql` → `explain.sql` → `DROP DATABASE socialapp_search`. **Cả ba câu `BitmapOr` của hai `Bitmap Index Scan on
+idx_profiles_display_name_search`, không Seq Scan:**
+
+| `q`                        | Kết quả | Kế hoạch                                                  | Buffers (shared hit) | Thời gian thực thi |
+| -------------------------- | ------- | --------------------------------------------------------- | -------------------- | ------------------ |
+| `ng` (2 ký tự — ngưỡng)    | 4.813   | Bitmap Heap Scan ← BitmapOr ← 2 × Bitmap Index Scan (GIN) | 490                  | 11,9 ms            |
+| `nguy` (tiền tố họ)        | 1.217   | như trên                                                  | 485                  | 4,3 ms             |
+| `van` (tiền tố từ thứ hai) | 2.053   | như trên                                                  | 479                  | 7,0 ms             |
+
+```
+--- q = ng
+ Bitmap Heap Scan on profiles  (cost=1192.68..3991.88 rows=4729 width=16) (actual time=2.562..11.608 rows=4813 loops=1)
+   Recheck Cond: ((profile.search_norm((display_name)::text) ~~ 'ng%'::text) OR (profile.search_norm((display_name)::text) ~~ '% ng%'::text))
+   Heap Blocks: exact=200
+   Buffers: shared hit=490
+   ->  BitmapOr  (cost=1192.68..1192.68 rows=5047 width=0) (actual time=1.829..1.831 rows=0 loops=1)
+         Buffers: shared hit=278
+         ->  Bitmap Index Scan on idx_profiles_display_name_search  (cost=0.00..595.65 rows=2622 width=0) (actual time=1.011..1.011 rows=4813 loops=1)
+               Index Cond: (profile.search_norm((display_name)::text) ~~ 'ng%'::text)
+               Buffers: shared hit=139
+         ->  Bitmap Index Scan on idx_profiles_display_name_search  (cost=0.00..594.66 rows=2425 width=0) (actual time=0.818..0.818 rows=4813 loops=1)
+               Index Cond: (profile.search_norm((display_name)::text) ~~ '% ng%'::text)
+               Buffers: shared hit=139
+ Planning Time: 1.631 ms
+ Execution Time: 11.909 ms
+
+--- q = nguy
+ Bitmap Heap Scan on profiles  (cost=1206.74..2046.37 rows=1242 width=16) (actual time=2.487..4.128 rows=1217 loops=1)
+   Recheck Cond: ((profile.search_norm((display_name)::text) ~~ 'nguy%'::text) OR (profile.search_norm((display_name)::text) ~~ '% nguy%'::text))
+   Heap Blocks: exact=199
+   Buffers: shared hit=485
+   ->  BitmapOr  (cost=1206.74..1206.74 rows=1242 width=0) (actual time=2.373..2.374 rows=0 loops=1)
+         Buffers: shared hit=286
+         ->  Bitmap Index Scan on idx_profiles_display_name_search  (cost=0.00..606.16 rows=1240 width=0) (actual time=1.157..1.157 rows=1217 loops=1)
+               Index Cond: (profile.search_norm((display_name)::text) ~~ 'nguy%'::text)
+               Buffers: shared hit=143
+         ->  Bitmap Index Scan on idx_profiles_display_name_search  (cost=0.00..599.96 rows=2 width=0) (actual time=1.215..1.215 rows=1217 loops=1)
+               Index Cond: (profile.search_norm((display_name)::text) ~~ '% nguy%'::text)
+               Buffers: shared hit=143
+ Planning Time: 0.170 ms
+ Execution Time: 4.290 ms
+
+--- q = van
+ Bitmap Heap Scan on profiles  (cost=1195.91..2652.00 rows=2439 width=16) (actual time=1.805..6.814 rows=2053 loops=1)
+   Recheck Cond: ((profile.search_norm((display_name)::text) ~~ 'van%'::text) OR (profile.search_norm((display_name)::text) ~~ '% van%'::text))
+   Heap Blocks: exact=199
+   Buffers: shared hit=479
+   ->  BitmapOr  (cost=1195.91..1195.91 rows=2439 width=0) (actual time=1.710..1.711 rows=0 loops=1)
+         Buffers: shared hit=280
+         ->  Bitmap Index Scan on idx_profiles_display_name_search  (cost=0.00..591.26 rows=2 width=0) (actual time=0.856..0.857 rows=2053 loops=1)
+               Index Cond: (profile.search_norm((display_name)::text) ~~ 'van%'::text)
+               Buffers: shared hit=140
+         ->  Bitmap Index Scan on idx_profiles_display_name_search  (cost=0.00..603.44 rows=2438 width=0) (actual time=0.853..0.854 rows=2053 loops=1)
+               Index Cond: (profile.search_norm((display_name)::text) ~~ '% van%'::text)
+               Buffers: shared hit=140
+ Planning Time: 0.111 ms
+ Execution Time: 6.980 ms
+```
+
+Hai lượt quét index trả **cùng số dòng** ở cả ba câu: trigram coi dấu cách là ranh giới từ, nên `'ng%'` và `'% ng%'` rút ra cùng tập
+trigram — index lọc theo "có từ bắt đầu bằng q", `Recheck Cond` mới tách hai vế. Đúng thứ Đ-6.19 cần; D12 **không** phải bỏ vế nào.
+Ước lượng hàng của planner lệch ở một vế (`rows=2` ở `'% nguy%'`, `'van%'`) nhưng không đổi lựa chọn kế hoạch. Cùng DB: `\dx` có
+`unaccent 1.1`, `pg_trgm 1.6` (schema `public`); `search_norm` `provolatile = i`; 2.645 tên chứa "Đức" và đúng 2.645 dòng khớp
+`q = duc` (bẫy "đ" ở quy mô).
+
+**Kiểm tay trên DB dev** (đã có dữ liệu từ GĐ1–GĐ4 — đúng hình dạng staging): `--migrate` hai lần, exit 0; lịch sử Profile thêm
+`20260923171945_AddDisplayNameSearch`; `pg_extension` có `unaccent`, `pg_trgm`; `idx_profiles_display_name_search` có mặt.
+**Staging:** chưa kiểm — theo Mục 6 bước 4, kiểm `\dx` sau deploy ở F1.
+
+**Test:** Integration 524 → 529 (+5 `ProfileDbContextSchemaTests`: immutable + extension, `search_norm` ×3, biểu thức khớp index).
+Còn đỏ nền R2 trên máy dev.
+
+**Thử cho đỏ — 3/3 đột biến bị bắt**, file khôi phục nguyên byte (`cmp`):
+
+| Đột biến                                               | Ca đỏ thực tế                                                                                      |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
+| Bỏ `IMMUTABLE` khỏi hàm                                | Cả lớp — migration ném `42P17: functions in index expression must be marked IMMUTABLE` (đúng bẫy) |
+| Bỏ `lower(…)` trong hàm                                | `Search_norm_bo_dau_ha_chu_thuong_va_doi_d` ×3                                                     |
+| Index trên `display_name` trần thay vì `search_norm(…)` | `Bieu_thuc_tien_to_khop_index_gin`                                                                 |
+
+Lượt đầu của đột biến 2 viết sai: chuỗi thay thế chứa `$$`, mà `String.replace` của JS đọc `$$` thành một `$` → SQL vỡ cú pháp, cả
+lớp đỏ vì lý do sai — không tính; làm lại bằng hàm thay thế, chỉ ba ca của hàm đỏ.
+
+**detect-changes (A5 + A2 + A4 chung một lượt, trước khi tách commit):** low, 0 luồng — 30 file (file mới đánh dấu `git add -N` để
+được đếm). Impact trước khi sửa: `PostgresFixture.SeededContentDatabaseAsync` MEDIUM (5 lớp test đọc DB chung — chỉ thêm một lượt
+migrate), `ModulesApiFactory.CreateMigratedDatabaseAsync` LOW, `PersistenceBoundaryTests` LOW, `ProfileDbContextSchemaTests` UNKNOWN —
+text search: lớp test, không ai gọi ngoài xUnit.
+
 ### Các đầu việc còn lại
 
-*Chưa thi công.* Điền khi làm, theo khuôn của C0: chỗ nào phải đổi hướng so với Mục 0.4 và vì sao; lệch so với chính tài liệu này;
-kết quả `EXPLAIN` của A4; kết quả kiểm extension trên staging; số test trước → sau; bảng đột biến thực tế; `detect-changes` của
-từng commit.
+*Chưa thi công:* C5, C2, C6. Điền khi làm, theo khuôn trên: chỗ nào phải đổi hướng so với Mục 0.4 và vì sao; lệch so với chính tài
+liệu này; số test trước → sau; bảng đột biến thực tế; `detect-changes` của từng commit. Kết quả kiểm extension trên staging ghi vào
+A4 sau F1.
