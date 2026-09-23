@@ -1,0 +1,37 @@
+# Prometheus của stack ops (GĐ7 C3). Chép tay lên ~/app/ops/prometheus.yml cùng docker-compose.ops.yml — file này
+# KHÔNG đi qua CD. Kiểm cú pháp trước khi nạp:
+#   docker run --rm -v ~/app/ops/prometheus.yml:/p.yml:ro --entrypoint promtool prom/prometheus:v3.5.0 check config /p.yml
+# Sửa xong phải recreate (bind mount một file giữ inode cũ):
+#   docker compose -f docker-compose.ops.yml up -d --force-recreate prometheus
+#
+# Không có rule_files / alerting: cảnh báo làm bằng Grafana alerting (Đ-7.9), Prometheus chỉ thu và giữ số liệu.
+
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # API của stack staging — gọi bằng TÊN SERVICE trong mạng docker socialapp-staging_internal, không qua domain
+  # công khai và không qua 127.0.0.1:18080 (Đ-7.7 lớp 3). Prometheus thấy được "api" vì compose ops gắn nó vào
+  # mạng đó dưới dạng external network.
+  # Khối E (api ×2 sau edge): static "api:8080" khi đó chỉ trúng NGẪU NHIÊN một bản sao mỗi lần scrape — phải đổi
+  # sang dns_sd_configs (names: [api], type: A, port: 8080) để mỗi bản sao là một target riêng.
+  - job_name: socialapp-api
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["api:8080"]
+        labels:
+          env: staging
+
+  # Đĩa / RAM / CPU của host (Mục 5.3 — cảnh báo đĩa đầy). Cùng mạng default của stack ops.
+  - job_name: node
+    static_configs:
+      - targets: ["node-exporter:9100"]
+        labels:
+          env: staging
+
+  # Chính Prometheus — để biết nó còn thu được số liệu và TSDB đang chiếm bao nhiêu chỗ.
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

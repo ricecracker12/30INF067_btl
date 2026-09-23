@@ -833,13 +833,18 @@ sang đếm lượt chạy (xem ghi chú dưới bảng Mục 5.2). Chi tiết v
 
 **Nghiệm thu:** đăng một bài trên staging → `socialapp_posts_created_total` tăng đúng 1.
 
-### C3 — Prometheus trong stack ops
+### C3 — Prometheus trong stack ops 🟡 *(file cấu hình xong 2026-09-23, chờ thi công trên VM)*
 
 `deploy/prometheus.yml`: scrape `api:8080/metrics` của stack staging + `node-exporter`. Cần cho stack ops nhìn thấy
 mạng của stack staging (gắn stack ops vào mạng `internal` của staging dưới dạng external network).
 
 **Nghiệm thu:** trang Targets của Prometheus: tất cả **UP**.
 **Cạm bẫy:** đây là đầu việc dễ mất thời gian nhất của khối — hai project Compose khác nhau thì mạng không tự thấy nhau.
+
+*Thực tế chuẩn bị:* `prometheus:v3.5.0` + `node-exporter:v1.9.1` (đều có arm64); mạng external tên thật
+`socialapp-staging_internal`, **chỉ** prometheus gắn vào (mạng này nằm trong TrustedNetworks); retention `30d` và
+`2GB`; publish `127.0.0.1:9090`. Trước khi C1 lên staging, target API báo **404** — dấu hiệu mạng đã thông. Các bước
+và bảng đọc lỗi ở hướng dẫn khối C, Mục 3.
 
 ### C4 — Grafana + dashboard
 
