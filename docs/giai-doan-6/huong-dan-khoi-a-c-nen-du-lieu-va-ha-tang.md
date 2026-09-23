@@ -1248,6 +1248,14 @@ test chạy trên DLL cũ và "xanh" — không tính. Lượt 3 dùng `GC.KeepA
 `IsRevokedAsync → Slot` (giờ qua `CheckAsync`, hành vi giữ nguyên — `RV04` xanh): cả hai có chủ đích. Impact trước khi sửa:
 `PermissionHandler` MEDIUM (5 ca `PermissionHandlerTests` — xanh không sửa khẳng định), còn lại LOW/UNKNOWN đã xác nhận bằng text search.
 
+### A5 — 2026-09-24
+
+Làm đúng Mục 7: `ModerationPermissions` (bốn mã + `All`) ở `Moderation/Application/`, `ModerationPermissionsTests` hai ca chép
+khuôn `ContentPermissionsTests`. Không lệch.
+
+**Test:** Architecture 18 → 20 (+2). **Thử cho đỏ — 1/1:** `ReportResolve = "report.reslove"` →
+`Moi_ma_cua_ModerationPermissions_deu_co_trong_PermissionCodes` đỏ, thông điệp nêu đúng `report.reslove`; khôi phục nguyên byte.
+
 ### Các đầu việc còn lại
 
 *Chưa thi công.* Điền khi làm, theo khuôn của C0: chỗ nào phải đổi hướng so với Mục 0.4 và vì sao; lệch so với chính tài liệu này;
