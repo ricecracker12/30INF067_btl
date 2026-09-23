@@ -1,27 +1,24 @@
-using Microsoft.Extensions.Logging;
+using SocialApp.SharedKernel.Events;
 
 namespace SocialApp.Modules.SocialGraph.Application;
 
 /// <summary>
-/// Event trong tiến trình sau <c>COMMIT</c> (Đ-4.15). GĐ4 <b>chỉ log</b>; GĐ6 thay thân hàm để nối notification
-/// (UC-10 bước 2, 4). Chữ ký hai phương thức giữ nguyên từ bây giờ để GĐ6 không phải sửa chỗ gọi ở
-/// <c>RelationshipService</c>.
+/// Event trong tiến trình sau <c>COMMIT</c> (Đ-4.15), phát qua <see cref="IEventPublisher"/> (Đ-6.2, Đ-6.4) — GĐ6 nối thông báo
+/// <c>friend_request</c>, <c>friend_accepted</c> vào đây (UC-10 bước 2, 4). Chữ ký hai phương thức giữ nguyên từ GĐ4 nên chỗ gọi
+/// ở <c>RelationshipService</c> không đổi.
 ///
-/// Log mức Information <b>không</b> kèm id người dùng — id là PII. Hai tham số vẫn có mặt vì GĐ6 cần chúng.
+/// Không log gì: <c>Publish</c> không chờ handler và không ném, bus tự đếm metric. Tên tham số nói VAI của từng id — đổi chỗ
+/// hai id là thông báo gửi nhầm người mà compile vẫn được (<c>SocialGraphEventsTests</c>, EVT-06).
 /// </summary>
-public sealed class SocialGraphEvents(ILogger<SocialGraphEvents> logger)
+public sealed class SocialGraphEvents(IEventPublisher publisher)
 {
     /// <summary>A đã gửi lời mời cho B. Gọi sau <c>COMMIT</c> của <c>POST /friends/requests</c> (D2).</summary>
-    public void FriendRequestSent(Guid a, Guid b)
-    {
-        _ = (a, b);
-        logger.LogInformation("Đã gửi lời mời kết bạn");
-    }
+    public void FriendRequestSent(Guid requesterId, Guid addresseeId) =>
+        publisher.Publish(new SharedKernel.Events.FriendRequestSent(requesterId, addresseeId));
 
     /// <summary>B đã chấp nhận lời mời của A. Gọi sau <c>COMMIT</c> của accept (D3).</summary>
-    public void FriendRequestAccepted(Guid a, Guid b)
-    {
-        _ = (a, b);
-        logger.LogInformation("Đã chấp nhận lời mời kết bạn");
-    }
+    /// <param name="requesterId">Người đã GỬI lời mời (A) — người nhận thông báo.</param>
+    /// <param name="accepterId">Người bấm chấp nhận (B, người gọi API).</param>
+    public void FriendRequestAccepted(Guid requesterId, Guid accepterId) =>
+        publisher.Publish(new SharedKernel.Events.FriendRequestAccepted(requesterId, accepterId));
 }

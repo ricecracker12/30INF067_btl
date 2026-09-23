@@ -60,7 +60,7 @@ public static class SocialGraphModuleExtensions
         // MVC toàn cục, host đã gọi một lần — gọi lại là mỗi lỗi validate hiện hai lần trong `errors`.
         services.AddValidatorsFromAssembly(typeof(SocialGraphModuleExtensions).Assembly, ServiceLifetime.Singleton);
 
-        // Event Đ-4.15: chỉ log, không giữ trạng thái, không chạm DbContext — Singleton.
+        // Event Đ-4.15: phát qua IEventPublisher (singleton, AddSharedKernel), không giữ trạng thái, không chạm DbContext — Singleton.
         services.AddSingleton<SocialGraphEvents>();
 
         // Scoped vì RelationshipStore sẽ giữ SocialGraphDbContext (scoped); RelationshipService theo cùng
