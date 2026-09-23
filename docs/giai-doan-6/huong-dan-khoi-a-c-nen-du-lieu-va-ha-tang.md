@@ -1172,6 +1172,31 @@ chứ không vì mô tả) — không tính, làm lại bằng `NULL`.
 mô tả, L-A2). Impact trước khi sửa: `IdentitySeeder` LOW (15), `PermissionsSql` LOW (8), `IdentityDbContext` LOW (1),
 `PermissionCodes` UNKNOWN — text search: seeder + ba test đối chiếu.
 
+### C1 — 2026-09-23
+
+Làm đúng Mục 8; L-C1 (kết nối của `ModerationDbContext` cho `tx == null`, `AddHttpContextAccessor` trong module) và L-C2 (bản hạ
+tầng của `TX-01`, `AUD-01`) áp như chốt. `giai-doan-6.md` B.5 C1 và `AGENTS.md` Mục 5 (dòng "hai hợp đồng ghi") sửa cùng commit.
+
+**Lệch so với chính tài liệu này:**
+- Tham số SQL khai **kiểu tường minh** (`NpgsqlDbType.Uuid`, `Jsonb`, `Inet`, `TimestampTz`) — `metadata` là chuỗi JSON, không
+  khai `Jsonb` thì Npgsql gửi `text` và Postgres từ chối gán vào cột `jsonb`.
+- **Thêm hai ca ngoài bảng:** `Khong_request_thi_ip_null_va_khong_metadata_thi_null` (job nền không có `HttpContext`) và
+  `Transaction_da_dong_thi_nem` (tx đã commit → `InvalidOperationException`, không lặng lẽ ghi trên kết nối khác).
+- Test dùng **đồng hồ giả** (`TimeProvider` con) và **`IHttpContextAccessor` giả**, đăng ký TRƯỚC `AddModerationModule` — cả hai
+  dòng của module là `TryAdd`.
+
+**Test:** Unit 309 → 309, Integration 504 → 509 (+5 `AuditTrailTests`), Architecture 17 → 17. Còn đỏ nền R2 trên máy dev.
+
+**Thử cho đỏ — 2/2 đột biến bị bắt**, file khôi phục nguyên byte (`cmp`):
+
+| Đột biến                                                                            | Ca đỏ thực tế                                                                           |
+| ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| Có `tx` nhưng ghi trên kết nối của `ModerationDbContext` (đột biến bắt buộc của B5) | `TX_01_thao_tac_Identity_nem_sau_audit_thi_ca_hai_rollback` — *Expected "0", Actual "1"*: dòng audit sống sót sau rollback, đúng lý do |
+| Bỏ `MapToIPv4`                                                                      | `AUD_01_khong_tx_ghi_ip_metadata_va_dong_ho_cua_app`                                    |
+
+Ca `TX_01_commit_…` **vẫn xanh** dưới đột biến 1 — đúng như dự đoán ở cạm bẫy 1 Mục 8: ghi sai kết nối "chạy tốt mọi lúc trừ lúc
+lỗi". Vì vậy ca rollback mới là bằng chứng, không phải ca commit.
+
 ### Các đầu việc còn lại
 
 *Chưa thi công.* Điền khi làm, theo khuôn của C0: chỗ nào phải đổi hướng so với Mục 0.4 và vì sao; lệch so với chính tài liệu này;

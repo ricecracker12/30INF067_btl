@@ -3,6 +3,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using SocialApp.Modules.Moderation.Infrastructure;
+using SocialApp.Modules.Moderation.Infrastructure.Audit;
+using SocialApp.SharedKernel.Audit;
 
 namespace SocialApp.Modules.Moderation.DependencyInjection;
 
@@ -28,6 +30,11 @@ public static class ModerationModuleExtensions
 
         // Một đồng hồ cho cả process — các module khác cũng TryAdd dòng này.
         services.TryAddSingleton(TimeProvider.System);
+
+        // C1 (Đ-6.3, Đ-6.15): hợp đồng ghi audit. Scoped vì giữ ModerationDbContext (đường tx == null). IHttpContextAccessor để
+        // lấy IP người thao tác — AddHttpContextAccessor là TryAdd, gọi nhiều lần vô hại.
+        services.AddHttpContextAccessor();
+        services.AddScoped<IAuditTrail, SqlAuditTrail>();
 
         // CHỈ đăng ký validator của module. KHÔNG gọi AddFluentValidationAutoValidation ở đây: cấu hình MVC toàn cục, host
         // đã gọi một lần. Chưa có validator nào tới D6 — dòng này không tốn gì khi assembly rỗng.

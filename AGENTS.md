@@ -96,6 +96,10 @@ CI GATE nhắm `tests/SocialApp.IntegrationTests/...csproj`, và các link `../.
 - **Event giữa module** (`SharedKernel/Events/`, Đ-6.2 của GĐ6): phát **sau `COMMIT`** bằng `IEventPublisher.Publish`
   (không chờ handler, không ném); đăng ký handler **chỉ** bằng `AddIntegrationEventHandler<TEvent, THandler>()`. Record
   event là `sealed record` chỉ mang id/enum/số/cờ — `IntegrationEventShapeTests` chặn vi phạm.
+- **Hợp đồng ở SharedKernel chỉ đọc**, trừ **đúng hai hợp đồng ghi** (Đ-6.3 của GĐ6): `IAuditTrail` (`SharedKernel/Audit/`,
+  hiện thực ở Moderation) và `IModerationTargets`. Cả hai nhận `DbTransaction` của người gọi và ghi trên **chính**
+  `tx.Connection` — một transaction Postgres thật xuyên module; không `DbContext` thứ hai, không kết nối riêng. Thêm hợp đồng
+  ghi thứ ba là một quyết định mới.
 
 ## 6. Module ↔ chức năng ↔ FR
 | Module | API | Chức năng | FR |

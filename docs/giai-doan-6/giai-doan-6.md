@@ -1670,6 +1670,12 @@ số hóa trên `tx.Connection`; `tx == null` → mở kết nối riêng từ `
 
 **Xong khi:** `TX-01` (dựng tạm một thao tác Identity + audit, ném sau audit → cả hai rollback), `AUD-01` xanh.
 
+*Sửa 2026-09-23 khi thi công C1* (L-C1, L-C2 của `huong-dan-khoi-a-c-nen-du-lieu-va-ha-tang.md`): `tx == null` ghi trên kết nối
+của `ModerationDbContext` — repo không đăng ký `NpgsqlDataSource` nào, dựng một cái là pool thứ hai (PERF-03 GĐ4 đã gỡ);
+`AddHttpContextAccessor()` trong `AddModerationModule`. `TX-01`, `AUD-01` ở C1 là **bản hạ tầng** (`AuditTrailTests`, gọi thẳng
+hợp đồng); bản đầy đủ qua `PATCH /reports` là của D7. Đột biến B5 "hiện thực ghi trên kết nối riêng dù có `tx`" đã chạy ở C1 →
+`TX-01` đỏ (còn 1 dòng audit sau rollback).
+
 ### C2 — `IModerationTargets` + hiện thực (Đ-6.3, Đ-6.12, Đ-6.14)
 
 **Làm gì:** interface ở `SharedKernel/Moderation/`; `ContentModerationTargets` (bài; bình luận **sau khi A merge**) ở Content;
