@@ -53,7 +53,7 @@ export function checkR2Host(
   return { host: value, problem: null }
 }
 
-/** Đ-E18: nguồn hub chat ở dev — cùng `DEV_API_ORIGIN` của `lib/realtime/hub-url.ts`. */
+/** Đ-E18: nguồn hub chat ở dev — cùng origin với nhánh dev của `chatHubUrl()` (`lib/realtime/hub-url.ts`). Module server, không vào bundle trình duyệt. */
 const DEV_REALTIME = ["http://localhost:5259", "ws://localhost:5259"]
 
 export function buildCsp(

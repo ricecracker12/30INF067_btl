@@ -5,11 +5,12 @@
 // - Dev: FE ở :3000, API ở :5259, và luật FE cấm `rewrites` (Mục 4) — `/hubs/chat` trên :3000 rơi vào Next và 404. Nối thẳng
 //   API dev; CSP dev (và CHỈ dev) mở `http://localhost:5259 ws://localhost:5259` (`buildCsp`).
 //
-// `process.env.NODE_ENV` được Next nhúng sẵn vào bundle trình duyệt — không phải biến `NEXT_PUBLIC_*` nào.
-export const DEV_API_ORIGIN = "http://localhost:5259"
-
+// Chuỗi `localhost:5259` CHỈ được nằm trong nhánh `process.env.NODE_ENV === "development"` viết thẳng ở đây: Next thay biến đó
+// bằng hằng lúc build và trình minify xóa nhánh chết — bản production không còn chuỗi. Để nó ở hằng cấp module hay nhận `env`
+// qua tham số là chuỗi lọt vào bundle và cổng CI "Bundle production sạch" đỏ (đã gặp 2026-09-24).
 export const CHAT_HUB_PATH = "/hubs/chat"
 
-export function chatHubUrl(env: string | undefined = process.env.NODE_ENV): string {
-  return env === "development" ? `${DEV_API_ORIGIN}${CHAT_HUB_PATH}` : CHAT_HUB_PATH
+export function chatHubUrl(): string {
+  if (process.env.NODE_ENV === "development") return "http://localhost:5259/hubs/chat"
+  return CHAT_HUB_PATH
 }
