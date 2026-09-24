@@ -2122,9 +2122,45 @@ Lượt đầu M9 "bỏ qua" vì chuỗi đột biến viết `\n` mà yaml tron
 (Program.cs, hai harness, bốn lớp test schema/directory/moderation), chữ ký không đổi, chỉ thêm hai đăng ký scoped mà container trần
 không resolve.
 
+### D13 — 2026-09-25
+
+Rà theo Mục 17 trên `6d5d65f` (D11) + D12. **Không lệch nào — không commit `fix`**; chỉ commit tài liệu này.
+
+**Bước 1 — `type` ↔ hằng ↔ yaml.** Mười một `type` của bảng 17.1, mỗi cái đúng MỘT hằng C# ở đúng chỗ bảng ghi (`IdentityErrors`,
+`AdminErrors` ×5, `ModerationErrors` ×3, `ContentErrors`, `PrivilegedEndpointAttribute`), không chuỗi nào gõ lại ở chỗ khác. Mỗi endpoint
+trả nó có khai trong yaml:
+
+| `type` | Hằng | Yaml |
+|---|---|---|
+| `account-disabled` | `IdentityErrors.AccountDisabledType` | `identity-v1` `POST /auth/login` 403 |
+| `revocation-unavailable` | `PrivilegedEndpointAttribute.RevocationUnavailableType` | 16 operation 503 (`admin-v1` 11, `moderation-v1` 5) trỏ `RevocationUnavailable` — khớp 16 action của controller `[PrivilegedEndpoint]`, action nào cũng khai 503 (đếm bằng script) |
+| `last-admin` | `AdminErrors.LastAdminType` | `admin-v1` `lock`, `PUT …/role` → `LastAdmin` |
+| `role-code-taken`, `system-role`, `role-in-use` | `AdminErrors` | `admin-v1` `POST /admin/roles`, `DELETE` → `RoleConflict` (enum ba URN của `RoleConflictProblem`) |
+| `system-role`, `confirmation-required` (+ `added`, `removed`, `affectedUsers`) | `AdminErrors` | `admin-v1` `PUT …/permissions` → `RolePermissionsConflict` |
+| `report-already-decided`, `moderation-target-gone` | `ModerationErrors` | `moderation-v1` `PATCH /reports/{id}` → `ReportDecisionConflict` |
+| `moderation-not-hidden` | `ModerationErrors.TargetNotHiddenType` | `moderation-v1` `POST …/restore` → `TargetNotHidden` |
+| `post-hidden` | `ContentErrors.PostHiddenType` | `content-v1` `PATCH /posts/{id}` → `PostHidden` |
+
+Mọi `Error` 409/503 trong code GĐ6 (`Identity/Application/Admin`, `Moderation`, `Notification`, `Profile/Application/Search`) đều có
+`Type:`. `notification-v1` và `GET /search` không có 409/503 nào.
+
+**Bước 2 — thông điệp.** Mọi `Error` và thông điệp validator thêm ở GĐ6 là tiếng Việt có dấu, không `{`, không id, email, tên kiểu (các
+`$"…{MaxLimit}"` là hằng số được nội suy lúc biên dịch). Log thêm ở GĐ6 chỉ mang `UserId`, route template, số giây — không `email`,
+`ip`, `detail`, `note`, `reason` (luật 7, B.10 #5).
+
+**Bước 3 — cổng.** `Category=Contract` + `ContractGateCoverageTests` + `ProblemDetailsTests`: **45/45 xanh** — tám cổng REST
+(`identity`, `admin`, `profile`, `content`, `socialgraph`, `messaging`, `moderation`, `notification`) hai chiều, cổng hub chat, ba ca
+phủ cổng, 18 ca Problem Details.
+
+**Bước 4 — bàn giao cho E1.** `src/frontend/lib/api/problem.ts` (`PROBLEM_TYPES`) hôm nay chỉ có ba `type` trước GĐ6 (`feed-overloaded`,
+`not-friends`, `realtime-unavailable`) + `bff-session-unavailable` của BFF; **chưa có** `type` nào trong mười một cái ở bảng 17.1. Thêm
+chúng (mỗi cái `satisfies` schema tương ứng của `schema.d.ts`) là việc của E1, không của D13.
+
+**detect-changes:** không chạm code (chỉ tài liệu).
+
 ### Các đầu việc còn lại
 
-D13, và bước 9 (handler `comment`/`reply`/`reaction`/`message` — đã mở khóa, xem D10). Mỗi đầu việc khi xong điền theo khuôn của hướng dẫn khối A+C:
+Bước 9 (handler `comment`/`reply`/`reaction`/`message` — đã mở khóa, xem D10). Mỗi đầu việc khi xong điền theo khuôn của hướng dẫn khối A+C:
 
 - chỗ nào đi theo / không theo đề xuất Mục 0.6, và vì sao;
 - lệch so với chính tài liệu này;

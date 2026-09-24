@@ -2033,6 +2033,10 @@ IMMUTABLE trên tham số thì chắc chắn là hằng. `explain.sql` sửa the
 Đối chiếu từng mã trong sáu file hợp đồng với thứ code trả; mọi 409/503 có `type` riêng; không thông điệp nào chứa id, email,
 nội dung. **Xong khi:** ba lớp cổng hợp đồng mới + ba cũ xanh hai chiều.
 
+*Sửa 2026-09-25 khi thi công D13:* rà xong, không lệch — không commit `fix`. Mười một `type` mỗi cái một hằng, khai đủ trong yaml của
+mọi endpoint trả nó; 45/45 ca cổng hợp đồng + Problem Details xanh. `PROBLEM_TYPES` phía FE chưa có `type` nào của GĐ6 — việc của E1.
+Chi tiết ở "Thực tế thi công" D13 của `huong-dan-khoi-d-endpoint-nghiep-vu.md`.
+
 ---
 
 ## B.7 Khối B — Test và cổng CI
