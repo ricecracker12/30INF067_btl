@@ -8,6 +8,7 @@ import { Button, buttonVariants } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
+import type { PostResponse } from "@/lib/api/types"
 
 import { PostItem } from "./post-item"
 import type { PostPageState } from "./use-post-page"
@@ -26,9 +27,16 @@ type Props = {
   emptyMessage: string
   /** `/me` có nút "Đăng bài đầu tiên"; hồ sơ người khác thì không. */
   emptyAction?: ReactNode
+  /** Hàng tương tác dưới từng bài (GĐ3), do `app/` ghép — xem `PostItem.footer`. */
+  renderFooter?: (post: PostResponse) => ReactNode
 }
 
-export function PostList({ page, emptyMessage, emptyAction }: Props) {
+export function PostList({
+  page,
+  emptyMessage,
+  emptyAction,
+  renderFooter,
+}: Props) {
   // Trang đầu chưa về và chưa có lỗi: skeleton, KHÔNG để màn trắng và cũng không nháy câu "chưa có bài".
   if (!page.loaded && page.items.length === 0 && page.error === null) {
     return <PostListSkeleton />
@@ -48,6 +56,7 @@ export function PostList({ page, emptyMessage, emptyAction }: Props) {
           key={post.postId}
           post={post}
           onChanged={(next) => page.replaceItem(post.postId, next)}
+          footer={renderFooter}
         />
       ))}
 

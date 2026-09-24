@@ -8,6 +8,8 @@ import {
   CURSOR_QUA_TAI,
   CURSOR_SAU_TRANG_RONG,
   CURSOR_TRANG_RONG,
+  comment,
+  commentPage,
   MEDIA_SCENARIO,
   SOCIAL_SCENARIO,
   feedOverloadedProblem,
@@ -26,6 +28,7 @@ import {
   registerResponse,
   relationship,
   uploadTicket,
+  userCard,
   userId,
   userIdChuaCoHoSo,
   validationProblem,
@@ -538,6 +541,65 @@ export const handlers = [
     }
     return HttpResponse.json(cursorPage(cursor, feedPage("network")))
   }),
+
+  // ---- GĐ3: bình luận + cảm xúc. Mặc định là nhánh vui; ca lỗi (400 parentId, 403, 404, 429) test tự `server.use`. ----
+
+  http.get(url(`${BFF_ROUTES.api}/posts/:postId/comments`), () =>
+    HttpResponse.json(commentPage)
+  ),
+
+  http.get(url(`${BFF_ROUTES.api}/comments/:commentId/replies`), () =>
+    HttpResponse.json({ items: [], nextCursor: null } satisfies T.CommentPage)
+  ),
+
+  http.post(
+    url(`${BFF_ROUTES.api}/posts/:postId/comments`),
+    async ({ params, request }) => {
+      const body = (await request.json()) as T.CreateCommentRequest
+      return HttpResponse.json(
+        {
+          ...comment,
+          commentId: crypto.randomUUID(),
+          postId: String(params.postId),
+          parentId: body.parentId ?? null,
+          depth: body.parentId ? 2 : 1,
+          author: userCard,
+          body: body.body,
+          replyCount: 0,
+          reactionCounts: {},
+          myReaction: null,
+          canDelete: true,
+        } satisfies T.CommentResponse,
+        { status: 201 }
+      )
+    }
+  ),
+
+  http.delete(
+    url(`${BFF_ROUTES.api}/comments/:commentId`),
+    () => new HttpResponse(null, { status: 204 })
+  ),
+
+  // Cảm xúc: server giả không nhớ trạng thái — trả đúng loại vừa gửi với bộ đếm một lượt (đủ cho nhánh vui). Test đếm request
+  // và dựng con số thật thì tự `server.use`.
+  ...(["posts", "comments"] as const).flatMap((target) => [
+    http.put(
+      url(`${BFF_ROUTES.api}/${target}/:id/reactions/me`),
+      async ({ request }) => {
+        const { type } = (await request.json()) as T.SetReactionRequest
+        return HttpResponse.json({
+          reactionCounts: { [type]: 1 },
+          myReaction: type,
+        } satisfies T.ReactionSummary)
+      }
+    ),
+    http.delete(url(`${BFF_ROUTES.api}/${target}/:id/reactions/me`), () =>
+      HttpResponse.json({
+        reactionCounts: {},
+        myReaction: null,
+      } satisfies T.ReactionSummary)
+    ),
+  ]),
 
   ...upstreamHandlers,
 ]

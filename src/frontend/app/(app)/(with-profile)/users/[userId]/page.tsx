@@ -8,6 +8,8 @@ import { UserPosts } from "@/features/post/user-posts"
 import { PublicProfile } from "@/features/profile/public-profile"
 import { useProfile } from "@/features/profile/use-profile"
 
+import { postListFooter } from "../../_interactions/post-interactions"
+
 // Hồ sơ một người + bài của họ + nút quan hệ (GĐ2 Q-E6, GĐ4 E5). Chỉ ráp (Đ-E13) — tầng DUY NHẤT được biết cả
 // `features/profile` (ai đang đăng nhập), `features/friend` và `features/post`.
 //
@@ -52,6 +54,7 @@ export default function UserPage({
             ? "Bạn chưa đăng bài nào."
             : "Người này chưa có bài nào bạn xem được."
         }
+        renderFooter={postListFooter}
       />
     </div>
   )

@@ -230,3 +230,42 @@ export const feedPage = (mode: T.FeedMode, nextCursor: string | null = null) =>
     nextCursor,
     mode,
   }) satisfies T.FeedPage
+
+// ---- GĐ3: bình luận + cảm xúc — giá trị chép từ `example` của content-v1.yaml (luật frontend Mục 8) ----
+
+/** Bình luận gốc trong `example` của `GET /posts/{postId}/comments`: của người khác, có 2 phản hồi, người xem đã thả like. */
+export const comment = {
+  commentId: "0192f3d0-1a2b-7c3d-8e4f-5a6b7c8d9e01",
+  postId: "0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10",
+  parentId: null,
+  depth: 1,
+  status: "visible",
+  author: userCard,
+  body: "Ảnh đẹp quá!",
+  replyCount: 2,
+  reactionCounts: { like: 3 },
+  myReaction: "like",
+  createdAt: "2026-09-24T08:20:00Z",
+  canDelete: false,
+} satisfies T.CommentResponse
+
+/** Bình luận đã xóa trong cùng `example` — giữ chỗ và nhánh, không tác giả, không nội dung (Đ-3.5). */
+export const deletedComment = {
+  commentId: "0192f3d0-1a2b-7c3d-8e4f-5a6b7c8d9e02",
+  postId: "0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10",
+  parentId: null,
+  depth: 1,
+  status: "deleted",
+  author: null,
+  body: null,
+  replyCount: 1,
+  reactionCounts: {},
+  myReaction: null,
+  createdAt: "2026-09-24T08:25:00Z",
+  canDelete: false,
+} satisfies T.CommentResponse
+
+export const commentPage = {
+  items: [comment, deletedComment],
+  nextCursor: null,
+} satisfies T.CommentPage

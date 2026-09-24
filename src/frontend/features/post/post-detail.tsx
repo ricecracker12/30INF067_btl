@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useState, type ReactNode } from "react"
 
 import { FormAlert } from "@/components/form/form-alert"
 import { Button, buttonVariants } from "@/components/ui/button"
@@ -37,7 +37,15 @@ type Loaded =
   | { key: string; notFound: true }
   | { key: string; error: string }
 
-export function PostDetail({ postId }: { postId: string }) {
+type Props = {
+  postId: string
+  /** Hàng tương tác trong card (GĐ3 — thanh cảm xúc), do `app/` ghép. */
+  footer?: (post: PostResponse) => ReactNode
+  /** Dưới card (GĐ3 — cây bình luận), do `app/` ghép. Chỉ hiện khi bài đã nạp được. */
+  below?: (post: PostResponse) => ReactNode
+}
+
+export function PostDetail({ postId, footer, below }: Props) {
   const router = useRouter()
   const [data, setData] = useState<Loaded | null>(null)
   const [attempt, setAttempt] = useState(0)
@@ -107,7 +115,17 @@ export function PostDetail({ postId }: { postId: string }) {
     )
   }
 
-  return <PostItem post={current.post} standalone onChanged={onChanged} />
+  return (
+    <div className="flex flex-col gap-6">
+      <PostItem
+        post={current.post}
+        standalone
+        onChanged={onChanged}
+        footer={footer}
+      />
+      {below?.(current.post)}
+    </div>
+  )
 }
 
 /**

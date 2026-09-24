@@ -347,7 +347,9 @@ describe("UserPosts — trạng thái rỗng và lỗi", () => {
     await waitFor(() => expect(cards()).toHaveLength(1))
     await user.click(nutXemThem()!)
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Tải lại" })).toBeInTheDocument()
+      expect(
+        screen.getByRole("button", { name: "Tải lại" })
+      ).toBeInTheDocument()
     )
 
     await user.click(screen.getByRole("button", { name: "Tải lại" }))
@@ -415,30 +417,42 @@ describe("UserPosts — xóa bài trong danh sách (E6)", () => {
 })
 
 describe("PostCard — nội dung một bài", () => {
-  it("`reactionCounts: {}` rỗng render được, KHÔNG phải `null` (Đ-2.12)", async () => {
+  it("GĐ3 (Đ-3.13): hàng tương tác là SLOT `renderFooter` — nhận ĐÚNG bài, vẽ trong card của bài đó", async () => {
     phucVuHaiTrang(
-      trang([bai("p1", { reactionCounts: {}, commentCount: 0 })], null),
+      trang(
+        [
+          bai("p1", { reactionCounts: {}, commentCount: 0 }),
+          bai("p2", { reactionCounts: { like: 3, love: 2 }, commentCount: 4 }),
+        ],
+        null
+      ),
       trang([], null)
     )
-    moManHinh()
-
-    await waitFor(() => expect(cards()).toHaveLength(1))
-    expect(screen.getByTestId("reaction-count")).toHaveTextContent("0 cảm xúc")
-    expect(screen.getByTestId("comment-count")).toHaveTextContent("0 bình luận")
-  })
-
-  it("có cảm xúc thì cộng tổng các loại", async () => {
-    phucVuHaiTrang(
-      trang([bai("p1", { reactionCounts: { like: 3, love: 2 } })], null),
-      trang([], null)
+    render(
+      <UserPosts
+        userId={userId}
+        title="Bài của tôi"
+        emptyMessage="Bạn chưa đăng bài nào."
+        renderFooter={(p) => (
+          <span data-testid="footer-slot">
+            {p.postId}:{p.commentCount}:
+            {Object.values(p.reactionCounts).reduce((x, y) => x + y, 0)}
+          </span>
+        )}
+      />
     )
-    moManHinh()
 
-    await waitFor(() => expect(cards()).toHaveLength(1))
-    expect(screen.getByTestId("reaction-count")).toHaveTextContent("5 cảm xúc")
+    await waitFor(() => expect(cards()).toHaveLength(2))
+    // `reactionCounts: {}` rỗng đi qua slot được, KHÔNG phải `null` (Đ-2.12).
+    expect(within(cards()[0]!).getByTestId("footer-slot")).toHaveTextContent(
+      "p1:0:0"
+    )
+    expect(within(cards()[1]!).getByTestId("footer-slot")).toHaveTextContent(
+      "p2:4:5"
+    )
   })
 
-  it("GĐ2 KHÔNG có nút bình luận hay cảm xúc — endpoint là GĐ3", async () => {
+  it("không truyền slot thì card KHÔNG có nút tương tác nào — features/post không tự dựng thanh cảm xúc (Đ-E13)", async () => {
     // `canEdit: false` để phép đo này chỉ nói về bình luận/cảm xúc: bài của chính mình có nút Sửa/Xóa
     // (E6), và trộn hai chuyện vào một khẳng định là ca test đổi nghĩa mỗi khi thêm thao tác mới.
     phucVuHaiTrang(
@@ -450,6 +464,7 @@ describe("PostCard — nội dung một bài", () => {
     await waitFor(() => expect(cards()).toHaveLength(1))
     const card = within(cards()[0]!)
     expect(card.queryByRole("button")).toBeNull()
+    expect(card.queryByTestId("reaction-bar")).toBeNull()
   })
 
   it("nhãn 'đã chỉnh sửa' theo `editedAt`, không theo so ngày", async () => {

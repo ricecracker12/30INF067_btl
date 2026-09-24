@@ -2,6 +2,8 @@
 
 import type { ReactNode } from "react"
 
+import type { PostResponse } from "@/lib/api/types"
+
 import { PostList } from "./post-list"
 import { useUserPosts } from "./use-post-page"
 
@@ -20,6 +22,8 @@ type Props = {
   emptyAction?: ReactNode
   /** Nút cạnh tiêu đề, hiện KỂ CẢ khi đã có bài — `/me` dùng cho "Đăng bài". */
   action?: ReactNode
+  /** Hàng tương tác dưới từng bài (GĐ3), do `app/` ghép. */
+  renderFooter?: (post: PostResponse) => ReactNode
 }
 
 export function UserPosts({
@@ -28,6 +32,7 @@ export function UserPosts({
   emptyMessage,
   emptyAction,
   action,
+  renderFooter,
 }: Props) {
   const page = useUserPosts(userId)
 
@@ -41,6 +46,7 @@ export function UserPosts({
         page={page}
         emptyMessage={emptyMessage}
         emptyAction={emptyAction}
+        renderFooter={renderFooter}
       />
     </section>
   )

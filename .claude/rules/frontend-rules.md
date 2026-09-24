@@ -66,6 +66,10 @@ Bốn tầng, phụ thuộc **một chiều**: `app/` → `features/` → `compo
 1-1 (vì sinh từ `<nhóm>.yaml`). Một module đẻ ra nhiều màn: `Content` → `post/`, `comment/`,
 `reaction/`, `feed/`.
 
+**Phần ráp nhiều feature dùng lại ở nhiều trang** (thêm 2026-09-25, GĐ3): đặt trong *private folder* của Next cạnh các trang
+dùng nó — `app/(app)/(with-profile)/_interactions/` ráp `features/post` + `comment` + `reaction` cho trang chủ, `/me`,
+`/users/[userId]`, `/posts/[postId]`. Vẫn là tầng `app/` (chỉ ráp, không logic); tiền tố `_` giữ nó ngoài hệ route.
+
 **Bên trong một feature:** để phẳng cho tới khi một *loại* file chạm 2 cái mới mở thư mục con
 (`components/`, `hooks/`). Không tạo sẵn thư mục rỗng cho giai đoạn chưa tới.
 
@@ -173,8 +177,8 @@ Bốn tầng, phụ thuộc **một chiều**: `app/` → `features/` → `compo
   mount một lần, Next dev mount → unmount → mount lại; lớp lỗi chỉ sống ở lần mount thứ hai nên không ca
   thường nào chạm tới. Ca đó khẳng định **trạng thái cuối đạt được**, **không đếm số request** — dưới
   StrictMode số request tăng gấp đôi một cách hợp lệ, trộn hai thứ vào một ca là tự làm ca test giòn.
-  Tám ca hiện có: `post-composer`, `me-profile`, `post-detail`, `user-posts`, `public-profile`, `feed-list`
-  (GĐ4 E4, L5), `relationship-buttons` (GĐ4 E2, L5), `friends-screen` (GĐ4 E3, L5). Tài nguyên phải là thứ **thật sự tạo lúc mount**: ở `feed-list` đó là `AbortController` của trang
+  Chín ca hiện có (liệt kê theo luật này): `post-composer`, `me-profile`, `post-detail`, `user-posts`, `public-profile`, `feed-list`
+  (GĐ4 E4, L5), `relationship-buttons` (GĐ4 E2, L5), `friends-screen` (GĐ4 E3, L5), `comment-thread` (GĐ3 E2 — `AbortController` trang bình luận gốc). Tài nguyên phải là thứ **thật sự tạo lúc mount**: ở `feed-list` đó là `AbortController` của trang
   đầu, không phải observer — observer chỉ tạo sau khi trang đầu về, có ca thường riêng canh việc tạo lại nó.
 - **`waitFor` chờ một handler có `delay` thì ghi `timeout` viết tay.** Mặc định 1s đủ khi chạy riêng file
   và KHÔNG đủ khi chạy cả bộ — ca `Xem thêm` của `user-posts` đỏ ~1/3 lượt vì vậy (đo 2026-09-21). Nới
