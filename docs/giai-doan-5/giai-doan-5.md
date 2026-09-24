@@ -1678,3 +1678,28 @@ Ghi theo thứ tự làm, mỗi dòng trỏ commit. Chỗ lệch Phần A/B mở
 đã khóa dòng nên `seq` không lỗ/không trùng, và UNIQUE `client_msg_id` + nhánh bắt `23505` đỡ lượt gửi trùng. Bỏ **cả** `for
 update` lẫn nhánh bắt `23505` → `MSG-C2` đỏ `23505 uq_messages_conv_client_id` (3/3 lượt). Tức `FOR UPDATE` là lớp phòng thủ
 thứ nhất, UNIQUE là lớp thứ hai; test chứng minh được lớp thứ hai, lớp thứ nhất không quan sát được từ ngoài.
+
+## Khối C — Realtime (2026-09-24)
+
+| Việc | Commit | Kết quả / chỗ lệch |
+|---|---|---|
+| C1–C3 | *(commit này)* | `SharedKernel/Realtime/`: `IRealtimeTicketStore` + `RedisRealtimeTicketStore` (khóa `rt:ticket:{sha256}`, `GETDEL`), scheme `RealtimeTicket` (chỉ `/hubs`, chỉ query), `SubClaimUserIdProvider`, `RevocationHubFilter` **toàn cục** (thu hồi mỗi lời gọi + tuổi thọ), `AddSharedKernelRealtime()` + `AddRealtimeTicket()`. Policy `realtime-ticket` 20/phút/user. `RealtimeTicketsController` + `ChatHub` khung ở Messaging; `messaging-v1.yaml` vào repo với path đầu tiên `/realtime/tickets` |
+
+**Lệch / chốt khi thi công khối C:**
+- **Hạn vé kiểm hai chỗ** — TTL Redis dọn khóa, còn `expiresAt` lưu trong giá trị được so với `TimeProvider` lúc đổi vé: test HUB-03
+  chạy bằng đồng hồ dịch được, không ngủ 30 giây.
+- **`RealtimeOptions.MaxConnectionLifetime`** (mặc định = `Jwt:AccessTokenSeconds`) — thêm để HUB-10 rút tuổi thọ xuống 1 giây. Không
+  đặt gì là đúng cho mọi môi trường.
+- **503 của vé có `type` riêng** `urn:socialapp:problem:realtime-unavailable` và title riêng (bảng mặc định gộp ≥ 500 vào "lỗi không
+  mong muốn") — theo quy ước `urn:socialapp:problem:*` của `ContentErrors.FeedOverloadedType`.
+- **Client .NET trong test không dùng `AccessTokenProvider`**: ngoài trình duyệt nó gắn token vào header `Authorization`, không vào
+  query — đi một đường trình duyệt không bao giờ đi. `RealtimeTestClient` tự gắn vé vào query trong `WebSocketFactory`, mỗi lần bắt tay
+  xin đúng một vé.
+- **Cạm bẫy harness (lần 3 trong ngày):** ba lớp test hub, mỗi lớp một `ModulesApiFactory` với database riêng → 5 ca AuthZ chạy sau đỏ
+  `53300`. Sửa gốc ở `ModulesApiFactory.DisposeAsync` (`ClearPool` database của factory) — mọi lớp dùng factory hưởng.
+- Node của máy dev là 20, repo đòi Node 24 (`fs.globSync` của `gen-api.mjs`) — dùng Node 24 tạm qua gói npm `node@24`, không đổi Node
+  toàn cục.
+
+**Đột biến đã thử (đều đỏ đúng ca, đã khôi phục):** `GETDEL` → `GET` → HUB-02 · bỏ kiểm thu hồi lúc bắt tay → HUB-04 · bỏ timer tuổi thọ
+→ HUB-10. Thiếu dòng `Content Include` của `messaging-v1.yaml` → `ContractGateCoverageTests` + hai ca `MessagingContractTests` đỏ với
+thông báo chỉ đúng chỗ sửa.

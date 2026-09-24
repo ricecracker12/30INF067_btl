@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Npgsql;
 using SocialApp.Modules.Content.DependencyInjection;
 using SocialApp.Modules.Identity.DependencyInjection;
 using SocialApp.Modules.Messaging.DependencyInjection;
@@ -102,6 +103,22 @@ public sealed class ModulesApiFactory : WebApplicationFactory<Program>
         await services.MigrateModerationModuleAsync();
         await services.MigrateNotificationModuleAsync();
         return cs;
+    }
+
+    /// <summary>
+    /// Trả pool kết nối của database này về Postgres khi lớp test xong (GĐ5, 2026-09-24). Mỗi lớp dùng factory có database riêng,
+    /// và pool Npgsql giữ kết nối rảnh tới 300 giây — trong khi cả collection chung MỘT container <c>max_connections = 100</c>.
+    /// Thêm ba lớp test hub của GĐ5 là đủ đẩy các lớp chạy sau sang <c>53300 too many clients already</c> (đo: 5 ca AuthZ đỏ).
+    /// Cùng lý do với <c>ClearPool</c> của <c>ModerationDbContextSchemaTests</c>, nhưng ở MỘT chỗ cho mọi lớp dùng factory.
+    /// </summary>
+    public override async ValueTask DisposeAsync()
+    {
+        await base.DisposeAsync();
+        if (_database is { IsCompletedSuccessfully: true } database)
+        {
+            await using var conn = new NpgsqlConnection(database.Result);
+            NpgsqlConnection.ClearPool(conn);
+        }
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)

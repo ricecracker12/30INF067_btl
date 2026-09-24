@@ -12,6 +12,8 @@
   <ItemGroup>
     <PackageReference Include="coverlet.collector" Version="6.0.0" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.0.10" />
+    <!-- GĐ5 Đ-5.16: test hub đi ĐÚNG đường client thật (WebSockets + SkipNegotiation). Ghim 8.0.x cùng lineage net8. -->
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="8.0.10" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
     <!-- Đọc được cả YAML (file hợp đồng) lẫn JSON (Swagger runtime) về CÙNG một OpenApiDocument nên
          so sánh hai bên không phải tự viết parser. Ghim 1.6.14 = đúng version Swashbuckle 6.6.2 đang
@@ -48,6 +50,13 @@
              CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\src\backend\Modules\SocialGraph\Presentation\socialgraph-v1.yaml"
              Link="Contracts\socialgraph-v1.yaml"
+             CopyToOutputDirectory="PreserveNewest" />
+    <!-- GĐ5 (Mục 10.5 #1, #2): hợp đồng REST của Messaging + ví dụ payload của hub. Thiếu dòng thì test không tìm thấy file. -->
+    <Content Include="..\..\src\backend\Modules\Messaging\Presentation\messaging-v1.yaml"
+             Link="Contracts\messaging-v1.yaml"
+             CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\src\backend\Modules\Messaging\Presentation\chat-hub-v1.examples.json"
+             Link="Contracts\chat-hub-v1.examples.json"
              CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

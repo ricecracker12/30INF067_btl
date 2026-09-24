@@ -18,6 +18,7 @@ using SocialApp.Modules.Content.Presentation;
 using SocialApp.Modules.Identity.DependencyInjection;
 using SocialApp.Modules.Identity.Presentation;
 using SocialApp.Modules.Messaging.DependencyInjection;
+using SocialApp.Modules.Messaging.Presentation;
 using SocialApp.Modules.Moderation.DependencyInjection;
 using SocialApp.Modules.Notification.DependencyInjection;
 using SocialApp.Modules.Profile.DependencyInjection;
@@ -30,6 +31,7 @@ using SocialApp.SharedKernel.Configuration;
 using SocialApp.SharedKernel.DependencyInjection;
 using SocialApp.SharedKernel.Http;
 using SocialApp.SharedKernel.Observability;
+using SocialApp.SharedKernel.Realtime;
 using SocialApp.SharedKernel.Redis;
 using SocialApp.SharedKernel.Storage;
 
@@ -61,6 +63,7 @@ builder.Services
     .AddApplicationPart(typeof(ProfileApiGroup).Assembly)
     .AddApplicationPart(typeof(ContentApiGroup).Assembly)
     .AddApplicationPart(typeof(SocialGraphApiGroup).Assembly)
+    .AddApplicationPart(typeof(MessagingApiGroup).Assembly)
     .AddJsonOptions(o =>
     {
         // CamelCase là BẮT BUỘC, không phải trang trí (Q-D4 → Q-D2, chốt 2026-09-19): hợp đồng ghi
@@ -94,6 +97,7 @@ var apiGroups = new[]
     (Name: ProfileApiGroup.Name, Title: ProfileApiGroup.Title),
     (Name: ContentApiGroup.Name, Title: ContentApiGroup.Title),
     (Name: SocialGraphApiGroup.Name, Title: SocialGraphApiGroup.Title),
+    (Name: MessagingApiGroup.Name, Title: MessagingApiGroup.Title),
 };
 
 builder.Services.AddEndpointsApiExplorer();
@@ -343,6 +347,10 @@ builder.Services.AddSingleton(Microsoft.Extensions.Options.Options.Create(jwt));
 builder.Services.AddSharedKernelRedis(redis);
 builder.Services.AddSharedKernelTokenRevocation();
 
+// Realtime (GĐ5 Đ-5.8–Đ-5.10): SignalR + vé dùng một lần + IUserIdProvider đọc "sub" + filter thu hồi/tuổi thọ TOÀN CỤC cho mọi
+// hub (/hubs/chat của GĐ5, /hubs/notifications của GĐ6 dùng lại — Đ-6.18). Dùng chung kết nối Redis ở trên.
+builder.Services.AddSharedKernelRealtime();
+
 // MỘT chỗ đăng ký lưu trữ đối tượng cho cả app (Đ-2.14): Profile (avatar), Content (ảnh bài), GĐ5 (media tin nhắn) dùng chung
 // IObjectStorage; không module nào gọi AWS SDK. r2 đã qua RequireR2Options ở trên — ngoài Development chắc chắn đủ.
 builder.Services.AddSharedKernelR2(r2, builder.Environment.EnvironmentName);
@@ -407,7 +415,10 @@ builder.Services
                 }
             },
         };
-    });
+    })
+    // Scheme thứ hai, CHỈ cho hub (Đ-5.9): đọc ?access_token=<vé> ở /hubs/*. Không đổi default scheme — REST vẫn là bearer, và
+    // JwtBearer KHÔNG đọc query (không có OnMessageReceived): JWT trên URL là thứ Đ-E16 sinh ra để tránh.
+    .AddRealtimeTicket();
 
 // --- Tầng 2 (RBAC, Mục 6.2): [RequirePermission] + fallback policy default deny ---
 builder.Services.AddSharedKernelAuthorization();
@@ -489,6 +500,9 @@ app.MapMetrics().AllowAnonymous();
 BusinessMetrics.Initialize();   // bảy chuỗi nghiệp vụ có mặt từ lúc khởi động với giá trị 0, không đợi sự kiện đầu tiên (C2)
 
 app.MapControllers();
+
+// Hub nhắn tin (GĐ5). Sau UseAuthentication/UseAuthorization — hub khai [Authorize(AuthenticationSchemes = RealtimeTicket)].
+app.MapHub<ChatHub>(ChatHub.Path);
 
 app.Run();
 

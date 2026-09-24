@@ -1,0 +1,434 @@
+# ---------------------------------------------------------------------------------------------
+# HỢP ĐỒNG API — module Messaging, v1 (GĐ5 · UC-15 nhắn tin 1-1 realtime)
+#
+# Artifact của cổng mở GĐ5 (docs/giai-doan-5/giai-doan-5.md Mục 8.1). Lane frontend sinh type TypeScript từ chính file này
+# (`pnpm gen:api` → lib/api/messaging/schema.d.ts, tự tìm theo glob), nên nó là NGUỒN SỰ THẬT của hợp đồng REST.
+# Hub /hubs/chat KHÔNG nằm ở đây — hợp đồng hub là chat-hub-v1.md + chat-hub-v1.examples.json cùng thư mục.
+#
+# Tên nhóm Swagger `messaging-v1` khớp ở ĐÚNG BA CHỖ: [ApiExplorerSettings(GroupName)], SwaggerDoc ở Program.cs, tên file này.
+#
+# MÁY CANH: MessagingContractTests so file này với Swagger runtime (tập path × method, status code, required field của body).
+# ContractGateCoverageTests canh mọi *-v1.yaml đều có máy canh.
+#
+# CÁCH FILE NÀY LỚN LÊN (lệch Mục 9.2 #2, chốt 2026-09-24 — tiền lệ GĐ4 082b145): `components` chốt ĐỦ ở cổng mở; mỗi path
+# vào file CÙNG COMMIT với controller của nó, vì ContractGateCoverageTests nhặt mọi yaml và cấm Skip — path chưa có controller
+# là cổng Contract đỏ. Tám path đích ở Mục 8.1: /realtime/tickets (C1) · /conversations POST, GET (D1, D2) · /conversations/
+# unread-count, /conversations/{id} (D3) · /conversations/{id}/messages GET (D4), POST (D5) · /conversations/{id}/receipts (D6).
+#
+# LUẬT SỬA: đổi hợp đồng → sửa file này TRONG CÙNG COMMIT với code và chạy lại `pnpm gen:api`.
+#
+# QUYẾT ĐỊNH chạm tới hợp đồng này (giai-doan-5.md Mục 3):
+#   Đ-5.3  Tạo hội thoại cần đang là bạn; ĐỌC hội thoại cũ thì không. `canSend` chỉ ở GET /{id} và POST (tính sống).
+#   Đ-5.5  Gửi lại cùng clientMsgId + cùng nội dung → 200 + ĐÚNG tin cũ; 409 CHỈ khi cùng id mà khác nội dung.
+#   Đ-5.6  Không có `status` trên từng tin — trạng thái suy từ peerDeliveredSeq / peerSeenSeq + sự kiện ReceiptUpdated.
+#   Đ-5.9  Vé realtime 30 giây dùng một lần; dùng cho MỌI /hubs/* (GĐ6 dùng lại cho /hubs/notifications).
+#   Đ-5.14 unreadCount = tin của NGƯỜI KIA sau mốc đã xem của mình.
+#   Mục 6.1 403, không 404, cho hội thoại của người khác — "không tồn tại" và "không phải thành viên" cùng một phản hồi.
+# ---------------------------------------------------------------------------------------------
+openapi: 3.0.3
+
+info:
+  title: SocialApp — Messaging API
+  version: 1.0.0-gd5
+  description: |
+    Nhắn tin 1-1 của GĐ5: vé realtime cho hub, hội thoại (tạo/lấy, danh sách, chi tiết), lịch sử tin (cuộn ngược + lấp chỗ
+    hở), gửi tin bằng REST (đường fallback khi không có WebSocket — Đ-5.12), biên nhận đã nhận/đã xem, tổng chưa đọc.
+
+    ### Kênh realtime
+
+    1. `POST /realtime/tickets` → `{ ticket, expiresIn: 30 }`.
+    2. Nối `wss://<domain>/hubs/chat?access_token=<ticket>` với **WebSockets + skipNegotiation** (Đ-5.16) — mỗi lần kết nối
+       (kể cả tự nối lại) xin **một** vé mới.
+    3. Phương thức và sự kiện của hub: xem `chat-hub-v1.md`.
+
+    ### Lỗi
+
+    Mọi lỗi trả **RFC 7807 Problem Details** kèm `traceId`. 400 validation có `errors` theo tên trường.
+
+    ### Rate limit
+
+    100 req/phút/user; riêng `POST /realtime/tickets` 20 req/phút/user.
+
+    ### Ghi chú cho lane frontend
+
+    - Mọi lời gọi đi qua proxy chung `/bff/api/...` (Đ-E14) — không thêm route BFF, kể cả xin vé.
+    - Hết dữ liệu khi và chỉ khi `nextCursor` là `null`.
+    - Một tin có thể tới qua ACK của hub, sự kiện `MessageReceived` và REST — khử trùng theo `messageId`, sắp theo `seq`.
+
+  contact:
+    name: Nhóm 4 — 30INF067
+
+servers:
+  - url: http://localhost:5259/api/v1
+    description: Dev — backend chạy local (`dotnet run`)
+  - url: https://mxh.banhgao.net/api/v1
+    description: Staging — HTTPS thật, đích của cổng đóng
+
+tags:
+  - name: realtime
+    description: Vé bắt tay hub (Đ-E16, Đ-5.9).
+  - name: conversations
+    description: Hội thoại 1-1 và tin nhắn (UC-15, FR-015, FR-016, BR-06, BR-09).
+
+paths:
+
+  /realtime/tickets:
+    post:
+      tags: [realtime]
+      operationId: issueRealtimeTicket
+      summary: Xin vé bắt tay hub (Đ-E16, Đ-5.9)
+      description: |
+        Vé 32 byte ngẫu nhiên, sống **30 giây**, dùng **một lần** — lưu băm trong Redis, không lưu thô. Danh tính của vé lấy từ
+        access token của chính request này. Dùng cho mọi `/hubs/*`.
+
+        **503** khi Redis không sẵn sàng (không fail-open): client chuyển fallback REST (gửi bằng `POST …/messages`, nhận bằng
+        hỏi lại `afterSeq` mỗi 3 giây — Đ-5.12). Phân nhánh bằng `type` `urn:socialapp:problem:realtime-unavailable`.
+      security:
+        - bearerAuth: []
+      responses:
+        '201':
+          description: Vé vừa cấp.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RealtimeTicket'
+              example:
+                ticket: q3Xk9vVh2mS0bE7rT1uYw5Zc8NdLfJpA4GiHoKsRtUe
+                expiresIn: 30
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/RealtimeUnavailable'
+
+components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Access token JWT HS256 của module Identity (hợp đồng `identity-v1`), sống 15 phút. Trình duyệt **không** cầm token —
+        BFF gắn bearer ở server (Đ-E14). Hub KHÔNG nhận bearer — chỉ nhận vé (`POST /realtime/tickets`).
+
+  parameters:
+
+    ConversationId:
+      name: conversationId
+      in: path
+      required: true
+      description: UUID v7 của hội thoại. Sai dạng → 400 `errors.conversationId`.
+      schema:
+        type: string
+        format: uuid
+
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: '`nextCursor` của trang trước. Bỏ trống để lấy trang đầu. Cursor rác → 400 `errors.cursor`.'
+      schema:
+        type: string
+
+  headers:
+
+    XCorrelationId:
+      description: |
+        Correlation ID của request, bằng đúng `traceId` trong Problem Details khi có lỗi.
+        Client gửi header cùng tên thì server dùng lại giá trị đó.
+      schema:
+        type: string
+      example: 9f2c7b1e4a6d4f0b8c3e5a7d9b1f3c5e
+
+  responses:
+
+    ValidationProblem:
+      description: |
+        Dữ liệu đầu vào không hợp lệ. `errors` là map `tên trường → danh sách thông điệp`. Cũng là mã trả về khi body chứa
+        **field lạ**, khi tham số path sai dạng UUID, khi `cursor` rác, `limit` ngoài `1..50`, hay `cursor` đi cùng `afterSeq`.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://httpstatuses.io/400
+            title: Dữ liệu không hợp lệ
+            status: 400
+            detail: Dữ liệu đầu vào không hợp lệ
+            instance: /api/v1/conversations/0192f3c1-9b2d-7e40-8a11-3c5d7e9f1a20/messages
+            traceId: 5e7a9c1b3d5f7092a4c6e8b0d2f4a6c8
+            errors:
+              content:
+                - Tin nhắn không được để trống.
+
+    Unauthorized:
+      description: Thiếu access token, token sai chữ ký, hết hạn, hoặc đã bị thu hồi.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://httpstatuses.io/401
+            title: Chưa xác thực
+            status: 401
+            detail: Yêu cầu access token hợp lệ.
+            instance: /api/v1/conversations
+            traceId: a4c6e8b0d2f4a6c8e0b2d4f6a8c0e2b4
+
+    Forbidden:
+      description: |
+        Tầng 2 (thiếu `message.send`) hoặc tầng 3: không phải thành viên của hội thoại, hoặc hội thoại không tồn tại — **cùng**
+        một phản hồi `auth.forbidden` (Mục 6.1, TC-A04), không tiết lộ id hội thoại có thật hay không.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://httpstatuses.io/403
+            title: Bị từ chối
+            status: 403
+            detail: Bạn không có quyền thực hiện thao tác này.
+            instance: /api/v1/conversations/0192f3c1-9b2d-7e40-8a11-3c5d7e9f1a20
+            traceId: c6e8b0d2f4a6c8e0b2d4f6a8c0e2b4d6
+
+    TooManyRequests:
+      description: Vượt hạn mức (100 req/phút/user; vé 20 req/phút/user). Không có `Retry-After`.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://httpstatuses.io/429
+            title: Quá nhiều yêu cầu
+            status: 429
+            detail: Bạn đã gửi quá nhiều yêu cầu. Vui lòng thử lại sau ít phút.
+            instance: /api/v1/realtime/tickets
+            traceId: e0b2d4f6a8c0e2b4d6f8a0c2e4b6d8f0
+
+    RealtimeUnavailable:
+      description: |
+        Redis không sẵn sàng nên không cấp được vé (Đ-5.9 — không fail-open). Client chuyển fallback REST (Đ-5.12). Phân nhánh
+        theo `type`, không theo status: 503 này khác 503 "feed quá tải" của `content-v1`.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: urn:socialapp:problem:realtime-unavailable
+            title: Kênh thời gian thực không sẵn sàng
+            status: 503
+            detail: Kênh thời gian thực tạm thời không sẵn sàng. Tin nhắn vẫn gửi được.
+            instance: /api/v1/realtime/tickets
+            traceId: f2a4c6e8b0d2f4a6c8e0b2d4f6a8c0e2
+
+  schemas:
+
+    ProblemDetails:
+      type: object
+      description: |
+        RFC 7807 Problem Details — dạng lỗi duy nhất của toàn dự án (SharedKernel dựng, module không tự chế).
+      properties:
+        type:
+          type: string
+          description: Mặc định `https://httpstatuses.io/{status}`; lỗi có nghĩa riêng dùng `urn:socialapp:problem:*`.
+        title:
+          type: string
+        status:
+          type: integer
+          format: int32
+        detail:
+          type: string
+          nullable: true
+          description: Thông điệp cho người đọc. Vắng mặt ở lỗi 500.
+        instance:
+          type: string
+        traceId:
+          type: string
+        errors:
+          type: object
+          nullable: true
+          description: Chỉ có ở lỗi validation (400). Map `tên trường → danh sách thông điệp`.
+          additionalProperties:
+            type: array
+            items:
+              type: string
+      required: [title, status, traceId]
+
+    RealtimeTicket:
+      type: object
+      properties:
+        ticket:
+          type: string
+          description: base64url của 32 byte ngẫu nhiên. Đặt vào `?access_token=` khi nối `/hubs/*`. Dùng MỘT lần.
+        expiresIn:
+          type: integer
+          format: int32
+          description: Số giây còn hiệu lực — luôn 30.
+      required: [ticket, expiresIn]
+
+    CreateConversation:
+      type: object
+      additionalProperties: false
+      description: Chỉ MỘT id — người kia. Người gọi luôn là thành viên còn lại (không nhận từ body).
+      properties:
+        userId:
+          type: string
+          format: uuid
+          description: Người muốn nhắn. Là chính người gọi → 400 `errors.userId`.
+      required: [userId]
+
+    UserCard:
+      type: object
+      description: |
+        Cùng hình dạng `UserCard` của `socialgraph-v1` nhưng **định nghĩa lại ở đây** — hai file hợp đồng độc lập, không `$ref`
+        chéo file. Từ `IUserDirectory` — một lời gọi batch cho cả trang.
+      properties:
+        userId:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+        avatarUrl:
+          type: string
+          format: uri
+          nullable: true
+          description: Presigned GET 15 phút, `null` khi chưa có avatar.
+      required: [userId, displayName]
+
+    MessageResponse:
+      type: object
+      description: |
+        Một tin. **Không** có trường `status` (Đ-5.6): trạng thái tin của mình suy từ `peerDeliveredSeq` / `peerSeenSeq` của
+        hội thoại và sự kiện hub `ReceiptUpdated`. Cùng hình dạng payload của sự kiện hub `MessageReceived`.
+      properties:
+        messageId:
+          type: string
+          format: uuid
+          description: Khóa khử trùng ở client.
+        conversationId:
+          type: string
+          format: uuid
+        senderId:
+          type: string
+          format: uuid
+        seq:
+          type: integer
+          format: int64
+          description: Thứ tự trong hội thoại, 1, 2, 3… không lỗ. Thứ tự DUY NHẤT đáng tin.
+        content:
+          type: string
+        clientMsgId:
+          type: string
+          format: uuid
+          description: Khóa idempotency do client sinh — tin optimistic khớp với tin server theo trường này.
+        createdAt:
+          type: string
+          format: date-time
+      required: [messageId, conversationId, senderId, seq, content, clientMsgId, createdAt]
+
+    ConversationResponse:
+      type: object
+      properties:
+        conversationId:
+          type: string
+          format: uuid
+        peer:
+          $ref: '#/components/schemas/UserCard'
+        lastMessage:
+          allOf:
+            - $ref: '#/components/schemas/MessageResponse'
+          nullable: true
+          description: '`null` khi hội thoại chưa có tin.'
+        unreadCount:
+          type: integer
+          format: int64
+          description: Số tin của NGƯỜI KIA mà người gọi chưa xem (Đ-5.14).
+        peerDeliveredSeq:
+          type: integer
+          format: int64
+          description: Người kia đã nhận mọi tin có `seq` ≤ giá trị này.
+        peerSeenSeq:
+          type: integer
+          format: int64
+          description: Người kia đã xem mọi tin có `seq` ≤ giá trị này.
+        canSend:
+          type: boolean
+          nullable: true
+          description: |
+            Có gửi tin được không (hai người còn là bạn — BR-09, tính sống). CHỈ có ở `GET /conversations/{id}` và
+            `POST /conversations`; `null` trong danh sách (Đ-5.3 — tránh N+1).
+      required: [conversationId, peer, unreadCount, peerDeliveredSeq, peerSeenSeq]
+
+    ConversationPage:
+      type: object
+      description: Hội thoại đã có tin, `lastMessage.createdAt DESC`. Hội thoại rỗng không có ở đây.
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConversationResponse'
+        nextCursor:
+          type: string
+          nullable: true
+          description: Opaque. Hết dữ liệu khi và chỉ khi `nextCursor` là `null`.
+      required: [items, nextCursor]
+
+    UnreadCount:
+      type: object
+      properties:
+        total:
+          type: integer
+          format: int64
+          description: Tổng tin chưa đọc trên mọi hội thoại — số trên badge.
+      required: [total]
+
+    SendMessageRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        content:
+          type: string
+          description: 1–2000 ký tự (đếm theo code point), không toàn khoảng trắng.
+        clientMsgId:
+          type: string
+          format: uuid
+          description: Client sinh (`crypto.randomUUID()`) trước khi gửi; gửi lại dùng LẠI giá trị này.
+      required: [content, clientMsgId]
+
+    MessagePage:
+      type: object
+      description: |
+        Không tham số hoặc có `cursor`: `seq DESC` (cuộn ngược). Có `afterSeq`: `seq ASC` và `nextCursor` luôn `null`.
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MessageResponse'
+        nextCursor:
+          type: string
+          nullable: true
+          description: Opaque. Hết lịch sử khi và chỉ khi `nextCursor` là `null`.
+      required: [items, nextCursor]
+
+    ReceiptKind:
+      type: string
+      enum: [delivered, seen]
+      description: '`seen` kéo theo `delivered`.'
+
+    ReceiptRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        kind:
+          $ref: '#/components/schemas/ReceiptKind'
+        upToSeq:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Đã nhận/đã xem mọi tin có `seq` ≤ giá trị này. Lớn hơn tin cuối → server kẹp, không lỗi.
+      required: [kind, upToSeq]
