@@ -2008,6 +2008,10 @@ phát** (không `Publish` tay) tới dòng `notifications`.
 nhánh GĐ6 trước D10 — `CommentCreatedHandler`, `ReactionSetHandler`, `MessageSentHandler` (+ `NOTIF-02`) hết bị chặn, làm ở commit
 riêng của bước 9, không gộp vào D10.
 
+*Sửa 2026-09-25, bước 9:* ba handler còn lại xong trong MỘT commit (hai giai đoạn đã cùng có trên nhánh): `comment`/`reply`/`reaction` qua
+API `content-v1`, `message` qua `messaging-v1` + presence của GĐ5; `NOTIF-02` xanh. Trả lời bình luận của chính tác giả bài → chỉ
+`reply`, không kèm `comment` (Đ-6.17 không nói — người thi công chốt). `tag` vẫn cắt.
+
 ### D11 — Endpoint thông báo
 
 Bốn endpoint Mục 8.3; `read` tầng 3 cùng khuôn "không tồn tại = không phải của bạn = 403". **Xong khi:** `NOTIF-06..08`,

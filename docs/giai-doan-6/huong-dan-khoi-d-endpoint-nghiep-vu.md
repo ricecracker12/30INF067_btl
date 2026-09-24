@@ -1272,7 +1272,7 @@ tự merge. Mô tả PR mang danh sách tự rà B.10 (tám mục) và bảng đ
 
 **Thông báo, tìm kiếm**
 
-- [ ] `NOTIF-01`, `-03..10`, `NOTIF-C1` (20/20), `NOTIF-IDOR` xanh; ba handler còn lại ghi "chờ GĐ3/GĐ5" (R6-01), không xóa dòng
+- [ ] `NOTIF-01`, `-03..10`, `NOTIF-C1` (20/20), `NOTIF-IDOR` xanh; ba handler còn lại ghi "chờ GĐ3/GĐ5" (R6-01), không xóa dòng (*sửa 2026-09-25:* GĐ3, GĐ5 đã merge — ba handler làm ở bước 9, `NOTIF-02` xanh)
 - [ ] `SRCH-01..08` xanh; `explain.sql` 20.000 hồ sơ trúng GIN, kết quả dán vào "Thực tế thi công"
 
 **Hợp đồng và quy trình**
@@ -2158,13 +2158,52 @@ chúng (mỗi cái `satisfies` schema tương ứng của `schema.d.ts`) là vi�
 
 **detect-changes:** không chạm code (chỉ tài liệu).
 
-### Các đầu việc còn lại
+### Bước 9 — thông báo bình luận, cảm xúc, tin nhắn — 2026-09-25
 
-Bước 9 (handler `comment`/`reply`/`reaction`/`message` — đã mở khóa, xem D10). Mỗi đầu việc khi xong điền theo khuôn của hướng dẫn khối A+C:
+Làm đúng Mục 14 bước 3: `CommentCreatedHandler`, `ReactionSetHandler`, `MessageSentHandler` ở `Notification/Application/Handlers/`, đăng
+ký bằng `AddIntegrationEventHandler`. Mỗi handler có một ca đi từ API thật của module phát (`InteractionNotificationTests`: bình luận/
+cảm xúc qua `content-v1`, tin nhắn qua `messaging-v1` + hub của GĐ5). `giai-doan-6.md` sửa B.6 D10.
 
-- chỗ nào đi theo / không theo đề xuất Mục 0.6, và vì sao;
-- lệch so với chính tài liệu này;
-- kiểm tay (nếu có) trên DB dev;
-- số test trước → sau;
-- bảng đột biến **thực tế** (ca nào đỏ, lượt nào viết sai và không tính);
-- `detect-changes` của commit, và impact đã chạy trước khi sửa.
+**Lệch so với chính tài liệu này:**
+- **Một commit, không hai:** Mục 14 bước 3 tách "khi A merge" và "khi B merge" vì lúc lập kế hoạch hai giai đoạn merge ở hai thời điểm.
+  Thực tế GĐ3 và GĐ5 đều đã có trên nhánh trước D10 — ba handler cùng một lượt đăng ký, cùng hai lớp test, cùng mã việc D10.
+- **Trả lời bình luận của chính tác giả bài → chỉ `reply`** (người thi công tự chốt; Đ-6.17 không nói): tác giả bài đó không nhận thêm
+  `comment` cho cùng câu trả lời — hai chuông cho một sự kiện. Trả lời bình luận của NGƯỜI KHÁC thì tác giả bài vẫn nhận `comment`.
+- **Đích:** `comment` → bài (nhóm gom mọi bình luận của bài); `reply` → bình luận cha, kèm `postId`; `reaction` → bài hoặc bình luận được
+  thả, kèm `postId`; `message` → hội thoại, `postId` null.
+- **`tag` không làm** (B.10 thứ tự cắt 1): Content phát `MentionedUserIds` rỗng, không có đường API nào tạo được một lần nhắc tên để
+  chứng minh handler. Ghi trong comment của `CommentCreatedHandler`.
+- **`message` đọc presence của NGƯỜI NHẬN lúc xử lý event** — Redis không trả lời → coi là offline (tạo thông báo), đúng hợp đồng
+  `IPresenceReader` của GĐ5. Người vừa ngắt kết nối vẫn "online" tới khi hết hạn (≤ 90 giây) — chấp nhận, ghi trong comment handler.
+- **Thêm ca ngoài bảng:** `NOTIF-04` qua API thêm vế ĐỔI loại cảm xúc không đổi gì kể cả `updated_at`; trả lời chính bình luận của mình
+  không tự báo; cảm xúc trên bình luận; tin nhắn khi người nhận online (kết nối hub thật, chờ presence) → không thông báo; unit: bốn
+  phép dịch + presence hỏi đúng người nhận.
+
+"Đã đỏ trước" (L-D7): mọi ca của `InteractionNotificationTests` trừ hai ca "không có thông báo" (`NOTIF-02`, tin nhắn khi online) đỏ khi
+bỏ đăng ký handler tương ứng (M1, M7); hai ca kia có đối chứng bằng M5, M6.
+
+**Test:** Unit 565 → 572 (+7 `InteractionHandlerTests`), Integration 892 → 901 (+9 `InteractionNotificationTests`), Architecture 27 → 27.
+Lớp `InteractionNotificationTests` chạy 10 lượt liền: 10/10. Không test nào của GĐ3/GĐ5 đổi kết quả. Vitest không chạy (không chạm FE).
+Còn đỏ nền R2 trên máy dev.
+
+**Thử cho đỏ — 8/8 đột biến bị bắt**, build hợp lệ ở mọi lượt (`0 Error(s)`), file khôi phục nguyên byte (`md5`):
+
+| Đột biến | Ca đỏ thực tế |
+|---|---|
+| M1 — bỏ đăng ký `CommentCreatedHandler` | ba ca bình luận/trả lời |
+| M2 — bỏ vế "tác giả bài là tác giả bình luận cha" | `Tra_loi_binh_luan_cua_tac_gia_bai_…` (unit + tích hợp) |
+| M3 — nhóm `reply` theo bình luận MỚI thay vì bình luận cha | `Tra_loi_bao_tac_gia_…` (tích hợp); hai ca unit |
+| M4 — cảm xúc bỏ kiểm `IsNew` | `NOTIF_04_…`; `Doi_loai_cam_xuc_khong_tao_gi` (unit) |
+| M5 — tin nhắn bỏ kiểm presence | `Tin_nhan_khi_nguoi_nhan_online_…`; `Tin_nhan_chi_bao_…(online: true)` (unit) |
+| M6 — presence hỏi NGƯỜI GỬI | `Tin_nhan_khi_nguoi_nhan_online_…`; `Tin_nhan_chi_bao_…` (unit) |
+| M7 — bỏ đăng ký `MessageSentHandler` | `Tin_nhan_khi_nguoi_nhan_offline_…` |
+| M8 — cảm xúc: đích luôn `post` | `Cam_xuc_tren_binh_luan_…`; `Cam_xuc_moi_…` (unit) |
+
+**detect-changes:** low, 0 luồng (6 file, 2 symbol — so với index đang giữ D12 + D13; file mới đã `git add -N`). Impact:
+`AddNotificationModule` UNKNOWN — như D9–D11 (4 lời gọi, chữ ký không đổi); thêm ba `EventHandlerRegistration` mà chỉ bus của host đọc.
+
+### Khối D còn lại gì
+
+Mọi đầu việc D1–D13 và bước 9 đã xong. Ngoài khối D (Mục 19): hub thông báo C6 (vé GĐ5 đã có — việc của khối C), báo cáo + ẩn **bình
+luận** (provider `Comment` của `IModerationTargets`, bước 9 phía Moderation), `tag` (cắt), mọi màn FE (E1–E10, gồm `PROBLEM_TYPES` —
+xem D13).

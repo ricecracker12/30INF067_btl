@@ -38,10 +38,15 @@ public static class NotificationModuleExtensions
 
         // D10 (Đ-6.17): ba loại "làm ngay". CHỈ qua AddIntegrationEventHandler (C0) — AddScoped<IIntegrationEventHandler<…>> compile được
         // nhưng bus không bao giờ gọi. Bus đọc danh sách đăng ký lúc dựng; container trần của test schema không dựng bus nên không sao.
-        // comment/reply/reaction (GĐ3) và message (GĐ5) thêm ở bước 9 — commit riêng, mỗi handler một ca đi từ API thật.
         services.AddIntegrationEventHandler<FriendRequestSent, FriendRequestSentHandler>();
         services.AddIntegrationEventHandler<FriendRequestAccepted, FriendRequestAcceptedHandler>();
         services.AddIntegrationEventHandler<ContentHidden, ContentHiddenHandler>();
+
+        // Bước 9 (sau khi GĐ3, GĐ5 merge): comment/reply/reaction từ Content, message từ Messaging. MessageSentHandler cần
+        // IPresenceReader — host đăng ký qua AddSharedKernelRealtime; container trần không dựng bus nên không resolve nó.
+        services.AddIntegrationEventHandler<CommentCreated, CommentCreatedHandler>();
+        services.AddIntegrationEventHandler<ReactionSet, ReactionSetHandler>();
+        services.AddIntegrationEventHandler<MessageSent, MessageSentHandler>();
 
         // D11 (Mục 8.3): danh sách, số chưa đọc, đánh dấu đã đọc. IUserDirectory, IObjectStorage do host + module chủ đăng ký —
         // container trần của test schema không resolve service này nên không cần chúng.
