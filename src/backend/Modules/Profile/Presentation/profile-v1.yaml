@@ -30,12 +30,18 @@
 #          của người khác — đó là lý do PUT /users/me/avatar nhận mediaKey chứ không nhận URL.
 #   Đ-2.6  Không thêm mã quyền mới: mọi endpoint ở đây chỉ cần [Authorize]; route là `me` nên id lấy
 #          từ token, không có tầng 3 ownership.
+#
+# MỞ LẠI CHỈ-THÊM Ở GĐ6 (giai-doan-6.md Mục 8.5 — quyết định có chủ đích của cổng mở GĐ6, không phải đổi lặng):
+#   D12 (2026-09-25): GET /search, SearchResult, SearchPage — version 1.1.0-gd6. Mọi schema GĐ2 giữ nguyên.
+#   Đ-6.19  Tìm tên không dấu, khớp TIỀN TỐ của từng từ ("van" ra "Nguyễn Văn An"), tối đa 20 kết quả, không
+#           cursor. Chuẩn hóa ở DB bằng `profile.search_norm` (unaccent + lower) trên index GIN trigram.
+#           Tài khoản bị khóa/đã xóa không xuất hiện. Không trả trạng thái quan hệ.
 # ---------------------------------------------------------------------------------------------
 openapi: 3.0.3
 
 info:
   title: SocialApp — Profile API
-  version: 1.0.0-gd2
+  version: 1.1.0-gd6
   description: |
     Hồ sơ người dùng của GĐ2: xem hồ sơ, onboarding/sửa hồ sơ (upsert), đặt và gỡ avatar.
 
@@ -78,6 +84,8 @@ tags:
     description: Xem và onboarding/sửa hồ sơ.
   - name: avatar
     description: Đặt và gỡ ảnh đại diện — byte ảnh không đi qua API (Đ-2.5).
+  - name: search
+    description: Tìm người theo tên (GĐ6, FR-017, UC-16).
 
 paths:
 
@@ -260,6 +268,89 @@ paths:
           headers:
             X-Correlation-ID:
               $ref: '#/components/headers/XCorrelationId'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /search:
+    get:
+      tags: [search]
+      operationId: searchUsers
+      summary: Tìm người theo tên — không dấu, tiền tố của từng từ
+      description: |
+        Gõ "nguyen" ra "Nguyễn Văn An", "van" cũng ra (tiền tố của từ thứ hai), "duc" ra "Đức". Không phân biệt hoa thường.
+        `%`, `_`, `\` trong `q` hiểu theo **nghĩa đen**.
+
+        Xếp hạng: tên **bắt đầu** bằng từ khóa trước ("an" → "An Bình" trước "Bảo An"), rồi độ giống. Tối đa `limit` kết quả,
+        **không** phân trang — cần hơn thì gõ thêm chữ. Tài khoản bị khóa hoặc đã xóa không xuất hiện.
+
+        FE gọi sau khi người dùng ngừng gõ (debounce) và chỉ khi `q` đã có ít nhất 2 ký tự.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: Từ khóa, **sau khi bỏ khoảng trắng hai đầu** dài 2–50 ký tự. Ngắn/dài/thiếu → 400 `errors.q`.
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 50
+        - name: type
+          in: query
+          required: false
+          description: Loại đối tượng tìm. Hiện chỉ `user` (mặc định). Giá trị khác → 400 `errors.type`.
+          schema:
+            type: string
+            enum: [user]
+            default: user
+        - name: limit
+          in: query
+          required: false
+          description: Số kết quả tối đa, `1..20`. Ngoài khoảng → 400 `errors.limit`.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 20
+            default: 10
+      responses:
+        '200':
+          description: Kết quả tốt nhất trước. Không khớp ai → `items` rỗng (không phải 404).
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchPage'
+              example:
+                items:
+                  - userId: 0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10
+                    displayName: Nguyễn Văn An
+                    avatarUrl: null
+                  - userId: 0192f3c4-1b2c-7d3e-8f4a-5b6c7d8e9f01
+                    displayName: Trần Nguyên Khang
+                    avatarUrl: null
+        '400':
+          description: Tham số sai — `errors` có key `q`, `type` hoặc `limit`.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: https://httpstatuses.io/400
+                title: Dữ liệu không hợp lệ
+                status: 400
+                detail: Dữ liệu đầu vào không hợp lệ
+                instance: /api/v1/search
+                traceId: 5e7a9c1b3d5f7092a4c6e8b0d2f4a6c8
+                errors:
+                  q:
+                    - Nhập ít nhất 2 ký tự.
         '401':
           $ref: '#/components/responses/Unauthorized'
         '429':
@@ -453,6 +544,32 @@ components:
           type: string
           format: date-time
       required: [userId, displayName, createdAt, updatedAt]
+
+    SearchResult:
+      type: object
+      description: Một người khớp từ khóa. Không có trạng thái quan hệ (bạn bè, đã mời…) — mở hồ sơ để biết.
+      properties:
+        userId:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+        avatarUrl:
+          type: string
+          format: uri
+          nullable: true
+          description: Presigned GET **15 phút** (Đ-2.9), `null` khi chưa đặt avatar.
+      required: [userId, displayName, avatarUrl]
+
+    SearchPage:
+      type: object
+      properties:
+        items:
+          type: array
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/SearchResult'
+      required: [items]
 
     UpsertProfileRequest:
       type: object

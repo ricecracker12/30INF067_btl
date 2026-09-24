@@ -290,6 +290,10 @@ public static class AuthZMatrix
         new("TC-A01-notifications", "Danh sách thông báo không kèm JWT", "GĐ6",
             Caller.Anonymous, HttpMethod.Get, "/api/v1/notifications", HttpStatusCode.Unauthorized),
 
+        // D12 (Đ-6.19): tìm người cần đăng nhập — danh bạ tên người dùng không mở cho khách.
+        new("TC-A01-search", "Tìm người không kèm JWT", "GĐ6",
+            Caller.Anonymous, HttpMethod.Get, "/api/v1/search?q=nguyen", HttpStatusCode.Unauthorized),
+
         // --- GĐ3 (B2). giai-doan-3.md Mục 6.3. Kỳ vọng viết tay theo Mục 6.1 + hợp đồng content-v1, không lấy từ output. ---
         //
         // Bình luận và cảm xúc THỪA KẾ BR-02 của bài (Đ-3.3): không xem được bài → 404 ở MỌI đường, kể cả ghi — cùng quy ước

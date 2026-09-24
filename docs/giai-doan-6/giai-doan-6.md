@@ -1244,7 +1244,7 @@ nhận hai lần hay sai thứ tự đều vô hại. Nối lại → nạp lạ
 
 | File | Thêm | Không đổi |
 |---|---|---|
-| `profile-v1.yaml` | `GET /search?q=&type=user&limit=` → 200 `{ items: [{ userId, displayName, avatarUrl? }] }` · 400 `errors.q` · 401 | Mọi schema GĐ2 |
+| `profile-v1.yaml` | `GET /search?q=&type=user&limit=` → 200 `{ items: [{ userId, displayName, avatarUrl? }] }` · 400 `errors.q` · 401 (*sửa 2026-09-25, D12:* `1.1.0-gd6`; `avatarUrl` luôn có mặt, `null` khi không ảnh — không optional; 400 thêm `errors.type`, `errors.limit`) | Mọi schema GĐ2 |
 | `identity-v1.yaml` | `MeResponse.permissions: string[]` (required) · `POST /auth/login` thêm 403 type `…:account-disabled` · `RoleCode` nới từ enum thành chuỗi có pattern (*sửa 2026-09-24, D1 — L-D16*) | Mọi trường đã có; 403 `email-not-verified` giữ nguyên type riêng |
 | `content-v1.yaml` | `PostResponse.moderation?: { status: "hidden", reasonCode, hiddenAt }` · `PATCH /posts/{id}` thêm 409 `…:post-hidden` (*sửa 2026-09-25, D7a:* `1.1.0-gd6`; `moderation` nullable, không required, đặt cuối; `reasonCode` là enum năm giá trị như `ReasonCode` của `moderation-v1`; 409 khai bằng `PostHiddenProblem`) | Mọi trường GĐ2/GĐ3/GĐ4 |
 
@@ -2021,6 +2021,12 @@ khung); đường event → thông báo đã có `NotificationHandlerTests` đi 
 ### D12 — `GET /search`
 
 Đ-6.19; mở `profile-v1.yaml` chỉ-thêm **trong cùng commit**. **Xong khi:** `SRCH-01..08`, `TC-A01-search` xanh.
+
+*Sửa 2026-09-25 khi thi công D12:* escape dùng `LikePattern.Escape` có sẵn ở SharedKernel (D2 dựng, đã có unit test) — không thêm
+`SearchTerm.EscapeLike`. Chuẩn hóa tham số viết thẳng `profile.search_norm($1)` trong `WHERE`, không qua CTE `WITH q AS (…)`: một cột
+của CTE ở vế phải `LIKE` là điều kiện join, không phải hằng lúc chạy — planner chỉ dùng index GIN khi có đường tham số hóa; hàm
+IMMUTABLE trên tham số thì chắc chắn là hằng. `explain.sql` sửa theo đúng câu của D12, chạy lại trên 20.000 hồ sơ: ba câu vẫn
+`BitmapOr` của hai `Bitmap Index Scan on idx_profiles_display_name_search`.
 
 ### D13 — Rà RFC 7807 và `type`
 

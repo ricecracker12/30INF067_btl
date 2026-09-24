@@ -85,6 +85,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Tìm người theo tên — không dấu, tiền tố của từng từ
+         * @description Gõ "nguyen" ra "Nguyễn Văn An", "van" cũng ra (tiền tố của từ thứ hai), "duc" ra "Đức". Không phân biệt hoa thường.
+         *     `%`, `_`, `\` trong `q` hiểu theo **nghĩa đen**.
+         *
+         *     Xếp hạng: tên **bắt đầu** bằng từ khóa trước ("an" → "An Bình" trước "Bảo An"), rồi độ giống. Tối đa `limit` kết quả,
+         *     **không** phân trang — cần hơn thì gõ thêm chữ. Tài khoản bị khóa hoặc đã xóa không xuất hiện.
+         *
+         *     FE gọi sau khi người dùng ngừng gõ (debounce) và chỉ khi `q` đã có ít nhất 2 ký tự.
+         */
+        get: operations["searchUsers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -134,6 +160,20 @@ export interface components {
             createdAt: string;
             /** Format: date-time */
             updatedAt: string;
+        };
+        /** @description Một người khớp từ khóa. Không có trạng thái quan hệ (bạn bè, đã mời…) — mở hồ sơ để biết. */
+        SearchResult: {
+            /** Format: uuid */
+            userId: string;
+            displayName: string;
+            /**
+             * Format: uri
+             * @description Presigned GET **15 phút** (Đ-2.9), `null` khi chưa đặt avatar.
+             */
+            avatarUrl: string | null;
+        };
+        SearchPage: {
+            items: components["schemas"]["SearchResult"][];
         };
         UpsertProfileRequest: {
             /** @description Trim trước khi kiểm độ dài. Không được toàn khoảng trắng. */
@@ -443,6 +483,77 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    searchUsers: {
+        parameters: {
+            query: {
+                /** @description Từ khóa, **sau khi bỏ khoảng trắng hai đầu** dài 2–50 ký tự. Ngắn/dài/thiếu → 400 `errors.q`. */
+                q: string;
+                /** @description Loại đối tượng tìm. Hiện chỉ `user` (mặc định). Giá trị khác → 400 `errors.type`. */
+                type?: "user";
+                /** @description Số kết quả tối đa, `1..20`. Ngoài khoảng → 400 `errors.limit`. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Kết quả tốt nhất trước. Không khớp ai → `items` rỗng (không phải 404). */
+            200: {
+                headers: {
+                    "X-Correlation-ID": components["headers"]["XCorrelationId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "userId": "0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10",
+                     *           "displayName": "Nguyễn Văn An",
+                     *           "avatarUrl": null
+                     *         },
+                     *         {
+                     *           "userId": "0192f3c4-1b2c-7d3e-8f4a-5b6c7d8e9f01",
+                     *           "displayName": "Trần Nguyên Khang",
+                     *           "avatarUrl": null
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["SearchPage"];
+                };
+            };
+            /** @description Tham số sai — `errors` có key `q`, `type` hoặc `limit`. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "https://httpstatuses.io/400",
+                     *       "title": "Dữ liệu không hợp lệ",
+                     *       "status": 400,
+                     *       "detail": "Dữ liệu đầu vào không hợp lệ",
+                     *       "instance": "/api/v1/search",
+                     *       "traceId": "5e7a9c1b3d5f7092a4c6e8b0d2f4a6c8",
+                     *       "errors": {
+                     *         "q": [
+                     *           "Nhập ít nhất 2 ký tự."
+                     *         ]
+                     *       }
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
             };
             401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];

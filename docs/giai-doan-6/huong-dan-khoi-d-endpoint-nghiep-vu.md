@@ -2059,9 +2059,72 @@ dòng `Content Include`, `pnpm gen:api` sinh `lib/api/notification/schema.d.ts` 
 `AddNotificationModule` UNKNOWN — như D9 (4 lời gọi, chữ ký không đổi, thêm hai đăng ký scoped). `AuthZMatrix` UNKNOWN, **chạy sau khi đã
 thêm dòng** (quên chạy trước) — text search: chỉ `AuthZMatrixTests` đọc `Cases`; thêm dòng là đúng điểm mở rộng của khung.
 
+### D12 — 2026-09-25
+
+Làm đúng Mục 16. `SearchController` (Profile, `[Route("api/v1/search")]`, `[Authorize]`, nhóm `profile-v1`) · `SearchUsersQuery` +
+validator · `SearchService` (lấy dư 5, lọc `IAccountStatusReader`, ký avatar) · `IProfileSearch` + `ProfileSearch` (một câu SQL thô trên
+kết nối của `ProfileDbContext`) · `profile-v1.yaml` `1.1.0-gd6` chỉ-thêm (`GET /search`, `SearchResult`, `SearchPage`) · `pnpm gen:api` →
+chỉ `lib/api/profile/schema.d.ts` đổi · matrix `TC-A01-search` · `tests/load/search/explain.sql` sửa theo câu D12. `giai-doan-6.md` sửa
+cùng lượt: Mục 8.5 (hàng `profile-v1`), B.6 D12.
+
+**Lệch so với chính tài liệu này:**
+- **Không có `SearchTerm.EscapeLike`:** `LikePattern.Escape` ở `SharedKernel/Text/` đã có từ D2 (đúng câu "dùng chung với D2" của Mục 16
+  bước 3), kèm `LikePatternTests`. Thêm hàm thứ hai là đúng lỗi hàm đó sinh ra để chặn.
+- **Không CTE `WITH q AS (…)`:** câu thật viết `profile.search_norm($1)` thẳng trong `WHERE`/`ORDER BY`. Cột của một CTE ở vế phải `LIKE`
+  là điều kiện join, không phải hằng lúc chạy — index GIN chỉ dùng được khi planner chọn đường tham số hóa. Hàm `IMMUTABLE` trên tham
+  số thì là hằng chắc chắn. `similarity` so với `search_norm($2)` (từ khóa thô đã chuẩn hóa), không với chuỗi thô.
+- **`type` so chính xác `user`** (`USER` → 400); vắng mặt = `user`. Thông điệp 400: `q` "Nhập ít nhất 2 ký tự." (thiếu, rỗng, chỉ khoảng
+  trắng, 1 ký tự sau trim) / "Tối đa 50 ký tự."; `type` "Chỉ hỗ trợ tìm người dùng (type=user)."; `limit` "Số kết quả phải từ 1 đến 20.".
+- **`avatarUrl` luôn có mặt, `null` khi không ảnh** (Mục 8.5 ghi `avatarUrl?`) — cùng nếp D7b/D8/D11.
+- **`SRCH-07` EXPLAIN đúng câu endpoint vừa gửi:** bắt bằng `SqlCommandCounter` (lọc câu có `search_norm`) rồi `EXPLAIN` lại với cùng
+  ba tham số — không chép câu SQL vào test (chép thì test xanh cả khi code đổi sang `lower(unaccent(…))`). Kèm: một lượt tìm đúng HAI
+  câu SQL (tìm + một lô trạng thái tài khoản).
+- **Thêm ca ngoài bảng:** `SRCH-01..03` gộp một ca, thêm vế chữ hoa ("NGUYEN", "Văn"), "Lê Đức Anh" (đ ở từ giữa) và đối chứng "guyen"
+  KHÔNG khớp (tiền tố từ, không phải chuỗi con); `SRCH-04` tám biến thể (thêm `" a "`, thiếu `q`, `type=post`, `limit` 0/21) và
+  `SRCH-04b` đối chứng (50 ký tự kèm khoảng trắng hai đầu 200, `type=user` 200); `SRCH-06` thêm "%%" chỉ ra tên có "%%"; kết quả có ảnh
+  ký sẵn / không ảnh `null` / không khớp → `items` rỗng; unit: biên validator, escape + lấy dư, lọc rồi mới cắt, ký ảnh, không gọi
+  `IAccountStatusReader` khi rỗng.
+
+**`EXPLAIN (ANALYZE, BUFFERS)` trên 20.000 hồ sơ** — Postgres 16 của compose dev, DB `socialapp_search` tạo riêng, `--migrate` bảy
+schema, `seed-profiles.sql` → `explain.sql` (câu D12, `LIMIT 15`) → `DROP DATABASE socialapp_search`. **Cả ba câu `BitmapOr` của hai
+`Bitmap Index Scan on idx_profiles_display_name_search`, không Seq Scan:**
+
+| `q` | Dòng khớp | Bitmap Index Scan (hai vế) | Execution Time |
+|---|---|---|---|
+| `ng` | 4.813 | 1,78 ms + 0,80 ms | 29,2 ms |
+| `nguy` | 1.217 | 1,10 ms + 1,37 ms | 9,6 ms |
+| `van` | 2.053 | 0,88 ms + 0,82 ms | 14,8 ms |
+
+Phần lớn thời gian là `Bitmap Heap Scan` + recheck + `Sort` top-N (`similarity` trên mọi dòng khớp) — "ng" khớp 1/4 bảng. Hai vế
+trả cùng số dòng ứng viên vì `pg_trgm` coi dấu cách là ranh giới từ: trigram của `ng%` và `% ng%` trùng nhau, recheck lọc lại.
+
+**Test:** Unit 553 → 565 (+12 `SearchServiceTests`), Integration 876 → 892 (+15 `SearchTests`: `SRCH-01..03`, `-04` ×8, `-04b`, `-05`,
+`-06`, `-07`, `-08`, ảnh/rỗng; +1 matrix `TC-A01-search`), Architecture 27 → 27. Vitest 626 → 626 (chỉ `schema.d.ts` đổi). Còn đỏ nền
+R2 trên máy dev. FE: `pnpm lint`, `typecheck`, `test`, `build` xanh.
+
+**Thử cho đỏ — 9/9 đột biến bị bắt**, build hợp lệ ở mọi lượt (`0 Error(s)`), file khôi phục nguyên byte (`md5`):
+
+| Đột biến | Ca đỏ thực tế |
+|---|---|
+| M1 — bỏ escape | `SRCH_06_…`; `Gui_tu_khoa_da_escape_va_lay_du` (unit) |
+| M2 — bỏ lọc tài khoản không hoạt động | `SRCH_05_…`; `Loc_tai_khoan_…` (unit) |
+| M3 — xếp hạng bỏ vế "bắt đầu bằng q" | `SRCH_08_…` |
+| M4 — vế cột dùng `lower(unaccent(…))` | `SRCH_07_…` |
+| M5 — cắt `limit` trước khi lọc (không lấy dư) | `SRCH_05_…`; `Gui_tu_khoa_…` (unit) |
+| M6 — bỏ vế "tiền tố của từ sau dấu cách" | `SRCH_01_03_…`; `SRCH_08_…` |
+| M7 — khớp chuỗi con thay tiền tố | `SRCH_01_03_…` (vế "guyen") |
+| M8 — validator đo trước khi trim | `SRCH_04_…`; `SRCH_04b_…`; `Tu_khoa_…` ×2 (unit) |
+| M9 — yaml bỏ `GET /search` | `ProfileContractTests` cả hai chiều |
+
+Lượt đầu M9 "bỏ qua" vì chuỗi đột biến viết `\n` mà yaml trong worktree dùng CRLF — sửa chuỗi rồi chạy lại riêng M9.
+
+**detect-changes:** low, 0 luồng (11 file, 14 symbol; staged). Impact trước khi sửa: `AddProfileModule` UNKNOWN — text search: 9 lời gọi
+(Program.cs, hai harness, bốn lớp test schema/directory/moderation), chữ ký không đổi, chỉ thêm hai đăng ký scoped mà container trần
+không resolve.
+
 ### Các đầu việc còn lại
 
-D12 → D13, và bước 9 (handler `comment`/`reply`/`reaction`/`message` — đã mở khóa, xem D10). Mỗi đầu việc khi xong điền theo khuôn của hướng dẫn khối A+C:
+D13, và bước 9 (handler `comment`/`reply`/`reaction`/`message` — đã mở khóa, xem D10). Mỗi đầu việc khi xong điền theo khuôn của hướng dẫn khối A+C:
 
 - chỗ nào đi theo / không theo đề xuất Mục 0.6, và vì sao;
 - lệch so với chính tài liệu này;
