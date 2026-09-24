@@ -28,6 +28,132 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/conversations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Hội thoại đã có tin của người gọi, mới nhất trước
+         * @description Keyset `(last_message_at DESC, id DESC)`. Hội thoại chưa có tin **không** có ở đây. `canSend` là `null` (Đ-5.3 — xem
+         *     `GET /conversations/{id}`). Số câu SQL cố định theo trang (không N+1).
+         */
+        get: operations["listConversations"];
+        put?: never;
+        /**
+         * Mở (get-or-create) hội thoại với một người bạn (UC-15, Đ-5.2, Đ-5.3)
+         * @description Thứ tự kiểm là **một phần của hợp đồng**: tầng 2 `message.send` → chính mình **400** `errors.userId` (trước DB) →
+         *     không có hồ sơ **404** → không phải bạn **403** `type` `urn:socialapp:problem:not-friends` (BR-09) → get-or-create.
+         *
+         *     **Idempotent**: bấm hai lần, hai tab, hai người cùng bấm cho nhau — luôn MỘT hội thoại. **201** vừa tạo, **200** đã có.
+         *     `canSend` luôn `true` ở đây.
+         */
+        post: operations["openConversation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/conversations/unread-count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Tổng tin chưa đọc — số trên badge (Đ-5.14)
+         * @description Tin của NGƯỜI KIA sau mốc đã xem của người gọi, cộng trên mọi hội thoại. Một câu SQL, không cache.
+         */
+        get: operations["getUnreadCount"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/conversations/{conversationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Chi tiết hội thoại + canSend (tính sống)
+         * @description Chỉ thành viên (BR-06). Không phải thành viên / không tồn tại → **403** cùng một phản hồi (TC-A04). `canSend = false`
+         *     khi hai người không còn là bạn — hội thoại chỉ đọc, lịch sử vẫn đọc được (AC-04).
+         */
+        get: operations["getConversation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/conversations/{conversationId}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Lịch sử tin — cuộn ngược hoặc lấp chỗ hở (Mục 7.6)
+         * @description - Không tham số / có `cursor`: `seq DESC`, trang mới nhất trước; `nextCursor = null` khi tới tin đầu tiên.
+         *     - Có `afterSeq`: tin có `seq > afterSeq`, `seq ASC`, `nextCursor` luôn `null` — dùng khi nối lại, fallback, hay thấy
+         *       `seq` nhảy cóc.
+         *     - `cursor` cùng `afterSeq` → **400**.
+         */
+        get: operations["listMessages"];
+        put?: never;
+        /**
+         * Gửi tin bằng REST — đường fallback (Đ-5.12)
+         * @description Cùng service với hub `SendMessage` (Đ-5.7) nên cùng luật, cùng idempotency:
+         *
+         *     - `clientMsgId` mới → **201**.
+         *     - `clientMsgId` đã có, **cùng** nội dung → **200** + ĐÚNG tin cũ (cùng `messageId`, cùng `seq`) — lần gửi trước đã lưu
+         *       nhưng mất phản hồi (Đ-5.5).
+         *     - `clientMsgId` đã có, **khác** nội dung → **409**.
+         *     - Không phải thành viên → **403** `https://httpstatuses.io/403`; thành viên nhưng không còn là bạn → **403**
+         *       `urn:socialapp:problem:not-friends` (FE khóa ô soạn).
+         */
+        post: operations["sendMessage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/conversations/{conversationId}/receipts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Biên nhận đã nhận / đã xem (Đ-5.6)
+         * @description Mốc TÍCH LŨY, chỉ tăng: "đã nhận/đã xem mọi tin có `seq` ≤ `upToSeq`". `seen` kéo theo `delivered`. `upToSeq` lớn hơn
+         *     tin cuối → kẹp, không lỗi; nhỏ hơn mốc hiện tại → 204, không đổi gì. Chỉ thành viên; hủy kết bạn vẫn gửi được. Mốc
+         *     thật sự tăng → sự kiện hub `ReceiptUpdated` tới cả hai thành viên.
+         */
+        post: operations["sendReceipt"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -286,6 +412,48 @@ export interface components {
                 "application/problem+json": components["schemas"]["ProblemDetails"];
             };
         };
+        /**
+         * @description Hai nghĩa, phân nhánh theo `type` (luật frontend Mục 4): `urn:socialapp:problem:not-friends` — hai người không (còn) là
+         *     bạn (BR-09, FE hiện thanh "chỉ đọc"); `https://httpstatuses.io/403` — thiếu quyền `message.send`, hoặc không phải thành
+         *     viên / hội thoại không tồn tại.
+         */
+        NotFriendsOrForbidden: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "type": "urn:socialapp:problem:not-friends",
+                 *       "title": "Không phải bạn bè",
+                 *       "status": 403,
+                 *       "detail": "Hai bạn không còn là bạn bè. Hội thoại chỉ đọc.",
+                 *       "instance": "/api/v1/conversations/0192f3c1-9b2d-7e40-8a11-3c5d7e9f1a20/messages",
+                 *       "traceId": "d4f6a8c0e2b4d6f8a0c2e4b6d8f0a2c4"
+                 *     }
+                 */
+                "application/problem+json": components["schemas"]["ProblemDetails"];
+            };
+        };
+        /** @description Người kia không có hồ sơ (Đ-2.4) — kể cả khi tài khoản tồn tại nhưng chưa onboarding. */
+        UserNotFound: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "type": "https://httpstatuses.io/404",
+                 *       "title": "Không tìm thấy tài nguyên",
+                 *       "status": 404,
+                 *       "detail": "Không tìm thấy người dùng.",
+                 *       "instance": "/api/v1/conversations",
+                 *       "traceId": "d2f4a6c8e0b2d4f6a8c0e2b4d6f8a0c2"
+                 *     }
+                 */
+                "application/problem+json": components["schemas"]["ProblemDetails"];
+            };
+        };
     };
     parameters: {
         /** @description UUID v7 của hội thoại. Sai dạng → 400 `errors.conversationId`. */
@@ -334,6 +502,307 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
             503: components["responses"]["RealtimeUnavailable"];
+        };
+    };
+    listConversations: {
+        parameters: {
+            query?: {
+                /** @description `nextCursor` của trang trước. Bỏ trống để lấy trang đầu. Cursor rác → 400 `errors.cursor`. */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Mặc định 20, tối đa 50. Ngoài `1..50` → 400 `errors.limit`. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Một trang hội thoại. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationPage"];
+                };
+            };
+            400: components["responses"]["ValidationProblem"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    openConversation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "userId": "0192f3c1-7f3e-7b20-8e19-5a4c3b2a1f09"
+                 *     }
+                 */
+                "application/json": components["schemas"]["CreateConversation"];
+            };
+        };
+        responses: {
+            /** @description Hội thoại đã có từ trước. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationResponse"];
+                };
+            };
+            /** @description Hội thoại vừa tạo. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "conversationId": "0192f3c1-9b2d-7e40-8a11-3c5d7e9f1a20",
+                     *       "peer": {
+                     *         "userId": "0192f3c1-7f3e-7b20-8e19-5a4c3b2a1f09",
+                     *         "displayName": "Trần Bình",
+                     *         "avatarUrl": null
+                     *       },
+                     *       "lastMessage": null,
+                     *       "unreadCount": 0,
+                     *       "peerDeliveredSeq": 0,
+                     *       "peerSeenSeq": 0,
+                     *       "canSend": true
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ConversationResponse"];
+                };
+            };
+            /** @description Body sai, hoặc nhắn cho chính mình. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "https://httpstatuses.io/400",
+                     *       "title": "Dữ liệu không hợp lệ",
+                     *       "status": 400,
+                     *       "detail": "Dữ liệu đầu vào không hợp lệ",
+                     *       "instance": "/api/v1/conversations",
+                     *       "traceId": "5e7a9c1b3d5f7092a4c6e8b0d2f4a6c8",
+                     *       "errors": {
+                     *         "userId": [
+                     *           "Không thể nhắn tin cho chính mình."
+                     *         ]
+                     *       }
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["NotFriendsOrForbidden"];
+            404: components["responses"]["UserNotFound"];
+        };
+    };
+    getUnreadCount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Tổng chưa đọc. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "total": 3
+                     *     }
+                     */
+                    "application/json": components["schemas"]["UnreadCount"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    getConversation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID v7 của hội thoại. Sai dạng → 400 `errors.conversationId`. */
+                conversationId: components["parameters"]["ConversationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Hội thoại. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationResponse"];
+                };
+            };
+            400: components["responses"]["ValidationProblem"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listMessages: {
+        parameters: {
+            query?: {
+                /** @description `nextCursor` của trang trước. Bỏ trống để lấy trang đầu. Cursor rác → 400 `errors.cursor`. */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Lấy tin có `seq` lớn hơn giá trị này, tăng dần. Từ 0 trở lên. */
+                afterSeq?: number;
+                /** @description Mặc định 30, tối đa 50. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description UUID v7 của hội thoại. Sai dạng → 400 `errors.conversationId`. */
+                conversationId: components["parameters"]["ConversationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Một trang tin. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessagePage"];
+                };
+            };
+            400: components["responses"]["ValidationProblem"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    sendMessage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID v7 của hội thoại. Sai dạng → 400 `errors.conversationId`. */
+                conversationId: components["parameters"]["ConversationId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "content": "Chào bạn, tối nay đi cà phê không?",
+                 *       "clientMsgId": "6f1d2c3b-4a5e-4f60-9b7a-8c9d0e1f2a3b"
+                 *     }
+                 */
+                "application/json": components["schemas"]["SendMessageRequest"];
+            };
+        };
+        responses: {
+            /** @description Gửi lại — đúng tin đã lưu trước đó. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageResponse"];
+                };
+            };
+            /** @description Tin mới đã lưu. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "messageId": "0192f3c2-0a1b-7c2d-9e3f-4a5b6c7d8e9f",
+                     *       "conversationId": "0192f3c1-9b2d-7e40-8a11-3c5d7e9f1a20",
+                     *       "senderId": "0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10",
+                     *       "seq": 57,
+                     *       "content": "Chào bạn, tối nay đi cà phê không?",
+                     *       "clientMsgId": "6f1d2c3b-4a5e-4f60-9b7a-8c9d0e1f2a3b",
+                     *       "createdAt": "2026-09-24T10:15:30.123+00:00"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["MessageResponse"];
+                };
+            };
+            400: components["responses"]["ValidationProblem"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["NotFriendsOrForbidden"];
+            /** @description clientMsgId đã dùng cho một nội dung khác (Đ-5.5). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "https://httpstatuses.io/409",
+                     *       "title": "Xung đột dữ liệu",
+                     *       "status": 409,
+                     *       "detail": "Mã tin phía client đã được dùng cho một tin khác.",
+                     *       "instance": "/api/v1/conversations/0192f3c1-9b2d-7e40-8a11-3c5d7e9f1a20/messages",
+                     *       "traceId": "b0d2f4a6c8e0b2d4f6a8c0e2b4d6f8a0"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    sendReceipt: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID v7 của hội thoại. Sai dạng → 400 `errors.conversationId`. */
+                conversationId: components["parameters"]["ConversationId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "kind": "seen",
+                 *       "upToSeq": 57
+                 *     }
+                 */
+                "application/json": components["schemas"]["ReceiptRequest"];
+            };
+        };
+        responses: {
+            /** @description Đã ghi (hoặc không có gì mới để ghi). */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["ValidationProblem"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
 }

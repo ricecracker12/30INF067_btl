@@ -497,7 +497,7 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check 
 // thiếu thì fallback policy trả 401 và target DOWN. KHÔNG ra Internet (Đ-7.7): apache không ProxyPass /metrics nên đường
 // công khai rơi về Next → 404; Kuma có monitor lộn ngược canh chuyện này (hướng dẫn khối C, C6).
 app.MapMetrics().AllowAnonymous();
-BusinessMetrics.Initialize();   // bảy chuỗi nghiệp vụ có mặt từ lúc khởi động với giá trị 0, không đợi sự kiện đầu tiên (C2)
+BusinessMetrics.Initialize();   // chín chuỗi đếm + histogram đẩy tin có mặt từ lúc khởi động với giá trị 0, không đợi sự kiện đầu tiên (C2)
 
 app.MapControllers();
 

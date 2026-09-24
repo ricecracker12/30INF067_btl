@@ -32,12 +32,23 @@ public static class BusinessMetrics
         "Lượt worker dọn rác media, theo kết quả: ran | lock | failed. Chứng minh worker thật sự chạy, kể cả khi không có gì để dọn.",
         new CounterConfiguration { LabelNames = ["result"] });
 
+    // GĐ5 (giai-doan-5.md D5, D7, Mục 10.7): chat. Nhãn `channel` chỉ có hai giá trị cố định — không id, không nội dung (Đ-5.18).
+    private static readonly Counter MessagesSentCounter = Metrics.CreateCounter(
+        "socialapp_messages_sent_total",
+        "Tin nhắn MỚI đã COMMIT, theo cửa vào: hub | rest. Gửi lại cùng clientMsgId (replayed) không đếm. rest tăng vọt = WebSocket đang hỏng (fallback Đ-5.12).",
+        new CounterConfiguration { LabelNames = ["channel"] });
+
+    private static readonly Histogram MessagePushSeconds = Metrics.CreateHistogram(
+        "socialapp_message_push_seconds",
+        "Từ COMMIT của tin tới lúc gọi xong SendAsync của hub (phần server của p95 gửi→nhận, GOAL-02). Khi p95 không đạt, tách được chậm ở server hay ở đường truyền.",
+        new HistogramConfiguration { Buckets = [0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1] });
+
     /// <summary>
     /// Host gọi MỘT lần lúc khởi động. Không có lời gọi này thì <c>/metrics</c> <b>trống</b> các chỉ số trên cho tới sự
     /// kiện đầu tiên: field static của lớp chỉ khởi tạo khi có ai chạm vào lớp, và nhãn chỉ thành chuỗi thời gian khi có
     /// giá trị đầu tiên (đã gặp trên staging 2026-09-23 — deploy xong, <c>grep socialapp_</c> ra rỗng). Hậu quả không
     /// chỉ là "chưa thấy": <c>increase()</c> mất luôn lần tăng đầu tiên sau mỗi lần deploy, và cảnh báo "đứng yên ở 0"
-    /// không kêu được trên một chuỗi không tồn tại. Nên ở đây tạo sẵn cả bảy chuỗi với giá trị 0.
+    /// không kêu được trên một chuỗi không tồn tại. Nên ở đây tạo sẵn cả chín chuỗi đếm (bảy của GĐ7 + hai kênh gửi tin của GĐ5) và histogram đẩy tin với giá trị 0.
     /// </summary>
     public static void Initialize()
     {
@@ -47,6 +58,9 @@ public static class BusinessMetrics
             PresignIssuedCounter.WithLabels(purpose);
         foreach (var result in (string[])["ran", "lock", "failed"])
             MediaCleanupRunsCounter.WithLabels(result);
+        foreach (var channel in (string[])["hub", "rest"])
+            MessagesSentCounter.WithLabels(channel);
+        _ = MessagePushSeconds;
     }
 
     /// <summary>Đăng nhập trả 401 vì sai thông tin — gọi ở CẢ nhánh email không tồn tại lẫn nhánh sai mật khẩu.</summary>
@@ -60,4 +74,10 @@ public static class BusinessMetrics
 
     /// <summary>Một lượt worker dọn rác kết thúc với <paramref name="result"/> (<c>ran</c> | <c>lock</c> | <c>failed</c>).</summary>
     public static void MediaCleanupRun(string result) => MediaCleanupRunsCounter.WithLabels(result).Inc();
+
+    /// <summary>Một tin MỚI đã COMMIT qua <paramref name="channel"/> (<c>hub</c> | <c>rest</c>). Không gọi khi gửi lại (replayed).</summary>
+    public static void MessageSent(string channel) => MessagesSentCounter.WithLabels(channel).Inc();
+
+    /// <summary>Thời gian từ COMMIT tới khi đẩy xong <c>MessageReceived</c>, tính bằng giây.</summary>
+    public static void MessagePushed(double seconds) => MessagePushSeconds.Observe(seconds);
 }

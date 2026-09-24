@@ -1,9 +1,12 @@
+using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using SocialApp.Modules.Messaging.Application;
 using SocialApp.Modules.Messaging.Application.Conversations;
 using SocialApp.Modules.Messaging.Infrastructure;
 using SocialApp.Modules.Messaging.Infrastructure.Persistence;
+using SocialApp.Modules.Messaging.Presentation;
 
 namespace SocialApp.Modules.Messaging.DependencyInjection;
 
@@ -30,6 +33,21 @@ public static class MessagingModuleExtensions
         // A5. Scoped vì giữ MessagingDbContext (scoped). ConversationAccess là tầng 3 DUY NHẤT của BR-06 (Mục 6.2).
         services.AddScoped<IConversationStore, ConversationStore>();
         services.AddScoped<ConversationAccess>();
+
+        // D0. CHỈ validator của module — AddFluentValidationAutoValidation là cấu hình MVC toàn cục, host đã gọi một lần.
+        services.AddValidatorsFromAssembly(typeof(MessagingModuleExtensions).Assembly, ServiceLifetime.Singleton);
+
+        // D1–D8. Service scoped theo store; IFriendshipReader, IUserDirectory, IObjectStorage, IPermissionCache do HOST và các
+        // module khác đăng ký — chỗ trần (PostgresFixture) không resolve các service này nên thiếu chúng ở đó không sao.
+        services.AddScoped<ConversationService>();
+        services.AddScoped<MessageSendService>();
+
+        // Event Đ-5.15/Đ-6.2: phát qua IEventPublisher (singleton), không giữ trạng thái — Singleton, khuôn SocialGraphEvents.
+        services.AddSingleton<MessagingEvents>();
+
+        // Đường đẩy realtime (Đ-5.8) — IHubContext<ChatHub> là singleton của SignalR (host gọi AddSharedKernelRealtime).
+        services.AddSingleton<IChatNotifier, ChatHubNotifier>();
+        services.AddSingleton<HubSendRateLimiter>();
 
         return services;
     }

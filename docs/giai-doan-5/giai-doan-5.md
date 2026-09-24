@@ -1703,3 +1703,43 @@ thứ nhất, UNIQUE là lớp thứ hai; test chứng minh được lớp thứ
 **Đột biến đã thử (đều đỏ đúng ca, đã khôi phục):** `GETDEL` → `GET` → HUB-02 · bỏ kiểm thu hồi lúc bắt tay → HUB-04 · bỏ timer tuổi thọ
 → HUB-10. Thiếu dòng `Content Include` của `messaging-v1.yaml` → `ContractGateCoverageTests` + hai ca `MessagingContractTests` đỏ với
 thông báo chỉ đúng chỗ sửa.
+
+## Khối D + B — Endpoint, hub, cổng CI (2026-09-24)
+
+| Việc | Commit | Kết quả / chỗ lệch |
+|---|---|---|
+| D0–D9 + B1, B2, B4 | *(commit khối D)* | `ConversationService` (mở, chi tiết + `canSend` sống, danh sách, chưa đọc, lịch sử, biên nhận), `MessageSendService` (chỗ duy nhất của Đ-5.4/5.5, tầng 2 `message.send` qua `IPermissionCache` cho cả hai cửa), `ConversationsController` 7 endpoint, `ChatHub.SendMessage`/`SendReceipt`, `ChatHubNotifier` (`Clients.Users(a, b)`), `HubSendRateLimiter` 60/phút/user, `MessagingEvents` → `IEventPublisher`, hai chỉ số mới trong `BusinessMetrics`. `messaging-v1.yaml` đủ 8 path. 9 dòng AuthZ matrix (Mục 6.3), `ChatHubTests` (HUB-04b, 07, 08, 09, 20, 21), `ChatHubContractTests` |
+| C6 | *(commit C6)* | Vé không lọt vào log (xem dưới) |
+
+**Lệch / chốt khi thi công khối D:**
+- **403 `not-friends` có `type` riêng** `urn:socialapp:problem:not-friends` (title "Không phải bạn bè") — FE phân nhánh theo `type`
+  giữa "không phải thành viên" (`https://httpstatuses.io/403`) và "không còn là bạn" (thanh chỉ đọc). Cùng mã lỗi ở `POST
+  /conversations` khi mở với người không phải bạn.
+- **Tầng 2 của cửa REST kiểm HAI lần** (`[RequirePermission]` + trong service) — service kiểm để cửa hub có tầng 2; lần thứ hai trúng
+  cache quyền, không tốn DB.
+- **Lỗi hub tới client có câu dẫn**: `"An unexpected error occurred invoking 'SendMessage' on the server. HubException: forbidden"`
+  (vì `EnableDetailedErrors = false`). Ghi vào `chat-hub-v1.md` Mục 2: FE đọc mã sau `HubException: ` cuối cùng.
+- **Lỗi hạ tầng trong hub → mã `unavailable`** (bọc ở `ChatHub.GuardAsync`, log không kèm nội dung) — thay vì câu "unexpected error"
+  chung chung mà client không phân nhánh được.
+- **Đẩy `MessageReceived` hỏng không làm hỏng ACK** — tin đã lưu bền; log cảnh báo chỉ có id, seq, độ dài.
+- **Cạm bẫy đã gặp (B2):** trường static `NguoiLaD` khai SAU mảng `Cases` → `Guid.Empty` lúc dựng body → TC-A07 nhận 400. Chuyển khai
+  báo lên trước.
+
+**Bảng đột biến bảo mật (Mục 12) — chạy trên cổng `Category=AuthZ`, đều đỏ, đã khôi phục:**
+
+| Đột biến | Đỏ |
+|---|---|
+| Bỏ kiểm thành viên ở `ConversationAccess` | `TC-A04`, `TC-A04-messages`, `TC-A04-send`, `TC-A04-receipt`, `HUB-07` |
+| Bỏ `AreFriendsAsync` khi gửi | `TC-A07-send`, `HUB-08` |
+| Bỏ `AreFriendsAsync` khi mở hội thoại | `TC-A07` |
+| `AreFriendsAsync` luôn `false` | `TC-A07b` (đối chứng) + các dòng có arrange gửi tin, `HUB-09/20/21` |
+| Đổi 403 thành 404 ở `ConversationAccess` | `TC-A04*`, `HUB-07` |
+| `Clients.Users(a, b)` → `Clients.All` | `HUB-09` |
+| Đổi tên trường `userId` trong `chat-hub-v1.examples.json` | `ChatHubContractTests` (`events.ReceiptUpdated`) |
+| Log thẳng nội dung tin sau COMMIT | `LOG-01` |
+
+**C6 — cạm bẫy thật đã bắt được:** ở Development (`Microsoft.AspNetCore = Information`), log "Request starting/finished" của
+`Microsoft.AspNetCore.Hosting.Diagnostics` ghi NGUYÊN query string → vé realtime nằm trong log. `HubLogTests` đỏ đúng chỗ đó trước khi
+sửa. Sửa ở `appsettings.json` (mọi môi trường): `Microsoft.AspNetCore.Hosting.Diagnostics`, `Microsoft.AspNetCore.Http.Connections`,
+`Microsoft.AspNetCore.SignalR` = `Warning`. Staging/Production vốn đã `Microsoft.AspNetCore = Warning` nên không lộ, nhưng log máy dev
+và log test thì có.

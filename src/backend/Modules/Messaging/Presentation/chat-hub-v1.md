@@ -28,6 +28,10 @@ kết nối là cấu hình client sai.
 
 `HubException.Message` là **mã lỗi** (cột cuối), không phải câu cho người đọc — FE ánh xạ mã sang câu tiếng Việt.
 
+**Dạng thực tế ở client (đo 2026-09-24):** server tắt `EnableDetailedErrors`, nên SignalR bọc thêm câu dẫn — client nhận
+`"An unexpected error occurred invoking 'SendMessage' on the server. HubException: forbidden"`. FE lấy **mã sau chuỗi
+`HubException: ` cuối cùng**; không có chuỗi đó (lỗi mạng, kết nối đóng giữa lời gọi) thì coi như `unavailable`.
+
 | Phương thức | Tham số (một object) | Kết quả | Mã lỗi |
 |---|---|---|---|
 | `SendMessage` | `SendMessageArgs { conversationId: uuid, content: string (1–2000, không toàn khoảng trắng), clientMsgId: uuid }` | `SendMessageResult { message: MessageResponse, replayed: boolean }` — đây là **ACK "Đã gửi"** | `forbidden` · `not-friends` · `validation` · `conflict` · `rate-limited` · `unavailable` |

@@ -25,4 +25,34 @@ public static class MessagingErrors
 
     /// <summary>Theo quy ước <c>urn:socialapp:problem:*</c> của <c>ContentErrors.FeedOverloadedType</c> — khai trong hợp đồng.</summary>
     public const string RealtimeUnavailableType = "urn:socialapp:problem:realtime-unavailable";
+
+    /// <summary>
+    /// 403 khi hai người không (còn) là bạn — BR-09: mở hội thoại mới, hoặc gửi tin trong hội thoại cũ sau khi hủy kết bạn
+    /// (AC-04). KHÁC <see cref="Error.Forbidden"/> có chủ đích (Mục 6.1): người nhận lỗi này là THÀNH VIÊN (gửi tin) hoặc đang
+    /// mở hội thoại với một người có thật — cho họ biết "không còn là bạn" không lộ gì, và FE cần nó để hiện thanh "chỉ đọc".
+    /// FE phân nhánh theo <c>type</c>.
+    /// </summary>
+    public static readonly Error NotFriends = new(
+        "messaging.not-friends",
+        "Hai bạn không còn là bạn bè. Hội thoại chỉ đọc.",
+        403,
+        Title: "Không phải bạn bè",
+        Type: NotFriendsType);
+
+    public const string NotFriendsType = "urn:socialapp:problem:not-friends";
+
+    /// <summary>400 của <c>POST /conversations</c> khi <c>userId</c> là chính người gọi (Mục 8.1). Kiểm TRƯỚC DB.</summary>
+    public static Error SelfConversation => Error.Validation("userId", "Không thể nhắn tin cho chính mình.");
+
+    /// <summary>404 khi người kia không có hồ sơ (Đ-2.4 — người chưa onboarding không tồn tại với phần còn lại của hệ thống).</summary>
+    public static readonly Error UserNotFound = new("messaging.user-not-found", "Không tìm thấy người dùng.", 404);
+
+    /// <summary>
+    /// 409 khi <c>clientMsgId</c> đã dùng cho một nội dung KHÁC (Đ-5.5) — bug của client, phải lộ ra. Gửi lại cùng nội dung
+    /// KHÔNG phải lỗi này (200 + tin cũ).
+    /// </summary>
+    public static readonly Error ClientMsgIdReused = new(
+        "messaging.client-msg-id-reused",
+        "Mã tin phía client đã được dùng cho một tin khác.",
+        409);
 }
