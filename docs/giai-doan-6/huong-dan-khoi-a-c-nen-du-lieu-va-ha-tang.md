@@ -1461,6 +1461,6 @@ xuất ra. Counter đã chuyển về `BusinessMetrics` (chi tiết ở "Thực 
 
 ### Các đầu việc còn lại
 
-*Chưa thi công:* C5, C2, C6. Điền khi làm, theo khuôn trên: chỗ nào phải đổi hướng so với Mục 0.4 và vì sao; lệch so với chính tài
-liệu này; số test trước → sau; bảng đột biến thực tế; `detect-changes` của từng commit. Kết quả kiểm extension trên staging ghi vào
-A4 sau F1.
+*Cập nhật 2026-09-24:* A1–A5, C1–C5 đã thi công (các mục trên). Chỉ còn **C6** (chờ GĐ5). Làm C6 thì điền theo khuôn trên: chỗ nào
+phải đổi hướng so với Mục 0.4 và vì sao; lệch so với chính tài liệu này; số test trước → sau; bảng đột biến thực tế;
+`detect-changes` của từng commit. Kết quả kiểm extension trên staging ghi vào A4 sau F1.

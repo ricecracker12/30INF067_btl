@@ -1216,6 +1216,15 @@ Làm một mình thì không có buổi họp, nhưng **sản phẩm của cổn
    có cổng hợp đồng chạy, thêm operation/status chưa hiện thực là `Contract_must_be_fully_implemented` đỏ. Phần thêm của chúng
    đi **cùng commit với controller** (D1, D7, D12). Ghi lại ở đây để không ai "sửa trước cho FE có kiểu".
 
+*Lệch Mục 9.2 bước 3 (nhóm chốt 2026-09-24):* ba file hợp đồng mới **không** viết trước ở cổng mở. Mỗi file ra đời cùng commit
+với controller đầu tiên của nhóm đó, và **lớn dần theo từng đầu việc D**: operation nào có trong yaml thì đã có controller hiện
+thực nó. Nói cách khác, áp luật của bước 4 cho cả hợp đồng mới. Lý do: bước 3 dựa trên câu "nhánh không vào `develop` cho tới cổng
+đóng", mà câu đó không còn đúng. PR #24 đã đưa C0, A, C vào `develop` giữa giai đoạn, và PR khối D cũng sẽ vào `develop` trước
+cổng đóng. Viết đủ ba yaml trước thì `Contract_must_be_fully_implemented` đỏ trên PR khối D cho tới đầu việc D cuối cùng. Được:
+cổng `API contract` xanh ở mọi commit. Mất: lane E không dựng trước trên hợp đồng được. Điều đó không ảnh hưởng, vì Mục 9.3 đã xếp
+E (bước 10) sau D. `notification-hub-v1.md` vẫn đi cùng C6. Các quyết định Mục 8 (đường, mã lỗi, hình dạng) **không đổi**. Đây là
+bản thiết kế mà từng đầu việc D chép vào yaml.
+
 ### 9.3 Thứ tự thi công và ước lượng
 
 Kế hoạch gốc giao GĐ6 cho **2 backend + 1 frontend trong 2 ngày** (Ngày 19–21). Một người làm cả hai lane, năm UC, hai module mới:
@@ -1793,7 +1802,10 @@ dòng hub ở Mục 12 ghi "chờ GĐ5 — đang chạy chế độ hỏi lại"
 
 > **Mục tiêu khối:** hợp đồng Mục 8 thành hệ thống chạy thật, khớp từng mã lỗi — và ba mốc không lùi được thành test xanh.
 
-**Luật chung cho mọi đầu việc D (chốt 2026-09-24):**
+**Hai luật chung cho mọi đầu việc D (chốt 2026-09-24):**
+- **Hợp đồng đi cùng controller.** Đầu việc nào thêm endpoint thì thêm operation vào `moderation-v1` / `notification-v1` /
+  `admin-v1` (hoặc mở lại chỉ-thêm `identity-v1` / `content-v1` / `profile-v1`) **trong cùng commit**. File yaml mới ra đời ở
+  đầu việc đầu tiên của nhóm đó. Chạy `pnpm gen:api` và commit `schema.d.ts` cùng lúc (Mục 9.2, lệch bước 3).
 - **Chỉ số mới khai ở `BusinessMetrics`** (prometheus-net), không dùng `Meter`. Chuỗi có nhãn thì tạo sẵn trong `Initialize()`
   (Đ-6.2, sửa 2026-09-24).
 
