@@ -31,7 +31,8 @@ Lộ trình 8 giai đoạn (GĐ0 → GĐ8) ở [`docs/ke-hoach-trien-khai.md`](d
 | **GĐ5** — Nhắn tin 1-1 realtime ([`docs/giai-doan-5/giai-doan-5.md`](docs/giai-doan-5/giai-doan-5.md)) | **Xong** (2026-09-24) — lát cắt chat chạy thật trên staging hai tài khoản, **p95 gửi→nhận 174,7 ms** ([báo cáo](docs/giai-doan-5/bao-cao-p95-chat.md)); `messaging-v1` + `chat-hub-v1` đóng băng. Mục 11–12 tick đủ (access log apache không lộ vé — đã kiểm trên VM) |
 | **GĐ6** — Thông báo, kiểm duyệt, quản trị ([`docs/giai-doan-6/giai-doan-6.md`](docs/giai-doan-6/giai-doan-6.md)) | Đang làm — khối A, C0–C5 đã merge (PR #23, #24); C6 hub thông báo mở khóa — vé + scheme realtime của GĐ5 đã vào `develop` |
 | GĐ7 — Vận hành ([`docs/giai-doan-7/giai-doan-7.md`](docs/giai-doan-7/giai-doan-7.md)) | Tạm dừng ở C5 (2026-09-24) — A, B, C1–C4, D1–D2 xong |
-| GĐ3, GĐ8 | Chưa mở |
+| **GĐ3** — Bình luận 3 cấp + cảm xúc ([`docs/giai-doan-3/giai-doan-3.md`](docs/giai-doan-3/giai-doan-3.md)) | **Code xong trên nhánh `endgame`** (2026-09-25): 8 endpoint `content-v1` (`1.1.0-gd3`), bộ đếm khóa dòng + jsonb nguyên tử (`COUNT-01..04`, 12 đột biến B3 bị bắt), cây bình luận + thanh cảm xúc optimistic, E2E hai tài khoản xanh local. **Chờ server:** merge `develop` → CD → F1–F4 trên staging |
+| GĐ8 | Chưa mở |
 
 Chi tiết GĐ1:
 
