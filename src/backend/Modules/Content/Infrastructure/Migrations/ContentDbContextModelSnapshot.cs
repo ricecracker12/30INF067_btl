@@ -63,6 +63,19 @@ namespace SocialApp.Modules.Content.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("post_id");
 
+                    b.Property<string>("ReactionCounts")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("reaction_counts")
+                        .HasDefaultValueSql("'{}'::jsonb");
+
+                    b.Property<int>("ReplyCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("reply_count");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
@@ -79,13 +92,23 @@ namespace SocialApp.Modules.Content.Infrastructure.Migrations
 
                     b.HasKey("CommentId");
 
-                    b.HasIndex("ParentId");
+                    b.HasIndex("PostId")
+                        .HasDatabaseName("IX_comments_post_id");
 
-                    b.HasIndex("PostId");
+                    b.HasIndex("ParentId", "CreatedAt", "CommentId")
+                        .HasDatabaseName("idx_comments_parent");
+
+                    b.HasIndex("PostId", "CreatedAt", "CommentId")
+                        .HasDatabaseName("idx_comments_post_roots")
+                        .HasFilter("parent_id IS NULL");
 
                     b.ToTable("comments", "content", t =>
                         {
                             t.HasCheckConstraint("ck_comments_depth", "depth BETWEEN 1 AND 3");
+
+                            t.HasCheckConstraint("ck_comments_reply_count", "reply_count >= 0");
+
+                            t.HasCheckConstraint("ck_comments_root_depth", "(parent_id IS NULL) = (depth = 1)");
 
                             t.HasCheckConstraint("ck_comments_status", "status IN ('visible','deleted')");
                         });
@@ -243,7 +266,7 @@ namespace SocialApp.Modules.Content.Infrastructure.Migrations
                     b.HasKey("PostId");
 
                     b.HasIndex("CreatedAt", "PostId")
-                        .IsDescending(true, true)
+                        .IsDescending()
                         .HasDatabaseName("idx_posts_public_recent")
                         .HasFilter("status = 'published' AND privacy = 'public'");
 
@@ -254,6 +277,8 @@ namespace SocialApp.Modules.Content.Infrastructure.Migrations
 
                     b.ToTable("posts", "content", t =>
                         {
+                            t.HasCheckConstraint("ck_posts_comment_count", "comment_count >= 0");
+
                             t.HasCheckConstraint("ck_posts_media_count", "media_count BETWEEN 0 AND 10");
 
                             t.HasCheckConstraint("ck_posts_not_empty", "media_count > 0 OR btrim(coalesce(body,'')) <> ''");

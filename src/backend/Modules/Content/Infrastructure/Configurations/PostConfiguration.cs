@@ -32,6 +32,7 @@ internal sealed class PostConfiguration : IEntityTypeConfiguration<Post>
             // BR-01 ở tầng DB. HỆ QUẢ: INSERT phải mang media_count ĐÚNG ngay từ đầu — bài chỉ có ảnh mà
             // INSERT 0 rồi định UPDATE sau thì CHECK nổ ngay ở câu INSERT (Mục 4, chỗ dễ sai #1).
             t.HasCheckConstraint("ck_posts_not_empty", "media_count > 0 OR btrim(coalesce(body,'')) <> ''");
+            t.HasCheckConstraint("ck_posts_comment_count", "comment_count >= 0");   // Mới GĐ3, Mục 4
         });
 
         builder.HasKey(x => x.PostId);
