@@ -85,9 +85,10 @@ public static class ContentModuleExtensions
         services.AddScoped<IFeedStore, FeedStore>();
 
         // C2 (GĐ6, Đ-6.3): provider BÀI của hợp đồng ghi IModerationTargets — Moderation ẩn/khôi phục bài trong transaction của
-        // nó, SQL vẫn do Content viết. Bình luận: một dòng AddScoped<IModerationTargetProvider, …> nữa sau khi GĐ3 merge.
-        // Resolve cần IFriendshipReader (SocialGraph đăng ký) — chỗ trần không resolve provider nên không sao.
+        // nó, SQL vẫn do Content viết. Resolve cần IFriendshipReader (SocialGraph đăng ký) — chỗ trần không resolve provider nên
+        // không sao. Provider BÌNH LUẬN thêm 2026-09-25 (bước 9 GĐ6, sau khi GĐ3 merge) — cùng phụ thuộc.
         services.AddScoped<IModerationTargetProvider, ContentModerationTargets>();
+        services.AddScoped<IModerationTargetProvider, CommentModerationTargets>();
 
         // C4 (GĐ4, Đ-4.8, Q-C2): công tắc bind có điều kiện — có IConfiguration (host) thì đọc Feed:PageCache:Enabled,
         // ServiceCollection trần thì mặc định bật. Cùng khuôn FeedSourceCacheOptions của SocialGraph. Singleton vì chỉ cầm

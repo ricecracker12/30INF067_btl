@@ -1446,6 +1446,58 @@ Một ca đỏ lượt đầu vì lỗi **test** (so tuple chứa danh sách →
 | Thêm interface nhận `DbTransaction` ở Content                    | `WriteContracts_are_only_the_two_named`                                       |
 | Composite chọn im lặng khi hai provider cùng loại                | `Hai_provider_cung_loai_thi_nem_luc_dung`                                     |
 
+### C2b — provider bình luận — 2026-09-25
+
+Phần "bình luận sau khi A merge" của C2 (Mục 12), làm ở bước 9 của GĐ6 sau khi GĐ3 đã có trên nhánh. `CommentModerationTargets` ở
+`Content/Infrastructure/Moderation/` + một dòng đăng ký trong `AddContentModule`. Không dòng nào của Moderation đổi: `Supports(Comment)`
+tự đúng, `POST /reports` nhận bình luận, `PATCH /reports` ẩn được (bảng quyết định D7c đã cho `hide` bình luận), khôi phục đã nhận
+`targetType: comment` từ D7c — đúng như L-D13 dự tính. Thông báo `moderation` cho bình luận chạy luôn (D10 dùng `snapshot.PostId`).
+
+**Ba điểm tài liệu chưa nói — người thi công chốt 2026-09-25:**
+- **Bộ đếm như xóa:** ẩn trừ `posts.comment_count`, khôi phục cộng lại. `reply_count` của bình luận cha **không** đổi — đề xuất ban đầu
+  là trừ cả nó, nhưng `CommentStore.SoftDeleteAsync` cũng không trừ (nhánh giữ chỗ, Đ-3.5), nên ẩn đi đúng luật của xóa.
+- **Không cột `hidden_reason` cho bình luận, không migration:** bình luận bị ẩn đi nhánh "đã xóa" phía người đọc (Đ-6.14, đã có sẵn trong
+  `CommentResponseMapper`); lý do nằm ở thông báo `moderation` của tác giả và nhật ký kiểm toán.
+- **Ảnh chụp dùng từ vựng của hợp đồng:** `visible` của bình luận đọc là `published` — không mở lại `moderation-v1` chỉ vì hai bảng đặt
+  tên khác nhau. `moderation-v1.yaml` chỉ sửa mô tả (`ReportTargetType`, khối comment L-D13), không đổi operation hay schema; `pnpm
+  gen:api` → chỉ mô tả trong `lib/api/moderation/schema.d.ts` đổi.
+
+**Luật ghi** (cùng khuôn provider bài): trên CHÍNH `tx.Connection` + `tx` của Moderation; **khóa bài trước, bình luận sau** (Đ-3.8 — cùng thứ
+tự với `CommentStore`, không thì deadlock với một request xóa/trả lời đan vào); `UPDATE … WHERE status = 'visible' RETURNING` — chỉ đổi
+đúng một dòng mới đổi bộ đếm. Hàm phụ trong lớp lồng giữ transaction ở trường (khuôn `NotificationStore.GroupTransaction`,
+`WriteContractTests`). **Luật thấy-được:** bình luận `visible`, bài `published`, và BR-02 của bài qua `PostVisibility.CanView` — bình luận
+trong bài đã chuyển riêng tư không báo được (lỗ LEAK-01 của GĐ3).
+
+**Test sửa theo:** `An_nguoi_dung_hoac_loai_chua_co_provider_thi_nem_NotSupported` đổi thành
+`An_nguoi_dung_thi_nem_NotSupported_binh_luan_la_thi_NotFound` (bình luận giờ có provider). Hai ca "id bình luận lạ → 404" của D6, D7c
+vẫn xanh — chỉ sửa chú thích (lý do 404 giờ là "không tồn tại", không còn "chưa hỗ trợ").
+
+**Thêm ca:** `ModerationTargetsTests` +4 (`CMT_store_01` ẩn/khôi phục + bộ đếm + trạng thái lặp + bình luận đã xóa; `_02` rollback;
+`_03` ảnh chụp mọi trạng thái; `_04` thấy-được theo BR-02 của bài); `CommentModerationTests` +4 qua API (`CMT_REP_01` báo cáo theo
+luật thấy-được, của chính mình 400, bài đã riêng tư 404 cùng thân với id lạ; `CMT_MOD_01` ẩn → giữ chỗ trong cây, bộ đếm, chi tiết cho
+Moderator, thông báo `moderation` trỏ bình luận, rồi trả lời 400 / thả cảm xúc 404 / tác giả xóa 403; `CMT_MOD_02` khôi phục + 409 lần
+hai; `CMT_MOD_C1` Moderator ẩn ‖ tác giả xóa, mười cặp song song → trừ đúng một lần, không 500).
+
+**Test:** Unit 572 → 572, Integration 901 → 909 (+4 `ModerationTargetsTests`, +4 `CommentModerationTests`; một ca đổi tên), Architecture
+27 → 27. `CMT_MOD_C1` chạy 20 lượt liền: 20/20. Vitest 626 → 626 (chỉ mô tả trong `schema.d.ts` đổi). Còn đỏ nền R2 trên máy dev. FE:
+`pnpm lint`, `typecheck`, `test`, `build` xanh.
+
+**Thử cho đỏ — 8/8 đột biến bị bắt**, build hợp lệ ở mọi lượt (`0 Error(s)`), file khôi phục nguyên byte (`md5`/`cmp`):
+
+| Đột biến | Ca đỏ thực tế |
+|---|---|
+| M1 — bỏ đăng ký provider bình luận | 9 ca (mọi ca bình luận ở hai lớp) |
+| M2 — ẩn không trừ `comment_count` | `CMT_store_01`; `CMT_MOD_01`, `_02`, `_C1` |
+| M3 — trừ cả khi không đổi dòng | `CMT_store_01` (lần ẩn thứ hai); `CMT_MOD_C1` |
+| M4 — bỏ khóa bài (chỉ khóa bình luận) | `CMT_MOD_C1` — 3/3 lượt có 500 (deadlock với đường xóa) |
+| M5 — thấy-được bỏ BR-02 | `CMT_store_04`; `CMT_REP_01` |
+| M6 — ảnh chụp không đổi `visible` → `published` | `CMT_store_03`; `CMT_MOD_01` |
+| M7 — khôi phục không cộng lại | `CMT_store_01`; `CMT_MOD_02` |
+| M8 — thấy-được bỏ kiểm bình luận `visible` | `CMT_store_04` |
+
+**detect-changes:** low, 0 luồng (12 file, 20 symbol; staged). Impact trước khi sửa: `AddContentModule` UNKNOWN — text search: 7 lời gọi, chữ ký không đổi, chỉ
+thêm một đăng ký scoped mà container trần không resolve.
+
 ### C6 — 2026-09-24: chờ GĐ5, chưa làm
 
 Kiểm điều kiện bắt đầu (Mục 13) sau `git fetch`:

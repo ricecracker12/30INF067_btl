@@ -1817,6 +1817,10 @@ status='published' RETURNING …`; không trả gì → `SELECT status` để ph
 - `TX-02`, `HID-*` là bản hạ tầng (`ModerationTargetsTests`); `TX-02` gồm đủ ba bảng của Đ-6.13 (báo cáo + ẩn + audit) trong một
   transaction của Moderation.
 
+*Sửa 2026-09-25, bước 9 (C2b):* provider bình luận `CommentModerationTargets` — báo cáo, ẩn, khôi phục bình luận chạy qua đúng các
+endpoint D6–D7c, không sửa Moderation. Chốt: ẩn trừ `comment_count` như xóa (không đụng `reply_count` — xóa cũng không); không cột
+`hidden_reason` cho bình luận (lý do ở thông báo + audit); ảnh chụp đọc `visible` là `published`. Khóa bài trước, bình luận sau (Đ-3.8).
+
 ### C3 — Invalidate cache quyền (Đ-6.10)
 
 **Làm gì:** `Invalidate`, `InvalidateAll`; `PermissionsChangedPublisher` (sau `COMMIT`) + `PermissionsChangedSubscriber`

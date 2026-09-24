@@ -190,7 +190,8 @@ export interface components {
             type: "urn:socialapp:problem:revocation-unavailable";
         };
         /**
-         * @description Loại đối tượng bị báo cáo. `comment` hợp lệ nhưng trả 404 tới khi có module bình luận (L-D13).
+         * @description Loại đối tượng bị báo cáo. Bình luận theo luật "thấy được" của bài chứa nó (BR-02); bình luận bị ẩn giữ chỗ trong cây như
+         *     bình luận đã xóa. Ảnh chụp bình luận đang hiện có `status: published`.
          * @enum {string}
          */
         ReportTargetType: "post" | "comment" | "user";

@@ -325,7 +325,7 @@ public sealed class DecideReportTests(PostgresFixture postgres, RedisFixture red
     [InlineData("video", "0192f3c9-2b7d-7e10-8c4a-1f3e5d7b9a20", 400)]
     [InlineData("post", "abc", 400)]
     [InlineData("post", "0192f3c9-2b7d-7e10-8c4a-1f3e5d7b9a20", 404)]
-    [InlineData("comment", "0192f3c9-2b7d-7e10-8c4a-1f3e5d7b9a20", 404)]   // L-D13: chưa có provider bình luận
+    [InlineData("comment", "0192f3c9-2b7d-7e10-8c4a-1f3e5d7b9a20", 404)]   // bình luận không tồn tại (có provider từ bước 9)
     public async Task Khoi_phuc_tham_so_sai_400_khong_ton_tai_404(string targetType, string targetId, int expected)
     {
         var client = new ModulesTestClient(factory);

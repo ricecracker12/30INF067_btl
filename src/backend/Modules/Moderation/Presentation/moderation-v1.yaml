@@ -21,7 +21,8 @@
 #   Đ-6.12  Thấy được mới báo được: không thấy → 404 CÙNG thân lỗi với "không tồn tại" (không là
 #           máy dò IDOR). Một báo cáo MỞ mỗi (người báo, đối tượng): gửi trùng → 200 + báo cáo cũ.
 #           Rate limit riêng 10 báo cáo/phút/người.
-#   L-D13   `targetType: comment` hợp lệ trong hợp đồng; trước khi có module bình luận → 404.
+#   L-D13   `targetType: comment` hợp lệ trong hợp đồng từ D6; trước khi có provider bình luận → 404. Từ bước 9
+#           (2026-09-25) bình luận báo, ẩn, khôi phục được — chỉ đổi mô tả, không đổi operation hay schema.
 #   Đ-6.13  Hàng đợi gom theo ĐỐI TƯỢNG (một dòng mỗi bài/người bị báo), cũ nhất trước. Chi tiết trả ảnh chụp nội dung
 #           THẬT (kể cả bài riêng tư/ẩn/xóa) — đường duy nhất Moderator đọc nội dung không công khai — và KHÔNG trả người báo.
 #   Đ-6.13  Quyết định: MỘT transaction ẩn đối tượng + đóng MỌI báo cáo mở của nó + một dòng audit. `hide` cần thêm
@@ -805,7 +806,9 @@ components:
 
     ReportTargetType:
       type: string
-      description: Loại đối tượng bị báo cáo. `comment` hợp lệ nhưng trả 404 tới khi có module bình luận (L-D13).
+      description: |
+        Loại đối tượng bị báo cáo. Bình luận theo luật "thấy được" của bài chứa nó (BR-02); bình luận bị ẩn giữ chỗ trong cây như
+        bình luận đã xóa. Ảnh chụp bình luận đang hiện có `status: published`.
       enum: [post, comment, user]
 
     ReasonCode:

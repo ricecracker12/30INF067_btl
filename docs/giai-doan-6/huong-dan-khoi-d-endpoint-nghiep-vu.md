@@ -2204,6 +2204,6 @@ Còn đỏ nền R2 trên máy dev.
 
 ### Khối D còn lại gì
 
-Mọi đầu việc D1–D13 và bước 9 đã xong. Ngoài khối D (Mục 19): hub thông báo C6 (vé GĐ5 đã có — việc của khối C), báo cáo + ẩn **bình
-luận** (provider `Comment` của `IModerationTargets`, bước 9 phía Moderation), `tag` (cắt), mọi màn FE (E1–E10, gồm `PROBLEM_TYPES` —
-xem D13).
+Mọi đầu việc D1–D13 và bước 9 đã xong. Ngoài khối D (Mục 19): hub thông báo C6 (vé GĐ5 đã có — việc của khối C), `tag` (cắt), mọi
+màn FE (E1–E10, gồm `PROBLEM_TYPES` — xem D13). Báo cáo + ẩn **bình luận** xong 2026-09-25 ở C2b (hướng dẫn khối A+C, "Thực tế thi
+công") — không endpoint D nào phải sửa.

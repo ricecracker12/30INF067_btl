@@ -115,7 +115,7 @@ public sealed class ReportSubmissionTests(PostgresFixture postgres, ModulesApiFa
             BaoCao(riengTu),
             BaoCao(daXoa),
             BaoCao(daAn),
-            BaoCao(Guid.NewGuid(), targetType: "comment"),   // L-D13: chưa có provider bình luận
+            BaoCao(Guid.NewGuid(), targetType: "comment"),   // bình luận không tồn tại (có provider từ bước 9 — trước đó: L-D13)
             BaoCao(Guid.NewGuid(), targetType: "user"),      // người không có hồ sơ
         })
         {
