@@ -57,8 +57,29 @@ public sealed class PostResponseMapper(IObjectStorage storage, ILogger<PostRespo
             post.ReactionCounts,
             post.CreatedAt,
             post.EditedAt,
-            post.AuthorId == actorId);
+            post.AuthorId == actorId,
+            ModerationOf(post, actorId));
     }
+
+    /// <summary><c>PostModeration.status</c> của bài bị ẩn — chữ thường, khớp <c>ck_posts_status</c>.</summary>
+    public const string HiddenStatus = "hidden";
+
+    /// <summary>
+    /// Lưới cho bài <c>hidden</c> mà <c>hidden_reason</c> rỗng. <c>HideAsync</c> (C2) ghi lý do CÙNG câu <c>UPDATE</c> với trạng
+    /// thái nên đường API không sinh ra ca này; chỉ dòng đặt tay bằng SQL mới có. DB không CHECK cặp đó, và <c>reasonCode</c> là
+    /// trường bắt buộc của hợp đồng — trả <c>null</c> là nói dối hợp đồng. <c>other</c> là mã "lý do khác" của
+    /// <c>ReasonCodes</c> (Moderation): gõ chuỗi ở đây vì Content không tham chiếu Domain của module khác.
+    /// </summary>
+    public const string UnknownReasonCode = "other";
+
+    /// <summary>
+    /// BR-07 phía người đọc (Đ-6.14): MỘT điều kiện, MỘT chỗ. Không gắn ở <see cref="PostHydrator"/> hay feed — hai đường đó
+    /// không bao giờ có bài <c>hidden</c> (Đ-4.11), và điều kiện tác giả nằm ngay đây nên có gọi qua đó cũng không lộ.
+    /// </summary>
+    private static PostModeration? ModerationOf(Post post, Guid actorId) =>
+        post.Status == PostStatus.Hidden && post.AuthorId == actorId
+            ? new PostModeration(HiddenStatus, post.HiddenReason ?? UnknownReasonCode, post.UpdatedAt)
+            : null;
 
     /// <summary>
     /// Bản lô cho <c>D6</c> (<c>GET /users/{userId}/posts</c>): một trang bài, ảnh đã gom sẵn theo <c>postId</c>, và

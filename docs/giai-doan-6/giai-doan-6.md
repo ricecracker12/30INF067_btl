@@ -522,8 +522,10 @@ giả xem bài bị ẩn của mình) là việc của GĐ6"*.
 
 - `PostResponse` thêm `moderation?: PostModeration` — **chỉ-thêm** vào `content-v1`, `null`/vắng với mọi bài `published`. Cùng
   một mapper, nhánh `hidden` chỉ đi được khi `actorId == authorId` (luật "mapper là chỗ duy nhất" của GĐ3 Mục 8.1).
-- Tác giả **không** sửa được bài bị ẩn (`PATCH` → 409 `content.post-hidden`): sửa nội dung rồi "tự gỡ ẩn" là lách kiểm duyệt.
-  Xóa thì được — người dùng luôn có quyền xóa nội dung của mình.
+- Tác giả **không** sửa được bài bị ẩn (`PATCH` → 409 `urn:socialapp:problem:post-hidden`): sửa nội dung rồi "tự gỡ ẩn" là lách
+  kiểm duyệt. Xóa thì được — người dùng luôn có quyền xóa nội dung của mình. Kiểm **sau** tầng 3: người khác vẫn nhận 403 như
+  GĐ2, không biết bài bị ẩn (*sửa 2026-09-25 khi thi công D7a:* bản đầu ghi `content.post-hidden` — đó là tên gọi tắt, `type`
+  thật là URN ở Mục 17.1 của hướng dẫn khối D).
 - Moderator không đọc bài qua `GET /posts/{id}`: nhìn thấy nội dung vi phạm là việc của **luồng kiểm duyệt**, có ngữ cảnh báo
   cáo, không phải một đường vòng quanh BR-02.
 
@@ -1207,7 +1209,7 @@ nhận hai lần hay sai thứ tự đều vô hại. Nối lại → nạp lạ
 |---|---|---|
 | `profile-v1.yaml` | `GET /search?q=&type=user&limit=` → 200 `{ items: [{ userId, displayName, avatarUrl? }] }` · 400 `errors.q` · 401 | Mọi schema GĐ2 |
 | `identity-v1.yaml` | `MeResponse.permissions: string[]` (required) · `POST /auth/login` thêm 403 type `…:account-disabled` · `RoleCode` nới từ enum thành chuỗi có pattern (*sửa 2026-09-24, D1 — L-D16*) | Mọi trường đã có; 403 `email-not-verified` giữ nguyên type riêng |
-| `content-v1.yaml` | `PostResponse.moderation?: { status: "hidden", reasonCode, hiddenAt }` · `PATCH /posts/{id}` thêm 409 `…:post-hidden` | Mọi trường GĐ2/GĐ3/GĐ4 |
+| `content-v1.yaml` | `PostResponse.moderation?: { status: "hidden", reasonCode, hiddenAt }` · `PATCH /posts/{id}` thêm 409 `…:post-hidden` (*sửa 2026-09-25, D7a:* `1.1.0-gd6`; `moderation` nullable, không required, đặt cuối; `reasonCode` là enum năm giá trị như `ReasonCode` của `moderation-v1`; 409 khai bằng `PostHiddenProblem`) | Mọi trường GĐ2/GĐ3/GĐ4 |
 
 Mỗi lần mở: `info.version` → `…-gd6`, `pnpm gen:api`, commit `schema.d.ts` **cùng commit**, cổng `API contract` + codegen xanh.
 Thêm trường `required` vào **response** là chỉ-thêm với client (client cũ bỏ qua trường lạ); vào **request** thì không.
@@ -1371,7 +1373,7 @@ Luật vàng số 8: mọi thứ phải chạy trên ARM64 — không có native
 | `MOD-06` | Khôi phục bài bị ẩn · khôi phục bài đang `published` | 200 + audit `content.restore` · 409 |
 | `TX-01` ⭐ | `IAuditTrail` ném lỗi giữa bước 4 (Đ-6.13) | Bài **vẫn** `published`; báo cáo **vẫn** `open`; không dòng audit |
 | `TX-02` | `HideAsync` ném lỗi | Không gì thay đổi |
-| `HID-01..06` | Tác giả / bạn bè / Moderator đọc bài `hidden`; tác giả `PATCH`; tác giả `DELETE`; feed + trang cá nhân | 200 + `moderation` · 404 · 404 · 409 · 204 · không có |
+| `HID-01..06` | Tác giả / bạn bè / Moderator đọc bài `hidden`; tác giả `PATCH`; tác giả `DELETE`; feed + trang cá nhân | 200 + `moderation` · 404 · 404 · 409 · 204 · không có (*sửa 2026-09-25, D7a:* `HID-03` chạy cả Admin và người lạ; `HID-04` thêm vế người khác `PATCH` vẫn 403) |
 | `AUD-01` | Mọi dòng audit có `actor_id`, `action`, `ip` | Không dòng nào chứa chuỗi đánh dấu `SECRET-xyz` đã đặt trong thân bài bị ẩn |
 | `AUD-02` | `UPDATE` / `DELETE` dòng audit bằng SQL · `DELETE` với `SET LOCAL socialapp.audit_purge = 'on'` | exception · exception · được |
 | `AUD-03` | 5 lần bị từ chối cùng endpoint trong 1 phút | đúng **1** dòng `access.denied` |
@@ -1916,6 +1918,12 @@ theo `(min(created_at), target_id)`), `GET /reports/{id}` (snapshot C2 + lịch 
 **Làm như nào:** viết `TC-A06`, `TC-A06b`, `MOD-03` **trước** (đỏ). Tầng 2 kép theo Mục 6.2.
 
 **Xong khi:** `MOD-01..06`, `MOD-C1`, `TX-01/02`, `HID-01..06`, matrix `TC-A06*` xanh.
+
+*Sửa 2026-09-25 khi thi công D7a* (L-D4, L-D5 của `huong-dan-khoi-d-endpoint-nghiep-vu.md`): D7 tách ba commit — D7a là phần
+Content (một commit nhỏ, để rebase với A theo Mục 9.4), D7b hàng đợi + chi tiết, D7c quyết định + khôi phục + event + metric. Phần
+Content sửa **ba** chỗ, không chỉ "nhánh tác giả": `GetAsync` trả 404 cho người không phải tác giả (trước D7a, bài `hidden` trả 200
+cho mọi người qua BR-02), mapper gắn `moderation` cho tác giả, `UpdateAsync` trả 409 (trước D7a, `PATCH` sửa được bài `hidden`).
+`HID-01..06` xanh ở D7a, trước khi có endpoint nào ẩn được bài — bài ẩn bằng `IModerationTargets.HideAsync` trong test.
 
 ### D8 — `GET /admin/audit-logs`
 

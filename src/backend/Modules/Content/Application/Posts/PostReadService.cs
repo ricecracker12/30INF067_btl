@@ -19,8 +19,8 @@ public sealed class PostReadService(
     /// <summary>
     /// <c>GET /posts/{postId}</c> — BR-02 tại thời điểm đọc (Mục 7.4).
     ///
-    /// <b>Ba lý do trượt, MỘT phản hồi 404</b> (quy ước 3b): bài không tồn tại, bài đã xóa mềm (query filter loại sẵn),
-    /// và bài không được xem. Trả 403 cho ca cuối là để status code tự tố cáo bài có tồn tại — chính thứ BR-02 dựng ra
+    /// <b>Bốn lý do trượt, MỘT phản hồi 404</b> (quy ước 3b): bài không tồn tại, bài đã xóa mềm (query filter loại sẵn),
+    /// bài bị ẩn mà người gọi không phải tác giả (GĐ6 D7a, Đ-6.14), và bài không được xem. Trả 403 cho ca cuối là để status code tự tố cáo bài có tồn tại — chính thứ BR-02 dựng ra
     /// để giấu. Đây là dòng <c>READ-01</c> của AuthZ matrix.
     ///
     /// <c>AreFriendsAsync</c> gọi CÓ ĐIỀU KIỆN — chỉ khi <c>privacy == Friends</c> và người đọc không phải tác giả.
@@ -31,6 +31,11 @@ public sealed class PostReadService(
     {
         var post = await posts.FindAsync(postId, ct);
         if (post is null)
+            return ContentErrors.PostNotFound;
+
+        // BR-07 (Đ-6.14): bài bị ẩn — người khác (kể cả bạn bè, Moderator) thấy như bài không tồn tại; tác giả thấy kèm lý do.
+        // Moderator xem nội dung qua GET /reports/{id}, không qua đường vòng quanh BR-02. TRƯỚC BR-02: bài ẩn không cần tra bạn bè.
+        if (post.Status == PostStatus.Hidden && post.AuthorId != actorId)
             return ContentErrors.PostNotFound;
 
         var areFriends = post.Privacy == PostPrivacy.Friends

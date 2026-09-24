@@ -1661,9 +1661,67 @@ trực tiếp — hiện thực duy nhất là composite, grep `: IModerationTar
 `AddSharedKernel`, `AddModerationModule` UNKNOWN — text search: `AddSharedKernel` 2 lời gọi (Program.cs, `ResultTests`), chữ ký không
 đổi, chỉ thêm policy; `AddModerationModule` 6 lời gọi, chữ ký không đổi, chỉ thêm hai đăng ký scoped mà container trần không resolve.
 
+### D7a — 2026-09-25
+
+Làm đúng Mục 9; L-D4, L-D5 áp như chốt. `PostModeration` + `PostResponse.Moderation` (cuối record) · `PostResponseMapper.ModerationOf`
+(một điều kiện: `hidden` VÀ tác giả) · nhánh BR-07 trong `PostReadService.GetAsync` · 409 trong `PostService.UpdateAsync` ·
+`ContentErrors.PostHidden` + `PostHiddenType` · `[ProducesResponseType(409)]` trên `PATCH` · `content-v1.yaml` `1.1.0-gd6` chỉ-thêm
+(`PostModeration`, `PostResponse.moderation`, response `PostHidden`, schema `PostHiddenProblem`) · `pnpm gen:api` → chỉ
+`lib/api/content/schema.d.ts` đổi, FE không sửa màn nào (biểu ngữ là E9). `giai-doan-6.md` sửa cùng lượt: Đ-6.14 (`type` thật +
+thứ tự sau tầng 3), Mục 8.5 (hàng `content-v1`), Mục 10 (`HID-*`), B.6 D7 — mỗi chỗ ghi "sửa 2026-09-25".
+
+**Lỗi tìm ra khi rà, đã sửa (L-D4):** trước D7a có hai lỗ BR-07 trên code — `GET /posts/{id}` của bài `hidden` trả **200** cho mọi
+người qua BR-02 (`PostStore.FindAsync` chỉ lọc `deleted`), và `PATCH` sửa được bài `hidden`. Chưa lộ thật vì chưa endpoint nào ẩn
+được bài; D7c mở đường đó.
+
+**Lệch so với chính tài liệu này:**
+- **`reasonCode` là enum năm giá trị** trong `content-v1` (chép tập `ReasonCode` của `moderation-v1`), không chuỗi trần: FE sinh
+  union để map nhãn. Cổng hợp đồng không so schema response, nên tập này giữ khớp bằng tay khi thêm lý do (Đ-6.12 đã ghi "thêm lý
+  do mới = migration đổi CHECK + chỉ-thêm enum" — giờ là hai yaml).
+- **Lưới `hidden_reason` rỗng → `other`** (`PostResponseMapper.UnknownReasonCode`): DB không CHECK cặp (`status = hidden`,
+  `hidden_reason` khác null), `HideAsync` ghi cả hai cùng câu nên API không sinh ca này, nhưng `reasonCode` là trường bắt buộc —
+  trả `null` là nói dối hợp đồng. Gõ chuỗi `"other"` ở Content vì Content không tham chiếu Domain của Moderation.
+- **`moderation` luôn có mặt, `null` với bài thường** (app không bỏ trường null khi ghi JSON — như D2): yaml `nullable: true`, không
+  `required`; FE sinh `moderation?: PostModeration | null`.
+- **Nhánh BR-07 của `GetAsync` đứng TRƯỚC BR-02**: bài ẩn của người khác trả 404 mà không tra bạn bè.
+- **409 dùng `title` mặc định** "Xung đột dữ liệu" (`ProblemTitles`), không đặt riêng.
+- **Thêm ca ngoài bảng:** `HID-03` là Theory ba vai trò (MODERATOR, ADMIN, USER lạ — bài `public` nên BR-02 cho qua, chỉ nhánh BR-07
+  chặn được), mỗi vai trò đọc được bài **trước** khi ẩn; `HID-02` cũng đọc trước khi ẩn (200) để 404 sau đó chắc chắn đến từ BR-07;
+  `HID-04` thêm vế người khác `PATCH` bài ẩn vẫn **403** (409 cho họ là lộ "bài này bị ẩn") và kiểm `privacy`/`edited_at` không
+  đổi; `HID-05` thêm vế sau khi xóa tác giả đọc 404; unit `moderation_chi_co_khi_bai_an_va_nguoi_doc_la_tac_gia` (đặt `EditedAt` khác
+  `UpdatedAt` — cạm bẫy 4) và `Bai_an_thieu_ly_do_thi_reasonCode_la_other`.
+- **Đã xét, không cần làm:** cache trang đầu feed (Đ-4.8) có giữ bài vừa bị ẩn tới 30s không — không: cache chỉ lưu id, lượt trúng
+  nạp lại bằng `FindManyPublishedAsync`, bài `hidden` vắng mặt ngay. D7c không phải xóa cache của ai.
+
+"Đã đỏ trước khi có code" (L-D7): chạy `HiddenPostTests` trên code trước D7a → M1, M2 dưới đây là đúng hai lỗ L-D4.
+
+**Test:** Unit 458 → 460 (+2 `PostResponseMapperTests`), Integration 736 → 744 (+8 `HiddenPostTests`: `HID-01`, `-02`,
+`-03` ×3 vai trò, `-04`, `-05`, `-06`), Architecture 27 → 27. Vitest 591 → 591 (chỉ `schema.d.ts` đổi). Còn đỏ nền R2 trên
+máy dev. FE: `pnpm lint`, `typecheck`, `test`, `build` xanh.
+
+**Thử cho đỏ — 9/9 đột biến bị bắt**, build hợp lệ ở mọi lượt (`0 Error(s)`), file khôi phục nguyên byte (`md5`):
+
+| Đột biến | Ca đỏ thực tế |
+|---|---|
+| M1 — `GetAsync` bỏ nhánh `hidden` cho người khác (lỗ L-D4 thứ nhất) | `HID_02_…`; `HID_03_…` |
+| M2 — `UpdateAsync` bỏ 409 (lỗ L-D4 thứ hai) | `HID_04_…` |
+| M3 — 409 đứng TRƯỚC tầng 3 | `HID_04_…` (người khác nhận 409 thay vì 403) |
+| M4 — mapper bỏ điều kiện tác giả | `moderation_chi_co_khi_bai_an_va_nguoi_doc_la_tac_gia` (unit) |
+| M5 — `hiddenAt` lấy `EditedAt` (cạm bẫy 4) | `HID_01_…`; `moderation_chi_co_khi_…` (unit) |
+| M6 — `DeleteAsync` chặn bài ẩn | `HID_05_…` |
+| M7 — 409 không có `type` riêng | `HID_04_…` |
+| M8 — controller bỏ khai 409 của `PATCH` | `ContentContractTests.Contract_must_be_fully_implemented` |
+| M9 — yaml bỏ 409 của `PATCH` | `ContentContractTests.Runtime_must_not_expose_anything_outside_the_contract` |
+
+**detect-changes:** high, 8 luồng — cả tám là luồng `Get`/`Update` của `/posts/{postId}` (`GetAsync`: 4, `UpdateAsync` + action `Update`: 4),
+có chủ đích; không luồng nào ngoài hai hàm D7a sửa. 13 file, 43 symbol (file test mới đã `git add -N` để được tính). Impact trước khi sửa: `PostReadService.GetAsync` LOW (1 nút — `PostsController.Get`),
+`PostService.UpdateAsync` LOW (1 nút — `PostsController.Update`, 4 luồng), `PostResponseMapper` LOW (9 nút), record `PostResponse`
+UNKNOWN — text search: `new PostResponse(` chỉ ở mapper; test đọc qua JSON; phía FE `moderation` là trường không required nên
+fixture `satisfies` không đỏ (`pnpm typecheck` xanh).
+
 ### Các đầu việc còn lại
 
-D7a → D13. Mỗi đầu việc khi xong điền theo khuôn của hướng dẫn khối A+C:
+D7b → D13. Mỗi đầu việc khi xong điền theo khuôn của hướng dẫn khối A+C:
 
 - chỗ nào đi theo / không theo đề xuất Mục 0.6, và vì sao;
 - lệch so với chính tài liệu này;

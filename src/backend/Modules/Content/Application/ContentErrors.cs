@@ -81,4 +81,18 @@ public static class ContentErrors
 
     /// <summary><c>type</c> của 503 feed quá tải — khai ở <c>FeedOverloadedProblem</c> trong <c>content-v1.yaml</c>.</summary>
     public const string FeedOverloadedType = "urn:socialapp:problem:feed-overloaded";
+
+    /// <summary>
+    /// 409 của <c>PATCH /posts/{postId}</c> khi TÁC GIẢ sửa bài bị ẩn (GĐ6 D7a, Đ-6.14): sửa nội dung rồi "tự gỡ ẩn" là lách
+    /// kiểm duyệt. Chỉ tác giả thấy được lỗi này — người khác dừng ở 403 của tầng 3, không biết bài bị ẩn. <c>type</c> riêng
+    /// (<see cref="PostHiddenType"/>): 409 của Content còn một nghĩa khác (<see cref="MediaAlreadyUsed"/> ở <c>POST /posts</c>).
+    /// </summary>
+    public static readonly Error PostHidden = new(
+        "post.hidden",
+        "Bài viết đã bị ẩn do vi phạm tiêu chuẩn cộng đồng nên không sửa được.",
+        409,
+        Type: PostHiddenType);
+
+    /// <summary><c>type</c> của 409 bài bị ẩn — khai ở <c>PostHiddenProblem</c> trong <c>content-v1.yaml</c> (Mục 17.1).</summary>
+    public const string PostHiddenType = "urn:socialapp:problem:post-hidden";
 }

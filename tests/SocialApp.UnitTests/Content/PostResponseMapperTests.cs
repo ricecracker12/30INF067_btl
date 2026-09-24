@@ -179,4 +179,38 @@ public sealed class PostResponseMapperTests
         Assert.Empty(responses[1].Media);
         Assert.All(responses, r => Assert.False(r.CanEdit));
     }
+
+    /// <summary>
+    /// GĐ6 D7a (Đ-6.14): <c>moderation</c> chỉ khác null với bài <c>hidden</c> VÀ người đọc là tác giả. <c>hiddenAt</c> là
+    /// <c>UpdatedAt</c> (lần ẩn), KHÔNG phải <c>EditedAt</c> — đặt hai mốc khác nhau để phân biệt được (cạm bẫy 4).
+    /// </summary>
+    [Fact]
+    public void moderation_chi_co_khi_bai_an_va_nguoi_doc_la_tac_gia()
+    {
+        var author = Guid.NewGuid();
+        var hiddenAt = new DateTimeOffset(2026, 9, 25, 8, 0, 0, TimeSpan.Zero);
+        var hidden = PostOf(author);
+        hidden.Status = PostStatus.Hidden;
+        hidden.HiddenReason = "violence";
+        hidden.EditedAt = hiddenAt.AddHours(-3);
+        hidden.UpdatedAt = hiddenAt;
+
+        Assert.Equal(new PostModeration("hidden", "violence", hiddenAt), Mapper.ToResponse(hidden, [], null, author).Moderation);
+        Assert.Null(Mapper.ToResponse(hidden, [], null, Guid.NewGuid()).Moderation);
+        Assert.Null(Mapper.ToResponse(PostOf(author), [], null, author).Moderation);
+    }
+
+    /// <summary>
+    /// Bài <c>hidden</c> thiếu <c>hidden_reason</c> (chỉ dòng đặt tay bằng SQL mới có — <c>HideAsync</c> ghi cả hai cùng câu):
+    /// <c>reasonCode</c> vẫn là mã hợp lệ của hợp đồng, không <c>null</c>.
+    /// </summary>
+    [Fact]
+    public void Bai_an_thieu_ly_do_thi_reasonCode_la_other()
+    {
+        var author = Guid.NewGuid();
+        var hidden = PostOf(author);
+        hidden.Status = PostStatus.Hidden;
+
+        Assert.Equal(PostResponseMapper.UnknownReasonCode, Mapper.ToResponse(hidden, [], null, author).Moderation!.ReasonCode);
+    }
 }

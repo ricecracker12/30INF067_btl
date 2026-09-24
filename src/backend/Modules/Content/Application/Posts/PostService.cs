@@ -160,6 +160,11 @@ public sealed class PostService(
         if (post is null || post.AuthorId != actorId)
             return Result<PostResponse>.Forbidden();
 
+        // BR-07 (Đ-6.14): SAU tầng 3 — người khác vẫn nhận 403, không biết bài bị ẩn. TRƯỚC BR-01: sửa nội dung rồi "tự gỡ
+        // ẩn" là lách kiểm duyệt, nên không bước nào dưới đây được chạy với bài bị ẩn. DeleteAsync KHÔNG có nhánh này.
+        if (post.Status == PostStatus.Hidden)
+            return ContentErrors.PostHidden;
+
         // `null` = KHÔNG GỬI (System.Text.Json không phân biệt với vắng mặt). Muốn xóa chữ thì gửi "" — và lúc đó
         // BR-01 quyết định: bài có ảnh thì được, bài chỉ chữ thì 400.
         if (request.Body is not null)
@@ -195,6 +200,8 @@ public sealed class PostService(
     /// <summary>
     /// <c>DELETE /posts/{postId}</c> — <b>xóa MỀM</b> (Đ-2.10): đặt <c>status = 'deleted'</c> + <c>deleted_at</c>, không
     /// <c>DELETE</c> dòng nào.
+    ///
+    /// Bài bị ẩn (BR-07) xóa ĐƯỢC — khác <see cref="UpdateAsync"/>: người dùng luôn xóa được nội dung của mình (Đ-6.14).
     ///
     /// Tầng 3 y hệt <see cref="UpdateAsync"/>, và <b>gọi lần hai trả 403 một cách TỰ NHIÊN</b>: global query filter đã
     /// loại bài <c>deleted</c> nên <see cref="IPostStore.FindForUpdateAsync"/> trả <c>null</c> ở lượt thứ hai, rơi đúng

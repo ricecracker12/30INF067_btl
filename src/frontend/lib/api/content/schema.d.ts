@@ -81,6 +81,9 @@ export interface paths {
          *
          *     Không đạt BR-02, bài đã xóa mềm, hay không tồn tại → **404**, **cùng một phản hồi** (quy ước 3b): trả 403 cho
          *     một bên và 404 cho bên kia là status code tự tố cáo bài có tồn tại. Đây là dòng `READ-01` của AuthZ matrix.
+         *
+         *     Bài bị kiểm duyệt ẩn (GĐ6, Đ-6.14): tác giả → **200** kèm `moderation`; mọi người khác, kể cả bạn bè, Moderator và
+         *     Admin → **404**, cùng phản hồi trên. Moderator xem nội dung qua `GET /reports/{reportId}` (`moderation-v1`).
          */
         get: operations["getPost"];
         put?: never;
@@ -88,7 +91,8 @@ export interface paths {
         /**
          * Xóa mềm bài của mình (FR-005, Đ-2.10)
          * @description Đặt `status = 'deleted'` + `deleted_at`; không `DELETE` dòng, không xóa object R2 trong request — worker dọn
-         *     sau 7 ngày (Đ-2.13). Sau đó `GET /posts/{id}` của **chính tác giả** cũng 404 (Mục 7.3).
+         *     sau 7 ngày (Đ-2.13). Sau đó `GET /posts/{id}` của **chính tác giả** cũng 404 (Mục 7.3). Bài bị kiểm duyệt ẩn
+         *     cũng xóa được (GĐ6, Đ-6.14) — người dùng luôn xóa được nội dung của mình.
          *
          *     Gọi lại lần hai trên bài đã xóa → **403** (cùng phản hồi với "không phải của bạn"), không phải 404 — thao tác
          *     ghi cần ownership dùng 403 (Mục 6.1). Đây là dòng `TC-A03-delete`.
@@ -110,6 +114,9 @@ export interface paths {
          *
          *     Hai trường đều tùy chọn nhưng body rỗng `{}` là 400 (không có gì để sửa). BR-01 áp lại với `body` mới: bài
          *     không có ảnh mà `body` thành rỗng → **400** `errors.body`.
+         *
+         *     Bài của bạn đang bị kiểm duyệt ẩn (GĐ6, Đ-6.14) → **409** `type urn:socialapp:problem:post-hidden`, không đổi gì.
+         *     Kiểm sau tầng 3 (người khác vẫn nhận 403) và trước BR-01.
          */
         patch: operations["updatePost"];
         trace?: never;
@@ -187,7 +194,7 @@ export interface components {
         ProblemDetails: {
             /**
              * Format: uri
-             * @description Mặc định `https://httpstatuses.io/{status}`. Lỗi có `type` riêng khai bằng schema riêng (`FeedOverloadedProblem`).
+             * @description Mặc định `https://httpstatuses.io/{status}`. Lỗi có `type` riêng khai bằng schema riêng (`FeedOverloadedProblem`, `PostHiddenProblem`).
              */
             type?: string;
             /** @description Nhãn ngắn, ổn định theo loại lỗi. **Không** chứa dữ liệu người dùng. */
@@ -329,6 +336,26 @@ export interface components {
             editedAt?: string | null;
             /** @description Do **server** tính (`author_id == actorId`). FE không tự so id (Mục 8.2). */
             canEdit: boolean;
+            /**
+             * @description GĐ6 (Đ-6.14). Khác `null` **chỉ** khi bài bị kiểm duyệt ẩn và người gọi là tác giả — FE hiện biểu ngữ "bài bị
+             *     ẩn" theo `reasonCode`. `null` với mọi bài khác. Không required: client cũ bỏ qua được.
+             */
+            moderation?: components["schemas"]["PostModeration"] | null;
+        };
+        /** @description Trạng thái kiểm duyệt cho tác giả. Không có id Moderator hay ghi chú quyết định — tác giả biết vì sao, không biết ai. */
+        PostModeration: {
+            /** @enum {string} */
+            status: "hidden";
+            /**
+             * @description Cùng tập với `ReasonCode` của `moderation-v1` (PTTK ENT-12). FE hiển thị nhãn tiếng Việt.
+             * @enum {string}
+             */
+            reasonCode: "spam" | "harassment" | "nudity" | "violence" | "other";
+            /**
+             * Format: date-time
+             * @description Lúc bị ẩn. **Không** phải `editedAt` (lần sửa cuối của tác giả).
+             */
+            hiddenAt: string;
         };
         PostPage: {
             items: components["schemas"]["PostResponse"][];
@@ -342,6 +369,11 @@ export interface components {
         FeedOverloadedProblem: components["schemas"]["ProblemDetails"] & {
             /** @enum {string} */
             type: "urn:socialapp:problem:feed-overloaded";
+        };
+        /** @description 409 của `PATCH /posts/{postId}` khi bài đang bị kiểm duyệt ẩn (GĐ6, Đ-6.14). Cùng hình dạng `ProblemDetails`, `type` cố định. */
+        PostHiddenProblem: components["schemas"]["ProblemDetails"] & {
+            /** @enum {string} */
+            type: "urn:socialapp:problem:post-hidden";
         };
         /**
          * @description `network` — có ít nhất một kết nối (bạn hoặc đang theo dõi), kể cả khi feed rỗng. `suggested` — chưa có kết nối
@@ -491,6 +523,28 @@ export interface components {
                  *     }
                  */
                 "application/problem+json": components["schemas"]["FeedOverloadedProblem"];
+            };
+        };
+        /**
+         * @description Bài đang bị kiểm duyệt ẩn nên không sửa được (GĐ6, Đ-6.14) — không có gì bị đổi. Chỉ tác giả nhận mã này; FE phân
+         *     nhánh theo `type`, không theo `title`.
+         */
+        PostHidden: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "type": "urn:socialapp:problem:post-hidden",
+                 *       "title": "Xung đột dữ liệu",
+                 *       "status": 409,
+                 *       "detail": "Bài viết đã bị ẩn do vi phạm tiêu chuẩn cộng đồng nên không sửa được.",
+                 *       "instance": "/api/v1/posts/0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10",
+                 *       "traceId": "0c2e4b6d8f0a2c4e6b8d0f2a4c6e8b0d"
+                 *     }
+                 */
+                "application/problem+json": components["schemas"]["PostHiddenProblem"];
             };
         };
         /**
@@ -817,6 +871,7 @@ export interface operations {
             400: components["responses"]["ValidationProblem"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            409: components["responses"]["PostHidden"];
             429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalError"];
         };

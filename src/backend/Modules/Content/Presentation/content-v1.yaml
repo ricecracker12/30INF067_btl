@@ -48,6 +48,12 @@
 #           `info.version` 1.0.0-gd4 → 1.0.1-gd4 (vá sau D7); → 1.0.2-gd4 khi Đ-4.6 đổi (bài của mình vào feed gợi ý). Swagger sinh từ code vẫn khai 503 là `ProblemDetails`
 #           (không thêm DTO chỉ để đặt tên schema) — dữ liệu trên dây giống nhau; file này là nguồn sự thật.
 #
+# MỞ LẠI Ở GĐ6 (D7a, 2026-09-25 — docs/giai-doan-6/giai-doan-6.md Mục 8.5), luật CHỈ-THÊM: `PostModeration`,
+# `PostResponse.moderation` (KHÔNG required, đặt cuối — A của GĐ3 cũng thêm trường, Mục 9.4), 409 `post-hidden` ở
+# `PATCH /posts/{postId}` (`PostHiddenProblem`). Không sửa hay xóa gì của GĐ2/GĐ4 ngoài `info.version` 1.0.2-gd4 → 1.1.0-gd6.
+#   Đ-6.14  BR-07 phía người đọc: bài `hidden` — tác giả 200 kèm `moderation`; người khác (bạn bè, Moderator, Admin) 404
+#           cùng phản hồi với bài không tồn tại; tác giả `PATCH` → 409; `DELETE` vẫn được.
+#
 # ĐIỂM CẦN NHÓM XÁC NHẬN Ở CỔNG MỞ (Q-D1): `mediaKeys` của POST /posts là MẢNG OBJECT {mediaKey, contentType, sizeBytes},
 #   không phải mảng chuỗi. Lý do: Đ-2.8 lớp 2 đối chiếu HEAD với "khai báo lúc presign", mà server không giữ trạng thái
 #   giữa presign và commit — client (đang cầm File) gửi lại khai báo là đường rẻ nhất, và không có gì để giả: HEAD vẫn
@@ -57,7 +63,7 @@ openapi: 3.0.3
 
 info:
   title: SocialApp — Content API
-  version: 1.0.2-gd4
+  version: 1.1.0-gd6
   description: |
     Bài đăng kèm ảnh của GĐ2: xin URL tải ảnh theo lô, đăng bài, đọc một bài, đọc danh sách bài của một người
     (cursor keyset), sửa và xóa mềm.
@@ -92,6 +98,12 @@ info:
     `/users/{userId}/posts`. Người chưa có kết nối nào nhận feed gợi ý (`mode: suggested`). `items` **có thể ít hơn
     `limit`** — FE không bao giờ suy "hết" từ độ dài `items`, chỉ từ `nextCursor: null`. 503 → thẻ "Bảng tin đang quá
     tải" + nút Thử lại, không đồng hồ đếm ngược.
+
+    ### Bài bị ẩn (GĐ6, BR-07)
+
+    Bài bị kiểm duyệt ẩn **chỉ tác giả** đọc được qua `GET /posts/{postId}`, kèm `moderation { status, reasonCode,
+    hiddenAt }` để hiện biểu ngữ. Người khác nhận 404 như bài không tồn tại; feed và trang cá nhân không bao giờ có bài
+    này. Tác giả không sửa được (409 `post-hidden`), xóa thì được.
 
   contact:
     name: Nhóm 4 — 30INF067
@@ -315,6 +327,9 @@ paths:
 
         Không đạt BR-02, bài đã xóa mềm, hay không tồn tại → **404**, **cùng một phản hồi** (quy ước 3b): trả 403 cho
         một bên và 404 cho bên kia là status code tự tố cáo bài có tồn tại. Đây là dòng `READ-01` của AuthZ matrix.
+
+        Bài bị kiểm duyệt ẩn (GĐ6, Đ-6.14): tác giả → **200** kèm `moderation`; mọi người khác, kể cả bạn bè, Moderator và
+        Admin → **404**, cùng phản hồi trên. Moderator xem nội dung qua `GET /reports/{reportId}` (`moderation-v1`).
       security:
         - bearerAuth: []
       parameters:
@@ -353,6 +368,9 @@ paths:
 
         Hai trường đều tùy chọn nhưng body rỗng `{}` là 400 (không có gì để sửa). BR-01 áp lại với `body` mới: bài
         không có ảnh mà `body` thành rỗng → **400** `errors.body`.
+
+        Bài của bạn đang bị kiểm duyệt ẩn (GĐ6, Đ-6.14) → **409** `type urn:socialapp:problem:post-hidden`, không đổi gì.
+        Kiểm sau tầng 3 (người khác vẫn nhận 403) và trước BR-01.
       security:
         - bearerAuth: []
       parameters:
@@ -382,6 +400,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/PostHidden'
         '429':
           $ref: '#/components/responses/TooManyRequests'
         '500':
@@ -393,7 +413,8 @@ paths:
       summary: Xóa mềm bài của mình (FR-005, Đ-2.10)
       description: |
         Đặt `status = 'deleted'` + `deleted_at`; không `DELETE` dòng, không xóa object R2 trong request — worker dọn
-        sau 7 ngày (Đ-2.13). Sau đó `GET /posts/{id}` của **chính tác giả** cũng 404 (Mục 7.3).
+        sau 7 ngày (Đ-2.13). Sau đó `GET /posts/{id}` của **chính tác giả** cũng 404 (Mục 7.3). Bài bị kiểm duyệt ẩn
+        cũng xóa được (GĐ6, Đ-6.14) — người dùng luôn xóa được nội dung của mình.
 
         Gọi lại lần hai trên bài đã xóa → **403** (cùng phản hồi với "không phải của bạn"), không phải 404 — thao tác
         ghi cần ownership dùng 403 (Mục 6.1). Đây là dòng `TC-A03-delete`.
@@ -705,6 +726,22 @@ components:
             instance: /api/v1/feed
             traceId: f8a0c2e4b6d8f0a2c4e6b8d0f2a4c6e8
 
+    PostHidden:
+      description: |
+        Bài đang bị kiểm duyệt ẩn nên không sửa được (GĐ6, Đ-6.14) — không có gì bị đổi. Chỉ tác giả nhận mã này; FE phân
+        nhánh theo `type`, không theo `title`.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/PostHiddenProblem'
+          example:
+            type: urn:socialapp:problem:post-hidden
+            title: Xung đột dữ liệu
+            status: 409
+            detail: Bài viết đã bị ẩn do vi phạm tiêu chuẩn cộng đồng nên không sửa được.
+            instance: /api/v1/posts/0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10
+            traceId: 0c2e4b6d8f0a2c4e6b8d0f2a4c6e8b0d
+
     InternalError:
       description: |
         Lỗi không mong muốn. **Không bao giờ có `detail`** — `GlobalExceptionHandler` giấu chi tiết nội bộ, chỉ
@@ -732,7 +769,7 @@ components:
         type:
           type: string
           format: uri
-          description: Mặc định `https://httpstatuses.io/{status}`. Lỗi có `type` riêng khai bằng schema riêng (`FeedOverloadedProblem`).
+          description: Mặc định `https://httpstatuses.io/{status}`. Lỗi có `type` riêng khai bằng schema riêng (`FeedOverloadedProblem`, `PostHiddenProblem`).
         title:
           type: string
           description: Nhãn ngắn, ổn định theo loại lỗi. **Không** chứa dữ liệu người dùng.
@@ -963,7 +1000,31 @@ components:
         canEdit:
           type: boolean
           description: Do **server** tính (`author_id == actorId`). FE không tự so id (Mục 8.2).
+        moderation:
+          allOf:
+            - $ref: '#/components/schemas/PostModeration'
+          nullable: true
+          description: |
+            GĐ6 (Đ-6.14). Khác `null` **chỉ** khi bài bị kiểm duyệt ẩn và người gọi là tác giả — FE hiện biểu ngữ "bài bị
+            ẩn" theo `reasonCode`. `null` với mọi bài khác. Không required: client cũ bỏ qua được.
       required: [postId, author, privacy, media, commentCount, reactionCounts, createdAt, canEdit]
+
+    PostModeration:
+      type: object
+      description: Trạng thái kiểm duyệt cho tác giả. Không có id Moderator hay ghi chú quyết định — tác giả biết vì sao, không biết ai.
+      properties:
+        status:
+          type: string
+          enum: [hidden]
+        reasonCode:
+          type: string
+          enum: [spam, harassment, nudity, violence, other]
+          description: Cùng tập với `ReasonCode` của `moderation-v1` (PTTK ENT-12). FE hiển thị nhãn tiếng Việt.
+        hiddenAt:
+          type: string
+          format: date-time
+          description: Lúc bị ẩn. **Không** phải `editedAt` (lần sửa cuối của tác giả).
+      required: [status, reasonCode, hiddenAt]
 
     PostPage:
       type: object
@@ -989,6 +1050,17 @@ components:
             type:
               type: string
               enum: ['urn:socialapp:problem:feed-overloaded']
+          required: [type]
+
+    PostHiddenProblem:
+      description: 409 của `PATCH /posts/{postId}` khi bài đang bị kiểm duyệt ẩn (GĐ6, Đ-6.14). Cùng hình dạng `ProblemDetails`, `type` cố định.
+      allOf:
+        - $ref: '#/components/schemas/ProblemDetails'
+        - type: object
+          properties:
+            type:
+              type: string
+              enum: ['urn:socialapp:problem:post-hidden']
           required: [type]
 
     FeedMode:

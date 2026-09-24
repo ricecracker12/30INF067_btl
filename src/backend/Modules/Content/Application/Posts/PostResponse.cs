@@ -22,6 +22,11 @@ namespace SocialApp.Modules.Content.Application.Posts;
 /// Do SERVER tính (<c>author_id == actorId</c>), không phải FE tự so id (Mục 8.2). Ở GĐ2 nó trùng với "được sửa/xóa";
 /// GĐ6 thêm vai trò kiểm duyệt thì chính chỗ này đổi, và FE không phải biết.
 /// </param>
+/// <param name="Moderation">
+/// GĐ6 D7a (Đ-6.14, BR-07): khác <c>null</c> CHỈ khi bài bị ẩn và người gọi là tác giả — người khác không bao giờ tới được đây
+/// với bài <c>hidden</c> (404 ở <c>PostReadService</c>, feed/trang cá nhân lọc từ GĐ4). Đặt CUỐI record: A (GĐ3) cũng thêm trường
+/// vào đây, ai thêm cũng đặt cuối để rebase không chạm dòng của nhau (Mục 9.4).
+/// </param>
 public sealed record PostResponse(
     Guid PostId,
     PostAuthor Author,
@@ -32,7 +37,20 @@ public sealed record PostResponse(
     IReadOnlyDictionary<string, int> ReactionCounts,
     DateTimeOffset CreatedAt,
     DateTimeOffset? EditedAt,
-    bool CanEdit);
+    bool CanEdit,
+    PostModeration? Moderation);
+
+/// <summary>
+/// Trạng thái kiểm duyệt của bài, cho biểu ngữ "bài bị ẩn" của tác giả (E9). Không có id Moderator, không có ghi chú quyết định:
+/// tác giả biết bài bị ẩn và vì sao, không biết ai ẩn.
+/// </summary>
+/// <param name="Status">Luôn <c>"hidden"</c> ở GĐ6 — chuỗi chứ không bool để thêm trạng thái sau không đổi hình dạng.</param>
+/// <param name="ReasonCode">Mã lý do của báo cáo được xử lý (<c>ReasonCode</c> của <c>moderation-v1</c>), không phải câu chữ.</param>
+/// <param name="HiddenAt">
+/// <c>updated_at</c> của lần ẩn (Mục 4: không có cột <c>hidden_at</c>) — <c>HideAsync</c> (C2) đóng dấu nó, và tác giả không sửa
+/// được bài bị ẩn nên không gì đóng dấu lại. KHÔNG phải <c>EditedAt</c>: đó là lần sửa cuối của tác giả.
+/// </param>
+public sealed record PostModeration(string Status, string ReasonCode, DateTimeOffset HiddenAt);
 
 /// <summary>
 /// Tác giả, dựng từ <c>IUserDirectory</c> (SharedKernel, A6) — MỘT lời gọi batch cho cả trang (Đ-2.3).
