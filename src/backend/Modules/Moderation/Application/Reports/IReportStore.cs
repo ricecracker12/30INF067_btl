@@ -1,8 +1,8 @@
 namespace SocialApp.Modules.Moderation.Application.Reports;
 
 /// <summary>
-/// Bảng <c>moderation.reports</c>, đường GHI. D6: báo cáo của người báo; D7c thêm quyết định vào đây. Hàng đợi và chi tiết (D7b) là
-/// đường đọc, ở <see cref="IReportQueries"/> — sửa 2026-09-25: bản đầu định dồn cả ba vào interface này.
+/// Bảng <c>moderation.reports</c>, đường GHI của NGƯỜI BÁO (D6). Hàng đợi và chi tiết (D7b) ở <see cref="IReportQueries"/>; quyết định và
+/// khôi phục (D7c) ở <c>IModerationDecisionStore</c> — sửa 2026-09-25: bản đầu định dồn cả ba vào interface này.
 /// </summary>
 public interface IReportStore
 {

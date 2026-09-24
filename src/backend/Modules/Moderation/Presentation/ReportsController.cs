@@ -1,14 +1,16 @@
+using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using SocialApp.Modules.Moderation.Application;
 using SocialApp.Modules.Moderation.Application.Reports;
+using SocialApp.SharedKernel.Authentication;
 using SocialApp.SharedKernel.Authorization;
 using SocialApp.SharedKernel.Http;
 
 namespace SocialApp.Modules.Moderation.Presentation;
 
 /// <summary>
-/// Hàng đợi và chi tiết báo cáo cho Moderator (GĐ6 D7b, UC-19). D7c thêm <c>PATCH /reports/{reportId}</c> vào CHÍNH controller này.
+/// Hàng đợi, chi tiết (GĐ6 D7b) và quyết định (D7c) báo cáo cho Moderator (UC-19).
 ///
 /// <list type="bullet">
 /// <item><b><c>[PrivilegedEndpoint]</c> ở mức class</b> (Mục 6.1): fail-closed khi không kiểm được thu hồi (Đ-6.8) + audit
@@ -23,7 +25,7 @@ namespace SocialApp.Modules.Moderation.Presentation;
 [Route("api/v1/reports")]
 [PrivilegedEndpoint]
 [ApiExplorerSettings(GroupName = ModerationApiGroup.Name)]
-public sealed class ReportsController(ReportReadService reports) : ControllerBase
+public sealed class ReportsController(ReportReadService reports, DecideReportService decisions) : ControllerBase
 {
     /// <summary>
     /// Hàng đợi: mỗi đối tượng bị báo một dòng, báo cáo mở cũ nhất trước. <paramref name="query"/> là <c>[FromQuery]</c> để
@@ -57,6 +59,28 @@ public sealed class ReportsController(ReportReadService reports) : ControllerBas
     public async Task<ActionResult<ReportDetail>> Get(Guid reportId, CancellationToken ct)
     {
         var result = await reports.GetAsync(reportId, ct);
+        return result.ToActionResult(this);
+    }
+
+    /// <summary>
+    /// Quyết định một báo cáo (Đ-6.13): <c>hide</c> ẩn đối tượng + đóng MỌI báo cáo mở của nó + một dòng audit trong một transaction;
+    /// <c>dismiss</c>/<c>resolve</c> chỉ đóng báo cáo. <c>hide</c> cần thêm <c>post.hide</c> — tầng 2 thứ hai ở service (L-D12), vai trò
+    /// đọc từ claim của token, không từ body. Đã quyết rồi → 409 <c>report-already-decided</c>.
+    /// </summary>
+    [HttpPatch("{reportId}")]
+    [RequirePermission(ModerationPermissions.ReportResolve)]
+    [ProducesResponseType<ReportDecisionResult>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest, "application/problem+json")]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized, "application/problem+json")]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden, "application/problem+json")]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound, "application/problem+json")]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict, "application/problem+json")]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status503ServiceUnavailable, "application/problem+json")]
+    public async Task<ActionResult<ReportDecisionResult>> Decide(
+        Guid reportId, DecideReportRequest request, CancellationToken ct)
+    {
+        var result = await decisions.DecideAsync(
+            reportId, User.GetUserId(), User.FindFirstValue(JwtClaims.Role), request, ct);
         return result.ToActionResult(this);
     }
 }

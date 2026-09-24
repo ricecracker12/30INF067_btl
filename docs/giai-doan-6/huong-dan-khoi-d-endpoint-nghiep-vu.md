@@ -889,7 +889,8 @@ xanh; `socialapp_reports_decided_total` có ba nhãn từ lúc khởi động.
    | `TC-A06`, `TC-A06b` | matrix | 403 · 200 |
 
    Thử cho đỏ trước khi commit: bỏ `FOR UPDATE` → `MOD-C1` đỏ; bước 5 chỉ đóng `id = @rid` → `MOD-01` đỏ (còn 2 báo cáo mở); audit
-   ghi `tx: null` → `TX-01` đỏ (đột biến bắt buộc của B5, bản qua API).
+   ghi `tx: null` → `TX-01` đỏ (đột biến bắt buộc của B5, bản qua API). *Sửa 2026-09-25 khi thi công D7c:* `tx: null` là đột biến
+   TƯƠNG ĐƯƠNG ở đây (nhánh null của `SqlAuditTrail` dùng chính kết nối scoped đang giữ transaction) — thay bằng "audit ghi SAU `COMMIT`".
 
 ### Cạm bẫy đã biết
 
@@ -1260,7 +1261,7 @@ tự merge. Mô tả PR mang danh sách tự rà B.10 (tám mục) và bảng đ
 
 **Mốc 3 — ẩn + đóng báo cáo + audit một transaction**
 
-- [ ] `MOD-01..06`, `MOD-C1` (20/20), `TX-01`, `TX-02` qua API xanh; `TX-01` đã đỏ khi audit ghi `tx: null`
+- [ ] `MOD-01..06`, `MOD-C1` (20/20), `TX-01`, `TX-02` qua API xanh; `TX-01` đã đỏ khi audit ghi sau `COMMIT` (*sửa 2026-09-25:* `tx: null` tương đương — Thực tế thi công D7c)
 - [ ] `AUD-01` (không `SECRET-` trong audit), `AUD-03` qua endpoint thật, `AUD-04` xanh
 - [ ] `HID-01..06` xanh; hai lỗ BR-07 (L-D4) ghi trong thân commit D7a
 
@@ -1301,7 +1302,7 @@ tự merge. Mô tả PR mang danh sách tự rà B.10 (tám mục) và bảng đ
 | Bỏ kiểm `post.hide` | `ROLE-01` (vế `hide`) |
 | Bước 5 D7c chỉ đóng `id = @rid` | `MOD-01` |
 | Bỏ `FOR UPDATE` ở D7c | `MOD-C1` |
-| Audit D7c ghi `tx: null` | `TX-01` (API) |
+| Audit D7c ghi SAU `COMMIT` (*sửa 2026-09-25 khi thi công D7c:* bản đầu ghi "`tx: null`" — tương đương, xem Thực tế thi công D7c) | `TX-01` (API) |
 | `GetAsync` bỏ nhánh `hidden` cho người khác | `HID-02`, `HID-03` |
 | `UpdateAsync` bỏ 409 | `HID-04` |
 | Upsert tăng `actor_count` mỗi lượt | `NOTIF-04` |
@@ -1777,9 +1778,87 @@ chiều) là bản bắt được một cách tất định.
 (`truncation`) — "0 luồng" là số tối thiểu. Impact trước khi sửa: `ModerationErrors` LOW (3 nút — chỉ thêm thành viên), `IReportStore` LOW
 (9 nút — chỉ sửa comment), `AddModerationModule` UNKNOWN — text search: 7 lời gọi, chữ ký không đổi, chỉ thêm hai đăng ký scoped.
 
+### D7c — 2026-09-25
+
+Làm đúng Mục 11; L-D12 áp như chốt. `DecisionRules` (bảng chín ô + ánh xạ trạng thái/`action`) · `DecideReportRequest` + validator ·
+`ReportDecisionResult` · `DecideReportService` · `IModerationDecisionStore` + `ModerationDecisionStore` (transaction: khóa báo cáo →
+ẩn → đóng mọi báo cáo mở → audit → `COMMIT`; khôi phục) · `RestoreTargetService` + `RestoreTargetRequest` · action `PATCH` trên
+`ReportsController` · `ModerationTargetsController` (`[PrivilegedEndpoint]`, `[RequirePermission(post.hide)]`) · ba 409 có `type` +
+`InvalidDecision`, `RestoreTypeInvalid`, `ModerationTargetNotFound` trong `ModerationErrors` · `BusinessMetrics.ReportDecided` +
+ba nhãn trong `Initialize()` · `moderation-v1.yaml` `1.2.0-gd6` · `pnpm gen:api` → chỉ `lib/api/moderation/schema.d.ts` đổi · matrix
+`TC-A06`, `TC-A06b`. `giai-doan-6.md` sửa cùng lượt: Mục 8.1 (version, hình dạng khôi phục, target của `access.denied`), B.6 D7.
+
+**Lệch so với chính tài liệu này:**
+- **Store ghi là interface mới `IModerationDecisionStore`**, không thêm vào `IReportStore` (comment D6/D7b định vậy): phụ thuộc khác
+  hẳn (`IModerationTargets`, `IAuditTrail` inject vào store — khuôn `AccountAdministrationStore` của D3) và fake D6 không phải sửa.
+  Comment `IReportStore` sửa theo.
+- **`access.denied` của tầng 2 kép ghi target `report` + id báo cáo**, `metadata.permission = post.hide` — khuôn L-D18 (D4): service
+  biết đối tượng, không biết route. Bước 0 của Mục 11 ghi `{ method, routeTemplate }` — bỏ, như D4.
+- **`hide` mà ảnh chụp không có** (đối tượng biến mất khỏi mọi bảng, hoặc loại chưa có provider) → 409 `moderation-target-gone` TRƯỚC
+  transaction, thay vì để `HideAsync` ném `NotSupportedException` (500). Đã xóa mềm thì vẫn có ảnh chụp → `HideAsync` trả `NotFound`
+  trong transaction → cùng 409.
+- **`targetStatus` của `dismiss`/`resolve` lấy từ ảnh chụp đọc cho MỌI quyết định** (bước 2 chỉ ghi ảnh chụp cho `hide`); ảnh chụp vắng
+  → `deleted`.
+- **Khôi phục trả 200 `ModerationTargetChange`**, body tùy chọn (`EmptyBodyBehavior.Allow`), route không `:guid` (Mục 11 bước 3 ghi
+  `{targetId:guid}`) — cùng nếp D2/D3: id sai dạng 400 `errors.targetId`.
+- **`note` bắt buộc khi `resolve` kiểm ở validator** (Mục 11 bước 1 đặt ở service): không cần báo cáo để biết, và 400 tới trước mọi I/O.
+  Sai cặp `decision × targetType` vẫn ở service (cần báo cáo).
+- **`MOD-07` đếm `ContentHidden` bằng handler ghi lại** (khuôn EVT-06), không bằng metric `published{event}`: metric là số của cả
+  process — lớp khác chạy cùng làm lệch.
+- **`TX-01`/`TX-02` dùng decorator GHI THẬT rồi mới ném**, không fake ném ngay: fake ném ngay xanh cả khi audit ghi sau `COMMIT` hay provider
+  ghi trên kết nối khác — đúng hai đột biến mà hai ca này tồn tại để bắt. Có ca đối chứng không bật lỗi.
+- **Thêm ca ngoài bảng:** `MOD-05` sáu biến thể 400 + đối chứng `resolve` có ghi chú 200; `MOD-06` thêm vế người khác đọc lại được bài,
+  báo cáo đã đóng giữ nguyên, không event, gọi không body; khôi phục 400/404 năm biến thể; `ROLE-01` thêm `hide` trên id báo cáo lạ vẫn
+  403 (không 404); `AUD-01` chạy cả `hide` lẫn khôi phục; unit: bảng chín ô, validator, thứ tự tầng 2 kép, event đúng vai và lý do
+  của request, không phát lại khi `AlreadyHidden`, không phát khi 409.
+
+**Tự rà luật 5 (Publish sau COMMIT):** `IEventPublisher.Publish` chỉ gọi ở `DecideReportService.DecideAsync`, SAU khi
+`store.DecideAsync` trả về (store đã `CommitAsync`), ngoài mọi khối `await using var tx`; nhánh `AlreadyDecided`/`TargetGone` return
+trước. Khôi phục không phát event.
+
+**Test:** Unit 477 → 501 (+24 `DecideReportServiceTests`: bảng chín ô, validator, thứ tự tầng 2 kép, event), Integration 765 → 785
+(+15 `DecideReportTests`, +3 `ModerationTransactionTests`, +2 matrix `TC-A06`/`TC-A06b`; `MetricsEndpointTests` thêm ba chuỗi vào ca
+có sẵn), Architecture 27 → 27. Vitest 591 → 591 (chỉ `schema.d.ts` đổi). `MOD-C1` (20 lượt mỗi lần chạy) chạy thêm 5 lần liền:
+5/5 xanh. Còn đỏ nền R2 trên máy dev. FE: `pnpm lint`, `typecheck`, `test`, `build` xanh.
+
+**Thử cho đỏ — 13/13 đột biến có nghĩa bị bắt; 1 đột biến tương đương**, build hợp lệ ở mọi lượt (`0 Error(s)`), file khôi phục
+nguyên byte (`md5`):
+
+| Đột biến | Ca đỏ thực tế |
+|---|---|
+| M1 — bỏ `FOR UPDATE` | `MOD_C1_…` |
+| M2 — bước đóng chỉ đóng báo cáo được mở | `MOD_01_…` |
+| M3b — `COMMIT` trước khi ghi audit | `TX_01_…` (+ 11 ca khác: audit trên transaction đã đóng ném → 500 sau khi đã ghi) |
+| M4 — bỏ kiểm `status = open` sau khóa | `MOD_04_…`; `MOD_C1_…` |
+| M5 — bỏ tầng 2 kép `post.hide` | `ROLE_01_hide_…`; `Hide_thieu_post_hide_403_…` (unit) |
+| M6 — phát `ContentHidden` cả khi `AlreadyHidden` | `MOD_07_…`; `Bai_da_an_tu_truoc_khong_phat_lai` (unit) |
+| M7 — lý do luôn lấy của báo cáo (cạm bẫy 5) | `Hide_vua_an_phat_ContentHidden_dung_vai_ly_do_cua_request` (unit) |
+| M8 — bảng cho `resolve` bài | `MOD_05_…`; `Bang_decision_x_targetType_chin_o` ×2 (unit) |
+| M9 — khôi phục không ghi audit | `MOD_06_…`; `AUD_01_…` |
+| M10 — bỏ `[RequirePermission]` của `PATCH` | matrix `TC-A06`; `MOD_03_…` |
+| M11 — validator bỏ luật `note` cho `resolve` | `MOD_05_…`; `Validator_…` ×2 (unit) |
+| M12 — `Initialize()` bỏ ba nhãn quyết định | `MetricsEndpointTests.Chi_so_nghiep_vu_co_mat_tu_luc_khoi_dong` |
+| M13 — yaml bỏ 409 của `PATCH` | `ModerationContractTests.Runtime_must_not_expose_anything_outside_the_contract` |
+
+**Tương đương, không tính:** M3 — audit quyết định ghi `tx: null` (đột biến bắt buộc của B5 ở Mục 20) → **không ca nào đỏ**, và đó là
+hành vi đúng của code hiện tại, không phải test yếu: nhánh `tx: null` của `SqlAuditTrail` ghi trên kết nối của `ModerationDbContext`
+**scoped** — chính kết nối đang giữ transaction của store — nên Postgres cho câu `INSERT` vào luôn transaction đó (Npgsql không bắt
+gán `cmd.Transaction`). Thay bằng M3b (audit SAU `COMMIT`) để chứng minh `TX-01` canh đúng "audit cùng số phận". Dòng Mục 20 sửa theo.
+
+**Điểm tìm ra khi rà, CHƯA sửa (ngoài phạm vi D7c — code của C1):** `IAuditTrail` hứa "`tx` null → tự ghi trên kết nối riêng", nhưng
+`SqlAuditTrail` dùng kết nối của context scoped. Ai gọi `AppendAsync(null, access.denied)` trong lúc CÙNG scope đang mở transaction
+trên `ModerationDbContext` rồi rollback thì mất dòng từ chối. Hôm nay không đường nào làm vậy: D4 và D7c ghi `access.denied` trước khi
+mở transaction hoặc sau khi store đã trả về (đã rollback/commit); handler C4 chạy ở middleware, trước action. Cần quyết định: sửa comment
+cho đúng thực tế, hay đổi hiện thực sang kết nối riêng từ cùng pool (L-C1 cấm pool thứ hai, không cấm kết nối thứ hai).
+
+**detect-changes:** low, 0 luồng (22 file, 31 symbol; file mới đã `git add -N`). Index báo luồng bị cắt ở bước dựng process — "0 luồng" là số
+tối thiểu. Impact trước khi sửa: `BusinessMetrics` MEDIUM (18 nút — chỉ thêm counter + nhãn), `Initialize` LOW,
+`ModerationErrors` MEDIUM (5 nút — chỉ thêm thành viên), `ReportsController`, `AddModerationModule` UNKNOWN — text search: controller
+chỉ nối qua routing MVC, thêm một action và một tham số constructor (DI resolve); `AddModerationModule` 7 lời gọi, chữ ký không đổi.
+
 ### Các đầu việc còn lại
 
-D7c → D13. Mỗi đầu việc khi xong điền theo khuôn của hướng dẫn khối A+C:
+D8 → D13. Mỗi đầu việc khi xong điền theo khuôn của hướng dẫn khối A+C:
 
 - chỗ nào đi theo / không theo đề xuất Mục 0.6, và vì sao;
 - lệch so với chính tài liệu này;

@@ -78,6 +78,52 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
+        /**
+         * Quyết định một báo cáo — ẩn, bỏ qua hoặc đã xử lý; đóng MỌI báo cáo mở của cùng đối tượng
+         * @description Tầng 2: `report.resolve`. `decision: hide` cần **thêm** `post.hide` (Đ-6.9) — thiếu thì 403 và một dòng nhật ký
+         *     `access.denied`, kể cả khi báo cáo không tồn tại. Endpoint đặc quyền như `GET /reports`.
+         *
+         *     | `decision` | Áp cho | Làm gì |
+         *     |---|---|---|
+         *     | `hide` | bài, bình luận | Ẩn đối tượng (tác giả thấy biểu ngữ kèm lý do, người khác 404) + thông báo tác giả |
+         *     | `dismiss` | mọi loại | Không vi phạm — chỉ đóng báo cáo |
+         *     | `resolve` | tài khoản | Đã xử lý ngoài luồng (vd Admin đã khóa) — **bắt buộc** `note` |
+         *
+         *     Sai cặp `decision` × loại đối tượng → 400 `errors.decision`.
+         *
+         *     Ẩn đối tượng, đóng **mọi** báo cáo đang mở của nó và ghi nhật ký kiểm toán là **một** transaction: lỗi giữa chừng
+         *     thì không gì thay đổi. `reasonCode` vắng → lý do của báo cáo được mở; có → dùng đúng giá trị đó cho `hidden_reason`
+         *     và thông báo. Báo cáo thứ hai cho bài **đã** ẩn: `hide` vẫn 200, đóng báo cáo, không thông báo lại.
+         *
+         *     | Tình huống | Phản hồi |
+         *     |---|---|
+         *     | Báo cáo đã được quyết (người khác vừa quyết, hoặc bấm lần hai) | 409 `report-already-decided` — không đổi gì |
+         *     | `hide` mà đối tượng đã bị xóa/không còn | 409 `moderation-target-gone` — báo cáo vẫn mở, `dismiss` nó |
+         */
+        patch: operations["decideReport"];
+        trace?: never;
+    };
+    "/moderation/targets/{targetType}/{targetId}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Khôi phục bài/bình luận bị ẩn
+         * @description Tầng 2: `post.hide`. Endpoint đặc quyền. `hidden → published` và một dòng nhật ký `content.restore` trong **một**
+         *     transaction. **Không** mở lại báo cáo đã đóng, **không** thông báo ai.
+         *
+         *     `targetType: user` → 400 `errors.targetType` (tài khoản không "ẩn" được). Đối tượng không tồn tại → 404; đang không bị
+         *     ẩn → 409 `moderation-not-hidden`. Body tùy chọn.
+         */
+        post: operations["restoreTarget"];
+        delete?: never;
+        options?: never;
+        head?: never;
         patch?: never;
         trace?: never;
     };
@@ -273,13 +319,59 @@ export interface components {
             /** @description Các quyết định đã có trên đối tượng, cũ nhất trước. */
             history: components["schemas"]["ReportHistoryEntry"][];
         };
+        /** @description 409 của `PATCH /reports/{reportId}` (Đ-6.13). Cùng hình dạng `ProblemDetails`, `type` là một trong hai URN. */
+        ReportDecisionConflictProblem: components["schemas"]["ProblemDetails"] & {
+            /** @enum {string} */
+            type: "urn:socialapp:problem:report-already-decided" | "urn:socialapp:problem:moderation-target-gone";
+        };
+        /** @description 409 của khôi phục. Cùng hình dạng `ProblemDetails`, `type` cố định. */
+        TargetNotHiddenProblem: components["schemas"]["ProblemDetails"] & {
+            /** @enum {string} */
+            type: "urn:socialapp:problem:moderation-not-hidden";
+        };
+        /**
+         * @description `hide` (bài, bình luận) · `dismiss` (mọi loại) · `resolve` (tài khoản, bắt buộc `note`).
+         * @enum {string}
+         */
+        ReportDecision: "hide" | "dismiss" | "resolve";
+        DecideReportRequest: {
+            decision: components["schemas"]["ReportDecision"];
+            reasonCode?: components["schemas"]["ReasonCode"];
+            /**
+             * @description Ghi chú của người quyết, tối đa 500 ký tự sau khi cắt khoảng trắng; chỉ khoảng trắng coi như vắng. **Bắt buộc** khi
+             *     `resolve`. Hiện ở lịch sử quyết định cho Moderator khác, không bao giờ cho tác giả hay người báo.
+             */
+            note?: string;
+        };
+        ReportDecisionResult: {
+            decision: components["schemas"]["ReportDecision"];
+            /** @description Mọi báo cáo vừa đóng — báo cáo được mở và mọi báo cáo đang mở khác của cùng đối tượng. */
+            closedReportIds: string[];
+            /**
+             * @description Trạng thái đối tượng sau quyết định — `hide` → `hidden`, còn lại giữ nguyên.
+             * @enum {string}
+             */
+            targetStatus: "published" | "hidden" | "deleted" | "active" | "disabled";
+        };
+        RestoreTargetRequest: {
+            /** @description Ghi chú của người khôi phục (nhật ký kiểm toán). */
+            note?: string;
+        };
+        ModerationTargetChange: {
+            targetType: components["schemas"]["ReportTargetType"];
+            /** Format: uuid */
+            targetId: string;
+            /** @enum {string} */
+            targetStatus: "published";
+        };
     };
     responses: {
         /**
          * @description Dữ liệu đầu vào không hợp lệ. `errors` là map `tên trường → danh sách thông điệp`: `targetType`, `targetId`,
          *     `reasonCode` thiếu hoặc ngoài tập giá trị, `detail` thiếu khi `other` hoặc quá 500 ký tự; `targetId` cũng là key của
          *     lỗi "báo cáo chính mình". Hàng đợi và chi tiết: `status` khác `open`, `cursor` rác, `limit` ngoài `1..50`,
-         *     `reportId` sai dạng UUID.
+         *     `reportId` sai dạng UUID. Quyết định: `decision` ngoài tập hoặc sai cặp với loại đối tượng, `reasonCode` ngoài tập,
+         *     `note` quá 500 ký tự hoặc thiếu khi `resolve`. Khôi phục: `targetType` khác `post`/`comment`, `targetId` sai dạng.
          */
         ValidationProblem: {
             headers: {
@@ -325,8 +417,9 @@ export interface components {
         };
         /**
          * @description Tầng 2 từ chối — vai trò của người gọi không có mã quyền endpoint đòi. `POST /reports` đòi `report.create` (USER,
-         *     MODERATOR đều có; 403 chỉ gặp ở vai trò tự tạo không được gán nó). Hàng đợi và chi tiết đòi `report.resolve` (USER
-         *     không có) — lần từ chối đó ghi nhật ký kiểm toán `access.denied`. Thông điệp không nêu quyền còn thiếu.
+         *     MODERATOR đều có; 403 chỉ gặp ở vai trò tự tạo không được gán nó). Hàng đợi, chi tiết, quyết định đòi `report.resolve`
+         *     (USER không có); `decision: hide` và khôi phục đòi thêm/đòi `post.hide`. Lần từ chối ở các endpoint kiểm duyệt ghi nhật
+         *     ký kiểm toán `access.denied`. Thông điệp không nêu quyền còn thiếu.
          */
         Forbidden: {
             headers: {
@@ -386,6 +479,66 @@ export interface components {
                  *     }
                  */
                 "application/problem+json": components["schemas"]["ProblemDetails"];
+            };
+        };
+        /**
+         * @description Không quyết được — không có gì bị đổi. Phân nhánh theo `type`: `report-already-decided` (báo cáo không còn mở — nạp lại
+         *     hàng đợi) · `moderation-target-gone` (`hide` mà đối tượng đã bị xóa — báo cáo vẫn mở, hãy `dismiss`).
+         */
+        ReportDecisionConflict: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "type": "urn:socialapp:problem:report-already-decided",
+                 *       "title": "Xung đột dữ liệu",
+                 *       "status": 409,
+                 *       "detail": "Báo cáo này đã được xử lý.",
+                 *       "instance": "/api/v1/reports/0192f3ca-6e41-7a02-b3d5-8c7e9f1a2b30",
+                 *       "traceId": "1a3c5e7b9d1f3a5c7e9b1d3f5a7c9e1b"
+                 *     }
+                 */
+                "application/problem+json": components["schemas"]["ReportDecisionConflictProblem"];
+            };
+        };
+        /** @description Đối tượng không tồn tại. Chỉ người có `post.hide` tới được đây — người khác dừng ở 403. */
+        ModerationTargetNotFound: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "type": "https://httpstatuses.io/404",
+                 *       "title": "Không tìm thấy tài nguyên",
+                 *       "status": 404,
+                 *       "detail": "Không tìm thấy nội dung.",
+                 *       "instance": "/api/v1/moderation/targets/post/0192f3c9-2b7d-7e10-8c4a-1f3e5d7b9a20/restore",
+                 *       "traceId": "2b4d6f8a0c2e4b6d8f0a2c4e6b8d0f2a"
+                 *     }
+                 */
+                "application/problem+json": components["schemas"]["ProblemDetails"];
+            };
+        };
+        /** @description Đối tượng đang không bị ẩn — không có gì để khôi phục, không đổi gì. */
+        TargetNotHidden: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "type": "urn:socialapp:problem:moderation-not-hidden",
+                 *       "title": "Xung đột dữ liệu",
+                 *       "status": 409,
+                 *       "detail": "Nội dung này hiện không bị ẩn.",
+                 *       "instance": "/api/v1/moderation/targets/post/0192f3c9-2b7d-7e10-8c4a-1f3e5d7b9a20/restore",
+                 *       "traceId": "3c5e7a9b1d3f5a7c9e1b3d5f7a9c1e3b"
+                 *     }
+                 */
+                "application/problem+json": components["schemas"]["TargetNotHiddenProblem"];
             };
         };
         /**
@@ -458,6 +611,10 @@ export interface components {
     parameters: {
         /** @description UUID v7 của báo cáo. Sai dạng → 400 `errors.reportId`. */
         ReportId: string;
+        /** @description `post` hoặc `comment`. `user` hay giá trị khác → 400 `errors.targetType`. */
+        TargetType: string;
+        /** @description UUID của đối tượng. Sai dạng → 400 `errors.targetId`. */
+        TargetId: string;
         /** @description `nextCursor` của trang trước, opaque. Sai dạng → 400 `errors.cursor`. */
         Cursor: string;
         /** @description Số dòng mỗi trang, `1..50`. Ngoài khoảng → 400 `errors.limit`. */
@@ -647,6 +804,109 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["ReportNotFound"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["RevocationUnavailable"];
+        };
+    };
+    decideReport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID v7 của báo cáo. Sai dạng → 400 `errors.reportId`. */
+                reportId: components["parameters"]["ReportId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "decision": "hide",
+                 *       "reasonCode": "spam",
+                 *       "note": "Quảng cáo lặp lại nhiều lần."
+                 *     }
+                 */
+                "application/json": components["schemas"]["DecideReportRequest"];
+            };
+        };
+        responses: {
+            /** @description Đã quyết. `closedReportIds` là mọi báo cáo vừa đóng. */
+            200: {
+                headers: {
+                    "X-Correlation-ID": components["headers"]["XCorrelationId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "decision": "hide",
+                     *       "closedReportIds": [
+                     *         "0192f3ca-6e41-7a02-b3d5-8c7e9f1a2b30",
+                     *         "0192f3cb-1a22-7c10-9d4e-5f6a7b8c9d01"
+                     *       ],
+                     *       "targetStatus": "hidden"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ReportDecisionResult"];
+                };
+            };
+            400: components["responses"]["ValidationProblem"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["ReportNotFound"];
+            409: components["responses"]["ReportDecisionConflict"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["RevocationUnavailable"];
+        };
+    };
+    restoreTarget: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description `post` hoặc `comment`. `user` hay giá trị khác → 400 `errors.targetType`. */
+                targetType: components["parameters"]["TargetType"];
+                /** @description UUID của đối tượng. Sai dạng → 400 `errors.targetId`. */
+                targetId: components["parameters"]["TargetId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                /**
+                 * @example {
+                 *       "note": "Ẩn nhầm — bài không vi phạm."
+                 *     }
+                 */
+                "application/json": components["schemas"]["RestoreTargetRequest"];
+            };
+        };
+        responses: {
+            /** @description Đã khôi phục. */
+            200: {
+                headers: {
+                    "X-Correlation-ID": components["headers"]["XCorrelationId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "targetType": "post",
+                     *       "targetId": "0192f3c9-2b7d-7e10-8c4a-1f3e5d7b9a20",
+                     *       "targetStatus": "published"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ModerationTargetChange"];
+                };
+            };
+            400: components["responses"]["ValidationProblem"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["ModerationTargetNotFound"];
+            409: components["responses"]["TargetNotHidden"];
             429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalError"];
             503: components["responses"]["RevocationUnavailable"];

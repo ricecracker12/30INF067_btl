@@ -2,7 +2,9 @@ using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using SocialApp.Modules.Moderation.Application;
 using SocialApp.Modules.Moderation.Application.Reports;
+using SocialApp.Modules.Moderation.Application.Targets;
 using SocialApp.Modules.Moderation.Infrastructure;
 using SocialApp.Modules.Moderation.Infrastructure.Audit;
 using SocialApp.Modules.Moderation.Infrastructure.Persistence;
@@ -46,6 +48,11 @@ public static class ModerationModuleExtensions
         // D7b (Đ-6.13): GET /reports, GET /reports/{id}. IUserDirectory, IObjectStorage do host + module chủ đăng ký — cùng lý do trên.
         services.AddScoped<IReportQueries, ReportQueries>();
         services.AddScoped<ReportReadService>();
+
+        // D7c (Đ-6.13): PATCH /reports/{id}, POST /moderation/targets/…/restore. IPermissionCache, IEventPublisher do SharedKernel đăng ký.
+        services.AddScoped<IModerationDecisionStore, ModerationDecisionStore>();
+        services.AddScoped<DecideReportService>();
+        services.AddScoped<RestoreTargetService>();
 
         // CHỈ đăng ký validator của module. KHÔNG gọi AddFluentValidationAutoValidation ở đây: cấu hình MVC toàn cục, host
         // đã gọi một lần.

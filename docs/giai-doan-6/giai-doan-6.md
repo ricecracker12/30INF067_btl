@@ -1131,7 +1131,12 @@ AuditLogPage         { items: [AuditLogItem], nextCursor: string | null }       
   `detail` chỉ có khoảng trắng coi như vắng mặt (lưu `null`; với `other` thì 400 như thiếu). `targetType: comment` → 404 tới khi có
   provider bình luận (L-D13).
 - 409 có ba `type`: `urn:socialapp:problem:report-already-decided`, `…:moderation-target-gone`, `…:moderation-not-hidden`.
-- `info.version`: `1.0.0-gd6`.
+- `info.version`: `1.0.0-gd6` (D6) → `1.1.0-gd6` (D7b) → `1.2.0-gd6` (D7c).
+- *Sửa 2026-09-25 khi thi công D7c:* khôi phục trả 200 `ModerationTargetChange { targetType, targetId, targetStatus: "published" }`
+  (bảng bản đầu chỉ ghi "200"), body `{ note? }` **tùy chọn**. Route không ràng buộc `:guid` — id sai dạng 400 `errors.targetId`, như
+  mọi route của khối D. `targetType` khác `post`/`comment` → 400 `errors.targetType`; bình luận trước GĐ3 → 404 (L-D13).
+  `DecideReportRequest.reasonCode` vắng → lý do của báo cáo được mở. Tầng 2 kép `post.hide` bị từ chối ghi `access.denied` với target
+  là **báo cáo** (`report` + id) và `metadata.permission` — khuôn L-D18 của D4.
 
 ### 8.2 `admin-v1.yaml` (nhóm thứ hai của Identity)
 
@@ -1934,6 +1939,11 @@ cho mọi người qua BR-02), mapper gắn `moderation` cho tác giả, `Update
 *Sửa 2026-09-25 khi thi công D7b* (L-D15): hai `GET` của `moderation-v1` (`1.1.0-gd6`) ở `ReportsController` mang
 `[PrivilegedEndpoint]`; đường đọc tách interface riêng `IReportQueries` (khuôn `IAdminUserQueries` của D2), không dồn vào
 `IReportStore`. `history[].outcome` thay `decision` (Mục 8.1). Matrix thêm `TC-A06-queue`; `AUD-03` chạy cả trên controller thật.
+
+*Sửa 2026-09-25 khi thi công D7c* (L-D12): kiểm `post.hide` **trước** mọi I/O, không trong transaction sau `FOR UPDATE` như bước 2 của
+Đ-6.13. Transaction (khóa báo cáo → ẩn → đóng mọi báo cáo mở → audit) ở `ModerationDecisionStore`; event và metric sau `COMMIT`.
+`MOD-07` đếm `ContentHidden` bằng handler ghi lại, không bằng metric `published{event}` (metric là số của cả process). Matrix thêm
+`TC-A06`, `TC-A06b`.
 
 ### D8 — `GET /admin/audit-logs`
 

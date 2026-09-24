@@ -50,6 +50,10 @@ public sealed class MetricsEndpointTests(ApiFactory factory)
             "socialapp_messages_sent_total{channel=\"rest\"} ",
             "socialapp_message_push_seconds_count ",
             "socialapp_revocation_failures_total ",   // GĐ6 D3 (Đ-6.6)
+            // GĐ6 D7c (Đ-6.13): ba nhãn quyết định kiểm duyệt.
+            "socialapp_reports_decided_total{decision=\"hide\"} ",
+            "socialapp_reports_decided_total{decision=\"dismiss\"} ",
+            "socialapp_reports_decided_total{decision=\"resolve\"} ",
         ];
         Assert.All(chuoi, c => Assert.Contains(dong, l => l.StartsWith(c, StringComparison.Ordinal)));
     }

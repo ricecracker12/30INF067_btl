@@ -61,13 +61,19 @@ public static class BusinessMetrics
         "socialapp_revocation_failures_total",
         "Lần ghi mốc thu hồi revoked:user hỏng sau 3 lần thử, SAU khi DB đã đổi (khóa tài khoản, đổi vai trò). Lớn hơn 0 = có phiên giữ quyền cũ tới 15 phút (Đ-6.6).");
 
+    // GĐ6 D7c (Đ-6.13): một lần quyết là một lần tăng, dù đóng bao nhiêu báo cáo. Nhãn là ba giá trị cố định của hợp đồng — không id.
+    private static readonly Counter ReportsDecidedCounter = Metrics.CreateCounter(
+        "socialapp_reports_decided_total",
+        "Quyết định kiểm duyệt đã COMMIT, theo loại (hide | dismiss | resolve).",
+        new CounterConfiguration { LabelNames = ["decision"] });
+
     /// <summary>
     /// Host gọi MỘT lần lúc khởi động. Không có lời gọi này thì <c>/metrics</c> <b>trống</b> các chỉ số trên cho tới sự
     /// kiện đầu tiên: field static của lớp chỉ khởi tạo khi có ai chạm vào lớp, và nhãn chỉ thành chuỗi thời gian khi có
     /// giá trị đầu tiên (đã gặp trên staging 2026-09-23 — deploy xong, <c>grep socialapp_</c> ra rỗng). Hậu quả không
     /// chỉ là "chưa thấy": <c>increase()</c> mất luôn lần tăng đầu tiên sau mỗi lần deploy, và cảnh báo "đứng yên ở 0"
     /// không kêu được trên một chuỗi không tồn tại. Nên ở đây tạo sẵn cả mười chuỗi đếm (bảy của GĐ7, hai kênh gửi tin của GĐ5,
-    /// thu hồi của GĐ6) và histogram đẩy tin với giá trị 0 — cùng hai counter event bus cho mọi kiểu event của SharedKernel
+    /// thu hồi của GĐ6; thêm ba nhãn quyết định kiểm duyệt ở D7c) và histogram đẩy tin với giá trị 0 — cùng hai counter event bus cho mọi kiểu event của SharedKernel
     /// (tìm bằng phản chiếu: thêm record event mới là tự có chuỗi, không sửa ở đây).
     /// </summary>
     public static void Initialize()
@@ -81,6 +87,9 @@ public static class BusinessMetrics
             MediaCleanupRunsCounter.WithLabels(result);
         foreach (var channel in (string[])["hub", "rest"])
             MessagesSentCounter.WithLabels(channel);
+        // Chuỗi chữ chứ không ReportDecision.All: SharedKernel không tham chiếu module Moderation (ADR-001).
+        foreach (var decision in (string[])["hide", "dismiss", "resolve"])
+            ReportsDecidedCounter.WithLabels(decision);
         _ = MessagePushSeconds;
         foreach (var eventType in typeof(IIntegrationEvent).Assembly.GetTypes()
                      .Where(t => typeof(IIntegrationEvent).IsAssignableFrom(t) && t is { IsClass: true, IsAbstract: false }))
@@ -111,6 +120,9 @@ public static class BusinessMetrics
     /// Ghi <c>revoked:user</c> hỏng hẳn sau 3 lần thử (Đ-6.6) — người gọi đã log Error và trả <c>revocation: deferred</c>.
     /// </summary>
     public static void RevocationFailed() => RevocationFailuresCounter.Inc();
+
+    /// <summary>Một quyết định kiểm duyệt đã COMMIT (<c>hide</c> | <c>dismiss</c> | <c>resolve</c>). Không gọi ở nhánh 403/404/409.</summary>
+    public static void ReportDecided(string decision) => ReportsDecidedCounter.WithLabels(decision).Inc();
 
     /// <summary>Event bus vừa nhận <paramref name="eventType"/> vào hàng đợi — gọi ở <c>Publish</c>, trước khi biết có rơi hay không.</summary>
     public static void EventPublished(Type eventType) => EventsPublishedCounter.WithLabels(eventType.Name).Inc();

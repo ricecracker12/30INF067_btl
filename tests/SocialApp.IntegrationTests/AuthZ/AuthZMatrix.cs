@@ -261,6 +261,19 @@ public static class AuthZMatrix
         // Audit của lần từ chối này (AUD-03) ở ReportQueueTests — matrix chỉ so status.
         new("TC-A06-queue", "User thường đọc hàng đợi kiểm duyệt", "GĐ6",
             Caller.User, HttpMethod.Get, "/api/v1/reports", HttpStatusCode.Forbidden),
+
+        // D7c (Đ-6.13, US-019 AC-03): tầng 2 report.resolve chặn TRƯỚC mọi I/O — id báo cáo không cần tồn tại.
+        new("TC-A06", "User thường xử lý báo cáo", "GĐ6",
+            Caller.User, HttpMethod.Patch, "/api/v1/reports/{id}", HttpStatusCode.Forbidden,
+            ArrangePath: _ => Task.FromResult($"/api/v1/reports/{Guid.NewGuid()}"),
+            Body: new { decision = "dismiss" }),
+
+        // Đối chứng bắt buộc: TC-A06 xanh cả khi handler "chặn mọi người". Báo cáo MỞ thật (bài công khai của B, người báo C qua
+        // POST /reports) — 200 chứng minh Moderator đi hết đường, không dừng ở 404/409.
+        new("TC-A06b", "Đối chứng: Moderator bỏ qua báo cáo", "GĐ6",
+            Caller.Moderator, HttpMethod.Patch, "/api/v1/reports/{id}", HttpStatusCode.OK,
+            ArrangePath: async a => $"/api/v1/reports/{await BaoCaoMoAsync(a)}",
+            Body: new { decision = "dismiss" }),
     ];
 
     /// <summary>
@@ -335,6 +348,25 @@ public static class AuthZMatrix
                 return "/api/v1/reports";
             },
             Body: body);
+    }
+
+    /// <summary>
+    /// Dòng <c>TC-A06b</c>: một báo cáo MỞ trên bài công khai của B, người báo là một người lạ (không phải người gọi). Trả
+    /// <c>reportId</c>. Qua <c>POST /reports</c> thật — không SQL tay.
+    /// </summary>
+    private static async Task<Guid> BaoCaoMoAsync(AuthZArrange a)
+    {
+        var bai = await TaoBaiCuaNguoiKhacAsync(a, PrivacyCongKhai);
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/reports")
+        {
+            Content = JsonContent.Create(new { targetType = "post", targetId = bai, reasonCode = "spam" }),
+        };
+        request.Headers.Authorization = Bearer(Guid.NewGuid());
+        using var response = await a.Client.SendAsync(request);
+        await NemNeuKhongPhaiAsync(response, HttpStatusCode.Created, $"POST /reports cho bài {bai:D}");
+
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return document.RootElement.GetProperty("reportId").GetGuid();
     }
 
     /// <summary>Body của <c>POST /reports</c>, chuỗi hợp đồng viết tay. Xem <see cref="RepIdor"/>.</summary>
