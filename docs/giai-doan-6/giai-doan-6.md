@@ -396,7 +396,13 @@ Thiết kế GĐ1 đã hứa (PTTK 6.7.2 "nâng cấp là thay dữ liệu, khô
 
 **Mã quyền thứ 18 `role.manage` — lệch ma trận PTTK (17 mã).** "Gán vai trò cho người" (`role.assign`) và "định nghĩa vai trò
 là gì" là hai quyền khác bậc: một vai trò "Nhân sự" gán được người vào MODERATOR không có nghĩa được sửa MODERATOR có những
-quyền gì. Chỉ ADMIN có (short-circuit — không dòng `role_permissions` nào). Seeder tự chèn dòng `permissions` thứ 18 vì đọc
+quyền gì. Chỉ ADMIN có (short-circuit — không dòng `role_permissions` nào).
+
+*Thêm 2026-09-24 khi thi công D4* (L-D18 của `huong-dan-khoi-d-endpoint-nghiep-vu.md`, người thi công chốt): chỉ `role.assign` thì
+vai trò "Nhân sự" tự gán được mình (hay bất kỳ ai) lên ADMIN — tức `role.assign` tương đương toàn quyền, và `role.manage` "chỉ ADMIN
+có" mất nghĩa. `PUT /admin/users/{id}/role` **chạm ADMIN** (vai trò đích là ADMIN, hoặc người bị đổi đang là ADMIN) cần **thêm**
+`role.manage` — tầng 2 kép trong service, cùng khuôn `post.hide` của Đ-6.13 (tra trước `BEGIN`; vế "đang là ADMIN" kiểm sau khi khóa
+dòng). Thiếu → 403 + một dòng `access.denied` (`metadata.permission = role.manage`). Gán giữa các vai trò khác vẫn chỉ cần `role.assign`. Seeder tự chèn dòng `permissions` thứ 18 vì đọc
 `PermissionCodes.All` (`DO NOTHING`); **không** thêm vào bộ bootstrap của USER/MODERATOR. *(Sửa 2026-09-23, A3: seeder chèn kèm
 mô tả — xem Mục 4 phần Identity.)*
 
@@ -901,7 +907,7 @@ không FK sang `users` (Đ-2.2); `reason_code` là CHECK không bảng tham chi�
 | `GET /admin/users`, `GET /admin/users/{id}` | `user.lock` **hoặc** `user.unlock` **hoặc** `role.assign` (policy "any-of" — dưới bảng) + ◆ | — | 403 + audit · 404 |
 | `POST /admin/users/{id}/lock` | `user.lock` + ◆ | không tự khóa · bất biến Admin | 403 + audit · 400 · 404 · **409** |
 | `POST /admin/users/{id}/unlock` | `user.unlock` + ◆ | — | 403 + audit · 404 |
-| `PUT /admin/users/{id}/role` | `role.assign` + ◆ | vai trò đích tồn tại · bất biến Admin | 403 + audit · 400 · 404 · **409** |
+| `PUT /admin/users/{id}/role` | `role.assign` + ◆ · chạm ADMIN (đích là ADMIN **hoặc** người bị đổi đang là ADMIN) cần **thêm** `role.manage` — tầng 2 kép, *thêm 2026-09-24 khi thi công D4 (L-D18)* | vai trò đích tồn tại · bất biến Admin | 403 + audit · 400 · 404 · **409** |
 | `/admin/roles*`, `GET /admin/permissions` | `role.manage` + ◆ | vai trò hệ thống · xác nhận · không về 0 quyền | 403 + audit · 400 · 404 · **409** |
 | Bắt tay `/hubs/notifications` | scheme `RealtimeTicket` (GĐ5) | vé hợp lệ · chưa bị thu hồi | 401 |
 
@@ -1119,7 +1125,7 @@ AuditLogPage         { items: [AuditLogItem], nextCursor: string | null }       
 | GET | `/admin/users/{userId}` | như trên | 200 `AdminUser` | 400 · 401 · 403 · 404 · 503 |
 | POST | `/admin/users/{userId}/lock` | `user.lock` | 200 `AdminUserChange` | 400 tự khóa · 401 · 403 · 404 · 409 last-admin · 503 |
 | POST | `/admin/users/{userId}/unlock` | `user.unlock` | 200 `AdminUserChange` | 400 · 401 · 403 · 404 · 503 |
-| PUT | `/admin/users/{userId}/role` | `role.assign` | 200 `AdminUserChange` | 400 · 401 · 403 · 404 · 409 last-admin · 503 |
+| PUT | `/admin/users/{userId}/role` | `role.assign` (+ `role.manage` khi chạm ADMIN — L-D18) | 200 `AdminUserChange` | 400 · 401 · 403 · 404 · 409 last-admin · 503 |
 | GET | `/admin/roles` | `role.manage` | 200 `[RoleSummary]` | 401 · 403 · 503 |
 | POST | `/admin/roles` | `role.manage` | 201 `RoleSummary` | 400 · 401 · 403 · 409 code trùng · 503 |
 | PATCH | `/admin/roles/{roleId}` | `role.manage` | 200 `RoleSummary` | 400 · 401 · 403 · 404 · 503 |
@@ -1868,6 +1874,9 @@ trong thân commit — không commit đỏ; khóa tư vấn **luôn** lấy; aud
 ### D4 — `PUT /admin/users/{id}/role`
 
 Cùng khuôn D3, không đụng refresh family. **Xong khi:** `ADM-05`, `ROLE-01` (phần gán) xanh.
+
+*Sửa 2026-09-24 khi thi công D4* (L-D18): chạm ADMIN cần thêm `role.manage` — Đ-6.9, Mục 6.1, Mục 8.2. `ADM-C1` (hai Admin hạ nhau
+đồng thời, 20 lượt) đi cùng D4.
 
 ### D5 — CRUD vai trò + `GET /admin/permissions`
 

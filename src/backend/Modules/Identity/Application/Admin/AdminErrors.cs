@@ -21,6 +21,9 @@ public static class AdminErrors
     /// </summary>
     public static Error SelfLock => Error.Validation("userId", "Không thể tự khóa tài khoản của mình.");
 
+    /// <summary>D4: <c>roleCode</c> không khớp vai trò nào (so chính xác). 400 theo trường, không 404: đích là tài khoản, không phải vai trò.</summary>
+    public static Error UnknownRole => Error.Validation("roleCode", "Vai trò không tồn tại.");
+
     /// <summary>Thao tác làm hệ thống còn 0 Admin hoạt động — DB đã rollback, không ghi Redis, không audit (Đ-6.7).</summary>
     public static readonly Error LastAdmin = new(
         "admin.last_admin", "Hệ thống phải còn ít nhất một quản trị viên đang hoạt động.", 409, "Xung đột dữ liệu",

@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using SocialApp.Modules.Identity.Application.Admin.Users;
@@ -101,6 +102,27 @@ public sealed class AdminUsersController(AdminUserReadService users, AccountAdmi
     public async Task<ActionResult<AdminUserChange>> Unlock(Guid userId, CancellationToken ct)
     {
         var result = await accounts.UnlockAsync(userId, User.GetUserId(), ct);
+        return result.ToActionResult(this);
+    }
+
+    /// <summary>
+    /// Đổi vai trò (D4, Mục 7.3): có hiệu lực ở request kế tiếp mà người đó KHÔNG mất phiên. <c>role.assign</c> ở đây; thao tác chạm
+    /// ADMIN cần thêm <c>role.manage</c> — tầng 2 thứ hai trong service (L-D18), nên 403 có thể tới từ cả hai tầng. Claim <c>role</c>
+    /// chuyển nguyên xuống để service gọi <c>IsAllowedAsync</c> đúng cách <c>PermissionHandler</c> gọi (Mục 1.3 luật 3).
+    /// </summary>
+    [HttpPut("{userId}/role")]
+    [RequirePermission(PermissionCodes.RoleAssign)]
+    [ProducesResponseType<AdminUserChange>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest, "application/problem+json")]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized, "application/problem+json")]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden, "application/problem+json")]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound, "application/problem+json")]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict, "application/problem+json")]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status503ServiceUnavailable, "application/problem+json")]
+    public async Task<ActionResult<AdminUserChange>> AssignRole(Guid userId, AssignRoleRequest request, CancellationToken ct)
+    {
+        var result = await accounts.AssignRoleAsync(
+            userId, User.GetUserId(), User.FindFirstValue(JwtClaims.Role), request, ct);
         return result.ToActionResult(this);
     }
 }

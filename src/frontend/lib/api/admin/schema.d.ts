@@ -106,6 +106,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/users/{userId}/role": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Đổi vai trò của tài khoản
+         * @description Tầng 2: `role.assign`. Thao tác **chạm vai trò ADMIN** — nâng ai đó lên `ADMIN`, hoặc đổi vai trò của một người đang là
+         *     `ADMIN` — cần **thêm** `role.manage` (tầng 2 kép, L-D18): người chỉ có `role.assign` (vai trò "Nhân sự") không tự nâng
+         *     được mình hay ai khác lên toàn quyền. Thiếu → 403, có dòng `access.denied` trong nhật ký.
+         *
+         *     Có hiệu lực ở **request kế tiếp** mà người đó **không** bị đăng xuất (Mục 7.3): access token cũ 401 → BFF refresh cùng
+         *     family → token mới mang vai trò mới (đọc từ DB). Refresh family **không** bị thu hồi.
+         *
+         *     | Tình huống | Phản hồi |
+         *     |---|---|
+         *     | Đổi thành công | 200, `revocation: applied` (hoặc `deferred` nếu Redis hỏng sau khi đã lưu) |
+         *     | Đã mang đúng vai trò đó | 200, `revocation: not-needed` — không đổi gì, không ghi nhật ký |
+         *     | `roleCode` không tồn tại (so **chính xác**, phân biệt hoa thường) | 400 `errors.roleCode` |
+         *     | Hạ quản trị viên hoạt động cuối cùng | 409 `last-admin` — không đổi gì |
+         *
+         *     Tự hạ vai trò của chính mình **được**, miễn còn quản trị viên khác (Đ-6.7).
+         */
+        put: operations["assignAdminUserRole"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -211,6 +245,14 @@ export interface components {
              */
             revocation: "applied" | "deferred" | "not-needed";
         };
+        AssignRoleRequest: {
+            /**
+             * @description Mã vai trò đích (`roles.code`), so **chính xác** — `user` không phải `USER`. Thiếu, rỗng hay dài hơn 30 ký tự → 400
+             *     `errors.roleCode`; không tồn tại → 400 `errors.roleCode` *"Vai trò không tồn tại."*
+             * @example MODERATOR
+             */
+            roleCode: string;
+        };
     };
     responses: {
         /**
@@ -260,8 +302,9 @@ export interface components {
             };
         };
         /**
-         * @description Tầng 2 từ chối — vai trò không có mã quyền nào endpoint đòi (dòng `TC-A05` của AuthZ matrix). Để lại một dòng
-         *     `access.denied` trong nhật ký kiểm toán (Đ-6.15). Thông điệp không nêu quyền còn thiếu.
+         * @description Tầng 2 từ chối — vai trò không có mã quyền nào endpoint đòi (dòng `TC-A05` của AuthZ matrix), hoặc tầng 2 kép của đổi
+         *     vai trò (thao tác chạm ADMIN mà thiếu `role.manage`). Để lại một dòng `access.denied` trong nhật ký kiểm toán (Đ-6.15).
+         *     Thông điệp không nêu quyền còn thiếu.
          */
         Forbidden: {
             headers: {
@@ -609,6 +652,63 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["UserNotFound"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["RevocationUnavailable"];
+        };
+    };
+    assignAdminUserRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID của tài khoản đích. Sai dạng → 400 `errors.userId`. */
+                userId: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "roleCode": "MODERATOR"
+                 *     }
+                 */
+                "application/json": components["schemas"]["AssignRoleRequest"];
+            };
+        };
+        responses: {
+            /** @description Tài khoản sau thao tác, kèm trạng thái thu hồi phiên. */
+            200: {
+                headers: {
+                    "X-Correlation-ID": components["headers"]["XCorrelationId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "user": {
+                     *         "userId": "0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10",
+                     *         "email": "an.nguyen@example.com",
+                     *         "displayName": "Nguyễn Văn An",
+                     *         "roleCode": "MODERATOR",
+                     *         "roleDisplayName": "Kiểm duyệt viên",
+                     *         "status": "active",
+                     *         "emailVerified": true,
+                     *         "lockedUntil": null,
+                     *         "createdAt": "2026-09-08T03:10:22Z"
+                     *       },
+                     *       "revocation": "applied"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["AdminUserChange"];
+                };
+            };
+            400: components["responses"]["ValidationProblem"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["UserNotFound"];
+            409: components["responses"]["LastAdmin"];
             429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalError"];
             503: components["responses"]["RevocationUnavailable"];

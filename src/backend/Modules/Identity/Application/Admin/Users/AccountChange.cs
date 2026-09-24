@@ -38,6 +38,40 @@ public sealed class LockRequestValidator : AbstractValidator<LockRequest>
 }
 
 /// <summary>
+/// Body của <c>PUT /admin/users/{userId}/role</c> (schema <c>AssignRoleRequest</c>, D4). Chỉ mã vai trò — <c>code</c> bất biến
+/// (Đ-6.9), so CHÍNH XÁC phân biệt hoa thường. Cùng luật <c>[Required]</c>/<c>init</c> như <see cref="LockRequest"/>.
+/// </summary>
+public sealed class AssignRoleRequest
+{
+    [Required]
+    public string? RoleCode { get; init; }
+}
+
+/// <summary>
+/// <c>roleCode</c> không rỗng, tối đa 30 ký tự (<c>roles.code varchar(30)</c>). Không kiểm pattern ở đây: mã sai dạng thì cũng không
+/// tồn tại — store trả 400 "Vai trò không tồn tại." cho cả hai, một câu thay vì hai.
+/// </summary>
+public sealed class AssignRoleRequestValidator : AbstractValidator<AssignRoleRequest>
+{
+    public const int MaxRoleCodeLength = 30;
+
+    public const string RoleCodeRequired = "Vai trò là bắt buộc.";
+
+    public static readonly string RoleCodeTooLong = $"Mã vai trò tối đa {MaxRoleCodeLength} ký tự.";
+
+    public AssignRoleRequestValidator()
+    {
+        RuleFor(x => x.RoleCode)
+            .Must(c => !string.IsNullOrWhiteSpace(c))
+            .WithMessage(RoleCodeRequired);
+
+        RuleFor(x => x.RoleCode)
+            .Must(c => c is null || c.Length <= MaxRoleCodeLength)
+            .WithMessage(RoleCodeTooLong);
+    }
+}
+
+/// <summary>
 /// Giá trị <c>revocation</c> của <c>AdminUserChange</c> (Đ-6.6). Chuỗi chứ không enum C#: converter enum của host ghi camelCase
 /// (<c>notNeeded</c>), còn hợp đồng là <c>not-needed</c>.
 /// </summary>

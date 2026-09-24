@@ -58,7 +58,18 @@ public sealed class AdminInvariantConcurrencyTests(PostgresFixture postgres, Red
         await cmd.ExecuteNonQueryAsync();
     }
 
-    private async Task<HttpStatusCode> LockAsync(HttpClient http, Guid actor, Guid target)
+    private static async Task<HttpStatusCode> DemoteAsync(HttpClient http, Guid actor, Guid target)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Put, $"/api/v1/admin/users/{target}/role")
+        {
+            Content = JsonContent.Create(new { roleCode = "USER" }),
+        };
+        request.Headers.Authorization = ModulesTestClient.Bearer(actor, "ADMIN");
+        using var response = await http.SendAsync(request);
+        return response.StatusCode;
+    }
+
+    private static async Task<HttpStatusCode> LockAsync(HttpClient http, Guid actor, Guid target)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/admin/users/{target}/lock")
         {
@@ -70,15 +81,11 @@ public sealed class AdminInvariantConcurrencyTests(PostgresFixture postgres, Red
     }
 
     /// <summary>
-    /// ADM-C2 ⭐: đúng hai Admin X, Y; X khóa Y ‖ Y khóa X, <see cref="Rounds"/> lượt liền trong một ca. Mỗi lượt: luôn còn ĐÚNG một
-    /// Admin hoạt động, và đúng MỘT bên 200.
-    ///
-    /// Bên thua thường nhận 409 <c>last-admin</c> (khóa tư vấn xếp hàng nó sau bên thắng, đếm sau khi ghi thấy 0). Nó cũng có thể nhận
-    /// 401: nếu request của nó tới tầng 1 SAU khi bên thắng đã ghi <c>revoked:user</c> — bị khóa rồi thì không còn quyền gọi. Cả hai
-    /// đều giữ bất biến; thứ KHÔNG được xảy ra là hai 200 (bỏ khóa tư vấn, hay đếm trước khi ghi — đột biến M2, M3 của D3).
+    /// Một lượt "hai Admin làm <paramref name="act"/> với nhau cùng lúc" (<see cref="Rounds"/> lượt): luôn còn ĐÚNG một Admin hoạt
+    /// động, đúng MỘT bên 200. Bên thua 409 <c>last-admin</c>, hoặc 401 nếu request của nó tới tầng 1 sau khi bên thắng đã ghi
+    /// <c>revoked:user</c> — cả hai đều giữ bất biến; thứ bị cấm là hai 200.
     /// </summary>
-    [Fact]
-    public async Task ADM_C2_hai_Admin_khoa_nhau_dong_thoi_luon_con_mot_Admin_20_luot()
+    private async Task HaiAdminDongThoiAsync(Func<HttpClient, Guid, Guid, Task<HttpStatusCode>> act, string ten)
     {
         var loserCodes = new List<HttpStatusCode>();
         for (var round = 0; round < Rounds; round++)
@@ -90,19 +97,38 @@ public sealed class AdminInvariantConcurrencyTests(PostgresFixture postgres, Red
 
             using var httpX = factory.CreateClient();
             using var httpY = factory.CreateClient();
-            var codes = await Task.WhenAll(LockAsync(httpX, x, y), LockAsync(httpY, y, x));
+            var codes = await Task.WhenAll(act(httpX, x, y), act(httpY, y, x));
 
             Assert.True(await ActiveAdminsAsync() == 1,
-                $"lượt {round + 1}: còn {await ActiveAdminsAsync()} Admin hoạt động, mã [{string.Join(", ", codes.Select(c => (int)c))}]");
+                $"{ten} lượt {round + 1}: còn {await ActiveAdminsAsync()} Admin, mã [{string.Join(", ", codes.Select(c => (int)c))}]");
             Assert.True(codes.Count(c => c == HttpStatusCode.OK) == 1,
-                $"lượt {round + 1}: mã [{string.Join(", ", codes.Select(c => (int)c))}] — phải đúng một 200");
+                $"{ten} lượt {round + 1}: mã [{string.Join(", ", codes.Select(c => (int)c))}] — phải đúng một 200");
             var loser = codes.Single(c => c != HttpStatusCode.OK);
-            Assert.True(loser is HttpStatusCode.Conflict or HttpStatusCode.Unauthorized, $"lượt {round + 1}: bên thua {(int)loser}");
+            Assert.True(loser is HttpStatusCode.Conflict or HttpStatusCode.Unauthorized, $"{ten} lượt {round + 1}: bên thua {(int)loser}");
             loserCodes.Add(loser);
         }
 
-        // Bằng chứng ca này thật sự chạm nhánh 409 (không chỉ toàn 401 do lệch thời điểm): phần lớn lượt phải là 409.
+        // Bằng chứng ca thật sự chạm nhánh 409 (không chỉ toàn 401 do lệch thời điểm): phần lớn lượt phải là 409.
         Assert.True(loserCodes.Count(c => c == HttpStatusCode.Conflict) >= Rounds / 2,
-            $"409: {loserCodes.Count(c => c == HttpStatusCode.Conflict)}/{Rounds}, 401: {loserCodes.Count(c => c == HttpStatusCode.Unauthorized)}");
+            $"{ten} — 409: {loserCodes.Count(c => c == HttpStatusCode.Conflict)}/{Rounds}, 401: {loserCodes.Count(c => c == HttpStatusCode.Unauthorized)}");
     }
+
+    /// <summary>
+    /// ADM-C1 ⭐ (D4): đúng hai Admin X, Y; X hạ Y xuống USER ‖ Y hạ X — cùng lỗ đua với khóa (Đ-6.7): "đếm rồi ghi" cho cả hai qua.
+    /// </summary>
+    [Fact]
+    public Task ADM_C1_hai_Admin_ha_nhau_dong_thoi_luon_con_mot_Admin_20_luot() =>
+        HaiAdminDongThoiAsync(DemoteAsync, "ADM-C1");
+
+    /// <summary>
+    /// ADM-C2 ⭐: đúng hai Admin X, Y; X khóa Y ‖ Y khóa X, <see cref="Rounds"/> lượt liền trong một ca. Mỗi lượt: luôn còn ĐÚNG một
+    /// Admin hoạt động, và đúng MỘT bên 200.
+    ///
+    /// Bên thua thường nhận 409 <c>last-admin</c> (khóa tư vấn xếp hàng nó sau bên thắng, đếm sau khi ghi thấy 0). Nó cũng có thể nhận
+    /// 401: nếu request của nó tới tầng 1 SAU khi bên thắng đã ghi <c>revoked:user</c> — bị khóa rồi thì không còn quyền gọi. Cả hai
+    /// đều giữ bất biến; thứ KHÔNG được xảy ra là hai 200 (bỏ khóa tư vấn, hay đếm trước khi ghi — đột biến M1, M2 của D3).
+    /// </summary>
+    [Fact]
+    public Task ADM_C2_hai_Admin_khoa_nhau_dong_thoi_luon_con_mot_Admin_20_luot() =>
+        HaiAdminDongThoiAsync(LockAsync, "ADM-C2");
 }

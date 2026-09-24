@@ -15,7 +15,8 @@
 # nằm đây trước code.
 #   D2 (2026-09-24): GET /admin/users, GET /admin/users/{userId}.
 #   D3 (2026-09-24): POST /admin/users/{userId}/lock, POST /admin/users/{userId}/unlock — version 1.1.0-gd6.
-#   D4: PUT …/role · D5: /admin/roles*, GET /admin/permissions.
+#   D4 (2026-09-24): PUT /admin/users/{userId}/role — version 1.2.0-gd6.
+#   D5: /admin/roles*, GET /admin/permissions.
 #
 # QUYẾT ĐỊNH ĐỨNG SAU (giai-doan-6.md):
 #   Đ-6.8   Mọi endpoint ở đây FAIL-CLOSED: không kiểm được thu hồi token (Redis chết) → 503
@@ -26,13 +27,14 @@
 #           → 200 `revocation: deferred`, không 503 (thay đổi đã lưu).
 #   Đ-6.7   Luôn còn ≥ 1 Admin hoạt động — 409 `urn:socialapp:problem:last-admin`.
 #   L-D10   Thao tác không đổi gì (khóa tài khoản đã khóa…) → 200 `revocation: not-needed`, không audit.
+#   L-D18   Đổi vai trò CHẠM ADMIN (đích là ADMIN, hoặc người bị đổi đang là ADMIN) cần thêm `role.manage`.
 #   Mục 8.2 `email` là PII — chỉ trả ở nhóm này, không bao giờ vào log.
 # ---------------------------------------------------------------------------------------------
 openapi: 3.0.3
 
 info:
   title: SocialApp — Admin API
-  version: 1.1.0-gd6
+  version: 1.2.0-gd6
   description: |
     Màn quản trị của GĐ6 (UC-20): tài khoản, vai trò, quyền. Chỉ người có quyền quản trị gọi được —
     người dùng thường nhận **403** (dòng `TC-A05` của AuthZ matrix).
@@ -65,7 +67,7 @@ servers:
 
 tags:
   - name: admin-users
-    description: Tài khoản — danh sách, chi tiết, khóa, mở khóa (UC-20).
+    description: Tài khoản — danh sách, chi tiết, khóa, mở khóa, đổi vai trò (UC-20).
 
 paths:
 
@@ -313,6 +315,78 @@ paths:
         '503':
           $ref: '#/components/responses/RevocationUnavailable'
 
+  /admin/users/{userId}/role:
+    put:
+      tags: [admin-users]
+      operationId: assignAdminUserRole
+      summary: Đổi vai trò của tài khoản
+      description: |
+        Tầng 2: `role.assign`. Thao tác **chạm vai trò ADMIN** — nâng ai đó lên `ADMIN`, hoặc đổi vai trò của một người đang là
+        `ADMIN` — cần **thêm** `role.manage` (tầng 2 kép, L-D18): người chỉ có `role.assign` (vai trò "Nhân sự") không tự nâng
+        được mình hay ai khác lên toàn quyền. Thiếu → 403, có dòng `access.denied` trong nhật ký.
+
+        Có hiệu lực ở **request kế tiếp** mà người đó **không** bị đăng xuất (Mục 7.3): access token cũ 401 → BFF refresh cùng
+        family → token mới mang vai trò mới (đọc từ DB). Refresh family **không** bị thu hồi.
+
+        | Tình huống | Phản hồi |
+        |---|---|
+        | Đổi thành công | 200, `revocation: applied` (hoặc `deferred` nếu Redis hỏng sau khi đã lưu) |
+        | Đã mang đúng vai trò đó | 200, `revocation: not-needed` — không đổi gì, không ghi nhật ký |
+        | `roleCode` không tồn tại (so **chính xác**, phân biệt hoa thường) | 400 `errors.roleCode` |
+        | Hạ quản trị viên hoạt động cuối cùng | 409 `last-admin` — không đổi gì |
+
+        Tự hạ vai trò của chính mình **được**, miễn còn quản trị viên khác (Đ-6.7).
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignRoleRequest'
+            example:
+              roleCode: MODERATOR
+      responses:
+        '200':
+          description: Tài khoản sau thao tác, kèm trạng thái thu hồi phiên.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUserChange'
+              example:
+                user:
+                  userId: 0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10
+                  email: an.nguyen@example.com
+                  displayName: Nguyễn Văn An
+                  roleCode: MODERATOR
+                  roleDisplayName: Kiểm duyệt viên
+                  status: active
+                  emailVerified: true
+                  lockedUntil: null
+                  createdAt: '2026-09-08T03:10:22Z'
+                revocation: applied
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+        '409':
+          $ref: '#/components/responses/LastAdmin'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/RevocationUnavailable'
+
 components:
 
   securitySchemes:
@@ -403,8 +477,9 @@ components:
 
     Forbidden:
       description: |
-        Tầng 2 từ chối — vai trò không có mã quyền nào endpoint đòi (dòng `TC-A05` của AuthZ matrix). Để lại một dòng
-        `access.denied` trong nhật ký kiểm toán (Đ-6.15). Thông điệp không nêu quyền còn thiếu.
+        Tầng 2 từ chối — vai trò không có mã quyền nào endpoint đòi (dòng `TC-A05` của AuthZ matrix), hoặc tầng 2 kép của đổi
+        vai trò (thao tác chạm ADMIN mà thiếu `role.manage`). Để lại một dòng `access.denied` trong nhật ký kiểm toán (Đ-6.15).
+        Thông điệp không nêu quyền còn thiếu.
       content:
         application/problem+json:
           schema:
@@ -647,3 +722,17 @@ components:
               UI hiện đúng câu đó, không báo lỗi.
             - `not-needed` — không có gì để thu hồi (mở khóa, hoặc thao tác không đổi gì).
       required: [user, revocation]
+
+    AssignRoleRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        roleCode:
+          type: string
+          minLength: 1
+          maxLength: 30
+          description: |
+            Mã vai trò đích (`roles.code`), so **chính xác** — `user` không phải `USER`. Thiếu, rỗng hay dài hơn 30 ký tự → 400
+            `errors.roleCode`; không tồn tại → 400 `errors.roleCode` *"Vai trò không tồn tại."*
+          example: MODERATOR
+      required: [roleCode]

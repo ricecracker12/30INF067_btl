@@ -1,9 +1,12 @@
+using SocialApp.Modules.Identity.Domain;
+using SocialApp.SharedKernel.Audit;
+using SocialApp.SharedKernel.Authorization;
 using SocialApp.SharedKernel.Results;
 
 namespace SocialApp.Modules.Identity.Application.Admin.Users;
 
 /// <summary>
-/// Khóa / mở khóa tài khoản (GĐ6 D3, UC-20). Đây là chỗ thứ tự <b>DB → Redis</b> (Đ-6.6, B.10 #1) hiện ra trên màn hình: store trả
+/// Khóa / mở khóa tài khoản (GĐ6 D3), đổi vai trò (D4) — UC-20. Đây là chỗ thứ tự <b>DB → Redis</b> (Đ-6.6, B.10 #1) hiện ra trên màn hình: store trả
 /// về thì transaction đã <c>COMMIT</c>, và <see cref="UserRevoker.RevokeAsync"/> chạy SAU đó. Không nhánh nào <c>return</c> giữa
 /// hai bước mà bỏ quên thu hồi — nhánh <c>Changed</c> luôn đi qua cả hai.
 ///
@@ -11,7 +14,12 @@ namespace SocialApp.Modules.Identity.Application.Admin.Users;
 /// đường (Mục 1.3 luật 2).
 /// </summary>
 public sealed class AccountAdministrationService(
-    IAccountAdministrationStore store, UserRevoker revoker, AdminUserReadService users, TimeProvider time)
+    IAccountAdministrationStore store,
+    UserRevoker revoker,
+    AdminUserReadService users,
+    IPermissionCache permissions,
+    IAuditTrail audit,
+    TimeProvider time)
 {
     public async Task<Result<AdminUserChange>> LockAsync(
         Guid targetId, Guid actorId, LockRequest request, CancellationToken ct)
@@ -51,6 +59,59 @@ public sealed class AccountAdministrationService(
             return IdentityErrors.UserNotFound;
 
         return await ChangeAsync(targetId, RevocationStates.NotNeeded, ct);
+    }
+
+    /// <summary>
+    /// Đổi vai trò (D4). Tự hạ vai trò của mình ĐƯỢC — bất biến lo phần còn lại (Đ-6.7). Không thu hồi refresh family: token cũ chết
+    /// ở mốc <c>revoked:user</c>, refresh cùng family cấp token mang vai trò mới đọc từ DB, người đó không bị đăng xuất (Mục 7.3).
+    ///
+    /// Tầng 2 kép (L-D18, chốt 2026-09-24): <c>role.assign</c> đã qua ở controller; thao tác CHẠM ADMIN — vai trò đích là ADMIN, hoặc
+    /// người bị đổi đang là ADMIN — cần thêm <c>role.manage</c>. Không có thì người mang vai trò "Nhân sự" (chỉ <c>role.assign</c>, Đ-6.9)
+    /// tự nâng mình lên toàn quyền. Tra quyền TRƯỚC <c>BEGIN</c> (khuôn L-D12): không giữ khóa dòng trong lúc tra cache; vế "người bị đổi
+    /// đang là ADMIN" chỉ biết sau khi khóa dòng nên store kiểm nó với cờ tra sẵn.
+    /// </summary>
+    public async Task<Result<AdminUserChange>> AssignRoleAsync(
+        Guid targetId, Guid actorId, string? actorRole, AssignRoleRequest request, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var roleCode = request.RoleCode!;
+
+        var canManageRoles = await permissions.IsAllowedAsync(actorRole, PermissionCodes.RoleManage, ct);
+        if (roleCode == RoleCodes.Admin && !canManageRoles)
+            return await DeniedAsync(actorId, targetId, ct);
+
+        var outcome = await store.AssignRoleAsync(targetId, actorId, roleCode, canManageRoles, time.GetUtcNow(), ct);
+        switch (outcome)
+        {
+            case AdminOutcome.NotFound:
+                return IdentityErrors.UserNotFound;
+            case AdminOutcome.UnknownRole:
+                return AdminErrors.UnknownRole;
+            case AdminOutcome.LastAdmin:
+                return AdminErrors.LastAdmin;   // đã ROLLBACK — không ghi Redis
+            case AdminOutcome.Forbidden:
+                return await DeniedAsync(actorId, targetId, ct);
+        }
+
+        // SAU COMMIT (Đ-6.6). NoChange: đã mang đúng vai trò đó — token đang sống không sai gì (L-D10).
+        var revocation = outcome == AdminOutcome.Changed
+            ? await revoker.RevokeAsync(targetId)
+            : RevocationStates.NotNeeded;
+
+        return await ChangeAsync(targetId, revocation, ct);
+    }
+
+    /// <summary>
+    /// 403 của tầng 2 kép + một dòng <c>access.denied</c> (Đ-6.15 "mọi lần bị từ chối", L-D12): handler C4 chỉ thấy từ chối ở
+    /// middleware, không thấy lần từ chối trong service. <c>tx: null</c> — lúc bị từ chối không có thao tác nào để chung số phận
+    /// (store đã rollback hoặc chưa mở transaction). Đối tượng là tài khoản đích, <c>metadata.permission</c> là quyền còn thiếu.
+    /// </summary>
+    private async Task<Result<AdminUserChange>> DeniedAsync(Guid actorId, Guid targetId, CancellationToken ct)
+    {
+        await audit.AppendAsync(null, new AuditEntry(
+            actorId, AuditActions.AccessDenied, "user", targetId,
+            new Dictionary<string, object?> { ["permission"] = PermissionCodes.RoleManage }), ct);
+        return Result<AdminUserChange>.Forbidden();
     }
 
     /// <summary>

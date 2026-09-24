@@ -124,7 +124,8 @@ mốc đã từng đỏ khi cố tình bỏ đúng thứ bảo vệ nó (bảng 
 **không chạy được** trên code hiện tại.
 
 **Trạng thái (chốt 2026-09-24, người thi công):** cả mười lăm chỗ đi **theo cột "Đề xuất"**. L-D16 tìm ra khi thi công D1, L-D17 khi
-thi công D2 — ràng buộc kỹ thuật, đi theo đề xuất, ghi ở "Thực tế thi công".
+thi công D2 — ràng buộc kỹ thuật, đi theo đề xuất, ghi ở "Thực tế thi công". L-D18 tìm ra khi thi công D4 — lỗ bảo mật trong thiết
+kế, người thi công chốt theo đề xuất trước khi viết code.
 - Mười chỗ là **lựa chọn thiết kế**. Mỗi chỗ đã cân nhắc phương án khác rồi loại:
   - L-D5: tách D7 thay vì một commit lớn.
   - L-D6: khuôn hai bước thay vì truy vấn con trong `RETURNING`. Cách đó chạy được, nhưng dưới lượt đua nó trả `NULL`, và phải lập
@@ -166,6 +167,7 @@ ngày và lý do.
 | L-D15 | Mục 8.1: `ReportDetail.history: [{ decision, resolverId, resolvedAt, note? }]` | Đổi tên trường thành `outcome: "resolved" \| "dismissed"`, **trước** khi yaml có operation này (D7b), nên chưa client nào dùng | Bảng `reports` chỉ có `status` (`resolved\|dismissed`), không phân biệt `hide` với `resolve`. Trả `decision` thì hoặc bịa, hoặc thêm cột bằng một migration Moderation mới. "Đã ẩn hay xử lý ngoài luồng" đã có ở `target.status` và trong audit |
 | L-D16 *(thêm 2026-09-24 khi thi công D1)* | Mục 8.5: `identity-v1` chỉ thêm `permissions` và 403 `account-disabled` | Nới `RoleCode` từ enum `[USER, MODERATOR, ADMIN]` thành chuỗi có pattern `^[A-Z][A-Z0-9_]{2,29}$`, cùng commit D1. Test kiểu của FE (`schema.test-d.ts`) đổi theo | `/me.role` đọc `roles.code` từ DB, nên từ lúc có vai trò tự tạo (D5, và ca `ME-01` vai trò tự tạo của D1) response nằm ngoài enum của hợp đồng. Cổng hợp đồng không so giá trị enum nên không đỏ: hợp đồng nói dối mà không ai biết. Không chỗ nào của FE so tên vai trò (grep) |
 | L-D17 *(thêm 2026-09-24 khi thi công D2)* | Mục 6.3: "chỉ thêm dòng vào `AuthZMatrix.cs`, **không** sửa `AuthZMatrixTests`, `AuthZCase`, `AuthZApiFactory`" | Matrix chạy với **Redis thật** từ D2: `AuthZApiFactory.UseRedis` (mặc định giữ cổng 1, khuôn `ModulesApiFactory`/`IdentityApiFactory`) + `AuthZMatrixTests` nhận `RedisFixture` và chờ kết nối của app trước dòng đầu. `AuthZCase` không đổi | `AuthZApiFactory` trỏ Redis vào cổng 1. Endpoint `[PrivilegedEndpoint]` fail-closed (Đ-6.8), nên mọi người gọi có token nhận **503** trước khi tới tầng 2: `TC-A05` (403) và `TC-A05b` (200) không thể xanh — và mọi dòng `TC-A05*`/`TC-A06*` sau này cũng vậy. Stub `ITokenRevocationStore` thay vì Redis thật cũng chạy, nhưng là stub trên đúng đường mà matrix phải canh. Endpoint thường không đổi hành vi (Unknown và "không bị thu hồi" cùng cho qua). Đột biến M0 chứng minh |
+| L-D18 *(thêm 2026-09-24 khi thi công D4)* | Đ-6.9, Mục 6.1, Mục 8.2: `PUT /admin/users/{id}/role` chỉ cần `role.assign` | Thao tác **chạm ADMIN** — vai trò đích là ADMIN, hoặc người bị đổi đang là ADMIN — cần **thêm** `role.manage`: tầng 2 kép, khuôn L-D12. Service tra `IsAllowedAsync(role.manage)` **trước** `BEGIN` (đích ADMIN → 403 ngay); store kiểm vế "đang là ADMIN" sau khi khóa dòng với cờ tra sẵn. Từ chối → 403 + `access.denied` (`tx: null`, target `user`, `metadata.permission = role.manage`) | Đ-6.9 lấy ví dụ vai trò "Nhân sự" có `role.assign` mà không phải ADMIN. Không chặn thì người đó tự gán mình lên ADMIN: `role.assign` tương đương toàn quyền, `role.manage` "chỉ ADMIN có" mất nghĩa. Vế "đang là ADMIN" chặn chiều ngược lại — "Nhân sự" hạ hết Admin. Phương án "chỉ ADMIN mới gán ADMIN" bị loại: phải so `role == ADMIN` ở Identity (luật 3 Mục 1.3); dùng quyền thì Admin short-circuit tự đúng |
 
 ---
 
@@ -1486,9 +1488,59 @@ Lượt viết sai, không tính: M2 bản đầu chỉ THÊM một lần đếm
 `AddIdentityModule` UNKNOWN — text search: controller chỉ nối qua routing MVC; `IdentitySql` thêm tham số cuối có mặc định (ba lớp
 gọi không đổi); `AddIdentityModule` 16 lời gọi, chữ ký không đổi.
 
+### D4 — 2026-09-24
+
+Làm đúng Mục 6 cộng **L-D18** (mới, chốt trước khi viết code — bảng Mục 0.6). `AccountAdministrationStore.AssignRoleAsync` cùng khung
+D3, không đụng `refresh_tokens` · `AccountAdministrationService.AssignRoleAsync` (thêm `IPermissionCache`, `IAuditTrail` vào
+constructor) · `AssignRoleRequest` + validator · `AdminErrors.UnknownRole` (400 `errors.roleCode`) · action `PUT {userId}/role` ·
+`admin-v1.yaml` `1.2.0-gd6`. `giai-doan-6.md` sửa cùng lượt: Đ-6.9, Mục 6.1, Mục 8.2, B.6 D4. Comment `AuditActions` ghi hình dạng
+`access.denied` của tầng 2 kép trong service.
+
+**Lệch so với chính tài liệu này:**
+- **L-D18 (mới):** chạm ADMIN cần thêm `role.manage`. `access.denied` của tầng 2 kép trong service ghi target là **tài khoản đích**
+  (`user` + id) và `metadata.permission`, không phải `endpoint` + route như handler C4 — service không biết route, còn đối tượng thì
+  biết. D7c (`post.hide`) dùng cùng hình dạng.
+- **`LockTargetAsync` đổi** (D3): join `roles` để biết vai trò hiện tại, `FOR UPDATE OF u` chỉ khóa dòng tài khoản. Impact HIGH (ba
+  luồng Lock/Unlock) — đã cảnh báo, chạy lại toàn bộ ca D3 xanh.
+- **Route `{userId}` không `:guid`**, như D2/D3.
+- **Validator không kiểm pattern `RoleCode`**: mã sai dạng thì cũng không tồn tại — một câu "Vai trò không tồn tại." cho cả hai.
+- **`ADM-C1` và `ADM-C2` dùng chung một khung** (`HaiAdminDongThoiAsync`), cùng luật bên thua 409 hoặc 401 như D3.
+- **B1 thêm `Admin/AdminTestClient`** (đăng nhập thật, refresh, đọc DB) cho D4 trở đi; `AccountLockTests` giữ bản riêng viết trước.
+- **Thêm ca ngoài bảng:** `Tu_ha_vai_tro_khi_con_Admin_khac_200`, ba ca L-D18 (tự nâng lên ADMIN 403 + audit · hạ một ADMIN 403 ·
+  đối chứng hai chiều), 5 ca `roleCode` sai (có `user` chữ thường — cạm bẫy 2), 404; matrix `TC-A05-mod-role` (ngoài bảng Mục 6.3,
+  cùng lý do `TC-A05-mod-lock`).
+
+**Tự rà B.10 #1:** `UserRevoker.RevokeAsync` giờ gọi ở hai chỗ — `LockAsync` (D3) và `AssignRoleAsync`, cả hai **sau** khi store trả
+về (đã `COMMIT`); nhánh `NotFound`/`UnknownRole`/`LastAdmin`/`Forbidden` return trước, không chạm Redis. `AssignRoleAsync` không thu
+hồi refresh family (cạm bẫy 1 — đột biến M3 bắt). Unit `Doi_vai_tro_ghi_DB_truoc_Redis_sau` khẳng định thứ tự.
+
+**Test:** Unit 369 → 387 (+11 `AccountAdministrationServiceTests`, +7 `AssignRoleRequestValidatorTests`), Integration 598 → 614
+(+14 `AssignRoleTests`, +1 `ADM-C1`, +1 matrix `TC-A05-mod-role`), Architecture 24 → 24. Vitest 544 → 544. `ADM-C1` + `ADM-C2` chạy
+6 lần × 20 lượt, xanh. Còn đỏ nền R2 trên máy dev. FE: `pnpm lint`, `typecheck`, `test`, `build` xanh.
+
+**Thử cho đỏ — 9/9 đột biến bị bắt**, build hợp lệ ở mọi lượt (`0 Error(s)`), file khôi phục nguyên byte (`cmp`):
+
+| Đột biến | Ca đỏ thực tế |
+|---|---|
+| M1 — bỏ `AdminInvariant.AcquireAsync` ở `AssignRoleAsync` | `ADM_C1_…` |
+| M2 — đếm Admin TRƯỚC `UPDATE role_id` (thay vì sau) | `ADM_C1_…`; `ADM_04_ha_Admin_hoat_dong_cuoi_cung_…` |
+| M3 — đổi vai trò thu hồi refresh family (cạm bẫy 1) | `ADM_05_…` (refresh 401); `ROLE_01_…` |
+| M4 — service bỏ vế "đích là ADMIN" của L-D18 | `L_D18_chi_co_role_assign_khong_tu_nang_len_ADMIN_…` |
+| M5 — store bỏ vế "đang là ADMIN" của L-D18 | `L_D18_chi_co_role_assign_khong_ha_duoc_ADMIN_403` |
+| M6 — tra vai trò không phân biệt hoa thường (cạm bẫy 2) | `Vai_tro_sai_400_errors_roleCode("user")` |
+| M7 — bỏ nhánh `NoChange` | `ADM_05b_…` |
+| M8 — bỏ `[RequirePermission(role.assign)]` | `TC-A05-mod-role` |
+| M9 — không thu hồi sau `Changed` | `ADM_05_…` (access cũ vẫn 200) |
+
+**detect-changes:** **critical, 18 luồng** — cả 18 là luồng Lock/Unlock của D3, có chủ đích. `git diff -U0`: thân `LockAsync`,
+`UnlockAsync`, `ChangeAsync` của service không đổi — bị gán vì constructor thêm hai phụ thuộc và method mới chèn ngay cạnh; thay đổi
+thật trên đường D3 là `LockTargetAsync` (join `roles`). Toàn bộ ca D3 (`AccountLockTests`, `ADM-C2`) chạy lại xanh. Không `partial`,
+không `truncated`. Impact trước khi sửa: `AdminOutcome` HIGH, `LockTargetAsync` HIGH (ba luồng Lock/Unlock — đã cảnh báo người thi
+công); `IAccountAdministrationStore`, `AccountAdministrationStore` LOW; `AccountAdministrationService` MEDIUM.
+
 ### Các đầu việc còn lại
 
-D4 → D13. Mỗi đầu việc khi xong điền theo khuôn của hướng dẫn khối A+C:
+D5 → D13. Mỗi đầu việc khi xong điền theo khuôn của hướng dẫn khối A+C:
 
 - chỗ nào đi theo / không theo đề xuất Mục 0.6, và vì sao;
 - lệch so với chính tài liệu này;

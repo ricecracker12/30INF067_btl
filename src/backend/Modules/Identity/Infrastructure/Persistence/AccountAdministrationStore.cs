@@ -8,7 +8,7 @@ using SocialApp.SharedKernel.Audit;
 namespace SocialApp.Modules.Identity.Infrastructure.Persistence;
 
 /// <summary>
-/// Hiện thực <see cref="IAccountAdministrationStore"/> (GĐ6 D3). <see cref="IAuditTrail"/> inject vào ĐÂY chứ không vào service: store
+/// Hiện thực <see cref="IAccountAdministrationStore"/> (GĐ6 D3, D4). <see cref="IAuditTrail"/> inject vào ĐÂY chứ không vào service: store
 /// là chỗ duy nhất cầm transaction để truyền đi (Đ-6.3) — dòng audit và thay đổi cùng số phận.
 ///
 /// Không gọi Redis ở đây, không bao giờ (Đ-6.6, cạm bẫy 4 của D3). Không log <c>reason</c> (B.10 #5).
@@ -84,20 +84,64 @@ internal sealed class AccountAdministrationStore(IdentityDbContext db, IAuditTra
         return AdminOutcome.Changed;
     }
 
+    public async Task<AdminOutcome> AssignRoleAsync(
+        Guid targetId, Guid actorId, string roleCode, bool actorCanManageRoles, DateTimeOffset now, CancellationToken ct)
+    {
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+
+        // 1. Khóa tư vấn LUÔN lấy — kể cả nâng ai đó LÊN ADMIN (L-D8, cạm bẫy 3 của D4).
+        await AdminInvariant.AcquireAsync(db, ct);
+
+        var target = await LockTargetAsync(targetId, ct);
+        if (target is null)
+            return AdminOutcome.NotFound;
+
+        // 2. Tầng 2 kép, vế "người bị đổi ĐANG là ADMIN" (L-D18): chỉ biết được sau khi khóa dòng. Vế "vai trò đích là ADMIN" service
+        //    đã chặn trước BEGIN. So mã vai trò của DỮ LIỆU — quyền của người gọi đã tra ở service qua IsAllowedAsync.
+        if (target.RoleCode == RoleCodes.Admin && !actorCanManageRoles)
+            return AdminOutcome.Forbidden;
+
+        // 3. Vai trò đích tồn tại — so CHÍNH XÁC, phân biệt hoa thường (cạm bẫy 2): "user" không phải USER.
+        var roleIds = await db.Roles.Where(r => r.Code == roleCode).Select(r => r.RoleId).ToListAsync(ct);
+        if (roleIds.Count == 0)
+            return AdminOutcome.UnknownRole;
+        if (target.RoleCode == roleCode)
+            return AdminOutcome.NoChange;   // L-D10: không ghi, không audit, không đụng Redis
+
+        // 4. Ghi. KHÔNG đụng refresh_tokens (cạm bẫy 1): refresh cùng family phải cấp được token mang vai trò mới — người được đổi
+        //    không bị đăng xuất (Mục 7.3). RotateAsync đọc vai trò từ DB lúc phát token.
+        await db.Database.ExecuteSqlAsync(
+            $"UPDATE identity.users SET role_id = {roleIds[0]}, updated_at = {now} WHERE user_id = {targetId}", ct);
+
+        // 5. Đếm SAU khi ghi — hạ Admin hoạt động cuối cùng → ROLLBACK.
+        if (!await AdminInvariant.EnsureRemainsAsync(db, ct))
+            return AdminOutcome.LastAdmin;
+
+        await audit.AppendAsync(tx.GetDbTransaction(), new AuditEntry(
+            actorId, AuditActions.RoleAssign, TargetType, targetId,
+            new Dictionary<string, object?> { ["fromRole"] = target.RoleCode, ["toRole"] = roleCode }), ct);
+
+        await tx.CommitAsync(CancellationToken.None);
+        return AdminOutcome.Changed;
+    }
+
     /// <summary>
-    /// <c>FOR UPDATE</c> dòng đích: login (bộ đếm sai, FR-003) cũng ghi <c>users</c> mà không lấy khóa tư vấn. ToListAsync, KHÔNG
-    /// compose — cùng lý do <c>RotateAsync</c>: EF bọc câu thành subquery thì không chắc còn khóa đúng như câu gốc.
+    /// <c>FOR UPDATE OF u</c> dòng đích: login (bộ đếm sai, FR-003) cũng ghi <c>users</c> mà không lấy khóa tư vấn. Join <c>roles</c>
+    /// để biết vai trò hiện tại (D4) — <c>OF u</c> chỉ khóa dòng tài khoản, không khóa dòng vai trò. ToListAsync, KHÔNG compose —
+    /// cùng lý do <c>RotateAsync</c>: EF bọc câu thành subquery thì không chắc còn khóa đúng như câu gốc.
     /// </summary>
     private async Task<TargetRow?> LockTargetAsync(Guid targetId, CancellationToken ct)
     {
         var rows = await db.Database
             .SqlQuery<TargetRow>($"""
-                SELECT status AS "Status", locked_until AS "LockedUntil"
-                  FROM identity.users WHERE user_id = {targetId} FOR UPDATE
+                SELECT u.status AS "Status", u.locked_until AS "LockedUntil", r.code AS "RoleCode"
+                  FROM identity.users u JOIN identity.roles r ON r.role_id = u.role_id
+                 WHERE u.user_id = {targetId}
+                   FOR UPDATE OF u
                 """)
             .ToListAsync(ct);
         return rows.SingleOrDefault();
     }
 
-    private sealed record TargetRow(string Status, DateTimeOffset? LockedUntil);
+    private sealed record TargetRow(string Status, DateTimeOffset? LockedUntil, string RoleCode);
 }

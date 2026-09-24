@@ -182,6 +182,12 @@ public static class AuthZMatrix
             Caller.Moderator, HttpMethod.Post, "/api/v1/admin/users/{id}/lock", HttpStatusCode.Forbidden,
             ArrangePath: _ => Task.FromResult($"/api/v1/admin/users/{Guid.NewGuid()}/lock"),
             Body: new { reason = "Thử khóa khi không có user.lock." }),
+
+        // D4: MODERATOR không có role.assign. Dòng thêm ngoài bảng Mục 6.3 — cùng lý do TC-A05-mod-lock, cho action thứ ba.
+        new("TC-A05-mod-role", "Moderator đổi vai trò tài khoản", "GĐ6",
+            Caller.Moderator, HttpMethod.Put, "/api/v1/admin/users/{id}/role", HttpStatusCode.Forbidden,
+            ArrangePath: _ => Task.FromResult($"/api/v1/admin/users/{Guid.NewGuid()}/role"),
+            Body: new { roleCode = "USER" }),
     ];
 
     /// <summary>
