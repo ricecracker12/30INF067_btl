@@ -4,6 +4,8 @@ import { AppHeader } from "@/components/shell/app-header"
 import { LogoutButton } from "@/features/auth/logout-button"
 import { RequireAuth } from "@/features/auth/require-auth"
 
+import { MessagesNav } from "./messages-nav"
+
 // Nhóm route (app): mọi trang cần đăng nhập, từ GĐ2 đặt thêm ở đây mà không phải nghĩ lại cách chặn. Chỉ ráp
 // (Đ-E13). Header nằm TRONG guard — chưa biết phiên thì không hiện cả nút "Đăng xuất".
 export default function AppLayout({
@@ -22,6 +24,8 @@ export default function AppLayout({
               <Link href="/friends" className="hover:text-foreground">
                 Bạn bè
               </Link>
+              {/* GĐ5 E3: link "Tin nhắn" + badge chưa đọc — MessagesNav đọc hồ sơ, ẩn khi đang onboarding. */}
+              <MessagesNav />
               <Link href="/me" className="hover:text-foreground">
                 Trang của tôi
               </Link>

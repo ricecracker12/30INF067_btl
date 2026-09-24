@@ -1766,3 +1766,40 @@ Postgres + Redis: A nối bản sao 1, B nối bản sao 2 → có backplane th�
 lại mỗi lần — GĐ7 khối E bật cờ là biết ngay. Checklist Mục 12 dòng backplane: "xanh ở test hai host — chưa bật trên staging".
 
 **Theo dõi:** bộ Integration lên 627 ca, 2 phút 31 giây — sát ngưỡng ~3 phút của GĐ1 để tách collection Postgres. Chưa tách.
+
+## Khối E — Lane frontend (2026-09-24)
+
+| Việc | Commit | Kết quả / chỗ lệch |
+|---|---|---|
+| E1 + E2 | `8307cf6` | `messaging-api.ts`, năm ngữ cảnh lỗi, `lib/realtime/` (một kết nối, vé mỗi lần bắt tay, fallback, dừng khi đăng xuất), ESLint cấm `@microsoft/signalr` ngoài `lib/realtime`, Đ-E18 (CSP dev) |
+| E3–E9 | *(commit khối E)* | `features/chat/`: `message-set.ts` (luật dữ liệu thuần), `use-conversation.ts`, `chat-window.tsx`, `message-composer.tsx`, `conversation-list.tsx` (hook chung `use-cursor-pages`), `unread-badge.tsx`, `start-chat-button.tsx`, `latency*.ts`. Route `/messages`, `/messages/[conversationId]`; link "Tin nhắn" + badge ở header (`app/(app)/messages-nav.tsx`); nút "Nhắn tin" cạnh nút quan hệ trên hồ sơ |
+
+**Lệch / chốt khi thi công khối E:**
+- **E4 lịch sử KHÔNG dùng `hooks/use-cursor-pages.ts`** (đã ghi ở `8307cf6`): tập tin nhắn nhận tin realtime chen giữa và lấp chỗ hở
+  theo `seq`, không phải danh sách nối trang. Danh sách hội thoại (E3) vẫn dùng hook chung. Nợ `use-post-page.ts` → hook chung
+  (bàn giao GĐ4) **chưa trả** — không thuộc lát cắt chat, để lại có địa chỉ.
+- **"Xem tin cũ hơn" bằng nút**, không tự nạp khi cuộn lên — vẫn giữ nguyên chỗ đang nhìn (bù chênh `scrollHeight`). Nút "Tin mới ↓"
+  (phần trau chuốt E4) **cắt** theo thứ tự cắt B.10 #2: đang đọc tin cũ thì tin mới không kéo màn xuống, người dùng tự cuộn.
+- **Biên nhận "đã nhận" gửi ở `UnreadBadge` (header)** — người dùng thường trực của kết nối trên mọi trang đã đăng nhập, nên người gửi
+  thấy "Đã nhận" dù người nhận đang ở bảng tin. "Đã xem" chỉ màn chat gửi, khi tab đang hiển thị.
+- **`meId` truyền từ `app/`** (khuôn `users/[userId]/page.tsx`): features/chat không import `features/profile`. Header dùng một client
+  component nhỏ `app/(app)/messages-nav.tsx`; đang onboarding thì không hiện link và không mở kết nối.
+- **`StartChatButton` tự đọc `GET /relationships/{id}`** (câu hỏi bàn giao GĐ4) thay vì nâng trạng thái lên `app/`.
+- **Công cụ đo p95:** `?latency=1`, t0 theo `clientMsgId` ở tab gửi, t1 sau hai lần `requestAnimationFrame` ở tab nhận; phần ghi nạp
+  bằng import động. Spec `e2e/chat-latency.spec.ts` chỉ chạy khi `CHAT_LATENCY=1`.
+
+**Cạm bẫy đã gặp (E9):** `ctxA.setOffline(true)` KHÔNG đóng ngay WebSocket đang mở — lời gọi hub treo, ACK quá 10 giây → "Thất bại",
+rồi khi có mạng lại lời gọi tới server và lượt lấp chỗ hở sau khi nối lại thay tin "Thất bại" bằng tin thật (nút "Thử lại" biến mất
+trước khi kịp bấm). App ĐÚNG (một tin, không lặp); spec sửa để chấp nhận cả đường này, khẳng định chính vẫn là "đúng một tin ở hai
+phía".
+
+**Chạy thật trên dev (2026-09-24, Chrome đã cài, API + FE dev, Postgres/Redis compose riêng `socialapp-gd5dev`):**
+- `e2e/chat.spec.ts` xanh: nhắn realtime → "Đã xem" → mất mạng + Thử lại không lặp tin → badge 2 rồi về 0 → hủy kết bạn thì chỉ đọc;
+  **1 lần xin vé cho 1 lần tải trang** (Đ-5.16).
+- `chat-latency.spec.ts` N = 30 mỗi chiều ở LOCAL: 60/60 mẫu, p50 29,6 ms · p95 37,7 ms · p99 43 ms. **Không phải số nghiệm thu** —
+  GOAL-02 đo trên staging ở F3.
+- `--migrate` chạy hai lần trên DB sạch: lần hai exit 0, `messaging.__EFMigrationsHistory` 1 dòng; `\dn` thấy đủ 7 schema module.
+- **Cả bộ Playwright trên dev (21 spec):** 16 xanh, 2 skip, 3 đỏ — cả 3 là upload ảnh thật lên R2 (`csp` "PUT lên R2",
+  `login-storage` "đăng bài có ảnh", `post-create` "2 ảnh thật"). Nguyên nhân MÔI TRƯỜNG: máy này không có khóa R2 cho dev
+  (không user-secrets, Đ-2.14) → API dùng `UnconfiguredObjectStorage` (log: "R2__Endpoint, R2__Bucket… trong deploy/.env"). Không liên
+  quan GĐ5; chạy lại ba ca này trên máy có khóa R2 dev trước khi mở PR.

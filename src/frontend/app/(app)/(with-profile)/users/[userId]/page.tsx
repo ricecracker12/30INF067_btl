@@ -2,6 +2,7 @@
 
 import { use } from "react"
 
+import { StartChatButton } from "@/features/chat/start-chat-button"
 import { RelationshipButtons } from "@/features/friend/relationship-buttons"
 import { UserPosts } from "@/features/post/user-posts"
 import { PublicProfile } from "@/features/profile/public-profile"
@@ -32,10 +33,14 @@ export default function UserPage({
           laChinhMinh
             ? undefined
             : (nguoiKia) => (
-                <RelationshipButtons
-                  userId={userId}
-                  displayName={nguoiKia.displayName}
-                />
+                // GĐ5 E6: "Nhắn tin" CẠNH nút quan hệ — chỉ `app/` biết cả hai (Đ-4.16). Nút tự ẩn khi chưa là bạn.
+                <div className="flex flex-wrap items-start gap-2">
+                  <RelationshipButtons
+                    userId={userId}
+                    displayName={nguoiKia.displayName}
+                  />
+                  <StartChatButton userId={userId} />
+                </div>
               )
         }
       />
