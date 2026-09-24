@@ -12,7 +12,7 @@ using SocialApp.Modules.Content.Infrastructure;
 namespace SocialApp.Modules.Content.Infrastructure.Migrations
 {
     [DbContext(typeof(ContentDbContext))]
-    [Migration("20260924140807_Gd3Interactions")]
+    [Migration("20260924152107_Gd3Interactions")]
     partial class Gd3Interactions
     {
         /// <inheritdoc />

@@ -31,14 +31,6 @@ namespace SocialApp.Modules.Content.Infrastructure.Migrations
                 nullable: false,
                 defaultValue: 0);
 
-            migrationBuilder.CreateIndex(
-                name: "idx_posts_public_recent",
-                schema: "content",
-                table: "posts",
-                columns: new[] { "created_at", "post_id" },
-                descending: new bool[0],
-                filter: "status = 'published' AND privacy = 'public'");
-
             migrationBuilder.AddCheckConstraint(
                 name: "ck_posts_comment_count",
                 schema: "content",
@@ -74,11 +66,6 @@ namespace SocialApp.Modules.Content.Infrastructure.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropIndex(
-                name: "idx_posts_public_recent",
-                schema: "content",
-                table: "posts");
-
             migrationBuilder.DropCheckConstraint(
                 name: "ck_posts_comment_count",
                 schema: "content",
