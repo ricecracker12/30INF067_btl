@@ -1,10 +1,11 @@
-import { act, render, screen } from "@testing-library/react"
+import { act, render, renderHook, screen } from "@testing-library/react"
 import { StrictMode } from "react"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { createChatConnection } from "./chat-connection"
 import { fakeDeps, flush } from "./fake-hub"
-import { useChatConnection } from "./use-chat-connection"
+import type { ChatConnectionStatus } from "./chat-connection"
+import { useChatConnection, useOnConnected } from "./use-chat-connection"
 
 function Status({ connection }: { connection: ReturnType<typeof createChatConnection> }) {
   return <p>{useChatConnection(connection)}</p>
@@ -58,5 +59,28 @@ describe("useChatConnection", () => {
     })
     expect(connection.getStatus()).toBe("idle")
     expect(f.hubs[0].stopped).toBe(1)
+  })
+})
+
+describe("useOnConnected", () => {
+  // Badge + danh sách hội thoại nạp lúc gắn, hub nối SAU — tin tới trong khe đó phải được nạp lại khi hub vừa nối (staging
+  // 2026-09-24: badge của B đứng 0 vì `onReconnected` không bắn ở lần kết nối đầu).
+  it("gọi ở lần kết nối ĐẦU và mỗi lần nối lại; không gọi khi đã connected lúc gắn hay khi trạng thái không đổi", () => {
+    const onConnected = vi.fn()
+    const { rerender } = renderHook(({ s }) => useOnConnected(s, onConnected), {
+      initialProps: { s: "idle" as ChatConnectionStatus },
+    })
+    rerender({ s: "connecting" })
+    expect(onConnected).not.toHaveBeenCalled()
+    rerender({ s: "connected" })
+    expect(onConnected).toHaveBeenCalledTimes(1)
+    rerender({ s: "connected" })
+    rerender({ s: "reconnecting" })
+    rerender({ s: "connected" })
+    expect(onConnected).toHaveBeenCalledTimes(2)
+
+    const already = vi.fn()
+    renderHook(() => useOnConnected("connected", already), { wrapper: StrictMode })
+    expect(already).not.toHaveBeenCalled()
   })
 })

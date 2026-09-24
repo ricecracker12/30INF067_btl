@@ -14,7 +14,7 @@ import { messagingApi } from "@/lib/api/messaging-api"
 import { errorMessage } from "@/lib/api/messages"
 import type { ConversationPage, ConversationResponse } from "@/lib/api/types"
 import { chatConnection } from "@/lib/realtime/chat"
-import { useChatConnection } from "@/lib/realtime/use-chat-connection"
+import { useChatConnection, useOnConnected } from "@/lib/realtime/use-chat-connection"
 
 /** Fallback (Đ-5.12): danh sách + badge làm mới mỗi 30 giây khi không có WebSocket. */
 export const LIST_POLL_MS = 30_000
@@ -44,12 +44,11 @@ export function ConversationList({ meId }: Props) {
 
   useEffect(() => {
     const offMessage = chatConnection.onMessage(() => reload())
-    const offReconnected = chatConnection.onReconnected(() => reload())
-    return () => {
-      offMessage()
-      offReconnected()
-    }
+    return () => offMessage()
   }, [reload])
+
+  // Kết nối đầu + mỗi lần nối lại: tin tới lúc hub chưa nối không có sự kiện nào báo.
+  useOnConnected(status, reload)
 
   useEffect(() => {
     if (status !== "fallback") return

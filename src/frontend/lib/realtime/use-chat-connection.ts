@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useSyncExternalStore } from "react"
+import { useEffect, useRef, useSyncExternalStore } from "react"
 
 import { tokenStore } from "@/lib/auth/token-store"
 
@@ -35,4 +35,19 @@ export function useChatConnection(
     connection.getStatus,
     () => "idle"
   )
+}
+
+/**
+ * Gọi `onConnected` mỗi lần trạng thái CHUYỂN sang "connected" — cả lần kết nối ĐẦU lẫn nối lại. `onReconnected` của kết nối chỉ
+ * bắn khi nối LẠI, nên màn nạp dữ liệu lúc gắn rồi mới có hub sẽ lỡ mọi tin tới trong khe "đã nạp, hub chưa nối" (badge, danh sách
+ * hội thoại — lộ trên staging 2026-09-24 qua Cloudflare Tunnel, local quá nhanh). Đã "connected" ngay lúc gắn thì không gọi: màn
+ * tự nạp lúc gắn.
+ */
+export function useOnConnected(status: ChatConnectionStatus, onConnected: () => void) {
+  const previous = useRef(status)
+  useEffect(() => {
+    const was = previous.current
+    previous.current = status
+    if (status === "connected" && was !== "connected") onConnected()
+  }, [status, onConnected])
 }

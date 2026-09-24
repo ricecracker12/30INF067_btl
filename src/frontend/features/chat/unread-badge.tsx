@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { messagingApi } from "@/lib/api/messaging-api"
 import { chatConnection } from "@/lib/realtime/chat"
-import { useChatConnection } from "@/lib/realtime/use-chat-connection"
+import { useChatConnection, useOnConnected } from "@/lib/realtime/use-chat-connection"
 
 import { LIST_POLL_MS } from "./conversation-list"
 
@@ -46,14 +46,15 @@ export function UnreadBadge({ meId }: Props) {
       refreshSoon()
     })
     const offReceipt = chatConnection.onReceipt(refreshSoon)
-    const offReconnected = chatConnection.onReconnected(refresh)
     return () => {
       offMessage()
       offReceipt()
-      offReconnected()
       if (refreshTimer.current !== null) clearTimeout(refreshTimer.current)
     }
   }, [meId, refresh, refreshSoon])
+
+  // Kết nối đầu + mỗi lần nối lại: tin tới lúc hub chưa nối không có sự kiện nào báo.
+  useOnConnected(status, refresh)
 
   useEffect(() => {
     if (status !== "fallback") return
