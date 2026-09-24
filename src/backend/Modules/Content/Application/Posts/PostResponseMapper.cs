@@ -25,7 +25,12 @@ public sealed class PostResponseMapper(IObjectStorage storage, ILogger<PostRespo
     public const string UnknownAuthorName = "Người dùng";
 
     /// <summary>Một bài. <paramref name="author"/> <c>null</c> = không tra được, xem <see cref="UnknownAuthorName"/>.</summary>
-    public PostResponse ToResponse(Post post, IReadOnlyList<MediaAttachment> attachments, UserCard? author, Guid actorId)
+    /// <param name="myReaction">
+    /// Cảm xúc của <paramref name="actorId"/> trên bài (GĐ3, Đ-3.11) — tham số BẮT BUỘC, không có mặc định: quên truyền là lỗi
+    /// biên dịch chứ không phải một <c>null</c> sai lặng lẽ.
+    /// </param>
+    public PostResponse ToResponse(
+        Post post, IReadOnlyList<MediaAttachment> attachments, UserCard? author, ReactionType? myReaction, Guid actorId)
     {
         ArgumentNullException.ThrowIfNull(post);
         ArgumentNullException.ThrowIfNull(attachments);
@@ -57,7 +62,8 @@ public sealed class PostResponseMapper(IObjectStorage storage, ILogger<PostRespo
             post.ReactionCounts,
             post.CreatedAt,
             post.EditedAt,
-            post.AuthorId == actorId);
+            post.AuthorId == actorId,
+            myReaction);
     }
 
     /// <summary>
@@ -72,16 +78,19 @@ public sealed class PostResponseMapper(IObjectStorage storage, ILogger<PostRespo
         IReadOnlyList<Post> posts,
         IReadOnlyDictionary<Guid, IReadOnlyList<MediaAttachment>> attachmentsByPost,
         IReadOnlyDictionary<Guid, UserCard> cards,
+        IReadOnlyDictionary<Guid, ReactionType> mine,
         Guid actorId)
     {
         ArgumentNullException.ThrowIfNull(posts);
         ArgumentNullException.ThrowIfNull(attachmentsByPost);
         ArgumentNullException.ThrowIfNull(cards);
+        ArgumentNullException.ThrowIfNull(mine);
 
         return [.. posts.Select(p => ToResponse(
             p,
             attachmentsByPost.TryGetValue(p.PostId, out var media) ? media : [],
             cards.GetValueOrDefault(p.AuthorId),
+            mine.TryGetValue(p.PostId, out var reaction) ? reaction : null,
             actorId))];
     }
 }

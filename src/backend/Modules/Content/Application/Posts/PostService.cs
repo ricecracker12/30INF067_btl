@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using SocialApp.Modules.Content.Application.Feed;
+using SocialApp.Modules.Content.Application.Reactions;
 using SocialApp.Modules.Content.Domain;
 using SocialApp.SharedKernel.Contracts;
 using SocialApp.SharedKernel.Observability;
@@ -20,6 +21,7 @@ public sealed class PostService(
     IPostStore posts,
     IUserDirectory directory,
     IObjectStorage storage,
+    IReactionReader reactions,
     PostResponseMapper mapper,
     IFeedPageCache feedPageCache,
     TimeProvider clock,
@@ -127,7 +129,8 @@ public sealed class PostService(
         // Không key, không URL (Mục 1.3 luật 9).
         logger.LogInformation("Đã tạo bài {PostId} với {MediaCount} ảnh", post.PostId, post.MediaCount);
 
-        return mapper.ToResponse(post, attachments, author, actorId);
+        // Bài vừa tạo: chưa ai thả cảm xúc, kể cả tác giả — không cần hỏi DB (D7 GĐ3).
+        return mapper.ToResponse(post, attachments, author, myReaction: null, actorId);
     }
 
     /// <summary>
@@ -184,11 +187,13 @@ public sealed class PostService(
         // Đọc lại ảnh và tác giả để trả nguyên PostResponse — FE không phải gọi thêm GET sau khi sửa.
         var attachments = await posts.MediaOfAsync([post.PostId], ct);
         var cards = await directory.GetManyAsync([post.AuthorId], ct);
+        var mine = await reactions.GetMineAsync(actorId, ReactionTargetType.Post, [post.PostId], ct);
 
         return mapper.ToResponse(
             post,
             attachments.TryGetValue(post.PostId, out var media) ? media : [],
             cards.GetValueOrDefault(post.AuthorId),
+            mine.TryGetValue(post.PostId, out var reaction) ? reaction : null,
             actorId);
     }
 

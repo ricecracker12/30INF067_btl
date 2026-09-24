@@ -3,9 +3,12 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using SocialApp.Modules.Content.Application;
+using SocialApp.Modules.Content.Application.Comments;
 using SocialApp.Modules.Content.Application.Feed;
 using SocialApp.Modules.Content.Application.Media;
 using SocialApp.Modules.Content.Application.Posts;
+using SocialApp.Modules.Content.Application.Reactions;
 using SocialApp.Modules.Content.Infrastructure;
 using SocialApp.Modules.Content.Infrastructure.Cleanup;
 using SocialApp.Modules.Content.Infrastructure.Feed;
@@ -95,6 +98,20 @@ public static class ContentModuleExtensions
                 sp.GetService<IConfiguration>()?.GetSection(FeedPageCacheOptions.Section).Bind(o));
         services.AddSingleton<IFeedPageCache, RedisFeedPageCache>();
         services.AddScoped<FeedService>();
+
+        // GĐ3 — bình luận + cảm xúc. Scoped theo thứ chúng cầm (ContentDbContext qua hai store). ReactionStore hiện thực CẢ hai
+        // interface (ghi Đ-3.8 + đọc myReaction theo lô) — một instance mỗi request, đăng ký hai mặt trỏ về nó.
+        // ContentInteractionEvents singleton: chỉ cầm IEventPublisher (singleton, SharedKernel đăng ký) — cùng khuôn SocialGraphEvents.
+        services.AddScoped<PostAccess>();
+        services.AddScoped<ReactionStore>();
+        services.AddScoped<IReactionStore>(sp => sp.GetRequiredService<ReactionStore>());
+        services.AddScoped<IReactionReader>(sp => sp.GetRequiredService<ReactionStore>());
+        services.AddScoped<ICommentStore, CommentStore>();
+        services.AddScoped<CommentResponseMapper>();
+        services.AddScoped<CommentReadService>();
+        services.AddScoped<CommentService>();
+        services.AddScoped<ReactionService>();
+        services.AddSingleton<ContentInteractionEvents>();
 
         return services;
     }

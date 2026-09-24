@@ -81,4 +81,24 @@ public static class ContentErrors
 
     /// <summary><c>type</c> của 503 feed quá tải — khai ở <c>FeedOverloadedProblem</c> trong <c>content-v1.yaml</c>.</summary>
     public const string FeedOverloadedType = "urn:socialapp:problem:feed-overloaded";
+
+    // ---- GĐ3: bình luận + cảm xúc ----
+
+    /// <summary>
+    /// 404 của mọi endpoint nhận <c>commentId</c> (Đ-3.3, Mục 6.2): bình luận không tồn tại, không còn hiển thị (với cảm xúc),
+    /// hay nằm trong bài người gọi không được xem — MỘT <see cref="Error"/>, một câu. Endpoint nhận <c>postId</c> dùng
+    /// <see cref="PostNotFound"/>: cùng một đường dẫn luôn nói cùng một câu, dù lý do trượt là gì.
+    /// </summary>
+    public static readonly Error CommentNotFound = new("comment.not_found", "Không tìm thấy bình luận.", 404);
+
+    /// <summary>400 <c>errors.parentId</c>: cha không tồn tại, thuộc bài khác, hay không còn hiển thị (Đ-3.4).</summary>
+    public static Error ParentGone => Error.Validation(CommentDepthPolicy.ParentIdKey, CommentDepthPolicy.ParentGone);
+
+    /// <summary>Cầu nối Domain → HTTP cho <see cref="CommentPolicy.Validate"/> và <see cref="CommentDepthPolicy.ValidateReply"/>.</summary>
+    public static Error FromValidation(CommentValidation validation) =>
+        Error.Validation(validation.ErrorKey!, validation.Message!);
+
+    /// <inheritdoc cref="FromValidation(CommentValidation)"/>
+    public static Error FromValidation(CommentDepthValidation validation) =>
+        Error.Validation(validation.ErrorKey!, validation.Message!);
 }

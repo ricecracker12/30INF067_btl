@@ -69,8 +69,8 @@ public sealed class PostResponseMapperTests
         var post = PostOf(author);
         var card = new UserCard(author, "An Nguyễn", null);
 
-        Assert.True(Mapper.ToResponse(post, [], card, author).CanEdit);
-        Assert.False(Mapper.ToResponse(post, [], card, Guid.NewGuid()).CanEdit);
+        Assert.True(Mapper.ToResponse(post, [], card, null, author).CanEdit);
+        Assert.False(Mapper.ToResponse(post, [], card, null, Guid.NewGuid()).CanEdit);
     }
 
     /// <summary>
@@ -90,7 +90,7 @@ public sealed class PostResponseMapperTests
             AttachmentOf(post.PostId, 1, "posts/b.jpg"),
         ];
 
-        var response = Mapper.ToResponse(post, attachments, new UserCard(author, "An", null), author);
+        var response = Mapper.ToResponse(post, attachments, new UserCard(author, "An", null), null, author);
 
         Assert.Equal([0, 1, 2], response.Media.Select(m => m.Position));
         Assert.Equal(
@@ -110,8 +110,8 @@ public sealed class PostResponseMapperTests
 
         Assert.Equal(
             "https://ky.invalid/avatars/x.jpg",
-            Mapper.ToResponse(post, [], new UserCard(author, "An", "avatars/x.jpg"), author).Author.AvatarUrl);
-        Assert.Null(Mapper.ToResponse(post, [], new UserCard(author, "An", null), author).Author.AvatarUrl);
+            Mapper.ToResponse(post, [], new UserCard(author, "An", "avatars/x.jpg"), null, author).Author.AvatarUrl);
+        Assert.Null(Mapper.ToResponse(post, [], new UserCard(author, "An", null), null, author).Author.AvatarUrl);
     }
 
     /// <summary>
@@ -126,7 +126,7 @@ public sealed class PostResponseMapperTests
     {
         var author = Guid.NewGuid();
 
-        var response = Mapper.ToResponse(PostOf(author), [], null, author);
+        var response = Mapper.ToResponse(PostOf(author), [], null, null, author);
 
         Assert.Equal(PostResponseMapper.UnknownAuthorName, response.Author.DisplayName);
         Assert.Equal(author, response.Author.UserId);
@@ -144,8 +144,8 @@ public sealed class PostResponseMapperTests
         var post = PostOf(author);
         post.ReactionCounts["like"] = 3;
 
-        Assert.Empty(Mapper.ToResponse(PostOf(author), [], null, author).ReactionCounts);
-        Assert.Equal(3, Mapper.ToResponse(post, [], null, author).ReactionCounts["like"]);
+        Assert.Empty(Mapper.ToResponse(PostOf(author), [], null, null, author).ReactionCounts);
+        Assert.Equal(3, Mapper.ToResponse(post, [], null, null, author).ReactionCounts["like"]);
     }
 
     /// <summary>
@@ -168,6 +168,7 @@ public sealed class PostResponseMapperTests
                 [postA.PostId] = [AttachmentOf(postA.PostId, 0, "posts/a.jpg")],
             },
             new Dictionary<Guid, UserCard> { [authorA] = new(authorA, "An", null) },
+            new Dictionary<Guid, ReactionType> { [postB.PostId] = ReactionType.Haha },
             reader);
 
         Assert.Equal(2, responses.Count);
@@ -178,5 +179,9 @@ public sealed class PostResponseMapperTests
         Assert.Equal(PostResponseMapper.UnknownAuthorName, responses[1].Author.DisplayName);
         Assert.Empty(responses[1].Media);
         Assert.All(responses, r => Assert.False(r.CanEdit));
+
+        // GĐ3 (Đ-3.11): myReaction ghép theo postId từ MỘT dictionary cho cả trang; bài vắng mặt là null.
+        Assert.Null(responses[0].MyReaction);
+        Assert.Equal(ReactionType.Haha, responses[1].MyReaction);
     }
 }

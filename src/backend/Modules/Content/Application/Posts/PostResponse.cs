@@ -12,12 +12,16 @@ namespace SocialApp.Modules.Content.Application.Posts;
 /// đỏ. <c>media_attachments</c> cũng không lộ <c>storage_key</c> ra ngoài: xem <see cref="PostMedia"/>.
 /// </summary>
 /// <param name="Body"><c>null</c> khi bài chỉ có ảnh — chuẩn hóa ở service, xem <c>PostService.NormalizeBody</c>.</param>
-/// <param name="CommentCount">GĐ2 luôn 0; có mặt từ bây giờ để hình dạng DTO không đổi lần hai ở GĐ3 (Đ-2.12).</param>
+/// <param name="CommentCount">Bình luận đang hiển thị ở mọi cấp (Đ-3.5); GĐ3 ghi bằng SQL trong transaction Đ-3.8.</param>
 /// <param name="ReactionCounts">
 /// GĐ2 luôn <c>{}</c> rỗng, <b>không bao giờ</b> <c>null</c> (Đ-2.12, Mục 8.2). Đổi sang <c>null</c> "cho gọn" là làm vỡ
 /// màn E5 ở GĐ3 — FE viết <c>Object.entries(reactionCounts)</c> một lần và không phân nhánh.
 /// </param>
 /// <param name="EditedAt"><c>null</c> = chưa sửa lần nào. D7 đóng dấu.</param>
+/// <param name="MyReaction">
+/// GĐ3 (Đ-3.10, Đ-3.11): cảm xúc của CHÍNH người gọi, <c>null</c> nếu chưa thả. Trường theo người xem — không bao giờ nằm trong
+/// cache dùng chung (Đ-4.9); lấy theo lô ở <see cref="PostHydrator"/>.
+/// </param>
 /// <param name="CanEdit">
 /// Do SERVER tính (<c>author_id == actorId</c>), không phải FE tự so id (Mục 8.2). Ở GĐ2 nó trùng với "được sửa/xóa";
 /// GĐ6 thêm vai trò kiểm duyệt thì chính chỗ này đổi, và FE không phải biết.
@@ -32,7 +36,8 @@ public sealed record PostResponse(
     IReadOnlyDictionary<string, int> ReactionCounts,
     DateTimeOffset CreatedAt,
     DateTimeOffset? EditedAt,
-    bool CanEdit);
+    bool CanEdit,
+    ReactionType? MyReaction);
 
 /// <summary>
 /// Tác giả, dựng từ <c>IUserDirectory</c> (SharedKernel, A6) — MỘT lời gọi batch cho cả trang (Đ-2.3).

@@ -23,6 +23,12 @@ public static class CommentDepthPolicy
 
     public static readonly string TooDeep = $"Chỉ được trả lời tối đa {MaxDepth} cấp.";
 
+    /// <summary>
+    /// Cha không tồn tại, thuộc bài khác, hay không còn hiển thị — MỘT câu cho cả ba (Đ-3.4): câu riêng cho "thuộc bài khác" là
+    /// kênh dò <c>commentId</c> của bài người khác.
+    /// </summary>
+    public const string ParentGone = "Bình luận cần trả lời không còn tồn tại.";
+
     /// <summary>Tính độ sâu cho một phản hồi, dựa trên độ sâu của bình luận cha.</summary>
     /// <param name="parentDepth">Độ sâu của bình luận cha (1 hoặc 2) — D3 đọc từ entity cha trước khi gọi.</param>
     /// <returns>

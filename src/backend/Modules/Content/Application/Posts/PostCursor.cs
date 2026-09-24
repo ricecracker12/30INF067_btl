@@ -1,79 +1,20 @@
-using System.Globalization;
-using System.Text;
-
 namespace SocialApp.Modules.Content.Application.Posts;
 
 /// <summary>
-/// Con trỏ phân trang keyset (Đ-2.11): vị trí của bài CUỐI trang trước, theo đúng khóa sắp xếp
-/// <c>(created_at DESC, post_id DESC)</c>.
-///
-/// <b>Opaque với client</b>: mã hóa base64url của <c>"{created_at:O}|{post_id:D}"</c>. FE chỉ chuyển tiếp
-/// <c>nextCursor</c> nhận được, không tự dựng — và vì nó opaque nên đổi cách mã hóa ở GĐ sau không phải đổi hợp đồng.
-/// Không ký, không mã hóa: nội dung là hai giá trị vốn đã nằm trong <c>PostResponse</c>, giấu đi không được gì.
-///
-/// Vì sao keyset chứ không <c>OFFSET</c>: bài mới chèn vào giữa hai lần gọi sẽ đẩy mọi thứ xuống một dòng, và trang 2
-/// theo offset sẽ lặp lại dòng cuối của trang 1 (nhân đôi) — hoặc bỏ sót nếu có bài bị xóa (nhảy cóc). Keyset neo vào
-/// một VỊ TRÍ chứ không vào một SỐ ĐẾM nên không có hai lỗi đó (<c>PAGE-03</c>).
+/// Con trỏ của danh sách BÀI (Đ-2.11), sắp <c>(created_at DESC, post_id DESC)</c>. Từ D0 GĐ3 là lớp mỏng trên
+/// <see cref="KeysetCursor"/> — bộ mã hóa dùng chung với danh sách bình luận (Đ-3.6). Giữ lại kiểu riêng để chữ ký của
+/// <c>IPostStore</c>/<c>IFeedStore</c> nói rõ "vị trí của một BÀI", và để cursor bài đã phát ra trước GĐ3 vẫn giải mã được:
+/// định dạng trên dây y hệt.
 /// </summary>
 public readonly record struct PostCursor(DateTimeOffset CreatedAt, Guid PostId)
 {
-    /// <summary>
-    /// .NET 8 chưa có <c>Base64Url</c> (bài học của GĐ1) — tự thay ký tự và bỏ <c>'='</c>. Base64 thường có <c>+</c> và
-    /// <c>/</c>, hai ký tự phải percent-encode trong query string; quên một chỗ là cursor hỏng sau một vòng URL.
-    /// </summary>
-    public string Encode() =>
-        Convert.ToBase64String(Encoding.UTF8.GetBytes($"{CreatedAt:O}|{PostId:D}"))
-            .Replace('+', '-')
-            .Replace('/', '_')
-            .TrimEnd('=');
+    public string Encode() => new KeysetCursor(CreatedAt, PostId).Encode();
 
-    /// <summary>
-    /// Giải mã, KHÔNG NÉM với bất kỳ đầu vào nào. Cursor là chuỗi client gửi lên nên phải coi là dữ liệu thù địch: một
-    /// exception ở đây là <b>500 từ một chuỗi người dùng sửa tay</b>, trong khi hợp đồng đòi <b>400</b>
-    /// <c>errors.cursor</c> (<c>PAGE-02</c>).
-    /// </summary>
-    /// <returns><c>false</c> cho mọi loại rác; <c>true</c> kèm <paramref name="cursor"/> hợp lệ.</returns>
+    /// <summary>Không ném với bất kỳ đầu vào nào — xem <see cref="KeysetCursor.TryDecode"/>.</summary>
     public static bool TryDecode(string? raw, out PostCursor cursor)
     {
-        cursor = default;
-
-        if (string.IsNullOrEmpty(raw) || !TryDecodeBase64Url(raw, out var bytes))
-            return false;
-
-        var parts = Encoding.UTF8.GetString(bytes).Split('|');
-        if (parts.Length != 2
-            || !DateTimeOffset.TryParseExact(
-                parts[0], "O", CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var createdAt)
-            || !Guid.TryParseExact(parts[1], "D", out var postId))
-            return false;
-
-        // ToUniversalTime() là BẮT BUỘC, không phải dọn dẹp cho đẹp: Npgsql từ chối ghi DateTimeOffset có Offset khác 0
-        // vào `timestamp with time zone` và ném "Cannot write DateTimeOffset with Offset=07:00:00…" — tức là 500 từ một
-        // cursor client sửa tay. Cùng một mốc thời gian, chỉ khác cách biểu diễn, nên keyset không đổi kết quả.
-        cursor = new PostCursor(createdAt.ToUniversalTime(), postId);
-        return true;
-    }
-
-    private static bool TryDecodeBase64Url(string raw, out byte[] bytes)
-    {
-        var padded = raw.Replace('-', '+').Replace('_', '/');
-        padded += (padded.Length % 4) switch { 2 => "==", 3 => "=", _ => "" };
-
-        bytes = [];
-        // Length % 4 == 1 là độ dài base64 không tồn tại; TryFromBase64String bắt nốt mọi loại rác còn lại.
-        return padded.Length % 4 == 0 && TryFromBase64(padded, out bytes);
-    }
-
-    private static bool TryFromBase64(string padded, out byte[] bytes)
-    {
-        var buffer = new byte[padded.Length * 3 / 4];
-        if (Convert.TryFromBase64String(padded, buffer, out var written))
-        {
-            bytes = buffer[..written];
-            return true;
-        }
-
-        bytes = [];
-        return false;
+        var ok = KeysetCursor.TryDecode(raw, out var keyset);
+        cursor = ok ? new PostCursor(keyset.CreatedAt, keyset.Id) : default;
+        return ok;
     }
 }

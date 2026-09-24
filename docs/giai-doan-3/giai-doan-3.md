@@ -402,6 +402,12 @@ Event phát **sau** `COMMIT`. Phát trong transaction thì notification của G�
 Người đang mở bài **không** thấy bình luận mới của người khác cho tới khi nạp lại. Chấp nhận: kế hoạch gốc không yêu cầu
 realtime cho bình luận, và GĐ5 là giai đoạn dựng hub.
 
+*Chốt 2026-09-24 (lệch, vì GĐ6 merge trước — Đ-6.4):* không "chỉ log". Event bus của GĐ6 (`IEventPublisher`, record
+`CommentCreated`/`ReactionSet` ở `SharedKernel/Events/ContentEvents.cs`) đã có trên `develop`, nên GĐ3 **phát thật** qua lớp bọc
+`ContentInteractionEvents` (cùng khuôn `SocialGraphEvents`), vẫn **sau `COMMIT`**. `ReactionSet` phát khi thả mới (`isNew = true`)
+và khi đổi loại (`isNew = false`); gỡ và "giống nhau" không phát. `MentionedUserIds` rỗng (tag là việc của GĐ6). Handler thông
+báo `comment`/`reply`/`reaction` và provider kiểm duyệt bình luận vẫn là việc của GĐ6 (Mục 9.3 bước 9 của `giai-doan-6.md`).
+
 ### Đ-3.13 Frontend: hai feature mới, ghép vào card qua slot; optimistic update tuần tự theo đối tượng
 
 **Đặt file** (luật frontend Mục 2, Đ-E13): `features/comment/` và `features/reaction/` — tên theo **màn**, không theo
@@ -900,6 +906,7 @@ Theo Mục 3.5 của PTTK, áp cho **từng** UC (UC-06 bình luận, UC-07 cả
 | 6 | "Trả lời tối đa 3 cấp" | Server tính `depth` từ cha, thêm `ck_comments_root_depth` (Đ-3.4) | Client không được quyết định cấp; CHECK bắt lỗi rẻ nhất ở DB |
 | 7 | GĐ3 do 3 người làm trong 2 ngày (Ngày 13–15) | **Một người** làm cả hai lane, tuần tự, sau GĐ4, ước lượng ~6 ngày làm việc (Mục 9) | Nhân lực thực tế. Thứ tự GĐ4 → GĐ3 giữ nguyên lịch gốc; lịch tổng dời theo |
 | 8 | `comments.status` chỉ `visible`/`deleted` | Thêm `hidden` vào CHECK ngay migration `Gd3Interactions` (Đ-3.5, chốt 2026-09-24) | Thỏa thuận Đ-6.14 với GĐ6 — GĐ6 merge trước GĐ3 |
+| 9 | Đ-3.12: event "chỉ log", GĐ6 thay thân hàm sau | Phát thật qua `IEventPublisher` sau `COMMIT` (chốt 2026-09-24) | GĐ6 đã dựng đường ray (Đ-6.4) trước khi GĐ3 bắt đầu code |
 
 Mỗi dòng trong bảng phải được nhắc lại trong commit tương ứng, mở bằng "Lệch …" theo luật commit Mục 5.3.
 

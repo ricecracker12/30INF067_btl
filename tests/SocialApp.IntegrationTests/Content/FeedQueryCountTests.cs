@@ -15,10 +15,11 @@ public sealed class FeedQueryCountTests(PostgresFixture postgres, ModulesApiFact
 {
     /// <summary>
     /// Mục 7.2, trượt cả hai tầng cache (Redis chết):
-    /// nguồn 2 (bạn bè + theo dõi, SocialGraph đọc DB) + feed 1 (LATERAL) + ảnh 1 (một lô) + tác giả 1 (một lô) = 5.
+    /// nguồn 2 (bạn bè + theo dõi, SocialGraph đọc DB) + feed 1 (LATERAL) + ảnh 1 (một lô) + tác giả 1 (một lô)
+    /// + myReaction 1 (một lô, GĐ3 Đ-3.11 — cuối <c>PostHydrator</c>) = 6.
     /// KHÔNG có "bài theo PK": trượt cache thì FeedService dùng luôn các dòng LATERAL (L14).
     /// </summary>
-    private const int ExpectedStatements = 5;
+    private const int ExpectedStatements = 6;
 
     public Task InitializeAsync() => factory.UseFreshDatabaseAsync(postgres);
 
@@ -40,7 +41,7 @@ public sealed class FeedQueryCountTests(PostgresFixture postgres, ModulesApiFact
             me, others.ToArray());
 
     [Fact]
-    public async Task FEED_Q1_so_lenh_SQL_la_hang_so_5_o_50_va_200_nguon()
+    public async Task FEED_Q1_so_lenh_SQL_la_hang_so_6_o_50_va_200_nguon()
     {
         var client = new ModulesTestClient(factory);
         var a = Guid.NewGuid();
