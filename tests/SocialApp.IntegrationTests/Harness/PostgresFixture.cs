@@ -4,6 +4,7 @@ using Npgsql;
 using SocialApp.SharedKernel.Configuration;
 using SocialApp.Modules.Content.DependencyInjection;
 using SocialApp.Modules.Identity.DependencyInjection;
+using SocialApp.Modules.Messaging.DependencyInjection;
 using SocialApp.Modules.Moderation.DependencyInjection;
 using SocialApp.Modules.Notification.DependencyInjection;
 using SocialApp.Modules.Profile.DependencyInjection;
@@ -83,7 +84,7 @@ public sealed class PostgresFixture : IAsyncLifetime
     /// Dành cho test chỉ ĐỌC dữ liệu nền và cần bảng của Profile/Content (AuthZ matrix từ GĐ2: TC-A03 gọi
     /// /api/v1/posts). Test nào SỬA dữ liệu nền thì vẫn dùng CreateDatabaseAsync — luật chọn hàm của GĐ1 không đổi.
     ///
-    /// Thứ tự Identity → Profile → Content → SocialGraph → Moderation → Notification là CỐ Ý ghi ra dù không có phụ thuộc nào
+    /// Thứ tự Identity → Profile → Content → SocialGraph → Messaging → Moderation → Notification là CỐ Ý ghi ra dù không có phụ thuộc nào
     /// giữa chúng (Đ-2.2: không FK qua ranh giới schema) — cùng thứ tự hook <c>--migrate</c> của Program.cs. Ghi ra để người
     /// đọc sau không tưởng thứ tự là ngẫu nhiên rồi đảo nó khi thêm module.
     /// SocialGraph vào harness ở A3 (lệch L3) — trước A5, vì thiếu schema thì READ_02_05 nhận 500 khi BR-02 thật chạy.
@@ -101,6 +102,7 @@ public sealed class PostgresFixture : IAsyncLifetime
                 .AddProfileModule(cs)
                 .AddContentModule(cs)
                 .AddSocialGraphModule(cs)
+                .AddMessagingModule(cs)
                 .AddModerationModule(cs)
                 .AddNotificationModule(cs)
                 .BuildServiceProvider();
@@ -109,6 +111,7 @@ public sealed class PostgresFixture : IAsyncLifetime
             await services.MigrateProfileModuleAsync();
             await services.MigrateContentModuleAsync();
             await services.MigrateSocialGraphModuleAsync();
+            await services.MigrateMessagingModuleAsync();
             await services.MigrateModerationModuleAsync();
             await services.MigrateNotificationModuleAsync();
             return cs;
