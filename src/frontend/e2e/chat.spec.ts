@@ -1,7 +1,30 @@
+import { existsSync, readFileSync } from "node:fs"
+
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test"
 
 import { API, giuHanMucAuth } from "./dev-api"
-import { dangNhapUi, donRacSauTest, taoTaiKhoanCoHoSo, type TaiKhoan } from "./post-helpers"
+import { dangNhapApi, dangNhapUi, donRacSauTest, taoTaiKhoanCoHoSo, type TaiKhoan } from "./post-helpers"
+
+/**
+ * F2 (staging): hai tài khoản THẬT, đã là bạn, lấy từ biến môi trường hoặc file `.env.e2e.local` (gitignore — không commit).
+ * Không có thì spec tạo tài khoản mới qua Mailpit dev như mọi spec khác.
+ */
+function taiKhoanCoSan(): Record<string, string> | null {
+  const keys = ["E2E_A_EMAIL", "E2E_A_PASSWORD", "E2E_B_EMAIL", "E2E_B_PASSWORD"]
+  const fromFile: Record<string, string> = {}
+  if (existsSync(".env.e2e.local"))
+    for (const line of readFileSync(".env.e2e.local", "utf8").split(/\r?\n/)) {
+      const i = line.indexOf("=")
+      if (i > 0) fromFile[line.slice(0, i).trim()] = line.slice(i + 1).trim()
+    }
+  const values = Object.fromEntries(keys.map((k) => [k, process.env[k] ?? fromFile[k] ?? ""]))
+  return keys.every((k) => values[k]) ? values : null
+}
+
+async function laBanBe(request: APIRequestContext, a: TaiKhoan, b: TaiKhoan) {
+  const r = await request.get(`${API}/relationships/${b.userId}`, { headers: a.auth })
+  return ((await r.json()) as { friendship: string }).friendship === "friends"
+}
 
 // GĐ5 E9 — lát cắt chat hai trình duyệt (giai-doan-5.md Mục 10.6, Mục 12 "Lát cắt dọc"). Chạy trên API + FE dev thật, Chrome đã
 // cài (Đ-E8), `workers: 1`. Hai `BrowserContext` — mỗi người một cookie `__Host-sid`.
@@ -32,12 +55,23 @@ test("hai tài khoản: nhắn realtime → Đã xem → mất mạng + Thử l�
   request,
 }) => {
   test.setTimeout(180_000)
-  // A, B: register + verify + login API (3 lượt mỗi người) + login UI của cả hai → 8 lượt `/auth/*`.
-  await giuHanMucAuth(8)
   const tag = Math.random().toString(36).slice(2, 8)
-  const A = await taoTaiKhoanCoHoSo(request, "chat-a", `An ${tag}`)
-  const B = await taoTaiKhoanCoHoSo(request, "chat-b", `Bình ${tag}`)
-  await ketBanApi(request, A, B)
+  const coSan = taiKhoanCoSan()
+  let A: TaiKhoan
+  let B: TaiKhoan
+  if (coSan) {
+    // Staging: login API hai người + login UI hai người → 4 lượt `/auth/*`.
+    await giuHanMucAuth(4)
+    A = await dangNhapApi(request, coSan.E2E_A_EMAIL, coSan.E2E_A_PASSWORD)
+    B = await dangNhapApi(request, coSan.E2E_B_EMAIL, coSan.E2E_B_PASSWORD)
+    if (!(await laBanBe(request, A, B))) await ketBanApi(request, A, B)
+  } else {
+    // A, B: register + verify + login API (3 lượt mỗi người) + login UI của cả hai → 8 lượt `/auth/*`.
+    await giuHanMucAuth(8)
+    A = await taoTaiKhoanCoHoSo(request, "chat-a", `An ${tag}`)
+    B = await taoTaiKhoanCoHoSo(request, "chat-b", `Bình ${tag}`)
+    await ketBanApi(request, A, B)
+  }
 
   const ctxA = await browser.newContext()
   const ctxB = await browser.newContext()
@@ -87,15 +121,20 @@ test("hai tài khoản: nhắn realtime → Đã xem → mất mạng + Thử l�
     await pb.goto("/friends")
     const badge = pb.getByTestId("unread-badge")
     await expect(pb.getByTestId("nav-messages")).toBeVisible()
+    // Tài khoản có sẵn (staging) có thể còn tin chưa đọc của lượt trước — so với số trước đó, không so với 0.
+    const chuaDocTruoc = (
+      (await (await request.get(`${API}/conversations/unread-count`, { headers: B.auth })).json()) as { total: number }
+    ).total
     await gui(pa, `Tin chưa đọc 1 ${tag}`)
     await expect(tinNhan(pa, `Tin chưa đọc 1 ${tag}`)).toHaveCount(1)
     await gui(pa, `Tin chưa đọc 2 ${tag}`)
-    await expect(badge).toHaveText("2", { timeout: 10_000 })
+    await expect(badge).toHaveText(String(chuaDocTruoc + 2), { timeout: 10_000 })
     await pb.goto("/messages")
-    await expect(pb.getByTestId("conversation-unread")).toHaveText("2")
+    await expect(pb.getByTestId("conversation-unread").first()).toHaveText("2")
     await pb.getByTestId("conversation-row").first().click()
     await expect(tinNhan(pb, `Tin chưa đọc 2 ${tag}`)).toBeVisible()
-    await expect(badge).toHaveCount(0, { timeout: 10_000 })
+    if (chuaDocTruoc === 0) await expect(badge).toHaveCount(0, { timeout: 10_000 })
+    else await expect(badge).toHaveText(String(chuaDocTruoc), { timeout: 10_000 })
 
     // 5. AC-04: B hủy kết bạn → cả hai thấy thanh "chỉ đọc", ô soạn khóa; lịch sử còn nguyên.
     const unfriend = await request.delete(`${API}/friends/${A.userId}`, { headers: B.auth })
@@ -106,6 +145,9 @@ test("hai tài khoản: nhắn realtime → Đã xem → mất mạng + Thử l�
     await expect(tinNhan(pa, T1)).toHaveCount(1)
     await pb.reload()
     await expect(pb.getByTestId("chat-read-only")).toBeVisible()
+
+    // Tài khoản có sẵn: kết bạn LẠI để lần chạy sau (và F3 đo p95) vẫn có hai người là bạn.
+    if (coSan) await ketBanApi(request, A, B)
   } finally {
     await ctxA.close()
     await ctxB.close()

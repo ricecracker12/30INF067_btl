@@ -112,6 +112,7 @@ export function useConversation(conversationId: string, { connection = chatConne
   const statusRef = useRef(status)
   const sentSeen = useRef(0)
   const filling = useRef(false)
+  const refill = useRef(false)
   // Handler đọc ref — đồng bộ bằng LAYOUT effect (luật FE Mục 9: useEffect để hở một khe mà cú bấm đọc ref cũ).
   useLayoutEffect(() => {
     stateRef.current = state
@@ -131,18 +132,30 @@ export function useConversation(conversationId: string, { connection = chatConne
     [patch]
   )
 
-  /** Lấp chỗ hở phía trên mốc hiện có (nối lại, fallback, seq nhảy cóc). Một lượt một lúc. */
+  /**
+   * Lấp chỗ hở phía trên mốc hiện có (nối lại, fallback, seq nhảy cóc). Một lượt một lúc — nhưng yêu cầu tới khi đang bận KHÔNG bị
+   * bỏ: đánh dấu `refill`, xong lượt hiện tại thì lấp thêm một lượt từ mốc MỚI NHẤT (lượt đang chạy có thể đã hỏi trước khi tin
+   * mới được lưu — bỏ yêu cầu là mất chỗ hở).
+   */
   const fillFrom = useCallback(
     async (afterSeq: number) => {
-      if (filling.current) return
+      if (filling.current) {
+        refill.current = true
+        return
+      }
       filling.current = true
       try {
         let from = afterSeq
-        for (let i = 0; i < 5; i++) {
-          const page = await messagingApi.history(conversationId, { afterSeq: from, limit: AFTER_SEQ_PAGE })
-          addMessages(page.items)
-          if (page.items.length < AFTER_SEQ_PAGE) break
-          from = page.items[page.items.length - 1].seq
+        for (;;) {
+          refill.current = false
+          for (let i = 0; i < 5; i++) {
+            const page = await messagingApi.history(conversationId, { afterSeq: from, limit: AFTER_SEQ_PAGE })
+            addMessages(page.items)
+            if (page.items.length < AFTER_SEQ_PAGE) break
+            from = page.items[page.items.length - 1].seq
+          }
+          if (!refill.current) break
+          from = Math.max(from, maxSeq(stateRef.current.messages))
         }
       } catch {
         // Lượt lấp hỏng: lượt sau (sự kiện kế, hỏi lại 3 giây, nối lại) thử lại — không báo lỗi giữa màn.
@@ -262,6 +275,15 @@ export function useConversation(conversationId: string, { connection = chatConne
       offReconnected()
     }
   }, [connection, conversationId, meId, addMessages, fillFrom, patch, refreshDetail, sendReceipt])
+
+  // --- Hub vừa connected (KỂ CẢ lần đầu) → lấp chỗ hở ---
+  // Khe "trang đầu đã nạp, hub CHƯA kết nối": tin gửi trong khe này không có MessageReceived nào tới tab (hub chưa có kết nối để
+  // đẩy). `onReconnected` chỉ bắn khi nối LẠI, nên lần kết nối ĐẦU cũng phải lấp — lộ ra trên staging 2026-09-24 (local quá nhanh).
+  const loading = state.loading
+  useEffect(() => {
+    if (status !== "connected" || loading) return
+    void fillFrom(maxSeq(stateRef.current.messages))
+  }, [status, loading, fillFrom])
 
   // --- Fallback: hỏi lại 3 giây (Đ-5.12) ---
   useEffect(() => {

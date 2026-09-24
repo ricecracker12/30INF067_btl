@@ -115,7 +115,9 @@ describe("useConversation", () => {
     act(() => f.hubs[0].emit("MessageReceived", msg(5)))
 
     await waitFor(() => expect(result.current.messages.map((m) => m.seq)).toEqual([1, 2, 3, 4, 5]), CHO)
-    expect(afterSeqs).toEqual([2])
+    // Mọi lượt lấp đều từ mốc 2 — một lượt của lần kết nối đầu (hub connected khi trang đầu vừa nạp) + lượt do chỗ hở.
+    expect(afterSeqs.length).toBeGreaterThan(0)
+    expect(afterSeqs.every((s) => s === 2)).toBe(true)
   })
 
   it("chưa kết nối hub → gửi bằng REST; tin optimistic thay bằng tin server theo clientMsgId", async () => {
@@ -187,6 +189,27 @@ describe("useConversation", () => {
     await waitFor(() => expect(result.current.loading).toBe(false), CHO)
 
     expect(result.current.readOnly).toBe(true)
+  })
+
+  it("tin tới trong khe \"trang đầu đã nạp, hub CHƯA kết nối\" → khi hub vừa connected thì lấp bằng afterSeq (lỗi thật trên staging)", async () => {
+    const { afterSeqs } = rest({ history: [msg(1)] })
+    const f = fakeDeps()
+    const connection = createChatConnection(f.deps)
+    const { result, rerender } = mount(connection, "connecting")
+    await waitFor(() => expect(result.current.loading).toBe(false), CHO)
+    // Tin 2 lưu ở server TRONG KHE: không có MessageReceived nào tới tab này.
+    server.use(
+      http.get(`${BASE}/messages`, ({ request }) => {
+        const after = Number(new URL(request.url).searchParams.get("afterSeq"))
+        afterSeqs.push(after)
+        return HttpResponse.json({ items: [msg(1), msg(2)].filter((m) => m.seq > after), nextCursor: null })
+      })
+    )
+
+    rerender({ s: "connected" })
+
+    await waitFor(() => expect(result.current.messages.map((m) => m.seq)).toEqual([1, 2]), CHO)
+    expect(afterSeqs).toEqual([1])
   })
 
   it("ReceiptUpdated của người kia nâng mốc — mốc cũ về muộn KHÔNG kéo lùi", async () => {
