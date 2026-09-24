@@ -1,0 +1,114 @@
+# Ba cảnh báo Grafana của Mục 5.3 (C5). Hai cảnh báo còn lại của Mục 5.3 nằm ở Uptime Kuma, không lặp lại ở đây:
+#   - "Dịch vụ chết"      → monitor HTTP của Kuma (B1)
+#   - "Backup không chạy" → monitor Push của Kuma, backup.sh gọi mỗi lần xong (A3)
+#
+# Provisioned = KHÔNG sửa được trên giao diện. Đổi ngưỡng: sửa file này, chép lên VM,
+#   docker compose -f docker-compose.ops.yml restart grafana
+# (Grafana thay biến môi trường trong file provisioning — nên KHÔNG dùng dấu đô-la trong biểu thức hay annotation.)
+#
+# Luôn có hai phần: A = truy vấn Prometheus (instant), C = ngưỡng trên A. condition = C.
+#
+# Kênh gửi (contact point Telegram) và notification policy KHÔNG provision ở đây mà tạo MỘT lần trên giao diện
+# (hướng dẫn khối C, Mục 5): Grafana 12 thay biến môi trường xong thì đọc chat id nhóm (-100…) thành SỐ, trong khi
+# Telegram đòi chuỗi → cả thư mục alerting nạp hỏng (thử hai cách đặt ngoặc cho biến, 2026-09-24). Token nằm trong volume
+# grafana-data giống Kuma giữ token của nó — không vào repo, không vào .env.
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: socialapp-staging
+    folder: SocialApp
+    interval: 1m
+    rules:
+      # Mục 5.3: 5xx > 1% trong 5 phút — Khẩn. Cùng biểu thức với ô dashboard (có "or vector(0)": không lỗi = 0, không
+      # phải "No data"). for 2m: một nhịp lỗi lẻ không kêu, 200 request boom (Mục 10.1) kêu trong ~3–4 phút.
+      - uid: socialapp-error-rate
+        title: Tỷ lệ lỗi 5xx cao
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: >-
+                100 * (sum(rate(http_requests_received_total{job="socialapp-api",controller!="",code=~"5.."}[5m])) or vector(0)) / clamp_min(sum(rate(http_requests_received_total{job="socialapp-api",controller!=""}[5m])) or vector(0), 1e-9)
+          - refId: C
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [1] }
+        for: 2m
+        noDataState: OK
+        execErrState: Error
+        labels: { severity: khan }
+        annotations:
+          summary: Tỷ lệ lỗi 5xx của API vượt 1% trong 5 phút
+          description: Xem Grafana, panel "5xx theo action" để biết action nào lỗi; log API để xem exception.
+
+      # Mục 5.3: p95 > 500ms trong 10 phút — Cảnh báo. Bằng đúng ngưỡng GOAL-01. Không traffic thì p95 = NaN → không kêu
+      # (noDataState OK: staging vắng người là chuyện thường, không phải sự cố).
+      - uid: socialapp-latency-p95
+        title: API chậm bất thường (p95)
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: >-
+                histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job="socialapp-api",controller!=""}[5m])))
+          - refId: C
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0.5] }
+        for: 10m
+        noDataState: OK
+        execErrState: Error
+        labels: { severity: canh-bao }
+        annotations:
+          summary: p95 thời gian phản hồi của API vượt 500ms suốt 10 phút (ngưỡng GOAL-01)
+          description: Xem Grafana, panel "p95 theo action" để biết action nào chậm.
+
+      # Mục 5.3: dung lượng còn < 20% (tức đã dùng > 80%) — Khẩn. Đĩa đầy thì Postgres DỪNG GHI. Staging đang ~72%.
+      # noDataState NoData: mất số đĩa (node-exporter chết) cũng phải báo — không thấy đĩa là mù đúng chỗ nguy hiểm nhất.
+      - uid: socialapp-disk-full
+        title: Đĩa VM sắp đầy
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: >-
+                100 * (1 - node_filesystem_avail_bytes{job="node",mountpoint="/"} / node_filesystem_size_bytes{job="node",mountpoint="/"})
+          - refId: C
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [80] }
+        for: 5m
+        noDataState: NoData
+        execErrState: Error
+        labels: { severity: khan }
+        annotations:
+          summary: Đĩa / của VM đã dùng trên 80% (còn dưới 20%)
+          description: Kiểm ~/app/deploy/backups (WAL, base), docker system df, TSDB Prometheus. Đĩa đầy là Postgres dừng ghi.

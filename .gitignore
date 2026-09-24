@@ -2,7 +2,8 @@
 .env
 .env.*
 !.env.example
-deploy/backup.env
+# backup.env ở BẤT KỲ đâu (không chỉ deploy/): máy dev hay để nó ở gốc repo lúc kiểm tải về từ R2 (A3)
+backup.env
 !deploy/backup.env.example
 # ---- Sao lưu (GĐ7 khối A) — chỉ tồn tại trên VM, không bao giờ vào repo ----
 deploy/backups/

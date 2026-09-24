@@ -1,0 +1,14 @@
+# Grafana tự nạp lúc khởi động (C4). uid CỐ ĐỊNH "prometheus": dashboard JSON và cảnh báo C5 trỏ vào uid này —
+# để Grafana tự sinh uid là dashboard báo "datasource not found" sau mỗi lần dựng lại volume.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090        # tên service trong mạng default của stack ops — Grafana KHÔNG gắn mạng staging
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: 15s                # bằng scrape_interval trong prometheus.yml — để $__rate_interval tính đúng

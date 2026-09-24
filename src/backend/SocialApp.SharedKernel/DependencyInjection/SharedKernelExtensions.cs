@@ -9,13 +9,16 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using SocialApp.SharedKernel.Authentication;
 using SocialApp.SharedKernel.Errors;
+using SocialApp.SharedKernel.Events;
 using SocialApp.SharedKernel.Http;
+using SocialApp.SharedKernel.Moderation;
+using SocialApp.SharedKernel.Realtime;
 
 namespace SocialApp.SharedKernel.DependencyInjection;
 
 /// <summary>
 /// Ráp toàn bộ hạ tầng dùng chung của SharedKernel: RFC 7807 Problem Details (kèm traceId),
-/// exception handler toàn cục, và rate limiting (fixed window). Api gọi <see cref="AddSharedKernel"/>
+/// exception handler toàn cục, rate limiting (fixed window), và event bus trong tiến trình (Đ-6.2). Api gọi <see cref="AddSharedKernel"/>
 /// khi cấu hình DI, rồi <see cref="UseSharedKernel"/> và <see cref="UseSharedKernelRateLimiter"/>
 /// trong pipeline — hai lệnh riêng vì thứ tự của chúng so với UseAuthentication không giống nhau.
 /// </summary>
@@ -84,7 +87,25 @@ public static class SharedKernelExtensions
                         Window = TimeSpan.FromMinutes(1),
                         QueueLimit = 0,
                     }));
+
+            // GĐ5 Đ-5.9: xin vé realtime 20/phút theo user — mạng chập chờn làm client tự nối lại liên tục; không giới hạn là
+            // một vòng lặp đốt Redis. Endpoint vé [Authorize] nên luôn có user; phân vùng dùng chung RateLimitPartitionKey.
+            options.AddPolicy(RealtimeTicketDefaults.RateLimitPolicy, ctx =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    RateLimitPartitionKey(ctx),
+                    _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = RealtimeTicketDefaults.RateLimitPerMinute,
+                        Window = TimeSpan.FromMinutes(1),
+                        QueueLimit = 0,
+                    }));
         });
+
+        // Đ-6.2, Đ-6.4: event bus ở đây để Program.cs không có dòng riêng — một chỗ đụng nhau ít hơn với GĐ3, GĐ5 (Mục 9.4).
+        services.AddInProcessEventBus();
+
+        // GĐ6 C2 (Đ-6.3): composite của hợp đồng ghi IModerationTargets — provider do module chủ đăng ký.
+        services.AddModerationTargets();
 
         return services;
     }

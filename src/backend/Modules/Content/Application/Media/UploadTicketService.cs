@@ -1,5 +1,6 @@
 using System.Globalization;
 using Microsoft.Extensions.Logging;
+using SocialApp.SharedKernel.Observability;
 using SocialApp.SharedKernel.Storage;
 
 namespace SocialApp.Modules.Content.Application.Media;
@@ -48,6 +49,7 @@ public sealed class UploadTicketService(IObjectStorage storage, ILogger<UploadTi
         // vào bucket còn hạn 10 phút, và key kèm id người dùng là bản đồ ảnh riêng tư của họ.
         // MediaUploadsTests.Khong_log_uploadUrl canh dòng này bằng máy.
         logger.LogInformation("Cấp {Count} ticket tải lên ({Purpose})", tickets.Count, purpose);
+        BusinessMetrics.PresignIssued(purpose == UploadPurpose.Post ? "post" : "avatar", tickets.Count);   // GĐ7 C2
 
         return tickets;
     }

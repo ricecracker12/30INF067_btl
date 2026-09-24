@@ -1,0 +1,91 @@
+# Stack quan sát (ops) — project RIÊNG, không chung với socialapp-staging.
+# Lý do (giai-doan-7.md Mục 4): `down`/`up` stack ứng dụng lúc deploy không được kéo theo đồng hồ uptime —
+# chung project thì mỗi lần deploy đồng hồ tự tắt và tự ghi nhận… chính mình đang chết.
+#
+# Thư mục ops/ của repo TRÙNG với ~/app/ops/ trên VM — chép nguyên cả thư mục (trừ .env thật, chỉ có trên VM):
+#   docker-compose.ops.yml · prometheus.yml (C3) · grafana/ (C4) · .env.example → cp thành .env, điền mật khẩu (C4).
+# File này KHÔNG đi qua CD (stack ops có trạng thái, hiếm khi đổi) — chép tay lên THƯ MỤC RIÊNG ~/app/ops/
+# (không để chung ~/app/deploy/: Compose nạp .env cùng thư mục với file compose, để chung là stack ops đọc
+# secret của staging khi khối C thêm Grafana có ${...}). Rồi:
+#   cd ~/app/ops && docker compose -f docker-compose.ops.yml up -d
+# Đổi thư mục KHÔNG mất dữ liệu: volume socialapp-ops_kuma-data sinh theo `name:` dưới đây, không theo thư mục.
+name: socialapp-ops
+
+# Mạng `internal` của stack staging (project socialapp-staging → tên thật socialapp-staging_internal). external: stack
+# ops KHÔNG tạo và KHÔNG xóa mạng này — chỉ gắn prometheus vào để gọi được api:8080 (C3, Đ-7.7 lớp 3). Hệ quả:
+#   - Stack staging phải có TRƯỚC (mạng phải tồn tại) thì stack ops mới up được.
+#   - `docker compose down` stack staging sẽ báo không xóa được mạng (prometheus đang gắn) — mạng ở lại, `up` lại
+#     dùng tiếp, vô hại. CD không chạy `down` nên bình thường không gặp. Nếu mạng bị xóa hẳn rồi tạo lại:
+#     `docker compose -f docker-compose.ops.yml up -d --force-recreate prometheus`.
+#   - Mạng này nằm trong ReverseProxy__TrustedNetworks (172.28.0.0/16), tức prometheus là "proxy tin được" với API.
+#     Prometheus không gửi X-Forwarded-For nên không có gì để giả — nhưng đừng gắn thêm container lạ vào mạng này.
+networks:
+  staging:
+    external: true
+    name: socialapp-staging_internal
+
+volumes:
+  kuma-data:                          # lịch sử uptime nằm ở đây — mất volume là mất bằng chứng GOAL-04
+  prometheus-data:                    # TSDB — có trần bằng retention bên dưới (đĩa VM đã 72%)
+  grafana-data:                       # người dùng, cảnh báo C5, lịch sử cảnh báo — dashboard thì nằm trong repo
+
+services:
+  uptime-kuma:
+    image: louislam/uptime-kuma:1     # kiểm arm64 trước khi up: docker manifest inspect louislam/uptime-kuma:1 | grep arm64
+    restart: unless-stopped
+    # host 3002 (3001 trên VM đã có người dùng) → container 3001: Kuma LUÔN nghe 3001 bên trong, đổi vế
+    # phải là container không có ai nghe. Muốn đổi cả vế phải thì phải kèm environment UPTIME_KUMA_PORT.
+    ports: ["127.0.0.1:3002:3001"]    # chỉ localhost — xem qua SSH tunnel, KHÔNG mở ra Internet (Đ-7.7, R7-06)
+    volumes: [kuma-data:/app/data]
+    # Không cần network nội bộ: Kuma probe qua domain công khai (đi qua Cloudflare → apache → container),
+    # tức là đo đúng thứ người dùng thấy. Probe nội bộ (api:8080) thêm ở khối C nếu cần chẩn đoán.
+
+  prometheus:
+    image: prom/prometheus:v3.5.0     # LTS; kiểm arm64: docker manifest inspect prom/prometheus:v3.5.0 | grep arm64
+    restart: unless-stopped
+    # Ghi đè command là mất cờ mặc định của image — nên phải khai lại config.file và storage.tsdb.path.
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # Hai trần, chạm cái nào trước thì cắt theo cái đó. Ước lượng vài nghìn series × 15s ≈ 30–60 MB/ngày, tức
+      # 30 ngày khoảng 1–2 GB; trần 2GB chặn trường hợp số series phình (nhãn lạ, route mới).
+      - --storage.tsdb.retention.time=30d
+      - --storage.tsdb.retention.size=2GB
+    ports: ["127.0.0.1:9090:9090"]    # chỉ localhost — xem trang Targets qua SSH tunnel (Đ-7.7, R7-06). Kiểm cổng trống trước.
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks: [default, staging]      # default: thấy node-exporter · staging: thấy api:8080
+    depends_on: [node-exporter]
+
+  node-exporter:
+    image: prom/node-exporter:v1.9.1  # kiểm arm64: docker manifest inspect prom/node-exporter:v1.9.1 | grep arm64
+    restart: unless-stopped
+    # Đọc số liệu của HOST, không phải của container: pid host + mount / chỉ đọc. KHÔNG publish cổng — chỉ
+    # prometheus gọi node-exporter:9100 trong mạng default của stack ops.
+    command: ["--path.rootfs=/host"]
+    pid: host
+    volumes:
+      - /:/host:ro,rslave
+
+  grafana:
+    image: grafana/grafana-oss:12.1.1 # kiểm arm64: docker manifest inspect grafana/grafana-oss:12.1.1 | grep arm64
+    restart: unless-stopped
+    # 2998: dải 3000–3003 trên VM đã kín (3000 frontend, 3001 + 3003 ứng dụng khác, 3002 Kuma). Kiểm `ss -ltnp` trước; bận thì chỉ đổi
+    # VẾ TRÁI (Grafana luôn nghe 3000 bên trong container).
+    ports: ["127.0.0.1:2998:3000"]    # chỉ localhost — xem qua SSH tunnel, KHÔNG ProxyPass ra Internet (Đ-7.7, R7-06)
+    environment:
+      # Lấy từ ~/app/ops/.env (Compose tự đọc). Thiếu thì `up` DỪNG với thông báo này — không bao giờ chạy với admin/admin.
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?đặt GRAFANA_ADMIN_PASSWORD trong ~/app/ops/.env (xem .env.example cùng thư mục)}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_SERVER_ROOT_URL: http://localhost:2998   # đường xem qua tunnel — link trong email cảnh báo C5 trỏ về đây
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    # Chỉ mạng default: Grafana gọi prometheus:9090, không cần (và không được) thấy mạng staging.
+    depends_on: [prometheus]

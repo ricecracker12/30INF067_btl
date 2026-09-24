@@ -49,6 +49,27 @@ Hướng dẫn thi công từng bước (lệnh nào, file nào, cạm bẫy nà
 > - Lỗi cùng status khác nghĩa phân nhánh theo `type` của Problem Details (GĐ4 Q-E4, luật frontend Mục 4).
 > - Báo cáo k6 sơ bộ GĐ4 (`docs/giai-doan-4/bao-cao-k6-so-bo.md`) là mốc so sánh.
 
+> **Cổng mở (2026-09-24) — rà lại trên `origin/develop@3b5bf64` (sau PR #24 của GĐ6), nhánh `gd5`.** Mười tám quyết định **chốt**, trừ các chỗ
+> sửa dưới đây (mỗi chỗ cũng ghi ngay dưới quyết định tương ứng). Người thi công: một người làm trọn A→F, dừng hai lần cho
+> việc cần quyền server (Mục 9.2).
+>
+> | Chỗ | Tài liệu gốc ghi | Thực tế / chốt lại | Vì sao |
+> |---|---|---|---|
+> | Nền nhánh (đầu file, B.1, Mục 9.1, 9.4) | `loveart1210@e120090`; `IFriendshipReader`, API kết bạn, slot `actions` chưa có | Nền `origin/develop`: GĐ4 đã merge (`0d0a093`), cả ba đã có. `ArrangePath` dựng bạn bè **qua API** — bỏ nhánh `INSERT` thẳng + TODO | GĐ4 đóng 2026-09-23 |
+> | Đ-5.2 bẫy thứ tự uuid | "`Guid.CompareTo` và `<` của Postgres không cùng thứ tự" | Ngược lại: `Guid.CompareTo` **khớp** Postgres; `ToByteArray()` mới lệch (comment `FriendPair`, `7e6e0d5`). `ConversationPair` chép `FriendPair` | Đọc lại code GĐ4 |
+> | Đ-5.15, D7 | Chưa có event bus → `IMessagingEvents` chỉ log | **Bị Đ-6.2 thay:** gọi `IEventPublisher.Publish(new MessageSent(…))` sau `COMMIT`. Record `MessageSent` đã có ở `SharedKernel/Events/MessagingEvents.cs` — không đổi hình dạng (`IntegrationEventShapeTests`) | GĐ6 C0 (`60ac7ee`) đã dựng bus |
+> | D5, D7, Mục 10.7 | "nếu GĐ7 đã có prometheus-net thì thêm counter, chưa thì TODO" | Đã có: thêm `MessageSent()` + histogram `socialapp_message_push_seconds` vào `SharedKernel/Observability/BusinessMetrics.cs`, tạo sẵn chuỗi trong `Initialize()` | GĐ7 C2 (`e4b18ff`, `b99615d`) |
+> | Đ-5.9, Đ-5.10, C2, C3 | Filter thu hồi, tuổi thọ, `IUserIdProvider` gắn `ChatHub` | Cả ba ở `SharedKernel/Realtime/`, filter đăng ký **toàn cục** cho mọi hub | Đ-6.18: `/hubs/notifications` dùng lại nguyên |
+> | Đ-5.9 `iat` | — | Giữ `iat`, Đ-6.8 xác nhận | — |
+> | C5, B.10 | Presence là phần cắt đầu tiên | Vẫn cắt được nhưng **làm**: Đ-6.17 cần `IPresenceReader` để tạo thông báo `message` | Cắt là GĐ6 mất một loại thông báo |
+> | E4 | Chép khuôn `use-post-page.ts` | Dùng `hooks/use-cursor-pages.ts` (GĐ4 Q-E8) | Hook dùng chung đã có |
+> | Mục 9.2 #2 (cổng Contract) | "chọn một, ghi lại" | **Tiền lệ GĐ4:** `messaging-v1.yaml` vào repo **cùng commit** với controller đầu tiên, mỗi path thêm cùng controller của nó. Hình dạng DTO chốt ở Mục 8.1 | `ContractGateCoverageTests` tự nhặt mọi `*-v1.yaml` và cấm `Skip` — yaml đầy đủ bây giờ là cổng đỏ tới D9 |
+> | Mục 9.3 thứ tự | C0 (spike staging) ngay sau cổng mở | Ở dừng 1 chỉ kiểm apache đưa `/hubs` tới Kestrel; WebSocket thật kiểm ở F1 | Deploy staging cần người merge `develop` |
+> | Mục 9.4 `Program.cs` | — | Có thêm `AddInProcessEventBus`, `UseHttpMetrics`/`MapMetrics`, `BusinessMetrics.Initialize()`. Thứ tự migrate: … → SocialGraph → **Messaging** → Moderation → Notification (hai module GĐ6 đã nối — Messaging chen vào **giữa** SocialGraph và Moderation) | GĐ6, GĐ7 |
+> | Đ-5.5, Đ-5.6 (hai lệch PTTK) | "báo chủ dự án trước khi chốt" | **Chủ dự án đồng ý cả hai** (2026-09-24). Mục 13 dòng 1–2 giữ nguyên làm câu trả lời lúc bảo vệ | Mục 9.2 bước 1 |
+> | GĐ6 C6 | — | GĐ6 C6 (hub `/hubs/notifications`) **đang chờ vé realtime của GĐ5 trên `develop`** (`d3f19f9`). Vé + scheme + filter là thứ nên lên `develop` sớm nhất có thể | Mở khóa GĐ6 |
+> | GĐ7 | — | D2 (rà Swagger) chạy lại cho nhóm `messaging-v1`; grep log PII (Đ-7.14) thêm `content` | Việc của chủ dự án khi quay lại GĐ7 |
+
 ---
 
 # Phần A — Thiết kế và quyết định
@@ -167,10 +188,11 @@ Module Messaging **không** import SocialGraph, Profile hay Content (`ModuleBoun
 `UNIQUE (user_a_id, user_b_id)` + `CHECK (user_a_id < user_b_id)` (PTTK ENT-06). Hội thoại tạo bằng `INSERT … ON CONFLICT
 DO NOTHING` rồi `SELECT` — hai người cùng bấm "Nhắn tin" cho nhau cùng lúc vẫn ra **một** hội thoại, không 409, không 500.
 
-**Bẫy đã có tiền lệ ở GĐ4:** `Guid.CompareTo` của .NET và toán tử `<` trên `uuid` của Postgres **không cùng thứ tự**
-(Postgres so từng byte theo thứ tự hiển thị; .NET so theo bố cục nội bộ). Chuẩn hóa cặp bằng `CompareTo` là để lọt những
-cặp mà CHECK của DB từ chối → 500 ngẫu nhiên, chỉ với một số cặp người dùng. SocialGraph đã giải bằng `FriendPair` "theo
-thứ tự uuid Postgres" (commit `7e6e0d5`). Messaging **không import được** kiểu đó → chép quy tắc thành
+**Bẫy đã có tiền lệ ở GĐ4:** so hai uuid **theo mảng byte** (`ToByteArray()`) **không cùng thứ tự** với toán tử `<` trên
+`uuid` của Postgres (ba nhóm đầu little-endian). Chuẩn hóa cặp sai cách là để lọt những cặp mà CHECK của DB từ chối → 500
+ngẫu nhiên, chỉ với một số cặp người dùng. SocialGraph đã giải bằng `FriendPair` "theo thứ tự uuid Postgres" (commit
+`7e6e0d5`) — `Guid.CompareTo` so từng trường như chuỗi hex hiển thị nên **khớp** Postgres. *(Sửa 2026-09-24: bản
+2026-09-22 ghi ngược — nói `CompareTo` lệch.)* Messaging **không import được** kiểu đó → chép quy tắc thành
 `ConversationPair.Of(a, b)` trong `Messaging.Domain`, kèm unit test so với danh sách cặp mà test tích hợp đã kiểm bằng
 Postgres thật. *(Nếu cổng mở muốn gom về một chỗ: chuyển hàm so sánh sang `SharedKernel/Ids/` — nhưng đó là sửa code của
 A, phải báo A trước.)*
@@ -416,6 +438,11 @@ Theo Đ-4.15 / Đ-3.12: `MessageSent { conversationId, messageId, senderId, reci
 GĐ5 chỉ ghi log (không ghi nội dung tin — Đ-5.18). Hiện **chưa có** hạ tầng event nào trong repo (không MediatR, không
 dispatcher) → không dựng khung event chung ở GĐ5: một interface `IMessagingEvents` trong `Messaging.Application` với hiện
 thực ghi log là đủ, GĐ6 thay hiện thực. Dựng khung chung là quyết định cấp dự án, không phải của một giai đoạn.
+
+> **Sửa 2026-09-24 (cổng mở) — bị Đ-6.2 thay thế.** GĐ6 C0 (`60ac7ee`) đã dựng event bus trong tiến trình ở
+> `SharedKernel/Events/` và khai sẵn record `MessageSent(ConversationId, MessageId, SenderId, RecipientId, Seq)`. GĐ5 **không**
+> tạo `IMessagingEvents`: `MessagingEvents` (singleton, khuôn `SocialGraphEvents` của GĐ4) gọi `IEventPublisher.Publish` sau
+> `COMMIT`. `Publish` không chờ handler, không ném, bus tự đếm — không ghi log riêng.
 
 ### Đ-5.16 Client SignalR bắt buộc `skipNegotiation` + chỉ WebSockets — vì vé dùng một lần
 
@@ -800,7 +827,11 @@ Tuổi thọ    : server cắt sau 15 phút (Đ-5.10); client tự kết nối l
 | Sự kiện | Payload | Gửi tới | Khi nào |
 |---|---|---|---|
 | `MessageReceived` | `MessageResponse` | mọi kết nối của **người nhận và người gửi** | sau `COMMIT` của mỗi tin mới (không phát khi `replayed`) |
-| `ReceiptUpdated` | `{ conversationId, userId, deliveredSeq, seenSeq }` | mọi kết nối của **người kia** (và các tab khác của chính người gửi biên nhận) | sau khi mốc thật sự **tăng** (UPDATE không đổi gì thì không phát) |
+| `ReceiptUpdated` | `{ conversationId, userId, deliveredSeq, seenSeq }` | mọi kết nối của **cả hai** thành viên (`Clients.Users(a, b)`) | sau khi mốc thật sự **tăng** (UPDATE không đổi gì thì không phát) |
+
+*(Chốt 2026-09-24 ở cổng mở: gửi `ReceiptUpdated` tới cả hai thành viên thay vì "người kia + các tab khác của người gửi" —
+cùng một lời gọi `Clients.Users` như `MessageResponse`, và tab khác của chính người xem cần biết mốc đã xem của mình để hạ
+badge. Không lộ gì thêm: cả hai đều là thành viên.)*
 
 **Quy tắc thứ tự và độ tin cậy — FE phải lập trình theo đúng các câu này:**
 
@@ -1054,43 +1085,49 @@ Mọi cổng mới: **thử cho đỏ một lần rồi khôi phục**, `git sta
 
 Theo Mục 3.5 báo cáo:
 
-- [ ] Đủ AC US-015 (AC-01..04), mỗi AC có test hoặc bằng chứng E2E trỏ tới
-- [ ] Mọi cửa vào (REST **và** hub) có tầng 2 + tầng 3; mọi endpoint chạm hội thoại có dòng matrix; hub có `HUB-*`
-- [ ] Lỗi REST là RFC 7807; lỗi hub là mã trong bảng Mục 8.2 — không câu nào chứa id, nội dung tin hay tên kiểu
-- [ ] Chạy thử trên staging bằng **hai tài khoản thật là bạn của nhau**
-- [ ] Swagger nhóm `messaging-v1` cập nhật; `chat-hub-v1.md` khớp code (cổng Mục 8.3 xanh)
-- [ ] Không lộ secret/PII: vé không nằm trong log (Serilog + apache), nội dung tin không nằm trong log
-- [ ] `README.md` Mục 1 cập nhật trạng thái GĐ5 (luật vàng 7); lệch quyết định đã ghi ngược vào tài liệu này
+- [x] Đủ AC US-015 (AC-01..04), mỗi AC có test hoặc bằng chứng E2E trỏ tới — `e2e/chat.spec.ts` 3 ca xanh trên staging (F2), ảnh ở `bang-chung/`
+- [x] Mọi cửa vào (REST **và** hub) có tầng 2 + tầng 3; mọi endpoint chạm hội thoại có dòng matrix; hub có `HUB-*`
+- [x] Lỗi REST là RFC 7807; lỗi hub là mã trong bảng Mục 8.2 — không câu nào chứa id, nội dung tin hay tên kiểu
+- [x] Chạy thử trên staging bằng **hai tài khoản thật là bạn của nhau** (F1, F2, F3 — 2026-09-24)
+- [x] Swagger nhóm `messaging-v1` cập nhật; `chat-hub-v1.md` khớp code (cổng Mục 8.3 xanh)
+- [x] Không lộ secret/PII: vé không nằm trong log (Serilog + apache), nội dung tin không nằm trong log — Serilog: xanh (`HubLogTests`,
+      `LOG-01`, C6). apache: `grep access_token= /var/log/apache2/*access*.log` trên VM **rỗng** (chủ dự án chạy, 2026-09-24)
+- [x] `README.md` Mục 1 cập nhật trạng thái GĐ5 (luật vàng 7); lệch quyết định đã ghi ngược vào tài liệu này
 
 ## 12. Checklist nghiệm thu cuối GĐ5
 
 **Dữ liệu (A)**
-- [ ] `--migrate` chạy hai lần liên tiếp trên DB sạch: lần hai không đổi gì, exit 0
-- [ ] Schema `messaging` có hai bảng với đủ UQ + CHECK của Mục 4
-- [ ] `EXPLAIN` lịch sử tin: `Index Scan Backward` trên `uq_messages_conv_seq`, không `Sort`
+- [x] `--migrate` chạy hai lần liên tiếp trên DB sạch: lần hai không đổi gì, exit 0
+- [x] Schema `messaging` có hai bảng với đủ UQ + CHECK của Mục 4
+- [x] `EXPLAIN` lịch sử tin: `Index Scan Backward` trên `uq_messages_conv_seq`, không `Sort`
 
 **Realtime (C)**
-- [ ] Kết nối hub trên staging qua Cloudflare + apache, 1 lần xin vé mỗi lần kết nối
-- [ ] Access log apache và log API **không** chứa `access_token=`
-- [ ] Để yên tab chat 10 phút: 0 lần kết nối lại (keep-alive qua được timeout của apache và Cloudflare)
-- [ ] Kết nối tự cắt sau 15 phút và tự nối lại không ai nhận ra
-- [ ] Backplane: E2E hai instance ở local xanh *(ghi "chưa bật trên staging — chờ GĐ7 khối E")*
-- [ ] Presence: `IPresenceReader` có test *(hoặc ghi "hoãn tới GĐ6" nếu đã cắt)*
+- [x] Kết nối hub trên staging qua Cloudflare + apache, 1 lần xin vé mỗi lần kết nối (F1; `chat.spec.ts` khẳng định 1 vé + 1 WebSocket)
+- [x] Access log apache và log API **không** chứa `access_token=` — log API: xanh (`HubLogTests`). apache: `grep` trên VM **rỗng**
+      sau các lượt F1–F4 (2026-09-24)
+- [x] Để yên tab chat 10 phút: 0 lần kết nối lại (keep-alive qua được timeout của apache và Cloudflare) — `e2e/chat-idle.spec.ts`
+      trên staging: phút 10 vẫn 1 WebSocket, 1 vé
+- [x] Kết nối tự cắt sau 15 phút và tự nối lại không ai nhận ra — cùng spec: server cắt đúng phút 15,0, nối lại ngay bằng vé thứ 2,
+      không hiện banner, tin B gửi sau đó tới trong 3 s
+- [x] Backplane: E2E hai instance ở local xanh — `BackplaneTests` hai host; chưa bật trên staging — chờ GĐ7 khối E
+- [x] Presence: `IPresenceReader` có test *(hoặc ghi "hoãn tới GĐ6" nếu đã cắt)*
 
 **Bảo mật (B, D)**
-- [ ] Matrix Mục 6.3 xanh trên CI; đã từng đỏ khi bỏ kiểm thành viên (bảng đột biến: bỏ `ConversationAccess` → `TC-A04*` đỏ;
+- [x] Matrix Mục 6.3 xanh trên CI; đã từng đỏ khi bỏ kiểm thành viên (bảng đột biến: bỏ `ConversationAccess` → `TC-A04*` đỏ;
       bỏ `AreFriendsAsync` → `TC-A07*` đỏ; đổi 403 thành 404 → đỏ)
-- [ ] `HUB-01..10` xanh; đã từng đỏ (bỏ `GETDEL` → `HUB-02`; đổi `Clients.Users` thành `Clients.All` → `HUB-09`)
-- [ ] `MSG-C1`, `MSG-C2` xanh 20 lần liền
+- [x] `HUB-01..10` xanh; đã từng đỏ (bỏ `GETDEL` → `HUB-02`; đổi `Clients.Users` thành `Clients.All` → `HUB-09`)
+- [x] `MSG-C1`, `MSG-C2` xanh 20 lần liền (20/20 lượt, local, 2026-09-24)
 
 **Lát cắt dọc (E, F) — trên staging, hai trình duyệt**
-- [ ] A gửi → B thấy; trạng thái Đã gửi → Đã nhận → Đã xem hiện đúng ở A (AC-01)
-- [ ] B đăng xuất, A gửi 3 tin, B đăng nhập lại → badge 3, mở ra thấy đủ, badge về 0 (AC-02)
-- [ ] Tắt mạng A giữa lúc gửi, bật lại, bấm Thử lại → B thấy **một** tin (AC-03)
-- [ ] Hủy kết bạn → cả hai thấy thanh "chỉ đọc", gửi → bị chặn, lịch sử còn nguyên (AC-04)
-- [ ] Chặn WebSocket (DevTools → chặn `/hubs/*`) → vẫn gửi và nhận được qua fallback, trễ ≤ ~3s
-- [ ] Tab Network: chỉ thấy `/bff/*` và **một** WebSocket `/hubs/chat` — không JWT nào, không id hội thoại của người khác
-- [ ] **Báo cáo p95 gửi→nhận** trên staging đã lưu, có số (Mục 10.7)
+- [x] A gửi → B thấy; trạng thái Đã gửi → Đã nhận → Đã xem hiện đúng ở A (AC-01) — `f2-1-*.png`
+- [x] B đăng xuất, A gửi 3 tin, B đăng nhập lại → badge 3, mở ra thấy đủ, badge về 0 (AC-02) — ca 3 của `chat.spec.ts`, `f2-5-*.png`
+- [x] Tắt mạng A giữa lúc gửi, bật lại, bấm Thử lại → B thấy **một** tin (AC-03)
+- [x] Hủy kết bạn → cả hai thấy thanh "chỉ đọc", gửi → bị chặn, lịch sử còn nguyên (AC-04) — `f2-3-a-chi-doc.png`
+- [x] Chặn WebSocket (DevTools → chặn `/hubs/*`) → vẫn gửi và nhận được qua fallback, trễ ≤ ~3s — ca 2 `chat.spec.ts`
+      (`routeWebSocket`): 2 888 ms và 2 871 ms ở hai lượt, `f2-4-b-fallback-nhan.png`
+- [x] Tab Network: chỉ thấy `/bff/*` và **một** WebSocket `/hubs/chat` — không JWT nào, không id hội thoại của người khác —
+      thay ảnh bằng khẳng định trong spec: đúng 1 WebSocket, `access_token` là vé 43 ký tự, URL không chứa `eyJ`
+- [x] **Báo cáo p95 gửi→nhận** trên staging đã lưu, có số (Mục 10.7) — **174,7 ms**, `bao-cao-p95-chat.md`
 
 ## 13. Sai khác so với kế hoạch gốc và báo cáo v5.0
 
@@ -1626,3 +1663,223 @@ Thiếu bất kỳ điều nào thì **chưa xong**, dù code đã chạy:
 **Một câu để nhớ:** các giai đoạn trước hỏi *"người này có được làm việc này không"* một lần cho mỗi request; GĐ5 là lần
 đầu hệ thống phải tiếp tục hỏi câu đó **trong suốt một kết nối sống hàng giờ** — và phải trả lời đúng cả khi hai tin tới cùng
 một mili-giây.
+
+---
+
+# Thực tế thi công
+
+Ghi theo thứ tự làm, mỗi dòng trỏ commit. Chỗ lệch Phần A/B mở bằng "Lệch".
+
+## Khối A — Nền dữ liệu (2026-09-24)
+
+| Việc | Commit | Kết quả / chỗ lệch |
+|---|---|---|
+| Cổng mở | `03fc4fa`, `c39e04c` | Bảng "Cổng mở (2026-09-24)" ở đầu tài liệu; hợp đồng hub; mẫu apache `/hubs/`. Mốc test đúng trên `develop@3b5bf64`: Unit 336, Architecture 23 (+1 Skip của GĐ6), Integration 544 |
+| A1 | `dc88856` | Domain thuần + `ConversationPair`. `MessageContentPolicy` đếm **code point** (khớp `char_length`) — emoji là 1 ký tự |
+| A2–A3 | `a5e6920` | Migration `InitialMessaging` khớp DDL Mục 4. **Cạm bẫy đã gặp:** test schema không `ClearPool` → cả bộ chạm `max_connections` 100 (52 ca đỏ `53300`) — chép khuôn `IAsyncLifetime` của `ModerationDbContextSchemaTests` |
+| A4 | `94da7d3` | `MessagingPermissions` + test đối chiếu `PermissionCodes` |
+| A5 | *(commit này)* | Store + `ConversationAccess` + cursor. **Lệch B.4:** câu gửi tin Đ-5.4 viết luôn ở A5 (một interface store), không đợi D5. **Lệch Đ-5.4 bước 2:** tầng 3 (thành viên) kiểm **trước** transaction qua `ConversationAccess` — thành viên cố định nên kết quả như nhau, và giữ được "một chỗ duy nhất kiểm BR-06". EXPLAIN (với `enable_seqscan = off` vì bảng test nhỏ): lịch sử `Index Scan Backward using uq_messages_conv_seq`, không Sort; danh sách dùng cả `idx_conversations_a_recent` lẫn `_b_recent` |
+
+**Đột biến đã thử ở A5:** bỏ `for update` → `MSG-C1`/`MSG-C2` **vẫn xanh** — chính câu `UPDATE seq_counter = seq_counter + 1`
+đã khóa dòng nên `seq` không lỗ/không trùng, và UNIQUE `client_msg_id` + nhánh bắt `23505` đỡ lượt gửi trùng. Bỏ **cả** `for
+update` lẫn nhánh bắt `23505` → `MSG-C2` đỏ `23505 uq_messages_conv_client_id` (3/3 lượt). Tức `FOR UPDATE` là lớp phòng thủ
+thứ nhất, UNIQUE là lớp thứ hai; test chứng minh được lớp thứ hai, lớp thứ nhất không quan sát được từ ngoài.
+
+## Khối C — Realtime (2026-09-24)
+
+| Việc | Commit | Kết quả / chỗ lệch |
+|---|---|---|
+| C1–C3 | *(commit này)* | `SharedKernel/Realtime/`: `IRealtimeTicketStore` + `RedisRealtimeTicketStore` (khóa `rt:ticket:{sha256}`, `GETDEL`), scheme `RealtimeTicket` (chỉ `/hubs`, chỉ query), `SubClaimUserIdProvider`, `RevocationHubFilter` **toàn cục** (thu hồi mỗi lời gọi + tuổi thọ), `AddSharedKernelRealtime()` + `AddRealtimeTicket()`. Policy `realtime-ticket` 20/phút/user. `RealtimeTicketsController` + `ChatHub` khung ở Messaging; `messaging-v1.yaml` vào repo với path đầu tiên `/realtime/tickets` |
+
+**Lệch / chốt khi thi công khối C:**
+- **Hạn vé kiểm hai chỗ** — TTL Redis dọn khóa, còn `expiresAt` lưu trong giá trị được so với `TimeProvider` lúc đổi vé: test HUB-03
+  chạy bằng đồng hồ dịch được, không ngủ 30 giây.
+- **`RealtimeOptions.MaxConnectionLifetime`** (mặc định = `Jwt:AccessTokenSeconds`) — thêm để HUB-10 rút tuổi thọ xuống 1 giây. Không
+  đặt gì là đúng cho mọi môi trường.
+- **503 của vé có `type` riêng** `urn:socialapp:problem:realtime-unavailable` và title riêng (bảng mặc định gộp ≥ 500 vào "lỗi không
+  mong muốn") — theo quy ước `urn:socialapp:problem:*` của `ContentErrors.FeedOverloadedType`.
+- **Client .NET trong test không dùng `AccessTokenProvider`**: ngoài trình duyệt nó gắn token vào header `Authorization`, không vào
+  query — đi một đường trình duyệt không bao giờ đi. `RealtimeTestClient` tự gắn vé vào query trong `WebSocketFactory`, mỗi lần bắt tay
+  xin đúng một vé.
+- **Cạm bẫy harness (lần 3 trong ngày):** ba lớp test hub, mỗi lớp một `ModulesApiFactory` với database riêng → 5 ca AuthZ chạy sau đỏ
+  `53300`. Sửa gốc ở `ModulesApiFactory.DisposeAsync` (`ClearPool` database của factory) — mọi lớp dùng factory hưởng.
+- Node của máy dev là 20, repo đòi Node 24 (`fs.globSync` của `gen-api.mjs`) — dùng Node 24 tạm qua gói npm `node@24`, không đổi Node
+  toàn cục.
+
+**Đột biến đã thử (đều đỏ đúng ca, đã khôi phục):** `GETDEL` → `GET` → HUB-02 · bỏ kiểm thu hồi lúc bắt tay → HUB-04 · bỏ timer tuổi thọ
+→ HUB-10. Thiếu dòng `Content Include` của `messaging-v1.yaml` → `ContractGateCoverageTests` + hai ca `MessagingContractTests` đỏ với
+thông báo chỉ đúng chỗ sửa.
+
+## Khối D + B — Endpoint, hub, cổng CI (2026-09-24)
+
+| Việc | Commit | Kết quả / chỗ lệch |
+|---|---|---|
+| D0–D9 + B1, B2, B4 | *(commit khối D)* | `ConversationService` (mở, chi tiết + `canSend` sống, danh sách, chưa đọc, lịch sử, biên nhận), `MessageSendService` (chỗ duy nhất của Đ-5.4/5.5, tầng 2 `message.send` qua `IPermissionCache` cho cả hai cửa), `ConversationsController` 7 endpoint, `ChatHub.SendMessage`/`SendReceipt`, `ChatHubNotifier` (`Clients.Users(a, b)`), `HubSendRateLimiter` 60/phút/user, `MessagingEvents` → `IEventPublisher`, hai chỉ số mới trong `BusinessMetrics`. `messaging-v1.yaml` đủ 8 path. 9 dòng AuthZ matrix (Mục 6.3), `ChatHubTests` (HUB-04b, 07, 08, 09, 20, 21), `ChatHubContractTests` |
+| C6 | *(commit C6)* | Vé không lọt vào log (xem dưới) |
+
+**Lệch / chốt khi thi công khối D:**
+- **403 `not-friends` có `type` riêng** `urn:socialapp:problem:not-friends` (title "Không phải bạn bè") — FE phân nhánh theo `type`
+  giữa "không phải thành viên" (`https://httpstatuses.io/403`) và "không còn là bạn" (thanh chỉ đọc). Cùng mã lỗi ở `POST
+  /conversations` khi mở với người không phải bạn.
+- **Tầng 2 của cửa REST kiểm HAI lần** (`[RequirePermission]` + trong service) — service kiểm để cửa hub có tầng 2; lần thứ hai trúng
+  cache quyền, không tốn DB.
+- **Lỗi hub tới client có câu dẫn**: `"An unexpected error occurred invoking 'SendMessage' on the server. HubException: forbidden"`
+  (vì `EnableDetailedErrors = false`). Ghi vào `chat-hub-v1.md` Mục 2: FE đọc mã sau `HubException: ` cuối cùng.
+- **Lỗi hạ tầng trong hub → mã `unavailable`** (bọc ở `ChatHub.GuardAsync`, log không kèm nội dung) — thay vì câu "unexpected error"
+  chung chung mà client không phân nhánh được.
+- **Đẩy `MessageReceived` hỏng không làm hỏng ACK** — tin đã lưu bền; log cảnh báo chỉ có id, seq, độ dài.
+- **Cạm bẫy đã gặp (B2):** trường static `NguoiLaD` khai SAU mảng `Cases` → `Guid.Empty` lúc dựng body → TC-A07 nhận 400. Chuyển khai
+  báo lên trước.
+
+**Bảng đột biến bảo mật (Mục 12) — chạy trên cổng `Category=AuthZ`, đều đỏ, đã khôi phục:**
+
+| Đột biến | Đỏ |
+|---|---|
+| Bỏ kiểm thành viên ở `ConversationAccess` | `TC-A04`, `TC-A04-messages`, `TC-A04-send`, `TC-A04-receipt`, `HUB-07` |
+| Bỏ `AreFriendsAsync` khi gửi | `TC-A07-send`, `HUB-08` |
+| Bỏ `AreFriendsAsync` khi mở hội thoại | `TC-A07` |
+| `AreFriendsAsync` luôn `false` | `TC-A07b` (đối chứng) + các dòng có arrange gửi tin, `HUB-09/20/21` |
+| Đổi 403 thành 404 ở `ConversationAccess` | `TC-A04*`, `HUB-07` |
+| `Clients.Users(a, b)` → `Clients.All` | `HUB-09` |
+| Đổi tên trường `userId` trong `chat-hub-v1.examples.json` | `ChatHubContractTests` (`events.ReceiptUpdated`) |
+| Log thẳng nội dung tin sau COMMIT | `LOG-01` |
+
+**C6 — cạm bẫy thật đã bắt được:** ở Development (`Microsoft.AspNetCore = Information`), log "Request starting/finished" của
+`Microsoft.AspNetCore.Hosting.Diagnostics` ghi NGUYÊN query string → vé realtime nằm trong log. `HubLogTests` đỏ đúng chỗ đó trước khi
+sửa. Sửa ở `appsettings.json` (mọi môi trường): `Microsoft.AspNetCore.Hosting.Diagnostics`, `Microsoft.AspNetCore.Http.Connections`,
+`Microsoft.AspNetCore.SignalR` = `Warning`. Staging/Production vốn đã `Microsoft.AspNetCore = Warning` nên không lộ, nhưng log máy dev
+và log test thì có.
+
+**Đính chính commit `508d36a`:** thân commit ghi "AuthZ gate 43 → 52" — đếm lại bằng `--filter Category=AuthZ` là **43 → 50**
+(43 + 7 `ChatHubTests`). Mã và test không sai, chỉ con số trong thông điệp commit.
+
+## C5 — Presence (2026-09-24)
+
+| Việc | Commit | Kết quả / chỗ lệch |
+|---|---|---|
+| C5 | *(commit C5)* | `IPresenceReader` + `RedisPresenceTracker` (sorted set `rt:presence:{userId}`, member = connectionId, score = hạn 90 s, gia hạn mỗi 30 s cho kết nối CỦA instance này, `KeyExpire` chống khóa mồ côi) + `PresenceHubFilter` toàn cục. Redis không trả lời → `false` (offline) — với người tiêu thụ duy nhất (thông báo GĐ6) thì thừa một thông báo an toàn hơn mất một thông báo. **Không cắt** (Đ-6.17 cần) |
+
+Đột biến: đếm mọi member thay vì chỉ member còn hạn → ca "instance chết" đỏ, đã khôi phục.
+
+## C4 — Backplane (2026-09-24)
+
+| Việc | Commit | Kết quả / chỗ lệch |
+|---|---|---|
+| C4 | *(commit C4)* | `Realtime:Backplane:Enabled` (mặc định `false`) → `AddStackExchangeRedis` với kết nối RIÊNG (không dùng kết nối chung timeout 250 ms), `ChannelPrefix = socialapp-{môi trường}`. Khóa mới trong `deploy/.env.example` |
+
+**Lệch B.5 C4:** thay vì thử tay bằng compose `--scale api=2` sau Caddy tạm, `BackplaneTests` dựng HAI host thật (TestServer) chung
+Postgres + Redis: A nối bản sao 1, B nối bản sao 2 → có backplane thì B nhận, tắt thì không (đối chứng). Cùng bằng chứng, nhưng chạy
+lại mỗi lần — GĐ7 khối E bật cờ là biết ngay. Checklist Mục 12 dòng backplane: "xanh ở test hai host — chưa bật trên staging".
+
+**Theo dõi:** bộ Integration lên 627 ca, 2 phút 31 giây — sát ngưỡng ~3 phút của GĐ1 để tách collection Postgres. Chưa tách.
+
+## Khối E — Lane frontend (2026-09-24)
+
+| Việc | Commit | Kết quả / chỗ lệch |
+|---|---|---|
+| E1 + E2 | `8307cf6` | `messaging-api.ts`, năm ngữ cảnh lỗi, `lib/realtime/` (một kết nối, vé mỗi lần bắt tay, fallback, dừng khi đăng xuất), ESLint cấm `@microsoft/signalr` ngoài `lib/realtime`, Đ-E18 (CSP dev) |
+| E3–E9 | *(commit khối E)* | `features/chat/`: `message-set.ts` (luật dữ liệu thuần), `use-conversation.ts`, `chat-window.tsx`, `message-composer.tsx`, `conversation-list.tsx` (hook chung `use-cursor-pages`), `unread-badge.tsx`, `start-chat-button.tsx`, `latency*.ts`. Route `/messages`, `/messages/[conversationId]`; link "Tin nhắn" + badge ở header (`app/(app)/messages-nav.tsx`); nút "Nhắn tin" cạnh nút quan hệ trên hồ sơ |
+
+**Lệch / chốt khi thi công khối E:**
+- **E4 lịch sử KHÔNG dùng `hooks/use-cursor-pages.ts`** (đã ghi ở `8307cf6`): tập tin nhắn nhận tin realtime chen giữa và lấp chỗ hở
+  theo `seq`, không phải danh sách nối trang. Danh sách hội thoại (E3) vẫn dùng hook chung. Nợ `use-post-page.ts` → hook chung
+  (bàn giao GĐ4) **chưa trả** — không thuộc lát cắt chat, để lại có địa chỉ.
+- **"Xem tin cũ hơn" bằng nút**, không tự nạp khi cuộn lên — vẫn giữ nguyên chỗ đang nhìn (bù chênh `scrollHeight`). Nút "Tin mới ↓"
+  (phần trau chuốt E4) **cắt** theo thứ tự cắt B.10 #2: đang đọc tin cũ thì tin mới không kéo màn xuống, người dùng tự cuộn.
+- **Biên nhận "đã nhận" gửi ở `UnreadBadge` (header)** — người dùng thường trực của kết nối trên mọi trang đã đăng nhập, nên người gửi
+  thấy "Đã nhận" dù người nhận đang ở bảng tin. "Đã xem" chỉ màn chat gửi, khi tab đang hiển thị.
+- **`meId` truyền từ `app/`** (khuôn `users/[userId]/page.tsx`): features/chat không import `features/profile`. Header dùng một client
+  component nhỏ `app/(app)/messages-nav.tsx`; đang onboarding thì không hiện link và không mở kết nối.
+- **`StartChatButton` tự đọc `GET /relationships/{id}`** (câu hỏi bàn giao GĐ4) thay vì nâng trạng thái lên `app/`.
+- **Công cụ đo p95:** `?latency=1`, t0 theo `clientMsgId` ở tab gửi, t1 sau hai lần `requestAnimationFrame` ở tab nhận; phần ghi nạp
+  bằng import động. Spec `e2e/chat-latency.spec.ts` chỉ chạy khi `CHAT_LATENCY=1`.
+
+**Cạm bẫy đã gặp (E9):** `ctxA.setOffline(true)` KHÔNG đóng ngay WebSocket đang mở — lời gọi hub treo, ACK quá 10 giây → "Thất bại",
+rồi khi có mạng lại lời gọi tới server và lượt lấp chỗ hở sau khi nối lại thay tin "Thất bại" bằng tin thật (nút "Thử lại" biến mất
+trước khi kịp bấm). App ĐÚNG (một tin, không lặp); spec sửa để chấp nhận cả đường này, khẳng định chính vẫn là "đúng một tin ở hai
+phía".
+
+**Chạy thật trên dev (2026-09-24, Chrome đã cài, API + FE dev, Postgres/Redis compose riêng `socialapp-gd5dev`):**
+- `e2e/chat.spec.ts` xanh: nhắn realtime → "Đã xem" → mất mạng + Thử lại không lặp tin → badge 2 rồi về 0 → hủy kết bạn thì chỉ đọc;
+  **1 lần xin vé cho 1 lần tải trang** (Đ-5.16).
+- `chat-latency.spec.ts` N = 30 mỗi chiều ở LOCAL: 60/60 mẫu, p50 29,6 ms · p95 37,7 ms · p99 43 ms. **Không phải số nghiệm thu** —
+  GOAL-02 đo trên staging ở F3.
+- `--migrate` chạy hai lần trên DB sạch: lần hai exit 0, `messaging.__EFMigrationsHistory` 1 dòng; `\dn` thấy đủ 7 schema module.
+- **Cả bộ Playwright trên dev (21 spec):** 16 xanh, 2 skip, 3 đỏ — cả 3 là upload ảnh thật lên R2 (`csp` "PUT lên R2",
+  `login-storage` "đăng bài có ảnh", `post-create` "2 ảnh thật"). Nguyên nhân MÔI TRƯỜNG: máy này không có khóa R2 cho dev
+  (không user-secrets, Đ-2.14) → API dùng `UnconfiguredObjectStorage` (log: "R2__Endpoint, R2__Bucket… trong deploy/.env"). Không liên
+  quan GĐ5; chạy lại ba ca này trên máy có khóa R2 dev trước khi mở PR.
+
+## Điểm dừng 2026-09-24 — việc chờ người có quyền server
+
+Mọi thứ làm được trên máy dev đã xong và commit trên nhánh `gd5` (CHƯA push). Còn lại cần quyền VM / merge / tài khoản thật:
+
+| # | Việc | Ai | Mở khóa |
+|---|---|---|---|
+| 1 | Áp khối `/hubs/` của `deploy/apache-socialapp.conf.example` lên VM (`apache2 -v` ≥ 2.4.47, `apachectl configtest`, `systemctl reload apache2`); Cloudflare Network → WebSockets = On | chủ dự án | F1 (C0 dời xuống đây) |
+| 2 | Push `gd5`, mở PR vào `develop` (agent mở khi được bảo), người trong đội merge → CD deploy. `.env` staging KHÔNG bắt buộc thêm khóa (`Realtime__Backplane__Enabled` thiếu = false); migration mới `InitialMessaging` chạy ở service `migrate` | chủ dự án | F1 |
+| 3 | Chạy lại 3 spec upload R2 trên máy có khóa R2 dev (hoặc bỏ qua, ghi vào PR) | chủ dự án | PR |
+| 4 | Hai tài khoản staging ĐÃ xác minh, có hồ sơ, là bạn của nhau → `E2E_A_EMAIL/PASSWORD`, `E2E_B_EMAIL/PASSWORD` (biến môi trường, không dán vào chat) | chủ dự án | F2, F3 |
+
+Sau (1)–(4): F1 kiểm staging (1 vé/kết nối, `access.log` không có `access_token=`, để yên 10 phút 0 lần nối lại), F2 chạy
+`e2e/chat.spec.ts` trỏ staging + ảnh bằng chứng vào `bang-chung/`, F3 `chat-latency.spec.ts` N = 200 → `bao-cao-p95-chat.md`,
+F4 tick Mục 11–12, F5 đóng băng hợp đồng + bàn giao GĐ6 (vé/scheme/filter/presence/`MessageSent` đã sẵn — GĐ6 C6 mở khóa ngay khi
+`gd5` vào `develop`).
+
+## Khối F — trên staging (2026-09-24, bản `develop@9d199a7` đã deploy)
+
+**F1 — đạt phần kiểm được từ ngoài** (script WebSocket thuần `f1-staging.mjs` + Playwright chẩn đoán, không in token/vé):
+- `/health/ready` 200, Swagger `messaging-v1` 200, `GET /hubs/chat` không vé → **401 từ API** (không phải HTML Next) — apache đã chuyển
+  `/hubs/` đúng chỗ.
+- Hai tài khoản staging đăng nhập được, là bạn; `POST /conversations` 201 `canSend=true`; vé 201 `expiresIn=30`.
+- WebSocket thật qua Cloudflare → apache → Kestrel bắt tay được; A gửi → ACK `seq=1` sau 249 ms, **B nhận `MessageReceived` sau 242 ms**
+  (một mẫu, máy đo ở VN); biên nhận `seen` OK.
+- Dùng lại vé cũ → bị từ chối; JWT đặt vào `?access_token=` → bị từ chối.
+- Trình duyệt Chrome thật trên staging: **1** lần xin vé, WebSocket `101`, nhận `ReceiptUpdated` — CSP `connect-src 'self'` đã phủ `wss://`
+  cùng origin, không phải nới.
+- **Còn phải kiểm trên VM (người có quyền):** `access.log` không chứa `access_token=`; để yên tab 10 phút không nối lại; kết nối tự cắt
+  sau 15 phút.
+
+**F2 — lộ một lỗi thật của app, đã sửa ở `98b5f50` (chưa deploy):** tin gửi trong khe "trang đầu đã nạp, hub chưa kết nối" bị bỏ lỡ tới
+tin kế tiếp. Local không lộ vì hub nối nhanh. Lỗi đi kèm tìm ra khi sửa: `fillFrom` nuốt yêu cầu lấp khi đang bận. Cần deploy
+`a9233f4..98b5f50` rồi chạy lại `e2e/chat.spec.ts` trên staging.
+
+**F3 — HOÃN: staging chập chờn lúc đo.** Lần đo đầu dừng ở bước đăng nhập với Cloudflare **520**. Đo tiếp từ máy dev: kết nối tới Cloudflare
+< 0,1 s nhưng thời gian chờ origin trả byte đầu (`/api/v1/ping`, không chạm DB) dao động **0,4–13,6 s**; không có deploy nào đang chạy
+(deploy cuối xong 03:08 UTC). Nút thắt ở VM, không ở mạng máy đo. Đo p95 lúc này là đo VM quá tải, không phải chat — chờ VM ổn định.
+
+**CI đỏ chập chờn ở `BackplaneTests.Co_backplane_…` (sửa 2026-09-24):** lần xin vé đầu trên host 2 vừa dựng trả **503** —
+`RedisRealtimeTicketStore` dùng `ConnectedOrNull()` (không chờ) nên kết nối Redis nền chưa xong là coi như Redis chết. Cấp/đổi vé
+giờ CHỜ lần kết nối đầu có kết quả (≤ `ConnectTimeout` 2 s) rồi mới xét `IsConnected`; Redis chết vẫn 503 (`RealtimeTicketUnavailableTests`
+xanh). Cùng khe này trên staging: request vé đầu ngay sau khi API khởi động có thể nhận 503 oan → FE rơi fallback REST.
+
+## Khối F — cổng đóng (2026-09-24 chiều, bản `develop@6503549` trên staging)
+
+**F2 — xanh trên staging.** `e2e/chat.spec.ts` giờ có 3 ca, cả 3 xanh `--retries=0`: (1) lát cắt AC-01/03/04 + badge realtime,
+(2) **mới** — chặn mọi WebSocket `/hubs/*` của B bằng `routeWebSocket` → fallback, B nhận sau 2 888 / 2 871 ms, B gửi bằng REST tới A,
+(3) **mới** — AC-02 đúng nguyên văn: B không đăng nhập, A gửi 3 tin, B đăng nhập lại → badge +3 nạp qua REST. Ca 1 thêm khẳng định
+thay ảnh tab Network: đúng 1 WebSocket, `access_token` là vé 43 ký tự, URL không có `eyJ`. Ảnh: `bang-chung/f2-*.png`, bật bằng
+`E2E_BANG_CHUNG=<thư mục>`; ảnh chụp ở màn chat hoặc `/friends`, **không ở `/me`** (trang đó hiện email — lượt đầu đã chụp phải, xóa
+trước khi commit).
+
+**F3 — ĐẠT: p95 174,7 ms** (400/400 mẫu, N = 200 mỗi chiều) — `bao-cao-p95-chat.md`. VM đã ổn (TTFB ping 0,30–0,57 s). Phân rã
+histogram server chờ người có quyền VM, không chặn cổng.
+
+**F4 — thêm `e2e/chat-idle.spec.ts`** (`CHAT_IDLE=1`, ~17 phút): hai dòng Mục 12 trước ghi "phải kiểm trên VM" hóa ra kiểm được từ
+ngoài — phút 10 vẫn 1 WebSocket + 1 vé; phút 15,0 server cắt (tuổi thọ = access token), client nối lại ngay bằng vé thứ 2, không
+banner, tin B gửi sau đó tới trong 3 s (BFF làm mới access token của A đúng lúc). `MSG-C1`/`MSG-C2` 20/20 lượt. Việc chờ server
+cuối cùng — `grep access_token= /var/log/apache2/*access*.log` trên VM — chủ dự án đã chạy: **rỗng**, dòng Mục 11 + Mục 12 đã tick.
+**Mục 11 và Mục 12 tick đủ — GĐ5 đóng hoàn toàn.**
+
+**F5 — đóng băng** `messaging-v1.yaml` và `chat-hub-v1.md` (dấu ĐÓNG BĂNG trong đầu file, khuôn GĐ4). README Mục 1: GĐ5 xong, GĐ6 C6
+mở khóa. Bàn giao GĐ6 như bảng "GĐ5 để lại gì cho GĐ6–GĐ8" — không đổi.
+
+**Sự cố khi đo (đã chặn tái diễn):** lượt đo đầu nạp tài khoản bằng vòng `read` của shell — file `.env.e2e.local` không có dòng
+trống cuối nên rơi mất `E2E_B_PASSWORD` → spec p95 lặng lẽ rơi sang nhánh dev và gọi **`POST /auth/register` trên staging** với
+`lat-a-…@example.com` → staging trả **500** (traceId `1832d9f62ce84d3cb8b5c7621ec7eccf`). Sửa: `taiKhoanCoSan()` chung ở
+`post-helpers.ts` (đọc file, bỏ BOM), và thiếu khóa khi API không phải localhost thì **dừng**, không đăng ký. Nợ cho chủ dự án: xem log
+traceId trên để biết vì sao đăng ký trả 500 (nghi gửi mail tới `example.com` hỏng) và có dòng tài khoản rác nào không.
+
+**Quan sát (không chặn cổng):** ảnh `f2-1-b-nhan-tin.png` — B đang mở đúng hội thoại, A đã thấy "Đã xem", nhưng badge header của B vẫn
+`1` lúc chụp; bước 4 của cùng spec cho thấy badge về đúng. Badge trễ một nhịp sau biên nhận "đã xem" — ghi để GĐ6/GĐ8 xem nếu người
+dùng để ý.

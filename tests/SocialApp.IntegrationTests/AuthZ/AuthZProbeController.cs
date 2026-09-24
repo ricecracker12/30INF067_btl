@@ -39,6 +39,21 @@ public sealed class AuthZProbeController : ControllerBase
     public IActionResult UserLock() => Ok();
 
     /// <summary>
+    /// GĐ6 C4: endpoint đặc quyền giả — chưa có controller admin/moderation thật nào lúc C4. FC-01 (503 khi Redis chết) và AUD-03
+    /// (một dòng access.denied mỗi phút) chạy trên nó. Có id trên đường để khẳng định audit ghi route TEMPLATE, không ghi id.
+    /// </summary>
+    [PrivilegedEndpoint]
+    [RequirePermission("report.resolve")]
+    [HttpGet("privileged/{id:guid}")]
+    public IActionResult Privileged(Guid id) => Ok();
+
+    /// <summary>GĐ6 C4: any-of của màn danh sách tài khoản (Mục 6.1) — người chỉ có role.assign phải qua.</summary>
+    [PrivilegedEndpoint]
+    [RequireAnyPermission("user.lock", "user.unlock", "role.assign")]
+    [HttpGet("privileged-any")]
+    public IActionResult PrivilegedAny() => Ok();
+
+    /// <summary>
     /// Khuôn tầng 3 (C6): tài nguyên "thuộc về" <paramref name="ownerId"/>. Danh tính người gọi từ token
     /// (GetUserId), không từ route; không có nhánh Admin; từ chối bằng Result.Forbidden + ToActionResult.
     /// </summary>

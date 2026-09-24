@@ -148,4 +148,32 @@ public sealed class MediaCleanupWorkerTests(PostgresFixture postgres, RedisFixtu
         Assert.Equal("disabled", report.SkipReason);
         Assert.False(await redis.Database.KeyExistsAsync(MediaCleanupWorker.LockKey));
     }
+
+    /// <summary>
+    /// GĐ7 C2: <c>socialapp_media_cleanup_runs_total</c> đếm LƯỢT CHẠY theo kết quả — thứ chứng minh worker còn sống kể cả
+    /// khi không có gì để dọn (đếm số object đã dọn thì staging nằm ở 0 nhiều ngày, không phân biệt được với worker chết).
+    /// "disabled" cố ý không đếm: worker tắt thì ExecuteAsync thoát trước vòng lặp, nhánh đó chỉ tới được khi gọi thẳng.
+    /// </summary>
+    [Fact]
+    public async Task C2_media_cleanup_runs_dem_ran_va_lock_khong_dem_disabled()
+    {
+        const string Metric = "socialapp_media_cleanup_runs_total";
+        using var http = _app.CreateClient();
+        async Task<(double Ran, double Lock)> DocAsync() =>
+            (await MetricsReader.ReadAsync(http, Metric, "result=\"ran\""),
+             await MetricsReader.ReadAsync(http, Metric, "result=\"lock\""));
+        var truoc = await DocAsync();
+
+        await redis.Database.KeyDeleteAsync(MediaCleanupWorker.LockKey);
+        Assert.True((await WorkerOf(_app).RunOnceAsync(CancellationToken.None)).Ran);
+        Assert.Equal((truoc.Ran + 1, truoc.Lock), await DocAsync());
+
+        using var noRedis = factory.WithWebHostBuilder(b => b.UseSetting("Media:Cleanup:Enabled", "true"));
+        Assert.Equal("lock", (await WorkerOf(noRedis).RunOnceAsync(CancellationToken.None)).SkipReason);
+        Assert.Equal((truoc.Ran + 1, truoc.Lock + 1), await DocAsync());
+
+        using var defaults = factory.WithWebHostBuilder(b => b.UseSetting("ConnectionStrings:Redis", redis.ConnectionString));
+        Assert.Equal("disabled", (await WorkerOf(defaults).RunOnceAsync(CancellationToken.None)).SkipReason);
+        Assert.Equal((truoc.Ran + 1, truoc.Lock + 1), await DocAsync());
+    }
 }

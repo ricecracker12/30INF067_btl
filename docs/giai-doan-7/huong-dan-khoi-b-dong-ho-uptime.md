@@ -32,7 +32,7 @@ B1 ─→ B3 ─→ B2
 ```
 
 Ba đầu việc đều thao tác trên VM hoặc trên dashboard bên thứ ba, **không chạm code**. Phần vào repo chỉ có
-`deploy/docker-compose.ops.yml` và thư mục bằng chứng.
+`ops/docker-compose.ops.yml` và thư mục bằng chứng.
 
 ---
 
@@ -62,13 +62,13 @@ Ba đầu việc đều thao tác trên VM hoặc trên dashboard bên thứ ba,
 ### Việc phải làm
 
 **Bước 1 — Đưa file compose lên VM, vào thư mục RIÊNG `~/app/ops/`.** File đã có ở
-[`deploy/docker-compose.ops.yml`](../../deploy/docker-compose.ops.yml). Stack ops **không đi qua CD** (có trạng
+[`ops/docker-compose.ops.yml`](../../ops/docker-compose.ops.yml). Stack ops **không đi qua CD** (có trạng
 thái, hiếm khi đổi), nên chép tay:
 
 ```bash
 # từ máy dev, trong thư mục mxh/
 ssh deploy@<staging-host> mkdir -p app/ops
-scp deploy/docker-compose.ops.yml deploy@<staging-host>:app/ops/
+scp ops/docker-compose.ops.yml deploy@<staging-host>:app/ops/
 ```
 
 Nếu bạn SSH bằng user thường (không phải `deploy`), chép vào `/tmp` rồi trên VM `sudo -iu deploy` và
@@ -122,8 +122,8 @@ localhost; đừng bao giờ đổi thành `0.0.0.0` "cho tiện".)*
 | `staging · api ping` | HTTP(s) | `https://mxh.banhgao.net/api/v1/ping` · expect 200 | Chứng minh route `/api` không bị Next nuốt (cạm bẫy ProxyPass đã ghi từ GĐ1) |
 | `staging · frontend` | HTTP(s) | `https://mxh.banhgao.net/login` · expect 200 | Frontend chết mà API sống thì người dùng vẫn không dùng được |
 
-Sau khi có D4 (stack production), **thêm ba monitor y hệt** cho domain production — và từ lúc đó monitor
-production mới là thứ báo cáo.
+Staging là môi trường cuối (Đ-7.4, sửa 2026-09-23) nên **ba monitor này chính là thứ báo cáo** — không có monitor
+production nào thêm sau.
 
 ### Kết quả mong đợi — checklist nghiệm thu B1
 
@@ -204,9 +204,12 @@ UptimeRobot vì gói miễn phí đủ dùng: 50 monitor, chu kỳ 5 phút, cả
 2. *Add New Monitor* → **HTTP(s)** → URL `https://mxh.banhgao.net/health/ready` → tên `SocialApp staging ready`
    → interval **5 phút** (giới hạn gói miễn phí; đủ cho con số tháng).
    Nếu dịch vụ có loại **Keyword**, dùng keyword `Healthy` như Kuma.
-3. *Alert Contacts*: thêm **Telegram** (dịch vụ sẽ hướng dẫn gắn bot của họ vào group ở B3) và **email nhóm**.
-   Gắn cả hai vào monitor.
-4. Sau D4: thêm monitor cho domain production. Từ lúc đó, **monitor production** là con số báo cáo.
+3. *Alert Contacts*: gắn **email nhóm** vào monitor.
+   > **Thực tế thi công (2026-09-23):** gói miễn phí của UptimeRobot **không cho gửi Telegram** (yêu cầu premium),
+   > nên monitor ngoài chỉ báo qua email. Chấp nhận được: vai trò của nó là **nguồn con số uptime** (Đ-7.3), còn
+   > cảnh báo tức thì đã có Kuma → Telegram. Điều kiện đi kèm: email phải là **hộp thư nhóm** cả ba người đọc —
+   > nếu VM chết cả máy thì Kuma im lặng cùng, và email này là **kênh duy nhất** còn báo được.
+4. Monitor này theo dõi staging — môi trường cuối — nên **chính nó là con số báo cáo** (Đ-7.4).
 
 ### Kết quả mong đợi — checklist nghiệm thu B2
 
@@ -271,5 +274,5 @@ Sau khi commit, cập nhật `README.md` Mục 1: dòng GĐ7 ghi **"Khối B (đ
 |---|---|
 | `docker-compose.ops.yml` project `socialapp-ops` | **Khối C** thêm prometheus/grafana/node-exporter vào đúng file này |
 | Kênh Telegram | **C5** — Grafana alerting đổ về cùng group |
-| Ba monitor staging | **D4** — nhân bản cho production |
+| Ba monitor staging | **Báo cáo GOAL-04** — staging là môi trường cuối (Đ-7.4) |
 | Ngày bắt đầu đồng hồ | **F2** — mốc tính con số GOAL-04 trong báo cáo |

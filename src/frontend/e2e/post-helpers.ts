@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from "node:fs"
+
 import { expect, type APIRequestContext, type Page } from "@playwright/test"
 
 import { API, taoTaiKhoanDaXacMinh } from "./dev-api"
@@ -9,6 +11,38 @@ import { API, taoTaiKhoanDaXacMinh } from "./dev-api"
  * đó trông hệt lỗi CORS — tức là nghi phạm sai. */
 export const ANH_JPG = "e2e/fixtures/anh-nho.jpg"
 export const ANH_PNG = "e2e/fixtures/anh-nho.png"
+
+/**
+ * GĐ5 F2/F3 (staging): hai tài khoản THẬT, đã là bạn, lấy từ biến môi trường hoặc file `.env.e2e.local` (gitignore — không commit).
+ * Thiếu một khóa → `null` và spec tự tạo tài khoản qua Mailpit dev. Đọc file ở ĐÂY cho mọi spec cần: nạp bằng shell từng làm rơi
+ * khóa cuối (file không có dòng trống cuối) → spec đo p95 lặng lẽ rơi sang nhánh dev và gọi `/auth/register` trên staging.
+ */
+export function taiKhoanCoSan(): Record<string, string> | null {
+  const keys = [
+    "E2E_A_EMAIL",
+    "E2E_A_PASSWORD",
+    "E2E_B_EMAIL",
+    "E2E_B_PASSWORD",
+  ]
+  const fromFile: Record<string, string> = {}
+  if (existsSync(".env.e2e.local"))
+    for (const line of readFileSync(".env.e2e.local", "utf8")
+      .replace(/^\uFEFF/, "")
+      .split(/\r?\n/)) {
+      const i = line.indexOf("=")
+      if (i > 0) fromFile[line.slice(0, i).trim()] = line.slice(i + 1).trim()
+    }
+  const values = Object.fromEntries(
+    keys.map((k) => [k, process.env[k] ?? fromFile[k] ?? ""])
+  )
+  if (keys.every((k) => values[k])) return values
+  // Nhánh dự phòng tạo tài khoản qua Mailpit — chỉ có nghĩa trên dev. Trỏ máy khác mà thiếu khóa thì dừng, không đăng ký rác.
+  if (!/^https?:\/\/(localhost|127\.0\.0\.1)[:/]/.test(API))
+    throw new Error(
+      `Thiếu ${keys.filter((k) => !values[k]).join(", ")} khi trỏ ${API} — không tạo tài khoản trên máy thật`
+    )
+  return null
+}
 
 export type TaiKhoan = {
   email: string

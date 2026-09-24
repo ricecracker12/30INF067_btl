@@ -17,6 +17,9 @@ public sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> option
     /// <summary>Schema Postgres của module. Dùng chung cho cả bảng nghiệp vụ lẫn migration history.</summary>
     public const string Schema = "identity";
 
+    /// <summary>Sequence sinh <c>role_id</c> cho vai trò tự tạo (GĐ6, bắt đầu từ 100) — D5 gọi <c>nextval</c>.</summary>
+    public const string RoleIdSequence = "roles_role_id_seq";
+
     private const string UpdatedAtProperty = nameof(User.UpdatedAt);
 
     public DbSet<Role> Roles => Set<Role>();
@@ -32,6 +35,10 @@ public sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> option
         // Phải nằm ở ModelBuilder, không đặt được trong IEntityTypeConfiguration. EF xếp
         // CREATE EXTENSION lên đầu migration, trước bảng users dùng kiểu citext.
         modelBuilder.HasPostgresExtension("citext");
+        // GĐ6 L-A4: id cho vai trò TỰ TẠO (POST /admin/roles — D5). roles.role_id vẫn ValueGeneratedNever: seeder chèn 1/2/3
+        // tường minh, D5 lấy id bằng nextval. Bắt đầu từ 100 để vai trò hệ thống (kể cả nếu thêm sau này) không bao giờ đụng.
+        // Khai ở model chứ không chỉ SQL tay để snapshot biết — migration sau không tưởng nó là thứ lạ.
+        modelBuilder.HasSequence<short>(RoleIdSequence).StartsAt(100);
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(IdentityDbContext).Assembly);
         base.OnModelCreating(modelBuilder);
     }

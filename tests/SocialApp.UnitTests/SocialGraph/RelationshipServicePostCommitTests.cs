@@ -1,8 +1,8 @@
-using Microsoft.Extensions.Logging.Abstractions;
 using SocialApp.Modules.SocialGraph.Application;
 using SocialApp.Modules.SocialGraph.Application.Relationships;
 using SocialApp.Modules.SocialGraph.Domain;
 using SocialApp.SharedKernel.Contracts;
+using SocialApp.SharedKernel.Events;
 using SocialApp.SharedKernel.Storage;
 using Xunit;
 
@@ -32,7 +32,7 @@ public sealed class RelationshipServicePostCommitTests
             new CommittedStore(),
             new EveryoneExists(),
             cache,
-            new SocialGraphEvents(NullLogger<SocialGraphEvents>.Instance),
+            new SocialGraphEvents(new DiscardingPublisher()),
             TimeProvider.System,
             new NoStorage());
 
@@ -124,5 +124,11 @@ public sealed class RelationshipServicePostCommitTests
         public Task<ObjectPage> ListAsync(
             string prefix, string? continuationToken, int maxKeys, CancellationToken ct = default) =>
             throw new NotSupportedException();
+    }
+
+    /// <summary>Ca này canh cache nguồn, không canh event — event có <c>SocialGraphEventsTests</c> (EVT-06).</summary>
+    private sealed class DiscardingPublisher : IEventPublisher
+    {
+        public void Publish(IIntegrationEvent integrationEvent) { }
     }
 }

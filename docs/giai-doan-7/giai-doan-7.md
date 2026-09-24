@@ -5,6 +5,10 @@
 > Nền móng: **GĐ0B** — VPS OCI, Docker, Cloudflare, TLS, CD đã chạy thật từ 2026-09-04 (`oci-setup.md`).
 > GĐ7 **không dựng lại** hạ tầng; nó biến hạ tầng đang chạy thành hạ tầng **vận hành được**.
 >
+> **Sửa phạm vi 2026-09-23 (nhóm chốt): không dựng môi trường production riêng — staging `mxh.banhgao.net` là môi
+> trường cuối**, nơi demo và nơi được chấm. Xem Đ-7.4 (quyết định + ba cái giá chấp nhận) và Đ-7.13 (Swagger). Khối
+> D còn 3 việc, không còn D4. Kế hoạch gốc còn chữ "production" ở đâu thì đọc theo hai quyết định này.
+>
 > **Ba mốc không lùi được của giai đoạn này:**
 > 1. **Biên bản restore drill** — khôi phục thật một lần, có văn bản. Không có biên bản thì NFR-REL-02 chưa đạt,
 >    dù `pg_basebackup` có chạy đẹp tới đâu.
@@ -55,10 +59,10 @@ Hướng dẫn thi công từng bước (lệnh nào, file nào, cạm bẫy nà
 | **NFR-REL-02** | Sao lưu + khôi phục được, RPO ≤ 15 phút | A1–A5 | **Biên bản restore drill** (Mục 7) |
 | **GOAL-04** | Uptime ≥ 99%/tháng | B1–B3 | Ảnh lịch sử Uptime Kuma + monitor ngoài |
 | **NFR-OBS-01** | Quan sát được: metrics + dashboard + cảnh báo | C1–C6 | Grafana có số liệu thật; alert đã từng đỏ |
-| **Nợ GĐ0B** | HSTS bật; Swagger tắt ở production | D1–D2 | `curl -I` thấy header; `/swagger` → 404 |
+| **Nợ GĐ0B** | HSTS trên mọi đường; Swagger mở có chủ đích, đã rà | D1–D2 | Đúng một header HSTS ở cả trang lẫn API; Swagger chỉ liệt kê endpoint trong hợp đồng |
 | **NFR-SEC-03** | Không còn khóa đã lộ đang sống | D3 | Danh sách khóa đã xoay, có ngày |
 | **NFR-REL-01** | Một instance chết thì dịch vụ vẫn phục vụ | E1–E4 *(cắt được)* | `docker kill` một container, site vẫn 200 |
-| **NFR-USE** | UI production: responsive + a11y cơ bản | F1 | Kiểm tay trên 3 kích thước màn hình |
+| **NFR-USE** | UI bản cuối: responsive + a11y cơ bản | F1 | Kiểm tay trên 3 kích thước màn hình |
 
 ### Vì sao GĐ7 khác mọi giai đoạn khác
 
@@ -94,8 +98,8 @@ rất có lợi: **khối A–E không phụ thuộc GĐ2–GĐ6**, chúng chỉ
 | **Metrics** | `/metrics` trên API (RED + 4 chỉ số nghiệp vụ); Prometheus scrape; Grafana dashboard |
 | **Cảnh báo** | Grafana alerting: error rate, độ trễ, dịch vụ chết, đĩa đầy |
 | **Log** | Serilog JSON đã có — GĐ7 thêm **redact PII** và cổng CI chặn log rò |
-| **Nợ bảo mật GĐ0B** | HSTS; Swagger tắt ở production; xoay các khóa đã lộ |
-| **Môi trường production** | Stack thứ hai trên cùng VM, domain riêng, deploy **theo tag** (Đ-7.4) |
+| **Nợ bảo mật GĐ0B** | HSTS cho đường API; Swagger mở có chủ đích + chặn endpoint demo lỗi ở apache; xoay các khóa đã lộ |
+| **Môi trường cuối** | **Staging** (`mxh.banhgao.net`) — không dựng production riêng (Đ-7.4, sửa 2026-09-23) |
 | **Chịu lỗi** | Cân tải 2 bản sao `api`; rolling update; rollback theo tag *(cắt được — Đ-7.1)* |
 | **Lane frontend** | Build production; responsive + a11y cơ bản *(chỉ làm được ở đúng nhịp GĐ7)* |
 
@@ -112,6 +116,7 @@ rất có lợi: **khối A–E không phụ thuộc GĐ2–GĐ6**, chúng chỉ
 | Sao lưu Redis | **Không làm** | Redis chỉ giữ cache + phiên + vé; mất là dựng lại được, không phải nguồn sự thật |
 | Dashboard cho từng module | **GĐ8** | GĐ7 làm một dashboard tổng; GĐ8 thêm bảng feed khi có số liệu k6 |
 | Đo p95 feed dưới tải | **GĐ8** | GĐ7 dựng *chỗ để nhìn*; GĐ8 mới *tạo ra tải* bằng k6 |
+| Môi trường production riêng (stack thứ hai, deploy theo tag) | **Không làm** | Nhóm chốt 2026-09-23 — staging là môi trường cuối (Đ-7.4) |
 
 ---
 
@@ -129,7 +134,7 @@ Kế hoạch gốc liệt kê năm nhóm việc GĐ7 ngang hàng nhau. Chúng **
 | 1 | Backup + restore drill | Báo cáo A&D đã **cam kết chạy thật**; mất dữ liệu là mất tất cả, không sửa được |
 | 2 | Đồng hồ uptime | Cam kết chạy thật; **phụ thuộc thời gian tích lũy** nên trễ là mất vĩnh viễn |
 | 3 | Prometheus + Grafana | Cam kết chạy thật; không phụ thuộc thời gian nên xếp sau hạng 2 |
-| 4 | HSTS + tắt Swagger + xoay khóa | Rẻ (dưới 1 giờ), rủi ro cao nếu quên |
+| 4 | HSTS + rà Swagger + xoay khóa | Rẻ (dưới 1 giờ), rủi ro cao nếu quên |
 | 5 | **HA 2 instance** | Báo cáo v5.0 xếp "≥ 2 instance" vào **Roadmap** — tức là đã tuyên bố không làm trong MVP |
 
 > ⚠️ Trước khi cắt khối E, **mở lại báo cáo v5.0 xác nhận dòng đó đúng là nằm ở Roadmap.** Cắt một thứ đã trót
@@ -157,34 +162,41 @@ Chốt hai nguồn:
 
 | Nguồn | Vai trò | Ghi chú |
 |---|---|---|
-| **Uptime Kuma trên VM** | Chi tiết: từng dịch vụ (`/health/ready` của staging và production, frontend, Postgres) | Dữ liệu giàu, dùng để chẩn đoán |
+| **Uptime Kuma trên VM** | Chi tiết: từng dịch vụ của staging (`/health/ready`, `/api/v1/ping`, frontend, backup Push) | Dữ liệu giàu, dùng để chẩn đoán |
 | **Một monitor miễn phí bên ngoài** (UptimeRobot, Better Stack, hoặc Cloudflare Health Check) | **Trọng tài**: chỉ theo dõi `https://<domain>/health/ready` từ ngoài Internet | Con số báo cáo **lấy từ đây** |
 
 Khi hai nguồn lệch nhau, **tin nguồn ngoài** và ghi lý do lệch vào biên bản. Dựng monitor ngoài tốn khoảng 10 phút
 và là thứ rẻ nhất trong cả giai đoạn.
 
-### Đ-7.4 "Production" là stack thứ hai trên cùng VM, deploy theo tag — staging giữ nguyên nhịp `develop`
+### Đ-7.4 Staging là môi trường cuối — không dựng production riêng *(sửa 2026-09-23, nhóm chốt)*
 
-Kế hoạch gốc viết "nâng staging lên production" nhưng không nói nâng rồi thì còn staging không. Nếu nâng thẳng thì
-GĐ8 mất chỗ chạy k6 và chạy ZAP — không ai dám bắn 1.000 CCU vào môi trường đang demo.
+Kế hoạch gốc viết "nâng staging lên production". Bản đầu của tài liệu này chốt **hai stack trên cùng VM** (staging
+theo `develop`, production theo tag `v*`). Nhóm đã bỏ phương án đó: **staging `mxh.banhgao.net` là môi trường cuối**
+— nơi demo, nơi được chấm, nơi mọi bằng chứng GĐ7 lấy số.
 
-Chốt: **hai stack trên cùng một VM**, tách bằng project name của Compose, volume riêng, DB riêng:
+Lý do: một VM, một người làm GĐ7, và thời gian còn lại cần cho GĐ2–GĐ6. Stack thứ hai là thêm một bộ compose, vhost,
+`.env`, workflow deploy và monitor phải giữ cho đúng — trong khi thứ được chấm là **một** hệ thống đang chạy.
 
-| | Staging | Production |
+Hệ quả trực tiếp:
+
+| Chỗ | Bản đầu (hai stack) | Bây giờ |
 |---|---|---|
-| Compose project | `socialapp-staging` *(đang chạy)* | `socialapp-prod` |
-| Domain | `mxh.banhgao.net` | subdomain thứ hai dưới `*.banhgao.net` |
-| Kích hoạt deploy | push `develop` *(tự động, đang chạy)* | **push tag `v*`** — không tự động theo nhánh |
-| `ASPNETCORE_ENVIRONMENT` | `Staging` | **`Production`** ← đây là thứ tắt Swagger (Đ-7.13) |
-| Cổng nội bộ | `127.0.0.1:18080` / `:3000` | cổng khác, ví dụ `:18081` / `:13000` — **kiểm `ss -ltnp` trước**, VM đang có dịch vụ khác giữ `3001` |
-| Dữ liệu | Rác, xóa được | Thật, được backup |
+| Dữ liệu staging | "Rác, xóa được" | **Dữ liệu thật** — chính thứ khối A bảo vệ |
+| Con số uptime báo cáo | Monitor production | Monitor staging — Kuma + UptimeRobot đang chạy |
+| Tiền tố bản sao trên R2 | `production/` | `staging/` — giữ nguyên như đang chạy |
+| Khối D | 4 việc, có D4 dựng stack | **3 việc**: D1 HSTS · D2 rà Swagger · D3 xoay khóa |
+| Khối E (nếu làm) | `edge` cho stack production | `edge` cho chính staging |
 
-Cert wildcard `*.banhgao.net` đã có nên subdomain thứ hai không tốn gì. Ước lượng RAM cho cả hai stack cộng stack
-ops: khoảng 2–2,5GB trên 12GB — thoải mái.
+**Ba cái giá chấp nhận, và cách chặn từng cái:**
 
-**Staging là nơi dựng và diễn tập cơ chế sao lưu (khối A); production kế thừa nguyên cấu hình ở D4.** Dữ liệu
-staging là rác, nhưng nó là DB thật duy nhất đang có — cơ chế phải được chứng minh ở đây **trước khi** production
-có dữ liệu, chứ không phải chứng minh trên chính dữ liệu thật. Con số báo cáo lấy từ bản sao production.
+1. **GĐ8 bắn k6 và quét ZAP vào đúng môi trường đang demo** — lý do ban đầu của phương án hai stack. Chặn bằng quy
+   tắc: báo nhóm và chốt khung giờ trước; `./backup.sh full` ngay trước buổi; dùng tài khoản test riêng và dọn dữ liệu
+   test sau buổi (runbook Kịch bản C, hoặc PITR về mốc trước buổi); **không** chạy trong 48 giờ trước ngày bảo vệ; ghi
+   khoảng chậm/gián đoạn vào báo cáo uptime, không tắt monitor cho đẹp số; canh đĩa vì tải nặng sinh WAL thật (R7-02).
+2. **Mỗi lần merge `develop` là thay thẳng bản demo** — không còn tầng tag chặn giữa. Chặn bằng đóng băng `develop`
+   trước ngày bảo vệ (Mục 8 quy tắc 1) và rollback theo tag `:sha` khi lỡ (Mục 8 quy tắc 3).
+3. **Swagger vẫn bật và mở công khai**, vì staging chạy `ASPNETCORE_ENVIRONMENT=Staging`. Nhóm chốt để mở có chủ đích
+   (Đ-7.13), kèm rà những gì nó phơi ra (D2).
 
 ### Đ-7.5 Không thêm Caddy làm TLS; thêm một container `edge` làm cân tải bên trong mạng docker
 
@@ -196,10 +208,10 @@ container `edge`** (Caddy, bỏ phần TLS) nằm trong mạng docker, publish �
 tên service `api` — Docker DNS tự round-robin qua các bản sao.
 
 ```
-apache (host, TLS)  ──▶  127.0.0.1:18081  ──▶  edge (trong docker)  ──▶  api ×2
+apache (host, TLS)  ──▶  127.0.0.1:18080  ──▶  edge (trong docker)  ──▶  api ×2
 ```
 
-Ba cái lợi: apache không cần `mod_proxy_balancer`; thêm/bớt bản sao không phải sửa cấu hình apache; và `Caddyfile`
+`edge` nhận lại đúng cổng `18080` mà `api` đang giữ, nên `ProxyPass` của apache giữ nguyên. Ba cái lợi: apache không cần `mod_proxy_balancer`; thêm/bớt bản sao không phải sửa cấu hình apache; và `Caddyfile`
 đã viết sẵn từ GĐ0B được tái sử dụng thay vì vứt đi.
 
 > ⚠️ **Cạm bẫy đã có tiền sử trên chính máy này:** Docker DNS từng hỏng trên OCI (container không resolve được
@@ -233,7 +245,8 @@ an toàn vào ngày ai đó thêm một dòng ProxyPass.
 collector, không cần thêm container. OpenTelemetry mạnh hơn nhưng chỉ đáng giá khi có tracing tập trung — mà Tempo
 đã nằm ở Roadmap (Mục 2), nên phần mạnh hơn đó không ai dùng.
 
-Ghim **đúng một version dòng 8.x** cho khớp lineage net8 của dự án (EF Core 8.0.10, Serilog.AspNetCore 8.0.3…).
+Ghim **đúng một version dòng 8.x** cho khớp lineage net8 của dự án (EF Core 8.0.10, Serilog.AspNetCore 8.0.3…) —
+đã ghim **8.2.1** (C1, 2026-09-23).
 Kiểm arm64 trước khi ghim — luật vàng số 8.
 
 ### Đ-7.9 Cảnh báo bằng Grafana alerting, không dựng Alertmanager
@@ -250,8 +263,8 @@ Backup ghi ra volume trên chính VM chỉ cứu được sự cố *logic* (xó
 sự cố mất máy — mà mất máy đúng là kịch bản mà NFR-REL-02 sinh ra để phòng.
 
 Chốt: mỗi bản sao được đẩy **rời khỏi VM**, dùng lại chính hạ tầng R2 đã có từ GĐ2, nhưng:
-- **bucket riêng** `socialapp-backup`, **không** dùng chung với `-dev`/`-staging`;
-- **token riêng, phạm vi chỉ bucket đó**, chỉ nằm trên VM production;
+- **bucket riêng** `socialmedia-backup`, **không** dùng chung với `-dev`/`-staging`;
+- **token riêng, phạm vi chỉ bucket đó**, chỉ nằm trên VM và trong kho bí mật nhóm;
 - vòng đời: giữ 7 bản ngày + 4 bản tuần, cũ hơn thì xóa.
 
 > ⚠️ Khóa R2 cũ đã lộ trong một phiên trao đổi ngày 2026-09-04. **Token backup phải là token mới**, và việc xoay các
@@ -270,18 +283,37 @@ RPO ≤ 15 phút cần `archive_timeout = 15min` — nếu không, một segment
 ### Đ-7.12 HSTS đặt ở apache, không dùng `UseHsts()` của ASP.NET
 
 TLS kết thúc ở apache (và ở Cloudflare phía trước), nên API không nhìn thấy HTTPS thật — `UseHsts()` trong ASP.NET
-dễ trở thành no-op hoặc gửi header sai. Đặt ở apache thì nó áp cho **cả** frontend lẫn API, chỉ một dòng.
+dễ trở thành no-op hoặc gửi header sai. Đặt ở apache thì nó áp cho **cả** frontend lẫn API.
+
+*Thực tế (kiểm 2026-09-23):* frontend **đã tự gửi** `max-age=31536000` từ GĐ1 (`src/frontend/next.config.ts`, chỉ khi
+`NODE_ENV=production`); `/api`, `/health`, `/swagger` thì **không**. Vì vậy apache phải `unset` header của backend
+trước khi `always set` — thiếu dòng `unset` thì trang frontend nhận **hai** header HSTS.
 
 Bắt đầu bằng `max-age=31536000` **không** `includeSubDomains`, **không** `preload`. Lý do: domain cha đang phục vụ
 dịch vụ khác; `preload` thì không rút lại được trong nhiều tháng. Siết thêm là việc của Roadmap.
 
-### Đ-7.13 Swagger: **không sửa một dòng code nào**
+### Đ-7.13 Swagger mở công khai có chủ đích — không sửa code, không đổi environment *(nhóm chốt 2026-09-23)*
 
-[`Program.cs`](../../src/backend/SocialApp.Api/Program.cs) đã xử lý đúng từ GĐ0: Swagger bật ở `Development` +
-`Staging`, tắt ở `Production`. Khoản "nợ GĐ0B" thực chất **không phải nợ code** — nó là nợ *cấu hình*: hiện chưa có
-môi trường nào chạy với `ASPNETCORE_ENVIRONMENT=Production`.
+[`Program.cs`](../../src/backend/SocialApp.Api/Program.cs) bật Swagger ở `Development` + `Staging`, tắt ở
+`Production`. Khi staging thành môi trường cuối (Đ-7.4), nhóm cân nhắc ba đường và chọn **để mở**:
 
-Ai sửa `Program.cs` ở đầu việc này là đang làm hỏng Swagger của staging, nơi cả nhóm đang dùng để tra hợp đồng API.
+| Đường | Được | Mất |
+|---|---|---|
+| **Để mở công khai** *(chốt)* | Giảng viên và cả nhóm xem hợp đồng không cần mật khẩu; Swagger trên staging vẫn là nguồn sự thật ở cổng đóng | Bản đồ toàn bộ API phơi ra Internet |
+| Khóa `/swagger` bằng Basic Auth ở apache | Người lạ nhận 401 | Thêm một mật khẩu phải chia cho người chấm; một khối `<Location>` + file `htpasswd` |
+| Đổi staging sang `ASPNETCORE_ENVIRONMENT=Production` | Swagger tắt, không sửa code | Đổi **mọi** chỗ đọc `IHostEnvironment` / `appsettings.{Env}.json` ngay trên bản demo — cấu hình chưa từng chạy thử |
+
+**Vì sao chấp nhận được:** an ninh của hệ thống không dựa vào việc giấu danh sách endpoint — nó dựa vào ba tầng kiểm
+soát truy cập và AuthZ matrix trên CI (GOAL-03). Người dò có bản đồ vẫn phải qua tầng 1–3 như mọi người.
+
+**Điều kiện đi kèm (D2):** thứ Swagger phơi ra phải đúng bằng hợp đồng. Rà ngày 2026-09-23 thấy khớp, **trừ hai
+endpoint demo của GĐ0** trong nhóm Platform: `GET /api/v1/ping/app-error` (409) và `GET /api/v1/ping/boom` (500) —
+công khai, không cần đăng nhập. Trên môi trường cuối, `boom` cho **bất kỳ ai** tự tạo lỗi 500 theo ý muốn: làm bẩn
+số liệu tỷ lệ lỗi và kích hoạt giả cảnh báo "5xx > 1%" (Mục 5.3). Chặn hai đường này **ở apache**, không sửa code:
+integration test vẫn dùng chúng, và C5 vẫn bắn được từ chính VM qua `127.0.0.1:18080` (đi thẳng vào API, không qua
+apache).
+
+Sau này muốn khóa Swagger thì chỉ cần thêm một khối `<Location /swagger>` với Basic Auth vào vhost.
 
 ### Đ-7.14 Redact PII trong log theo danh sách trường cố định, có cổng CI
 
@@ -303,17 +335,17 @@ các trường đó. Cổng này phải **thử cho đỏ một lần** mới t�
                               │
          ┌────────────────────┴─────────────────────┐
          │   apache trên host — 80/443, cert wildcard│
-         │   mxh.banhgao.net      → 127.0.0.1:18080  │  (staging, giữ nguyên)
-         │   <prod>.banhgao.net   → 127.0.0.1:18081  │  (production, mới)
+         │   mxh.banhgao.net      → 127.0.0.1:18080  │  (môi trường cuối — Đ-7.4)
+         │   HSTS mọi đường · /swagger mở (Đ-7.13)   │
          └────────────────────┬─────────────────────┘
                               │
    ┌──────────────────────────┴───────────────────────────┐
-   │  project socialapp-prod   (mạng internal riêng)      │
+   │  project socialapp-staging  (mạng internal)          │
    │                                                       │
    │   edge (Caddy, không TLS) ──round-robin──▶ api ×2     │
    │        │                                    │         │
    │        └──▶ frontend                        ├──▶ postgres ──▶ volume pgdata
-   │                                             │              └▶ volume pgwal ──▶ R2 (bucket backup)
+   │                                             │              └▶ ./backups (wal, base, dump) ──▶ R2
    │                                             └──▶ redis                          ▲
    └───────────────────────────────────────────────────────┘                         │
                               ▲ scrape api:8080/metrics                              │ backup.sh (cron)
@@ -350,8 +382,12 @@ nếu chung project thì mỗi lần deploy đồng hồ tự tắt và tự ghi
 |---|---|---|
 | `socialapp_login_failed_total` | Counter | Tăng đột biến = đang bị dò mật khẩu (ISS-04) |
 | `socialapp_posts_created_total` | Counter | Dấu hiệu sống của hệ thống: số 0 kéo dài = hỏng ở đâu đó dù health vẫn xanh |
-| `socialapp_presign_issued_total` | Counter | Đối chiếu với số object trên R2 → phát hiện rác upload dở (GĐ2 Đ-2.13) |
-| `socialapp_orphan_media_cleaned_total` | Counter | Chứng minh worker dọn rác **thật sự chạy**, không phải chỉ được đăng ký |
+| `socialapp_presign_issued_total{purpose}` | Counter | Đối chiếu với số object trên R2 → phát hiện rác upload dở (GĐ2 Đ-2.13) |
+| `socialapp_media_cleanup_runs_total{result}` | Counter | Chứng minh worker dọn rác **thật sự chạy**, không phải chỉ được đăng ký |
+
+*Sửa khi thi công C2 (2026-09-23):* dòng cuối ban đầu là `socialapp_orphan_media_cleaned_total` (số object mồ côi đã
+dọn). Staging hầu như không có mồ côi nên số đó nằm ở 0 nhiều ngày — không phân biệt được với worker chết, tức không
+chứng minh được điều nó sinh ra để chứng minh. Đổi sang đếm **lượt chạy** theo kết quả (`ran` | `lock` | `failed`).
 
 Bốn cái, không hơn. Mỗi chỉ số thêm vào là một thứ phải giữ cho đúng; chỉ số không ai nhìn là nợ, không phải tài sản.
 
@@ -395,7 +431,7 @@ Lưu tại `docs/giai-doan-7/bien-ban-restore-YYYY-MM-DD.md`. Đây là **sản 
 
 - Ngày giờ thực hiện:            (giờ VN)
 - Người thực hiện / người chứng kiến:
-- Môi trường đích:               (dựng mới, KHÔNG phải production đang chạy)
+- Môi trường đích:               (stack socialapp-restore, KHÔNG phải DB đang chạy)
 
 ## 1. Bản sao được dùng
 - Base backup:        tên file · thời điểm tạo · kích thước · mã băm
@@ -414,7 +450,7 @@ Lưu tại `docs/giai-doan-7/bien-ban-restore-YYYY-MM-DD.md`. Đây là **sản 
 | **Tổng thời gian (RTO thực đo)** | | | **so với cam kết 2 giờ** |
 
 ## 3. Đối chiếu dữ liệu
-| Bảng | Số bản ghi trên production | Sau khôi phục | Khớp |
+| Bảng | Số bản ghi trên DB gốc | Sau khôi phục | Khớp |
 |---|---|---|---|
 | identity.users |  |  |  |
 | profile.profiles |  |  |  |
@@ -437,12 +473,13 @@ diễn tập không gặp sự cố nào thường có nghĩa là diễn tập c
 
 ---
 
-## 8. Quy tắc deploy production
+## 8. Quy tắc deploy lên môi trường cuối
 
-Ba quy tắc, áp cho mọi lần deploy lên stack production kể từ GĐ7:
+Ba quy tắc, áp cho mọi lần deploy lên staging kể từ GĐ7 — staging giờ là môi trường cuối (Đ-7.4):
 
-1. **Deploy theo tag, không theo nhánh.** `develop` → staging tự động (đã có). Production chỉ nhận tag `v*` — có
-   người bấm, có bản ghi, và rollback có thứ để quay về.
+1. **`develop` vẫn tự deploy, nhưng đóng băng trước ngày bảo vệ.** Không còn tầng tag chặn giữa: mỗi merge vào
+   `develop` là thay thẳng bản demo. Từ **3 ngày trước ngày bảo vệ** chỉ merge hotfix đã thống nhất cả nhóm, và sau
+   mỗi merge phải thấy staging xanh lại (Kuma + `/health/ready`) rồi mới merge cái tiếp theo.
 2. **Migration theo expand–contract.** Mỗi migration phải chạy được với **cả bản app cũ lẫn bản mới** trong một
    phiên bản: thêm cột nullable trước, điền dữ liệu, đổi code, **rồi mới** siết ràng buộc ở phiên bản sau. Không có
    luật này thì rolling update tự mâu thuẫn — trong lúc rolling, hai phiên bản app cùng nói chuyện với một schema.
@@ -460,10 +497,10 @@ Không có cổng mở (Mục 1). Thay vào đó, **giờ đầu tiên** làm ha
 | **Giờ đầu** | B1 + B2 — Uptime Kuma + monitor ngoài | ~1 giờ | Đồng hồ phải bắt đầu chạy trước mọi thứ khác (Đ-7.3) |
 | Ngày 1 | Khối **A** — backup + WAL + đẩy lên R2 | 1 ngày | Hạng 1 theo Đ-7.1 |
 | Ngày 2 sáng | **A5 — restore drill + biên bản** | nửa ngày | Sản phẩm được chấm; đừng dồn về cuối |
-| Ngày 2 chiều | Khối **D** — HSTS, Production env, xoay khóa | nửa ngày | Rẻ, rủi ro cao nếu quên |
+| Ngày 2 chiều | Khối **D** — HSTS, rà Swagger, xoay khóa | nửa ngày | Rẻ, rủi ro cao nếu quên |
 | Ngày 3 | Khối **C** — metrics + Prometheus + Grafana + alert | 1 ngày | Cần alert kêu thật một lần trước khi đóng |
 | *(nếu còn)* | Khối **E** — edge + 2 bản sao + rolling | 1 ngày | **Cắt được** (Đ-7.1) |
-| Đúng nhịp GĐ7 | Khối **F** — frontend production + gom artifact | nửa ngày | Phải đợi GĐ6 xong |
+| Đúng nhịp GĐ7 | Khối **F** — frontend bản cuối + gom artifact | nửa ngày | Phải đợi GĐ6 xong |
 
 Tổng khối A–D: **khoảng 2,5 ngày công của một người**, và không đụng ai đang làm GĐ2–GĐ6.
 
@@ -489,15 +526,15 @@ tin cậy giảm dần:
 
 | Phá cái gì | Phải thấy gì |
 |---|---|
-| `docker stop` container `api` của production | Uptime Kuma đỏ; alert "dịch vụ chết" gửi tới kênh thật |
-| Bắn ~200 request vào một endpoint trả 500 | Alert error rate > 1% kêu trong vòng 5 phút |
+| `docker stop` container `api` của staging *(báo nhóm trước)* | Uptime Kuma đỏ; alert "dịch vụ chết" gửi tới kênh thật |
+| Từ VM, bắn ~200 request vào `127.0.0.1:18080/api/v1/ping/boom` (đường công khai đã chặn ở D2) | Alert error rate > 1% kêu trong vòng 5 phút |
 | Đổi tên file backup mới nhất | Alert "backup không chạy" kêu sau 26 giờ *(hoặc hạ tạm ngưỡng để thử)* |
 | `docker kill` **một** bản sao `api` *(khối E)* | Site vẫn trả 200 suốt quá trình; không có request nào lỗi |
 
 **10.2 Đối chiếu bằng số.** Restore drill (Mục 7) — so số bản ghi từng bảng trước và sau khôi phục.
 
-**10.3 Kiểm bằng mắt, có ảnh lưu lại.** Grafana có số liệu thật; lịch sử uptime; `curl -I` thấy HSTS; `/swagger`
-trên production trả 404; `/metrics` qua domain công khai **không** truy cập được.
+**10.3 Kiểm bằng mắt, có ảnh lưu lại.** Grafana có số liệu thật; lịch sử uptime; `curl -I` thấy đúng một HSTS ở cả
+trang lẫn API; `/api/v1/ping/boom` từ Internet trả 403; `/metrics` qua domain công khai **không** truy cập được.
 
 ### Cổng CI mở rộng
 
@@ -521,27 +558,27 @@ Theo Mục 3.5 báo cáo, diễn giải cho giai đoạn không có endpoint:
 ## 12. Checklist nghiệm thu cuối GĐ7
 
 **Sao lưu (A)**
-- [ ] `archive_timeout = 15min` đang có hiệu lực trên production
+- [ ] `archive_timeout = 15min` đang có hiệu lực trên staging
 - [ ] Có ≥ 2 base backup liên tiếp, sinh tự động, không do tay
 - [ ] Bản sao mới nhất **tồn tại trên R2**, không chỉ trên VM
 - [ ] Bản sao cũ hơn hạn giữ **đã tự bị xóa** (kiểm bằng cách nhìn danh sách, không suy đoán)
 - [ ] Biên bản restore drill đầy đủ Mục 1–5, có RPO/RTO **thực đo**
 
 **Uptime (B)**
-- [ ] Uptime Kuma theo dõi `/health/ready` của production và staging
+- [ ] Uptime Kuma theo dõi `/health/ready` của staging
 - [ ] Monitor ngoài đang chạy, có số liệu
 - [ ] Có ảnh lịch sử uptime ≥ 7 ngày liên tục *(vì vậy phải bật sớm)*
 
 **Quan sát (C)**
-- [ ] Grafana hiển thị RED + 4 chỉ số nghiệp vụ, số liệu **thật** từ production
+- [ ] Grafana hiển thị RED + 4 chỉ số nghiệp vụ, số liệu **thật** từ staging
 - [ ] Năm cảnh báo Mục 5.3 đều đã cấu hình
 - [ ] Ít nhất ba trong số đó **đã kêu thật**
 - [ ] `https://<domain>/metrics` **không** truy cập được từ Internet
 - [ ] Cổng CI chặn log PII đã xanh, và đã từng đỏ một lần
 
 **Nợ GĐ0B (D)**
-- [ ] `curl -I https://<domain>` có `Strict-Transport-Security`
-- [ ] `/swagger` trên production → 404; trên staging vẫn mở bình thường
+- [ ] Đúng **một** header `Strict-Transport-Security` ở `/`, `/api/v1/ping`, `/health/ready`, `/swagger/index.html`
+- [ ] Swagger chỉ liệt kê endpoint có trong file hợp đồng; `/api/v1/ping/boom` và `/app-error` từ Internet → 403
 - [ ] Danh sách khóa đã xoay, ghi ngày xoay
 
 **Chịu lỗi (E — cắt được)**
@@ -555,12 +592,13 @@ Theo Mục 3.5 báo cáo, diễn giải cho giai đoạn không có endpoint:
 |---|---|---|---|
 | 1 | "Caddy (TLS) → 2 API container" | apache giữ TLS; thêm `edge` cân tải **trong** docker | VM đã có apache giữ 80/443 từ GĐ0B; `Caddyfile` gốc chưa từng được dùng (Đ-7.5) |
 | 2 | Năm nhóm việc ngang hàng | Xếp hạng 1–5; HA là phần cắt được duy nhất | Báo cáo v5.0 đã xếp "≥ 2 instance" vào Roadmap, còn backup/Grafana là cam kết chạy thật (Đ-7.1) |
-| 3 | "Nâng staging lên production" | Hai stack cùng tồn tại trên một VM | GĐ8 cần một chỗ để bắn k6 và ZAP mà không đụng môi trường demo (Đ-7.4) |
-| 4 | "Tắt Swagger ở production" ghi là **nợ code** | Không sửa code; chỉ đặt `ASPNETCORE_ENVIRONMENT=Production` | `Program.cs` đã xử lý đúng từ GĐ0 (Đ-7.13) |
+| 3 | "Nâng staging lên production" | **Không có production; staging là môi trường cuối** *(nhóm chốt 2026-09-23, bỏ phương án hai stack của bản đầu)* | Một VM, một người làm GĐ7; thứ được chấm là một hệ thống đang chạy. Giá chấp nhận: k6/ZAP ở GĐ8 chạm môi trường demo — có quy tắc chặn (Đ-7.4) |
+| 4 | "Tắt Swagger ở production" | Swagger **để mở công khai có chủ đích** trên staging (nhóm chốt 2026-09-23); chặn hai endpoint demo lỗi của GĐ0 ở apache | Không còn production để tắt; an ninh dựa vào ba tầng kiểm soát truy cập, không dựa vào giấu bản đồ API (Đ-7.13) |
 | 5 | Uptime Kuma là nguồn uptime duy nhất | Thêm **monitor ngoài** làm trọng tài | Kuma chạy trên chính máy nó đo → không ghi được sự cố toàn máy (Đ-7.3) |
 | 6 | Cảnh báo: chỉ "error rate > 1%/5 phút" | Thêm cảnh báo **đĩa đầy** và **backup không chạy** | Hai cách thật sự làm chết một VM đơn lẻ, cả hai đều im lặng cho tới lúc quá muộn |
 | 7 | Backup lưu trên VM | Bắt buộc đẩy rời khỏi VM (R2 bucket riêng) | Backup cùng máy không cứu được kịch bản mất máy — đúng kịch bản NFR-REL-02 nhắm tới (Đ-7.10) |
 | 8 | GĐ7 nằm ở Ngày 21–23 | Khối A–E **làm sớm được ngay** | GĐ7 không có hợp đồng API nên không phụ thuộc GĐ2–GĐ6 (Đ-7.2) |
+| 9 | "Chưa có header HSTS" (ghi chú GĐ0B) | Trang frontend **đã có** từ GĐ1; D1 chỉ bổ sung đường API | Kiểm trực tiếp staging 2026-09-23 (Đ-7.12) |
 
 ## 14. Rủi ro cần theo dõi
 
@@ -572,7 +610,8 @@ Theo Mục 3.5 báo cáo, diễn giải cho giai đoạn không có endpoint:
 | **R7-04** | Docker DNS hỏng lại trên OCI → `edge` 502 ngẫu nhiên | 502 rải rác sau khi bật khối E | Đã có cách xử từ GĐ0B (`iptables-legacy`); nếu tái phát thì hoãn khối E |
 | **R7-05** | Rolling update vấp migration không tương thích | Lỗi 500 ở đúng lúc đang rolling | Luật expand–contract (Mục 8 điểm 2); khi nghi ngờ thì chấp nhận dừng ngắn thay vì rolling |
 | **R7-06** | Grafana/Prometheus bị phơi ra Internet | apache có dòng ProxyPass mới | Không mở cổng ra host; truy cập qua SSH tunnel; test hồi quy C6 |
-| **R7-07** | Khóa đã lộ vẫn còn sống | — | D3: xoay hết trước khi stack production nhận dữ liệu thật |
+| **R7-07** | Khóa đã lộ vẫn còn sống | — | D3: xoay **ngay** — staging đang giữ dữ liệu thật (Đ-7.4) |
+| **R7-08** | k6/ZAP ở GĐ8 làm chậm hoặc làm bẩn chính môi trường demo | Kế hoạch GĐ8 chưa có khung giờ | Quy tắc ở Đ-7.4 cái giá 1: báo nhóm, backup trước, tài khoản test riêng, dọn sau, không chạy 48 giờ trước bảo vệ |
 
 ---
 
@@ -596,14 +635,15 @@ Kiểm ngày 2026-09-19 trên nhánh `develop`. GĐ7 **không** dựng lại th�
 | Đã có | Ở đâu | GĐ7 dùng để làm gì |
 |---|---|---|
 | VPS OCI + Docker + user `deploy` + firewall | VM, `docs/oci-setup.md` | Nền của mọi thứ trong giai đoạn này |
-| apache giữ 80/443 + cert wildcard Cloudflare | `deploy/apache-socialapp.conf.example` | Thêm vhost production + một dòng HSTS |
-| Compose staging đang chạy thật | `deploy/docker-compose.staging.apache.yml` | Khuôn để nhân bản ra compose production |
-| CD: build arm64 → GHCR → scp compose → ssh `pull`/`migrate`/`up --wait` | `.github/workflows/deploy-staging.yml` | Khuôn cho workflow deploy theo tag |
+| apache giữ 80/443 + cert wildcard Cloudflare | `deploy/apache-socialapp.conf.example` | Thêm HSTS cho mọi đường + chặn hai endpoint demo lỗi (D1, D2) |
+| Compose staging đang chạy thật | `deploy/docker-compose.staging.apache.yml` | Môi trường cuối — khối A thêm WAL archiving vào đây |
+| CD: build arm64 → GHCR → scp compose → ssh `pull`/`migrate`/`up --wait` | `.github/workflows/deploy-staging.yml` | Giữ nguyên — `develop` tự deploy (Mục 8) |
 | **Image đã gắn tag `:${{ github.sha }}`** | cùng file trên | Đường rollback **đã có sẵn**, chỉ cần viết thành runbook |
 | `docker image prune -f` chỉ xóa image mồ côi | cùng file trên | Image theo tag sha vẫn còn để quay về |
 | Serilog JSON (`CompactJsonFormatter`) + correlation ID | `Program.cs:35` | Chỉ cần thêm redact PII (Đ-7.14) |
 | `/health/live` + `/health/ready` (Postgres + Redis), `AllowAnonymous` | `Program.cs:389` | Đích probe của Uptime Kuma và của healthcheck compose |
-| Swagger đã tự tắt ở `Production` | `Program.cs:364` | **Không sửa** — chỉ đặt biến môi trường (Đ-7.13) |
+| Swagger bật ở `Development` / `Staging` | `Program.cs:364` | **Không sửa** — để mở có chủ đích (Đ-7.13) |
+| HSTS `max-age=31536000` trên các trang frontend | `src/frontend/next.config.ts` (từ GĐ1) | D1 chỉ bổ sung đường API; apache `unset` rồi `set` để không thành hai header |
 | Healthcheck từng service + `--wait --wait-timeout 120` | compose staging | Nền của rolling update |
 | Hạ tầng R2 + khuôn cấu hình 4 khóa `R2__*` | `deploy/.env.example` | Khuôn cho bucket backup (khóa **mới**, Đ-7.10) |
 | `deploy/Caddyfile` | `deploy/` | Tái sử dụng làm `edge`, bỏ phần TLS (Đ-7.5) |
@@ -614,22 +654,21 @@ Kiểm ngày 2026-09-19 trên nhánh `develop`. GĐ7 **không** dựng lại th�
 | Chỗ | Sửa gì | Vì sao |
 |---|---|---|
 | `SocialApp.Api.csproj` + `Program.cs` | 1 gói, 2 dòng (`UseHttpMetrics`, `MapMetrics`) | Đây là **toàn bộ** phần chạm code backend của GĐ7 |
-| `deploy/.env.example` | Thêm khóa backup R2 + Grafana + domain production, **giá trị trống** | Luật vàng 3 |
+| `deploy/.env.example` | Thêm khóa Grafana, **giá trị trống** (khóa backup R2 đã tách sang `backup.env.example`) | Luật vàng 3 |
 | `.github/workflows/ci.yml` | Thêm cổng grep log PII | Đ-7.14 |
 
 ## B.2 Bản đồ công việc
 
 | Khối | Nội dung | Hạng (Đ-7.1) | Số việc | Cần trước | Chặn |
 |---|---|---|---|---|---|
-| **A. Sao lưu & khôi phục** | WAL, base backup, đẩy R2, drill, runbook | **1** | 5 | Stack production (D4) | Nghiệm thu NFR-REL-02 |
+| **A. Sao lưu & khôi phục** | WAL, base backup, đẩy R2, drill, runbook | **1** | 5 | B1 (monitor Push) | Nghiệm thu NFR-REL-02 |
 | **B. Đồng hồ uptime** | Kuma + monitor ngoài + dashboard trạng thái | **2** | 3 | Không gì cả | GOAL-04 |
 | **C. Metrics & cảnh báo** | `/metrics`, Prometheus, Grafana, alert, redact PII | **3** | 6 | B (dùng chung stack ops) | NFR-OBS-01, GĐ8 |
-| **D. Nợ GĐ0B & production** | HSTS, env Production, xoay khóa, dựng stack prod | **4** | 4 | Không gì cả | A (cần stack prod để backup) |
-| **E. Chịu lỗi** | `edge`, 2 bản sao, rolling, rollback | **5 — cắt được** | 4 | D4 | — |
+| **D. Nợ bảo mật GĐ0B** | HSTS, rà Swagger, xoay khóa | **4** | 3 | Không gì cả | — |
+| **E. Chịu lỗi** | `edge`, 2 bản sao, rolling, rollback | **5 — cắt được** | 4 | Không gì cả | — |
 | **F. Frontend + bàn giao** | Build production, a11y, gom artifact, đóng GĐ | — | 3 | GĐ6 xong | GĐ8 |
 
-**Khối A dựng trên staging** (DB thật duy nhất đang có — Đ-7.4), nên không phải đợi D4. Đường đi thực tế đúng
-bảng Mục 9: **B → A → D → C → (E) → F**; D4 chỉ việc chép cấu hình sao lưu đã được diễn tập sang production.
+**Mọi khối chạy trên staging** — môi trường cuối (Đ-7.4). Đường đi đúng bảng Mục 9: **B → A → D → C → (E) → F**.
 
 ---
 
@@ -639,13 +678,12 @@ bảng Mục 9: **B → A → D → C → (E) → F**; D4 chỉ việc chép c�
 
 > **Hướng dẫn thi công từng bước:** [huong-dan-khoi-b-dong-ho-uptime.md](huong-dan-khoi-b-dong-ho-uptime.md)
 > — lệnh nào, bấm chỗ nào, phá thử thế nào, ảnh bằng chứng lưu ở đâu. File compose stack ops đã có sẵn:
-> [`deploy/docker-compose.ops.yml`](../../deploy/docker-compose.ops.yml).
+> [`ops/docker-compose.ops.yml`](../../ops/docker-compose.ops.yml).
 
 ### B1 — Uptime Kuma trong stack ops
 
-Dựng `deploy/docker-compose.ops.yml` (project `socialapp-ops`, **tách khỏi** stack ứng dụng — Mục 4) với service
-`uptime-kuma`, volume riêng, publish `127.0.0.1` thôi. Tạo monitor cho `/health/ready` của staging (production thêm
-sau khi có D4), chu kỳ 60s.
+Dựng `ops/docker-compose.ops.yml` (project `socialapp-ops`, **tách khỏi** stack ứng dụng — Mục 4) với service
+`uptime-kuma`, volume riêng, publish `127.0.0.1` thôi. Tạo monitor cho `/health/ready` của staging, chu kỳ 60s.
 
 **Nghiệm thu:** tắt container `api` staging → Kuma chuyển đỏ trong vòng 2 phút.
 **Cạm bẫy:** để chung project với stack ứng dụng thì mỗi lần deploy đồng hồ tự tắt và tự ghi nhận downtime giả.
@@ -667,38 +705,38 @@ Chốt **một** kênh (email nhóm, hoặc Telegram). Cả B1, B2 và C5 sau n�
 
 ---
 
-## B.4 Khối D — Nợ GĐ0B và môi trường production
+## B.4 Khối D — Nợ bảo mật GĐ0B
 
-> **Mục tiêu khối:** có một môi trường đáng gọi là production, và đóng ba khoản nợ bảo mật còn treo từ GĐ0B.
+> **Mục tiêu khối:** đóng ba khoản nợ bảo mật còn treo từ GĐ0B, trên chính môi trường cuối.
+>
+> *Sửa 2026-09-23:* bỏ **D4** (dựng stack production) theo Đ-7.4. Mã D1–D3 giữ nguyên để commit cũ không gãy tham chiếu.
 
-### D4 — Stack production *(làm trước D1–D3 và trước cả khối A)*
+> **Hướng dẫn thi công từng bước:** [huong-dan-khoi-d-bao-mat.md](huong-dan-khoi-d-bao-mat.md). Cấu hình apache đã
+> viết sẵn trong [`deploy/apache-socialapp.conf.example`](../../deploy/apache-socialapp.conf.example).
 
-Nhân bản compose staging thành `deploy/docker-compose.prod.yml`: project `socialapp-prod`, volume riêng, cổng
-`18081`/`13000` (kiểm `ss -ltnp` trước khi chọn — `3001` trên VM đã có người dùng),
-`ASPNETCORE_ENVIRONMENT: Production`, `.env` riêng. Thêm vhost apache cho subdomain production
-(chép khuôn `apache-socialapp.conf.example`, đổi tên miền và cổng). Thêm workflow deploy kích hoạt bằng **tag `v*`**.
+### D1 — HSTS cho mọi đường
 
-**Nghiệm thu:** subdomain production trả 200 qua HTTPS; đăng ký được một tài khoản thật; `/swagger` → **404**.
-**Cạm bẫy:** thứ tự `ProxyPass` — `/api`, `/health` phải đứng **trước** catch-all `/`, y như cảnh báo đã ghi trong
-file mẫu. Đảo ngược thì mọi API trả về HTML của Next.
+Frontend đã tự gửi HSTS từ GĐ1 (Đ-7.12); còn thiếu `/api`, `/health`, `/swagger`. Trong vhost 443:
+`Header onsuccess unset Strict-Transport-Security` rồi `Header always set Strict-Transport-Security "max-age=31536000"`
+— cặp `unset` + `set` để trang frontend không nhận hai header. Không `includeSubDomains`, không `preload`.
 
-### D1 — HSTS
+**Nghiệm thu:** đúng **một** header HSTS ở `/`, `/api/v1/ping`, `/health/ready`, `/swagger/index.html`.
 
-Một dòng `Header always set Strict-Transport-Security "max-age=31536000"` trong vhost 443 (cần `a2enmod headers` —
-đã liệt kê sẵn trong file mẫu). Không `includeSubDomains`, không `preload` (Đ-7.12).
+### D2 — Rà thứ Swagger phơi ra + chặn endpoint demo lỗi
 
-**Nghiệm thu:** `curl -I https://<domain>` thấy header. Kiểm **cả** domain staging lẫn production.
+Swagger để mở có chủ đích (Đ-7.13), nên thứ nó liệt kê phải đúng bằng hợp đồng: liệt kê mọi nhóm, đối chiếu từng
+endpoint với file `*-v1.yaml`. Chặn `/api/v1/ping/boom` và `/api/v1/ping/app-error` ở apache bằng `Require all denied`
+— không sửa code.
 
-### D2 — Xác nhận Swagger đã tắt ở production
-
-Không sửa code (Đ-7.13). Chỉ kiểm: `/swagger` trên production → 404, trên staging → vẫn mở.
-
-**Cạm bẫy:** ai "sửa cho chắc" trong `Program.cs` là làm hỏng Swagger staging mà cả nhóm đang dùng để tra hợp đồng.
+**Nghiệm thu:** mọi endpoint trên Swagger có trong hợp đồng; hai endpoint demo từ Internet → 403, từ VM qua
+`127.0.0.1:18080` vẫn chạy (C5 cần); `/api/v1/ping` vẫn 200.
+**Cạm bẫy:** viết `<Location /api/v1/ping>` thay vì hai đường cụ thể là chặn luôn `ping` — monitor `api ping` đỏ.
 
 ### D3 — Xoay các khóa đã lộ
 
 Khóa R2, SMTP (Resend), `Jwt__SigningKey`, mật khẩu Postgres đã lộ trong một phiên trao đổi ngày 2026-09-04. Xoay
-hết **trước khi** stack production nhận dữ liệu thật; `deploy/rotate-jwt-signing-key.sh` đã có sẵn cho khóa JWT.
+hết **ngay** — staging là môi trường cuối, đang giữ dữ liệu thật (Đ-7.4); `deploy/rotate-jwt-signing-key.sh` đã có
+sẵn cho khóa JWT. `Jwt__SigningKey` đã được xoay một lần sau GĐ1 F5 — nếu sau đó không lộ lại thì gạch khỏi danh sách.
 
 **Nghiệm thu:** bảng "khóa · ngày xoay · ai xoay" trong runbook; staging vẫn chạy sau khi xoay.
 **Cạm bẫy:** xoay `Jwt__SigningKey` làm mọi phiên đăng nhập hiện tại mất hiệu lực — báo nhóm trước, đừng làm giữa
@@ -717,9 +755,10 @@ lúc ai đó đang demo.
 > [`deploy/docker-compose.restore.yml`](../../deploy/docker-compose.restore.yml) · [runbook-khoi-phuc.md](runbook-khoi-phuc.md) ·
 > [bien-ban-restore-mau.md](bien-ban-restore-mau.md). Cấu hình WAL đã nằm trong `docker-compose.staging.apache.yml`.
 
-### A1 — Bật WAL archiving trên Postgres (staging trước; D4 chép sang production)
+### A1 — Bật WAL archiving trên Postgres staging
 
-Thêm volume `pgwal`; cấu hình `archive_mode = on`, `archive_command` ghi vào volume đó, và **`archive_timeout = 15min`**
+Bind `./backups` (cạnh compose) vào `/backups` của postgres; cấu hình `archive_mode = on`, `archive_command` ghi vào
+`/backups/wal`, và **`archive_timeout = 15min`**
 (Đ-7.11 — thiếu dòng này là hỏng cam kết RPO).
 
 **Nghiệm thu:** để yên 20 phút không có giao dịch nào → vẫn thấy file WAL mới xuất hiện.
@@ -737,7 +776,7 @@ sở hữu và cron chạy hỏng.
 
 ### A3 — Đẩy bản sao lên R2 (bucket + token riêng)
 
-Bucket `socialapp-backup`, token phạm vi chỉ bucket đó, **khóa mới** (Đ-7.10). Thêm bước upload vào `backup.sh`;
+Bucket `socialmedia-backup`, token phạm vi chỉ bucket đó, **khóa mới** (Đ-7.10). Thêm bước upload vào `backup.sh`;
 thêm 4 khóa vào `.env.example` với **giá trị trống**.
 
 **Nghiệm thu:** thấy object trên R2 dashboard; tải một bản về máy khác và giải nén được.
@@ -752,11 +791,11 @@ chính nó.
 
 ### A5 — Restore drill + biên bản ⭐
 
-Dựng Postgres trống (compose riêng, cổng riêng — **tuyệt đối không chạm production**), khôi phục base, tua WAL, chạy
+Dựng Postgres trống (compose riêng, cổng riêng — **tuyệt đối không chạm DB đang chạy**), khôi phục base, tua WAL, chạy
 `--migrate` (phải là no-op), đối chiếu số bản ghi, bấm giờ từng bước, điền biên bản Mục 7.
 
 **Nghiệm thu:** biên bản đủ Mục 1–5, có RPO/RTO **thực đo**.
-**Cạm bẫy:** làm drill trên chính DB production. Tên volume sai một ký tự là ghi đè dữ liệu thật — đọc kỹ lệnh hai
+**Cạm bẫy:** làm drill trên chính DB đang chạy. Tên volume sai một ký tự là ghi đè dữ liệu thật — đọc kỹ lệnh hai
 lần trước khi Enter.
 
 ---
@@ -766,36 +805,55 @@ lần trước khi Enter.
 > **Mục tiêu khối:** có một chỗ để **nhìn** hệ thống, và một cơ chế **gọi người** khi nó hỏng. Đây cũng là chỗ GĐ8
 > sẽ đọc kết quả k6.
 
-### C1 — `/metrics` trên API
+> **Hướng dẫn thi công và thực tế thi công:** [huong-dan-khoi-c-quan-sat.md](huong-dan-khoi-c-quan-sat.md) — viết dần
+> theo từng đầu việc.
 
-Thêm `prometheus-net.AspNetCore` (ghim version, kiểm arm64) + `UseHttpMetrics()` + `MapMetrics()`. **Hai dòng, và
-đây là toàn bộ phần chạm code backend của GĐ7.**
+### C1 — `/metrics` trên API ✅ *(deploy + nghiệm thu trên staging 2026-09-23)*
+
+Thêm `prometheus-net.AspNetCore` **8.2.1** + `UseHttpMetrics()` + `MapMetrics().AllowAnonymous()`. **Hai dòng, và
+đây là toàn bộ phần chạm code backend của C1.**
+
+*Thực tế thi công:* `UseHttpMetrics()` **phải đứng trước** `UseSharedKernel()` (nơi có `UseExceptionHandler`) — đứng
+sau thì mọi lỗi 500 bị đếm thành 200 và cảnh báo tỷ lệ lỗi không bao giờ kêu. `MetricsEndpointTests` canh đúng chuyện
+này, đã thử cho đỏ.
 
 **Nghiệm thu:** trong mạng docker, `curl api:8080/metrics` ra số liệu; qua domain công khai thì **không** vào được.
 
-### C2 — Bốn chỉ số nghiệp vụ
+### C2 — Bốn chỉ số nghiệp vụ ✅ *(deploy 2026-09-23; sửa lần 1: tạo sẵn chuỗi lúc khởi động)*
 
 Counter theo Mục 5.2, đặt ở tầng service của module tương ứng (không đặt ở controller — chúng đo nghiệp vụ, không
 đo HTTP).
 
+*Thực tế thi công:* counter tạo bằng `System.Diagnostics.Metrics` **không** tự xuất hiện trên `/metrics` (thử 4 cách).
+Đã làm: cả bốn counter khai báo bằng prometheus-net ở **một** chỗ —
+`SocialApp.SharedKernel/Observability/BusinessMetrics.cs` — và mỗi module gọi **một dòng** phương thức tĩnh, không chạm
+kiểu của Prometheus. Chạm code của Identity (`LoginService`) và Content (`PostService`, `UploadTicketService`,
+`MediaCleanupWorker`) — **lệch câu "C1 là toàn bộ phần chạm code backend" của Đ-7.2**, có chủ đích. Chỉ số thứ tư đổi
+sang đếm lượt chạy (xem ghi chú dưới bảng Mục 5.2). Chi tiết và bằng chứng ở hướng dẫn khối C, Mục 2.
+
 **Nghiệm thu:** đăng một bài trên staging → `socialapp_posts_created_total` tăng đúng 1.
 
-### C3 — Prometheus trong stack ops
+### C3 — Prometheus trong stack ops ✅ *(nghiệm thu trên VM 2026-09-23 — cả ba target UP)*
 
-`deploy/prometheus.yml`: scrape `api:8080/metrics` của **cả hai** stack + `node-exporter`. Cần cho stack ops nhìn
-thấy mạng của hai stack ứng dụng (mạng external dùng chung, hoặc gắn stack ops vào cả hai mạng).
+`ops/prometheus.yml`: scrape `api:8080/metrics` của stack staging + `node-exporter`. Cần cho stack ops nhìn thấy
+mạng của stack staging (gắn stack ops vào mạng `internal` của staging dưới dạng external network).
 
 **Nghiệm thu:** trang Targets của Prometheus: tất cả **UP**.
-**Cạm bẫy:** đây là đầu việc dễ mất thời gian nhất của khối — ba project Compose khác nhau thì mạng không tự thấy nhau.
+**Cạm bẫy:** đây là đầu việc dễ mất thời gian nhất của khối — hai project Compose khác nhau thì mạng không tự thấy nhau.
 
-### C4 — Grafana + dashboard
+*Thực tế chuẩn bị:* `prometheus:v3.5.0` + `node-exporter:v1.9.1` (đều có arm64); mạng external tên thật
+`socialapp-staging_internal`, **chỉ** prometheus gắn vào (mạng này nằm trong TrustedNetworks); retention `30d` và
+`2GB`; publish `127.0.0.1:9090`. Trước khi C1 lên staging, target API báo **404** — dấu hiệu mạng đã thông. Các bước
+và bảng đọc lỗi ở hướng dẫn khối C, Mục 3.
+
+### C4 — Grafana + dashboard ✅ *(chạy trên VM 2026-09-24, mọi panel có số thật)*
 
 Một dashboard: RED (rate, error %, p50/p95/p99) + 4 chỉ số nghiệp vụ + đĩa/RAM. Mật khẩu admin qua biến môi trường,
 **không** publish ra host (truy cập qua SSH tunnel — Đ-7.7, R7-06).
 
-**Nghiệm thu:** biểu đồ có dữ liệu **thật** từ production, không phải dữ liệu mẫu.
+**Nghiệm thu:** biểu đồ có dữ liệu **thật** từ staging, không phải dữ liệu mẫu.
 
-### C5 — Năm cảnh báo + thử cho kêu ⭐
+### C5 — Năm cảnh báo + thử cho kêu ⭐ 🟡 *(ba luật Grafana xong, kiểm cục bộ kêu đúng 2026-09-24; chờ thi công trên VM)*
 
 Cấu hình đủ năm dòng Mục 5.3, đổ về kênh của B3. Rồi **phá thật** theo Mục 10.1.
 
@@ -818,7 +876,8 @@ kiểm `/metrics` **không** phục vụ qua đường công khai.
 
 ### E1 — `edge` cân tải trong mạng docker
 Chuyển `deploy/Caddyfile` thành cấu hình `edge` (**bỏ phần TLS** — apache đã lo), upstream `api:8080`. **Bỏ**
-`ports` của service `api`, chỉ `edge` publish `127.0.0.1:18081` (Đ-7.5, Đ-7.6). Chặn `/metrics` tại `edge`.
+`ports` của service `api`, chỉ `edge` publish `127.0.0.1:18080` — nhận lại cổng của `api`, apache giữ nguyên
+(Đ-7.5, Đ-7.6). Chặn `/metrics` tại `edge`.
 **Nghiệm thu:** site chạy y như trước khi có `edge` — đây là thay đổi người dùng không được phép thấy.
 
 ### E2 — Hai bản sao `api`
@@ -834,7 +893,7 @@ Viết đường rollback thành một lệnh trong runbook (image `:sha` đã c
 
 ---
 
-## B.8 Khối F — Frontend production và bàn giao *(đợi GĐ6)*
+## B.8 Khối F — Frontend bản cuối và bàn giao *(đợi GĐ6)*
 
 ### F1 — Build production + responsive + a11y cơ bản
 Service `frontend` **đã có sẵn** trong compose từ GĐ1 (F1 của khối F GĐ1), nên việc còn lại là đánh bóng: kiểm ba
@@ -842,7 +901,7 @@ kích thước màn hình, tương phản, tab order, `alt` cho ảnh.
 
 ### F2 — Gom artifact cho báo cáo
 `docs/giai-doan-7/bang-chung/`: ảnh Grafana · ảnh lịch sử uptime · ảnh cảnh báo đã kêu · biên bản restore · ảnh
-`curl -I` có HSTS · ảnh `/swagger` 404 trên production. **Đây là phần được chấm** (Mục 1).
+`curl -I` có HSTS ở cả trang lẫn API · sổ xoay khóa của D3. **Đây là phần được chấm** (Mục 1).
 
 ### F3 — Cập nhật `README.md` + đóng giai đoạn
 Trạng thái GĐ7 ở Mục 1 của README (luật vàng 7); ghi những gì để lại cho GĐ8.
@@ -856,7 +915,7 @@ Trạng thái GĐ7 ở Mục 1 của README (luật vàng 7); ghi những gì đ
 ```
 Giờ đầu   B1 ─ B2 ─ B3        (đồng hồ bắt đầu chạy — không có gì phụ thuộc, nhưng mọi ngày trễ đều mất vĩnh viễn)
 Ngày 1    A1 ─ A2 ─ A3 ─ A4   (trên staging; B1 phải xong trước vì A3 dùng monitor Push của Kuma)
-Ngày 2    A5 ⭐               │ D4 ─ D1 ─ D2 ─ D3
+Ngày 2    A5 ⭐               │ D1 ─ D2 ─ D3
 Ngày 3    C1 ─ C2 ─ C3 ─ C4 ─ C5 ⭐ ─ C6
 (nếu còn) E1 ─ E2 ─ E3 ─ E4
 (đúng nhịp GĐ7) F1 ─ F2 ─ F3
@@ -875,7 +934,7 @@ Ngày 3    C1 ─ C2 ─ C3 ─ C4 ─ C5 ⭐ ─ C6
 
 1. **Bản sao có thật sự rời khỏi VM không.** Script chạy xanh nhưng upload im lặng thất bại là kịch bản rất thường gặp.
 2. **`archive_timeout` có hiệu lực không.** Không có nó, RPO thành "tới lần WAL đầy gần nhất" — có thể là nhiều giờ.
-3. **Drill có chạm nhầm production không.** Đọc lại tên volume và cổng trước mỗi lệnh.
+3. **Drill có chạm nhầm DB đang chạy không.** Đọc lại tên volume và cổng trước mỗi lệnh.
 
 ## B.10 Mục tiêu từng khối — chúng cộng lại thành cái gì
 
@@ -884,7 +943,7 @@ Ngày 3    C1 ─ C2 ─ C3 ─ C4 ─ C5 ⭐ ─ C6
 | **A** | Mất máy vẫn còn dữ liệu, và **chứng minh được** | NFR-REL-02 trượt; và rủi ro thật: một lệnh sai là mất trắng công của cả nhóm |
 | **B** | GOAL-04 có con số, đo từ ngoài | Không có cách nào nói "uptime 99%" mà không phải đoán |
 | **C** | Nhìn thấy hệ thống, và được gọi khi nó hỏng | NFR-OBS-01 trượt; GĐ8 không có chỗ đọc kết quả k6 |
-| **D** | Production đúng nghĩa; nợ bảo mật GĐ0B khép lại | Swagger + khóa đã lộ đi thẳng vào bản demo |
+| **D** | Nợ bảo mật GĐ0B khép lại trên môi trường cuối | Khóa đã lộ vẫn sống trên bản demo; ai cũng tự tạo được lỗi 500 để làm bẩn số liệu |
 | **E** | Một container chết không thành sự cố | Không mất cam kết nào, nhưng mất bằng chứng mạnh nhất cho GOAL-04 |
 | **F** | Bằng chứng thành tài liệu nộp được | Làm hết mà không ai chấm được |
 
@@ -903,10 +962,10 @@ Thiếu bất kỳ điều nào thì **chưa xong**, dù mọi container đều 
 | Di sản | Ai thừa hưởng |
 |---|---|
 | Histogram `http_request_duration_seconds` + Grafana | **GĐ8 k6** — p95 feed đọc thẳng từ dashboard, không phải tự tính |
-| Stack staging còn nguyên, tách khỏi production | GĐ8 — chỗ bắn k6 1.000 CCU và quét ZAP mà không đụng demo |
+| Quy tắc chạy k6/ZAP trên môi trường cuối (Đ-7.4 cái giá 1, R7-08) | GĐ8 — không có môi trường riêng để bắn tải, phải theo quy tắc |
 | Cảnh báo đĩa + backup | GĐ8 — chạy tải nặng là lúc đĩa đầy nhanh nhất |
 | Runbook khôi phục + rollback theo tag | GĐ8 và cả sau khi bàn giao |
-| Khóa đã xoay, HSTS, Swagger tắt | GĐ8 — phần security scan bắt đầu từ mặt bằng sạch, không phải vá lại từ đầu |
+| Khóa đã xoay, HSTS mọi đường, Swagger đã rà | GĐ8 — phần security scan bắt đầu từ mặt bằng sạch, không phải vá lại từ đầu |
 | Cổng CI chặn log PII | GĐ8 — một phần của NĐ 13/2023 (GOAL-05) đã có cơ chế chặn tự động |
 
 **Một câu để nhớ:** các giai đoạn trước chứng minh hệ thống **làm được gì**; GĐ7 chứng minh nó **còn làm được vào

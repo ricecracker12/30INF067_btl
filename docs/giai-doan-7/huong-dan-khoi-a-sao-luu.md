@@ -12,10 +12,10 @@
 | **Người làm** | Một người, có SSH vào VM (user `deploy`) và quyền vào dashboard Cloudflare R2 |
 | **Thời lượng** | Ngày 1: A1–A4 (~1 ngày) · Ngày 2 sáng: A5 (~nửa ngày) |
 | **Khối này cần trước** | **B1** (Kuma — để có monitor Push cho "backup không chạy") |
-| **Khối này chặn** | NFR-REL-02; **D4** kế thừa nguyên cấu hình này cho production |
+| **Khối này chặn** | NFR-REL-02 |
 
-**Dựng ở đâu:** trên **staging** — DB thật duy nhất đang có. Cơ chế được chứng minh ở đây **trước khi** production
-có dữ liệu; D4 chỉ việc chép sang `docker-compose.prod.yml` với `BACKUP_PREFIX=production`.
+**Dựng ở đâu:** trên **staging** — môi trường cuối (Đ-7.4, sửa 2026-09-23: không có production riêng). Dữ liệu
+staging là dữ liệu thật, và bản sao của nó là bản được báo cáo.
 
 ---
 
@@ -139,9 +139,18 @@ ls -ln backups/base/ backups/dump/
 tail -20 backup.log 2>/dev/null || true       # lần chạy tay in ra màn hình; cron mới ghi vào backup.log
 ```
 
-**Thử hạn giữ THẬT.** Hạn giữ là hằng số trong script (cố ý — để cron không vô tình chạy với biến môi trường
-khác). Cách thử: sửa tạm trong file `KEEP_DAILY_DAYS=7` → `KEEP_DAILY_DAYS=-1` (find `-mtime +-1` khớp mọi file),
-chạy `./backup.sh full` lần nữa, thấy dòng `còn giữ:` chỉ còn bản vừa tạo, rồi **trả lại 7 ngay**. Chụp ảnh log.
+**Thử hạn giữ THẬT — làm già một bản sao, không sửa script.** Hạn giữ là hằng số trong script (cố ý — để cron
+không vô tình chạy với biến môi trường khác). **Đừng** sửa nó thành số âm: `find -mtime +-1` không phải đối số hợp
+lệ, `find` báo lỗi và script dừng giữa chừng. Lùi mtime của bản cũ nhất rồi chạy lại:
+
+```bash
+S=docker-compose.staging.apache.yml
+B=<tên bản cũ nhất trong backups/base/>
+docker compose -f $S exec -T postgres touch -d '10 days ago' /backups/base/$B /backups/dump/$B.dump
+./backup.sh full
+```
+
+Dòng `còn giữ:` phải **không còn `$B`**; `sync` ở cuối cũng xóa nó khỏi R2. Chụp ảnh log.
 
 **Cron** (dưới `deploy`, `crontab -e`):
 
@@ -182,8 +191,8 @@ Bản sao nằm trên VM chưa phải bản sao (Đ-7.10). Và "backup không ch
 ### Việc phải làm
 
 **Bước 1 — Cloudflare dashboard (chủ tài khoản, ~15 phút):**
-1. R2 → *Create bucket* → `socialapp-backup`. Không bật public access. Không CORS (không có trình duyệt nào đọc nó).
-2. R2 → *Manage R2 API Tokens* → *Create* → quyền **Object Read & Write**, *Specify bucket* = `socialapp-backup`
+1. R2 → *Create bucket* → `socialmedia-backup`. Không bật public access. Không CORS (không có trình duyệt nào đọc nó).
+2. R2 → *Manage R2 API Tokens* → *Create* → quyền **Object Read & Write**, *Specify bucket* = `socialmedia-backup`
    **chỉ bucket này** → lưu Access Key ID + Secret Access Key + endpoint `https://<account-id>.r2.cloudflarestorage.com`
    vào kho bí mật nhóm. **Không** dùng lại token của `-dev`/`-staging` (GĐ2) — và nhớ đây là token mới, không dính
    vụ lộ khóa 2026-09-04.
@@ -210,7 +219,7 @@ nano backup.env      # điền 3 khóa R2 + endpoint + BACKUP_KUMA_PUSH_URL; BAC
 ```bash
 mkdir -p /tmp/r2-check
 docker run --rm --env-file backup.env -v /tmp/r2-check:/data rclone/rclone:latest \
-  copy r2:socialapp-backup/staging/base /data --max-depth 2 --stats-one-line
+  copy r2:socialmedia-backup/staging/base /data --max-depth 2 --stats-one-line
 ls -R /tmp/r2-check | head; tar tzf /tmp/r2-check/daily-*/base.tar.gz | head -3     # liệt kê được = file lành
 ```
 
@@ -274,17 +283,23 @@ docker compose -f docker-compose.staging.apache.yml exec -T postgres psql -U soc
 # 2. Ép archive để WAL chứa dữ liệu vừa tạo đã rời VM (đời thật thì là archive_timeout 15 phút + sync)
 docker compose -f docker-compose.staging.apache.yml exec -T postgres psql -U socialapp -d socialapp -Atc "select pg_switch_wal()"
 ./backup.sh sync
-# 3. GIẢ VỜ MẤT VM: đổi tên thư mục bản sao nóng — không xóa
+# 2b. TẠM TẮT CRON suốt buổi drill: sync */15 chạy giữa chừng sẽ đồng bộ thư mục backups/ đang dở dang lên R2
+crontab -l > /tmp/crontab.truoc-drill && crontab -r
+# 3. GIẢ VỜ MẤT VM: đổi tên thư mục bản sao nóng — không xóa.
+#    (postgres staging bind-mount theo inode nên vẫn archive tiếp vào backups.truoc-drill — không mất WAL nào)
 mv backups backups.truoc-drill && mkdir backups
 # 4. Kéo về từ R2 — BẤM GIỜ (bước tốn nhất)
-docker run --rm --env-file backup.env -v "$PWD/backups:/data" rclone/rclone:latest copy r2:socialapp-backup/staging /data --stats-one-line -v
+docker run --rm --env-file backup.env -v "$PWD/backups:/data" rclone/rclone:latest copy r2:socialmedia-backup/staging /data --stats-one-line -v
 # 5. Khôi phục ra cạnh — BẤM GIỜ
 ./restore.sh $(ls backups/base | grep daily | tail -1)
 # 6. --migrate phải no-op (runbook Kịch bản A bước 3) — BẤM GIỜ
 # 7. So bảng đếm với bước 1; max(created_at) của content.posts so với giờ bước 0 → RPO thực đo
-# 8. Dọn: down -v; trả lại thư mục nóng
+# 8. Dọn: down -v; trả lại thư mục nóng; bật lại cron
 docker compose -f docker-compose.restore.yml down -v
-rm -rf backups && mv backups.truoc-drill backups
+#    File rclone tải về thuộc root → `rm -rf` bằng user deploy bị "Permission denied". Xóa qua container:
+docker run --rm -v "$PWD:/w" alpine rm -rf /w/backups
+mv backups.truoc-drill backups
+crontab /tmp/crontab.truoc-drill && crontab -l
 ```
 
 Điền biên bản **trong lúc làm**, không phải sau — số giờ nhớ lại luôn đẹp hơn số giờ thật.
@@ -339,8 +354,8 @@ Sau khi merge: `README.md` Mục 1 dòng GĐ7 thêm **"Khối A (sao lưu) chạ
 
 | Di sản | Ai dùng |
 |---|---|
-| `command:` + `./backups` trong compose staging | **D4** — chép nguyên sang `docker-compose.prod.yml`, đổi `BACKUP_PREFIX=production` |
-| `backup.sh` / `restore.sh` / `dem-ban-ghi.sql` | **D4** (production), **GĐ8** (trước khi bắn k6 nên có một bản `full` tay) |
+| `command:` + `./backups` trong compose staging | **Khối E** — nếu làm `edge` + 2 bản sao, giữ nguyên phần `postgres` |
+| `backup.sh` / `restore.sh` / `dem-ban-ghi.sql` | **GĐ8** — bắt buộc một bản `full` tay ngay trước mỗi buổi k6/ZAP (Đ-7.4) |
 | Monitor Push "backup hằng ngày" | **C5** — một trong năm cảnh báo Mục 5.3 đã xong từ đây |
 | Biên bản drill | **F2** — bằng chứng NFR-REL-02 trong báo cáo |
 | Runbook Mục 4 (đưa dữ liệu vào stack) | **E4** — cùng khuôn với rollback theo tag |

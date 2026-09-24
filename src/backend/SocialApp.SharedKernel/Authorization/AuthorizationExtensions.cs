@@ -31,6 +31,17 @@ public static class AuthorizationExtensions
         // C2: handler của PermissionRequirement — Admin short-circuit + tra cache. Không có handler thì mọi
         // [RequirePermission] đều 403 kể cả Admin (cột "Sau C4" của bảng B3).
         services.AddSingleton<IAuthorizationHandler, PermissionHandler>();
+
+        // GĐ6 C3 (Đ-6.10): sửa quyền có hiệu lực ngay trên MỌI instance — xóa tại chỗ + pub/sub. Subscriber tự thoát khi không có
+        // RedisConnection, nên không cần biết AddSharedKernelRedis đã gọi trước hay sau hàm này.
+        services.AddSingleton<IPermissionChangeNotifier, PermissionChangeNotifier>();
+        services.AddHostedService<PermissionsChangedSubscriber>();
+
+        // GĐ6 C4: [RequireAnyPermission] (Mục 6.1) + [PrivilegedEndpoint] — 503 khi không kiểm được thu hồi (Đ-6.8) và audit
+        // access.denied (Đ-6.15). MỘT đăng ký IAuthorizationMiddlewareResultHandler cho cả host: đăng ký thêm ở chỗ khác thì cái sau
+        // thắng im lặng.
+        services.AddSingleton<IAuthorizationHandler, AnyPermissionHandler>();
+        services.AddSingleton<IAuthorizationMiddlewareResultHandler, AuditingAuthorizationResultHandler>();
         return services;
     }
 }

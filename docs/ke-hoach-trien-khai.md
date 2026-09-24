@@ -41,7 +41,8 @@ SocialApp.sln
  │   │   └─ Modules/Moderation       (CMP-07: reports, audit_logs, admin)
  │   └─ frontend/ (Next.js 16 + shadcn/ui, pnpm)
  ├─ tests/  (Unit, Integration, Architecture[ArchUnitNET], Load[k6])
- └─ deploy/ (docker-compose.*.yml, Caddyfile, prometheus.yml, grafana/)
+ ├─ deploy/ (= ~/app/deploy/ trên VM: docker-compose.*.yml, Caddyfile, backup.sh, restore.sh)
+ └─ ops/    (= ~/app/ops/ trên VM: docker-compose.ops.yml, prometheus.yml, grafana/ — GĐ7)
 ```
 Mỗi module: `Domain` (entity + business rule) / `Application` (service + DTO + validator) /
 `Infrastructure` (EF repository). Module chỉ giao tiếp qua interface ở Application — ArchUnitNET
@@ -452,6 +453,16 @@ còn biên độ thêm index/cache nếu trượt; và thứ cắt được thì
   client cho việc này, vì FE trễ một nhịp nên chat UI mãi GĐ6 mới có. Bản B không cần — Mục 0C.)*
 
 ### GĐ 6 — Notification + Search + Moderation/Admin: UC-16,17,18,19,20 (Ngày 19–21)
+
+> 📄 **Tài liệu thi công chi tiết: [`giai-doan-6.md`](./giai-doan-6/giai-doan-6.md)** — 21 quyết định thiết kế
+> (Đ-6.1–Đ-6.21, trạng thái đề xuất, chốt ở cổng mở), DDL hai schema `moderation`/`notification`, transaction xuyên module,
+> hợp đồng ba nhóm mới (`moderation-v1`, `notification-v1`, `admin-v1`) + hub thông báo, checklist nghiệm thu.
+>
+> **Ba chỗ lệch mục này, có chủ đích:** `/admin/users*` và `/admin/roles*` nằm ở **Identity**, không ở Moderation (Đ-6.1);
+> hai hợp đồng **ghi** ở SharedKernel (`IAuditTrail`, `IModerationTargets`) để ẩn bài + đóng báo cáo + audit chung một
+> transaction (Đ-6.3, lệch Đ-2.3); thêm mã quyền thứ 18 `role.manage` (Đ-6.9).
+> **Chốt 2026-09-23:** **một người** làm GĐ6, **song song** với GĐ3 (một thành viên) và GĐ5 (một thành viên) — GĐ6 dựng event
+> bus trước để hai giai đoạn kia phát event thẳng vào (Đ-6.4); ước lượng ~12–13 ngày làm việc.
 - **Làm gì:** Thông báo (comment/reaction/tag/friend/message) gộp cùng loại (FR-018); tìm người dùng
   không dấu tiền tố (FR-017); báo cáo nội dung (FR-019); kiểm duyệt ẩn/gỡ + audit (FR-020, BR-07);
   admin khóa/mở tài khoản + gán vai trò; **quản lý vai trò (role CRUD) — phần hoãn từ GĐ1**.
@@ -500,12 +511,16 @@ còn biên độ thêm index/cache nếu trượt; và thứ cắt được thì
 > (Đ-7.1–Đ-7.14), chính sách sao lưu RPO/RTO, khuôn biên bản restore drill, bảng chỉ số + ngưỡng cảnh báo,
 > sáu khối việc A–F kèm checklist nghiệm thu.
 >
-> **Hai chỗ lệch mục này, có chủ đích:**
+> **Ba chỗ lệch mục này, có chủ đích:**
 > - **Thứ tự ưu tiên xếp lại** (Đ-7.1): backup + restore drill → đồng hồ uptime → Grafana → nợ bảo mật →
 >   **HA 2 instance đứng cuối và là phần cắt được duy nhất** (báo cáo v5.0 xếp "≥ 2 instance" vào Roadmap,
 >   còn backup/Grafana là hạng mục đã cam kết chạy thật).
 > - **Khối A–E không phụ thuộc GĐ2–GĐ6** nên **làm song song được ngay từ bây giờ** (Đ-7.2): GĐ7 không thêm
 >   endpoint nào nên không có cổng mở hợp đồng để chờ. Chỉ khối F (lane frontend) phải đợi đúng nhịp.
+> - **Không có production riêng — staging `mxh.banhgao.net` là môi trường cuối** (Đ-7.4, nhóm chốt 2026-09-23).
+>   Những chỗ bên dưới nói "production", "2 API container", "deploy theo tag", "TẮT Swagger ở production" đọc theo
+>   Đ-7.4 / Đ-7.13 của `giai-doan-7.md`: Swagger để mở công khai có chủ đích (chặn hai endpoint demo lỗi); GĐ8 bắn k6 và
+>   quét ZAP vào chính staging theo quy tắc riêng (báo nhóm, backup trước, không chạy 48 giờ trước bảo vệ).
 >
 > **Đồng hồ uptime phải bật sớm nhất có thể** — GOAL-04 đo bằng thời gian tích lũy, bật muộn là mất bằng
 > chứng vĩnh viễn, không có cách bù.

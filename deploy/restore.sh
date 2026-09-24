@@ -17,6 +17,10 @@ NAME="${1:?cần tên bản sao, ví dụ daily-20260920T200000Z  (xem: ls backu
 TARGET="${2:-}"
 
 log() { echo "$(date -u +%FT%TZ) $*"; }
+# CD chỉ chép docker-compose.staging.apache.yml lên VM — hai file dưới đây phải chép tay (hướng dẫn khối A, A2).
+for f in docker-compose.restore.yml dem-ban-ghi.sql; do
+  [ -f "$DEPLOY_DIR/$f" ] || { echo "thiếu $DEPLOY_DIR/$f — scp deploy/$f từ repo lên trước" >&2; exit 1; }
+done
 [ -d "$DEPLOY_DIR/backups/base/$NAME" ] || { echo "không thấy backups/base/$NAME" >&2; exit 1; }
 
 log "xóa stack restore cũ (nếu có) — volume pgdata-restore về trống"

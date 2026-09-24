@@ -176,6 +176,9 @@ public sealed class SessionServiceTests
 
         public Task<bool> IsRevokedAsync(string userId, long issuedAtUnix, CancellationToken ct = default) =>
             throw new NotSupportedException();
+
+        public Task<RevocationCheck> CheckAsync(string userId, long issuedAtUnix, CancellationToken ct = default) =>
+            throw new NotSupportedException();
     }
 
     private sealed class FakeIssuer : IAccessTokenIssuer

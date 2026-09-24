@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using Prometheus;
 using Serilog;
 using Serilog.Formatting.Compact;
 using SocialApp.Api.Controllers;
@@ -16,6 +17,10 @@ using SocialApp.Modules.Content.DependencyInjection;
 using SocialApp.Modules.Content.Presentation;
 using SocialApp.Modules.Identity.DependencyInjection;
 using SocialApp.Modules.Identity.Presentation;
+using SocialApp.Modules.Messaging.DependencyInjection;
+using SocialApp.Modules.Messaging.Presentation;
+using SocialApp.Modules.Moderation.DependencyInjection;
+using SocialApp.Modules.Notification.DependencyInjection;
 using SocialApp.Modules.Profile.DependencyInjection;
 using SocialApp.Modules.Profile.Presentation;
 using SocialApp.Modules.SocialGraph.DependencyInjection;
@@ -25,6 +30,8 @@ using SocialApp.SharedKernel.Authorization;
 using SocialApp.SharedKernel.Configuration;
 using SocialApp.SharedKernel.DependencyInjection;
 using SocialApp.SharedKernel.Http;
+using SocialApp.SharedKernel.Observability;
+using SocialApp.SharedKernel.Realtime;
 using SocialApp.SharedKernel.Redis;
 using SocialApp.SharedKernel.Storage;
 
@@ -56,6 +63,7 @@ builder.Services
     .AddApplicationPart(typeof(ProfileApiGroup).Assembly)
     .AddApplicationPart(typeof(ContentApiGroup).Assembly)
     .AddApplicationPart(typeof(SocialGraphApiGroup).Assembly)
+    .AddApplicationPart(typeof(MessagingApiGroup).Assembly)
     .AddJsonOptions(o =>
     {
         // CamelCase là BẮT BUỘC, không phải trang trí (Q-D4 → Q-D2, chốt 2026-09-19): hợp đồng ghi
@@ -89,6 +97,7 @@ var apiGroups = new[]
     (Name: ProfileApiGroup.Name, Title: ProfileApiGroup.Title),
     (Name: ContentApiGroup.Name, Title: ContentApiGroup.Title),
     (Name: SocialGraphApiGroup.Name, Title: SocialGraphApiGroup.Title),
+    (Name: MessagingApiGroup.Name, Title: MessagingApiGroup.Title),
 };
 
 builder.Services.AddEndpointsApiExplorer();
@@ -199,6 +208,15 @@ builder.Services.AddContentModule(postgres);
 
 // --- Module SocialGraph: DbContext riêng, schema "socialgraph" (ADR-001, Đ-4.1) ---
 builder.Services.AddSocialGraphModule(postgres);
+
+// --- Module Messaging: DbContext riêng, schema "messaging" (ADR-001, Đ-5.1) ---
+builder.Services.AddMessagingModule(postgres);
+
+// --- Module Moderation: DbContext riêng, schema "moderation" (ADR-001, Đ-6.1) ---
+builder.Services.AddModerationModule(postgres);
+
+// --- Module Notification: DbContext riêng, schema "notification" (ADR-001, Đ-6.1) ---
+builder.Services.AddNotificationModule(postgres);
 
 // Mail xác minh (Đ-D9). Development không đặt gì → Mailpit localhost:1025 + link http://localhost:3000; ngoài
 // Development thiếu Smtp:Host/Port/From hoặc Frontend:BaseUrl thì chết ngay tại đây. KHÔNG đọc từ deploy/.env: file đó
@@ -329,6 +347,13 @@ builder.Services.AddSingleton(Microsoft.Extensions.Options.Options.Create(jwt));
 builder.Services.AddSharedKernelRedis(redis);
 builder.Services.AddSharedKernelTokenRevocation();
 
+// Realtime (GĐ5 Đ-5.8–Đ-5.10): SignalR + vé dùng một lần + IUserIdProvider đọc "sub" + filter thu hồi/tuổi thọ TOÀN CỤC cho mọi
+// hub (/hubs/chat của GĐ5, /hubs/notifications của GĐ6 dùng lại — Đ-6.18). Dùng chung kết nối Redis ở trên.
+builder.Services.AddSharedKernelRealtime(new RealtimeBackplane(
+    builder.Configuration.GetValue<bool>("Realtime:Backplane:Enabled"),
+    redis,
+    $"socialapp-{builder.Environment.EnvironmentName.ToLowerInvariant()}"));
+
 // MỘT chỗ đăng ký lưu trữ đối tượng cho cả app (Đ-2.14): Profile (avatar), Content (ảnh bài), GĐ5 (media tin nhắn) dùng chung
 // IObjectStorage; không module nào gọi AWS SDK. r2 đã qua RequireR2Options ở trên — ngoài Development chắc chắn đủ.
 builder.Services.AddSharedKernelR2(r2, builder.Environment.EnvironmentName);
@@ -373,11 +398,30 @@ builder.Services
                 }
 
                 var revocation = ctx.HttpContext.RequestServices.GetRequiredService<ITokenRevocationStore>();
-                if (await revocation.IsRevokedAsync(sub, iat, ctx.HttpContext.RequestAborted))
-                    ctx.Fail("token đã bị thu hồi");   // → 401 problem+json qua UseStatusCodePages
+                switch (await revocation.CheckAsync(sub, iat, ctx.HttpContext.RequestAborted))
+                {
+                    case RevocationCheck.Revoked:
+                        ctx.Fail("token đã bị thu hồi");   // → 401 problem+json qua UseStatusCodePages
+                        break;
+
+                    // Đ-6.8 (GĐ6): endpoint quản trị/kiểm duyệt FAIL-CLOSED khi không kiểm được thu hồi. OnTokenValidated chỉ Fail
+                    // được thành 401 — đặt dấu để AuditingAuthorizationResultHandler đổi lần challenge đó thành 503. GetEndpoint()
+                    // có giá trị ở đây vì WebApplication tự chèn UseRouting ĐẦU pipeline: đừng thêm app.UseRouting() sau
+                    // UseAuthentication.
+                    case RevocationCheck.Unknown
+                        when ctx.HttpContext.GetEndpoint()?.Metadata.GetMetadata<PrivilegedEndpointAttribute>() is not null:
+                        ctx.HttpContext.Items[PrivilegedEndpointAttribute.RevocationUnavailableKey] = true;
+                        ctx.Fail("không kiểm được thu hồi token trên endpoint đặc quyền");
+                        break;
+
+                    // Unknown trên endpoint thường: fail-open như GĐ1 (store đã ghi log cảnh báo có giới hạn tần suất).
+                }
             },
         };
-    });
+    })
+    // Scheme thứ hai, CHỈ cho hub (Đ-5.9): đọc ?access_token=<vé> ở /hubs/*. Không đổi default scheme — REST vẫn là bearer, và
+    // JwtBearer KHÔNG đọc query (không có OnMessageReceived): JWT trên URL là thứ Đ-E16 sinh ra để tránh.
+    .AddRealtimeTicket();
 
 // --- Tầng 2 (RBAC, Mục 6.2): [RequirePermission] + fallback policy default deny ---
 builder.Services.AddSharedKernelAuthorization();
@@ -393,15 +437,20 @@ var app = builder.Build();
 // `set -e` ở CD dừng lại TRƯỚC `up -d` thay vì bật api trên dữ liệu nền hỏng.
 if (isMigrate)
 {
-    // Thứ tự Identity → Profile → Content → SocialGraph là CỐ ĐỊNH (Mục 5, GĐ4): không có FK chéo schema nên DB
-    // không đòi thứ tự, nhưng log deploy phải đọc được theo một thứ tự không đổi.
+    // Thứ tự Identity → Profile → Content → SocialGraph → Messaging → Moderation → Notification là CỐ ĐỊNH (Mục 5 GĐ4,
+    // Mục 9.4 GĐ6): không có FK chéo schema nên DB không đòi thứ tự, nhưng log deploy phải đọc được theo một thứ tự không đổi.
     await app.Services.MigrateIdentityModuleAsync();
     await app.Services.MigrateProfileModuleAsync();
     await app.Services.MigrateContentModuleAsync();
     await app.Services.MigrateSocialGraphModuleAsync();
+    await app.Services.MigrateMessagingModuleAsync();
+    await app.Services.MigrateModerationModuleAsync();
+    await app.Services.MigrateNotificationModuleAsync();
     Console.WriteLine(
         $"[migrate] Đã áp dụng migration cho schema \"{IdentityModuleExtensions.Schema}\", \"{ProfileModuleExtensions.Schema}\", "
-      + $"\"{ContentModuleExtensions.Schema}\", \"{SocialGraphModuleExtensions.Schema}\"; "
+      + $"\"{ContentModuleExtensions.Schema}\", \"{SocialGraphModuleExtensions.Schema}\", \"{MessagingModuleExtensions.Schema}\", "
+      + $"\"{ModerationModuleExtensions.Schema}\", "
+      + $"\"{NotificationModuleExtensions.Schema}\"; "
       + $"nạp dữ liệu nền và kiểm tra vai trò hệ thống cho schema \"{IdentityModuleExtensions.Schema}\". Thoát 0.");
     return;
 }
@@ -409,6 +458,10 @@ if (isMigrate)
 // ĐẦU pipeline: log request, rate limiter và mọi thứ đọc RemoteIpAddress phía sau đều thấy IP thật của client.
 app.UseForwardedHeaders();
 app.UseSerilogRequestLogging();
+// RED metrics (GĐ7 C1). PHẢI đứng TRƯỚC UseSharedKernel (trong đó có UseExceptionHandler): đứng sau thì exception đi
+// xuyên qua middleware đếm lúc status còn 200 → mọi lỗi 500 bị đếm thành 200, cảnh báo tỷ lệ lỗi không bao giờ kêu
+// (MetricsEndpointTests.Loi_500_duoc_dem_dung_ma_500 canh đúng chuyện này).
+app.UseHttpMetrics();
 app.UseSharedKernel();
 
 // Swagger bật ở Development + Staging (để demo/test trên staging); TẮT ở Production.
@@ -443,7 +496,16 @@ app.UseSharedKernelRateLimiter();
 app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false }).AllowAnonymous();
 app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") }).AllowAnonymous();
 
+// /metrics cho Prometheus scrape qua mạng docker nội bộ (api:8080/metrics). AllowAnonymous: Prometheus không có token —
+// thiếu thì fallback policy trả 401 và target DOWN. KHÔNG ra Internet (Đ-7.7): apache không ProxyPass /metrics nên đường
+// công khai rơi về Next → 404; Kuma có monitor lộn ngược canh chuyện này (hướng dẫn khối C, C6).
+app.MapMetrics().AllowAnonymous();
+BusinessMetrics.Initialize();   // chín chuỗi đếm + histogram đẩy tin có mặt từ lúc khởi động với giá trị 0, không đợi sự kiện đầu tiên (C2)
+
 app.MapControllers();
+
+// Hub nhắn tin (GĐ5). Sau UseAuthentication/UseAuthorization — hub khai [Authorize(AuthenticationSchemes = RealtimeTicket)].
+app.MapHub<ChatHub>(ChatHub.Path);
 
 app.Run();
 

@@ -1,0 +1,65 @@
+using FluentValidation;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using SocialApp.Modules.Messaging.Application;
+using SocialApp.Modules.Messaging.Application.Conversations;
+using SocialApp.Modules.Messaging.Infrastructure;
+using SocialApp.Modules.Messaging.Infrastructure.Persistence;
+using SocialApp.Modules.Messaging.Presentation;
+
+namespace SocialApp.Modules.Messaging.DependencyInjection;
+
+/// <summary>
+/// Điểm ráp DI duy nhất của module Messaging (khuôn <c>AddSocialGraphModule</c>). Api chỉ gọi <see cref="AddMessagingModule"/>;
+/// mọi chi tiết EF nằm lại trong module (ADR-001). Các khối sau (C, D) đăng ký vào ĐÚNG hàm này — đừng mở hàm thứ hai.
+///
+/// Mọi dòng ở đây phải dựng được bằng <c>new ServiceCollection()</c> KHÔNG host: <c>PostgresFixture</c>,
+/// <c>MessagingDbContextSchemaTests</c> làm vậy. Thứ gì cần <c>IConfiguration</c> thì đọc lúc resolve, không đọc ở đây.
+/// Messaging không có dữ liệu nền: mã quyền <c>message.send</c> đã có từ GĐ1 (Mục 5).
+/// </summary>
+public static class MessagingModuleExtensions
+{
+    /// <summary>Schema Postgres của module, công bố ở tầng DI để host không phải <c>using</c> vào Infrastructure.</summary>
+    public const string Schema = MessagingDbContext.Schema;
+
+    public static IServiceCollection AddMessagingModule(this IServiceCollection services, string connectionString)
+    {
+        services.AddDbContext<MessagingDbContext>(options => options.UseMessagingNpgsql(connectionString));
+
+        // Đồng hồ của service (created_at, last_message_at). TryAdd: các module khác cũng gọi — một đồng hồ cho cả process.
+        services.TryAddSingleton(TimeProvider.System);
+
+        // A5. Scoped vì giữ MessagingDbContext (scoped). ConversationAccess là tầng 3 DUY NHẤT của BR-06 (Mục 6.2).
+        services.AddScoped<IConversationStore, ConversationStore>();
+        services.AddScoped<ConversationAccess>();
+
+        // D0. CHỈ validator của module — AddFluentValidationAutoValidation là cấu hình MVC toàn cục, host đã gọi một lần.
+        services.AddValidatorsFromAssembly(typeof(MessagingModuleExtensions).Assembly, ServiceLifetime.Singleton);
+
+        // D1–D8. Service scoped theo store; IFriendshipReader, IUserDirectory, IObjectStorage, IPermissionCache do HOST và các
+        // module khác đăng ký — chỗ trần (PostgresFixture) không resolve các service này nên thiếu chúng ở đó không sao.
+        services.AddScoped<ConversationService>();
+        services.AddScoped<MessageSendService>();
+
+        // Event Đ-5.15/Đ-6.2: phát qua IEventPublisher (singleton), không giữ trạng thái — Singleton, khuôn SocialGraphEvents.
+        services.AddSingleton<MessagingEvents>();
+
+        // Đường đẩy realtime (Đ-5.8) — IHubContext<ChatHub> là singleton của SignalR (host gọi AddSharedKernelRealtime).
+        services.AddSingleton<IChatNotifier, ChatHubNotifier>();
+        services.AddSingleton<HubSendRateLimiter>();
+
+        return services;
+    }
+
+    /// <summary>
+    /// Chạy ở hook <c>--migrate</c> (service <c>migrate</c> lúc deploy), KHÔNG chạy khi api khởi động (AGENTS.md Mục 13).
+    /// Ngoại lệ PHẢI thoát ra ngoài: migration hỏng thì bước deploy thoát khác 0 để CD dừng TRƯỚC <c>up -d</c>.
+    /// </summary>
+    public static async Task MigrateMessagingModuleAsync(this IServiceProvider services, CancellationToken ct = default)
+    {
+        await using var scope = services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<MessagingDbContext>();
+        await db.Database.MigrateAsync(ct);
+    }
+}
