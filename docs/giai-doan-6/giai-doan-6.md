@@ -179,7 +179,7 @@ SharedKernel/Events/
   IEventPublisher.Publish(IIntegrationEvent)          -- producer gọi SAU COMMIT, không await handler
   IIntegrationEventHandler<TEvent>.HandleAsync(e, ct) -- consumer đăng ký trong Add<X>Module bằng AddIntegrationEventHandler
   InProcessEventBus                          -- Channel<T> có giới hạn + BackgroundService tiêu thụ, mỗi handler một scope DI
-  EventBusMetrics                            -- Meter("SocialApp.Events"): published_total, dropped_total, tag event
+  (metric, ở Observability/BusinessMetrics)   -- prometheus-net: events_published_total, events_dropped_total, nhãn event
   ContentEvents.cs / SocialGraphEvents.cs / MessagingEvents.cs / ModerationEvents.cs   -- các record event (Đ-6.17)
 ```
 
@@ -208,6 +208,15 @@ bus chứ không "chỉ đăng ký trong test harness" — số event dở dang 
 sản phẩm không thấy. Handler đăng ký **chỉ** qua `AddIntegrationEventHandler<TEvent, THandler>()` (bus cần biết kiểu handler
 trước khi mở scope riêng cho nó). Metric dùng `System.Diagnostics.Metrics` có sẵn trong .NET 8, GĐ7 C2 kiểm tên ở `/metrics`.
 Luật 3 có cổng CI: `IntegrationEventShapeTests` (`EVT-07`).
+
+*Sửa 2026-09-24 (trước khối D):* câu "Metric dùng `System.Diagnostics.Metrics`" ở trên **sai trên thực tế**. GĐ7 C2 thử bốn cách
+và kết luận counter tạo theo cách đó không lên `/metrics` (`giai-doan-7.md` Mục 5.2), nên họ khai counter bằng prometheus-net ở
+`SharedKernel/Observability/BusinessMetrics.cs`. Đã đo lại với event bus: publish + drain xong, `/metrics` không có dòng
+`socialapp_events_*` dưới bất kỳ tên nào. Tức là metric `dropped` mà R6-10 dựa vào đã vô hình từ C0. Hai counter chuyển về
+`BusinessMetrics` (`EventPublished`, `EventDropped`, nhãn `event` = tên kiểu record). `Initialize()` tạo sẵn chuỗi cho mọi kiểu
+event của SharedKernel. `EventBusMetrics` và `IMeterFactory` bị gỡ khỏi bus. Canh bằng `MetricsEndpointTests` (hai ca, đã đỏ với
+bản cũ). **Chỉ số mới của GĐ6** (`socialapp_revocation_failures_total` ở D3, `socialapp_reports_decided_total` ở D7) cũng khai ở
+`BusinessMetrics`, không dùng `Meter`.
 
 ### Đ-6.3 Ghi xuyên module trong một transaction bằng cách **truyền `DbTransaction`** — hai hợp đồng ghi có tên, lệch Đ-2.3 luật 1 có chủ đích
 
@@ -1584,6 +1593,7 @@ Kiểm ngày 2026-09-23 trên `loveart1210` (`ac509e4`). GĐ6 **không** dựng 
 **Làm gì:** `SharedKernel/Events/` đúng Đ-6.2; sáu record của Đ-6.17 (kể cả của A, B); `AddInProcessEventBus()` trong
 `AddSharedKernel`; `DrainAsync` cho test; metric `socialapp_events_published_total`, `…_dropped_total` trên
 `Meter("SocialApp.Events")` của `System.Diagnostics.Metrics` (GĐ7 C2 kiểm tên ở `/metrics`); `SocialGraphEvents` gọi `Publish`.
+*Sửa 2026-09-24:* metric chuyển sang prometheus-net ở `BusinessMetrics` — `Meter` không lên `/metrics` (Đ-6.2, ghi chú cùng ngày).
 
 **Làm như nào:** `Channel.CreateBounded(options { Capacity = 10_000, DropWrite }, itemDropped)` — `TryWrite` với `DropWrite` luôn
 trả `true`, chỉ callback `itemDropped` biết có rơi; một `BackgroundService` đọc, với mỗi **handler** mở **một scope DI riêng**
@@ -1782,6 +1792,10 @@ dòng hub ở Mục 12 ghi "chờ GĐ5 — đang chạy chế độ hỏi lại"
 ## B.6 Khối D — Endpoint và nghiệp vụ
 
 > **Mục tiêu khối:** hợp đồng Mục 8 thành hệ thống chạy thật, khớp từng mã lỗi — và ba mốc không lùi được thành test xanh.
+
+**Luật chung cho mọi đầu việc D (chốt 2026-09-24):**
+- **Chỉ số mới khai ở `BusinessMetrics`** (prometheus-net), không dùng `Meter`. Chuỗi có nhãn thì tạo sẵn trong `Initialize()`
+  (Đ-6.2, sửa 2026-09-24).
 
 ### D0 — Nền chung
 

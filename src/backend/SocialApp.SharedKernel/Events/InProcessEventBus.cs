@@ -1,9 +1,9 @@
-using System.Diagnostics.Metrics;
 using System.Threading.Channels;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using SocialApp.SharedKernel.Observability;
 using SocialApp.SharedKernel.Redis;
 
 namespace SocialApp.SharedKernel.Events;
@@ -28,7 +28,6 @@ public sealed class InProcessEventBus : BackgroundService, IEventPublisher
 
     private readonly IServiceScopeFactory _scopes;
     private readonly ILookup<Type, EventHandlerRegistration> _handlers;
-    private readonly EventBusMetrics _metrics;
     private readonly FailOpenLogThrottle _throttle;
     private readonly ILogger<InProcessEventBus> _logger;
     private readonly int _capacity;
@@ -43,7 +42,6 @@ public sealed class InProcessEventBus : BackgroundService, IEventPublisher
         IServiceScopeFactory scopes,
         IEnumerable<EventHandlerRegistration> registrations,
         IOptions<EventBusOptions> options,
-        IMeterFactory meters,
         FailOpenLogThrottle throttle,
         ILogger<InProcessEventBus> logger)
     {
@@ -58,7 +56,6 @@ public sealed class InProcessEventBus : BackgroundService, IEventPublisher
 
         _scopes = scopes;
         _handlers = list.ToLookup(r => r.EventType);
-        _metrics = new EventBusMetrics(meters);
         _throttle = throttle;
         _logger = logger;
         _capacity = options.Value.Capacity;
@@ -80,7 +77,7 @@ public sealed class InProcessEventBus : BackgroundService, IEventPublisher
         ArgumentNullException.ThrowIfNull(integrationEvent);
 
         Interlocked.Increment(ref _pending);
-        _metrics.Published(integrationEvent.GetType());
+        BusinessMetrics.EventPublished(integrationEvent.GetType());
         _channel.Writer.TryWrite(new Envelope(integrationEvent, Interlocked.Increment(ref _sequence)));
     }
 
@@ -147,7 +144,7 @@ public sealed class InProcessEventBus : BackgroundService, IEventPublisher
     {
         Interlocked.Decrement(ref _pending);
         var eventType = envelope.Event.GetType();
-        _metrics.Dropped(eventType);
+        BusinessMetrics.EventDropped(eventType);
 
         if (_throttle.ShouldLog(DroppedLogKind, out var suppressed))
             _logger.LogWarning(

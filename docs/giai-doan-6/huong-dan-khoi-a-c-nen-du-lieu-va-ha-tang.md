@@ -1456,7 +1456,8 @@ lời gọi `NotificationPusher` sau `COMMIT` của upsert. Tới cổng đóng 
 
 **Để ý khi rebase trước PR:** 25 commit GĐ7 trên `develop` có `feat(gd7-c): C2 — bốn chỉ số nghiệp vụ khai báo một chỗ ở
 SharedKernel`. Event bus của C0 đã có `Meter("SocialApp.Events")` riêng — lúc rebase kiểm hai bên không khai trùng tên chỉ số, và
-chỉ số `socialapp_events_*` có được `/metrics` của GĐ7 xuất ra không.
+chỉ số `socialapp_events_*` có được `/metrics` của GĐ7 xuất ra không. *Đã kiểm 2026-09-24:* không trùng tên, nhưng **không** được
+xuất ra. Counter đã chuyển về `BusinessMetrics` (chi tiết ở "Thực tế thi công" của `huong-dan-khoi-c0-duong-ray.md`).
 
 ### Các đầu việc còn lại
 
