@@ -892,8 +892,12 @@ Theo Mục 3.5 của PTTK, áp cho **từng** UC (UC-06 bình luận, UC-07 cả
 
 - [x] Bảy dòng matrix mới xanh; thử cho đỏ: bỏ kiểm BR-02 ở `ListRepliesAsync` → `READ-CMT-03` đỏ; bỏ kiểm tác giả ở
   `DeleteAsync` → `TC-A03-comment` đỏ *(bỏ ở service thôi thì XANH — câu UPDATE của store còn `author_id`; bỏ cả hai lớp mới đỏ)*
-- [ ] Network tab trên staging: response của bình luận đã xóa không có `body` hay `author` *(local: E2E soi response
-  `/bff/api/comments/{id}/replies` — `body`/`author` null. **Chờ server**)*
+- [x] Network tab trên staging: response của bình luận đã xóa không có `body` hay `author` *(2026-09-25, Firefox DevTools
+  trên `https://mxh.banhgao.net`: (1) cột Path — mọi request dữ liệu là `/bff/api/*` hoặc `/bff/auth/session`, không dòng nào
+  `/api/v1/*`; còn lại là điều hướng Next (`?_rsc=`) và `/cdn-cgi/challenge-platform` của Cloudflare. (2) tìm `eyJ` có phân
+  biệt hoa thường: 0 kết quả — không tắt Aa thì khớp nhầm chuỗi ngẫu nhiên trong header `report-to` của Cloudflare. (3)
+  `GET /bff/api/posts/01a0cf11-…/comments?limit=20`: dòng `status: "deleted"` có `author: null`, `body: null`,
+  `reactionCounts: {}`, `myReaction: null`, `canDelete: false`, vẫn `replyCount: 1`; dòng `visible` bên cạnh đủ tác giả + nội dung)*
 - [ ] Đã `SELECT` trên staging: vai trò `USER` có `comment.create` và `reaction.set` (Mục 5) *(dev: USER + MODERATOR có cả hai.
   **Chờ server**)*
 
