@@ -931,6 +931,10 @@ module nào tự viết `role == "ADMIN"` (luật GĐ1 Mục 3.2: đặt nhầm 
 Khung có sẵn (GĐ1 `B2`/`B3`, `CallerUserId` từ GĐ4). Thêm một khối `// --- GĐ6 ---`, **không** sửa `AuthZMatrixTests`,
 `AuthZCase`, `AuthZApiFactory`.
 
+*Sửa 2026-09-24 khi thi công D2* (L-D17 của `huong-dan-khoi-d-endpoint-nghiep-vu.md`): matrix chạy với **Redis thật** —
+`AuthZApiFactory.UseRedis` + `RedisFixture` trong `AuthZMatrixTests`. Endpoint `[PrivilegedEndpoint]` fail-closed (Đ-6.8), nên với
+Redis cổng 1 của khung cũ mọi dòng `TC-A05*`/`TC-A06*` ra 503 trước tầng 2. `AuthZCase` không đổi; dòng cũ không đổi kết quả.
+
 | Id | Kịch bản | Người gọi | Gọi gì | Kỳ vọng |
 |---|---|---|---|---|
 | `TC-A05` | User thường gọi `/admin/*` | `Caller.User` | `GET /api/v1/admin/users` | **403** |
@@ -1122,7 +1126,9 @@ AuditLogPage         { items: [AuditLogItem], nextCursor: string | null }       
 
 ```
 AdminUser        { userId, email, displayName: string | null, roleCode, roleDisplayName,
-                   status: "active"|"disabled", emailVerified: boolean, lockedUntil?: date-time, createdAt }
+                   status: UserStatus, emailVerified: boolean, lockedUntil: date-time | null, createdAt }
+                   // sửa 2026-09-24 khi thi công D2: status = bốn giá trị như identity-v1; lọc ?status= chỉ active|disabled.
+                   // lockedUntil luôn có mặt, null khi không khóa tạm hoặc mốc đã qua
 AdminUserPage    { items: [AdminUser], nextCursor }                  // created_at DESC, user_id DESC · q = tiền tố email (citext)
 LockRequest      { reason: string (1–500) }                          // vào metadata audit, không lưu ở users
 AssignRoleRequest{ roleCode: string }
@@ -1836,6 +1842,9 @@ mỗi chỗ phát token, không trong join vai trò; fixture `MeResponse` của 
 
 Keyset `(created_at, user_id)`; `q` tiền tố email (citext `LIKE q || '%'` có escape); hydrate `displayName` một lô `IUserDirectory`.
 **Xong khi:** `ADM-07`, `TC-A05`, `TC-A05b` xanh.
+
+*Sửa 2026-09-24 khi thi công D2* (L-D17): matrix cần Redis thật để hai dòng `TC-A05*` chạm tới tầng 2 (Mục 6.3). Hình dạng
+`AdminUser` chỉnh ở Mục 8.2.
 
 ### D3 — Khóa / mở khóa + bất biến Admin + thu hồi ⭐
 

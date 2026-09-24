@@ -164,6 +164,18 @@ public static class AuthZMatrix
         new("TC-A01-friends", "Gửi lời mời không kèm JWT", "GĐ4",
             Caller.Anonymous, HttpMethod.Post, "/api/v1/friends/requests", HttpStatusCode.Unauthorized,
             Body: new { userId = Guid.NewGuid() }),
+
+        // --- GĐ6 (B2, đi cùng commit D làm dòng xanh — L-D7). Mục 6.3. Kỳ vọng viết tay theo Mục 6.1 + admin-v1.yaml. ---
+        //
+        // Endpoint [PrivilegedEndpoint] fail-closed khi Redis chết → matrix chạy với Redis thật từ D2 (L-D17). Thiếu Redis thì
+        // cả dòng "bị chặn" lẫn dòng đối chứng ra 503 — đỏ đúng chỗ, không xanh giả.
+
+        new("TC-A05", "User thường gọi /admin/* — danh sách tài khoản", "GĐ6",
+            Caller.User, HttpMethod.Get, "/api/v1/admin/users", HttpStatusCode.Forbidden),
+
+        // Đối chứng bắt buộc: TC-A05 xanh cả khi handler "chặn mọi người", hay khi policy any-of đòi đủ cả ba mã.
+        new("TC-A05b", "Đối chứng: Admin đọc danh sách tài khoản", "GĐ6",
+            Caller.Admin, HttpMethod.Get, "/api/v1/admin/users", HttpStatusCode.OK),
     ];
 
     /// <summary>

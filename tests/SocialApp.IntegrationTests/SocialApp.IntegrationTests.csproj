@@ -40,6 +40,9 @@
     <Content Include="..\..\src\backend\Modules\Identity\Presentation\identity-v1.yaml"
              Link="Contracts\identity-v1.yaml"
              CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\src\backend\Modules\Identity\Presentation\admin-v1.yaml"
+             Link="Contracts\admin-v1.yaml"
+             CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\src\backend\Modules\Profile\Presentation\profile-v1.yaml"
              Link="Contracts\profile-v1.yaml"
              CopyToOutputDirectory="PreserveNewest" />

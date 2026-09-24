@@ -39,4 +39,11 @@ public static class IdentityErrors
     /// <summary>MỌI nhánh hỏng của /auth/refresh (D5) — không phân biệt hết hạn/thu hồi/reuse.</summary>
     public static readonly Error SessionInvalid = new(
         "identity.session_invalid", "Phiên đăng nhập không còn hiệu lực. Vui lòng đăng nhập lại.", 401, "Phiên không hợp lệ");
+
+    /// <summary>
+    /// <c>/admin/users/{userId}*</c> (GĐ6 D2+) — id không tồn tại. Endpoint đặc quyền nên 404 không lộ gì: tầng 2 đã chặn người ngoài.
+    /// Không nêu id trong thông điệp.
+    /// </summary>
+    public static readonly Error UserNotFound = new(
+        "identity.user_not_found", "Không tìm thấy tài khoản.", 404);
 }

@@ -66,10 +66,11 @@ public sealed class PrivilegedEndpointTests
 
     /// <summary>
     /// Canh gác chân không, cùng bài học <c>PersistenceBoundaryTests</c>: không có action nào trong hai nhóm thì test trên xanh
-    /// vĩnh viễn. Ngày C4 (2026-09-23) CHƯA có controller admin/moderation nào — Skip có địa chỉ: gỡ ở D2 (controller
-    /// <c>admin-v1</c> đầu tiên), và thử cho đỏ test trên ở đó (bỏ attribute khỏi một controller → đỏ nêu đúng tên).
+    /// vĩnh viễn. Ngày C4 (2026-09-23) chưa có controller admin/moderation nào nên mang <c>Skip</c>; gỡ ở D2 (2026-09-24) cùng
+    /// <c>AdminUsersController</c> — controller <c>admin-v1</c> đầu tiên. Thử cho đỏ ở D2: bỏ <c>[PrivilegedEndpoint]</c> khỏi
+    /// controller đó → test trên đỏ, nêu đúng hai action.
     /// </summary>
-    [Fact(Skip = "Gỡ ở D2 của GĐ6 — chưa có controller admin-v1/moderation-v1 nào (L-C7 hướng dẫn khối A+C)")]
+    [Fact]
     public void Privileged_groups_are_not_empty()
     {
         Assert.NotEmpty(PrivilegedGroupActions());

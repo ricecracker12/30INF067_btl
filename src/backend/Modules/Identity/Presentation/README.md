@@ -7,7 +7,9 @@ riêng cho nó.
 | File | Là gì |
 |---|---|
 | `identity-v1.yaml` | **Hợp đồng API** chốt ở cổng mở GĐ1. Nguồn sự thật, không phải Swagger runtime |
-| `*Controller.cs` | Hiện thực (khối D GĐ1) — `[ApiExplorerSettings(GroupName = IdentityModuleExtensions.ApiGroup)]` |
+| `admin-v1.yaml` | Hợp đồng của nhóm Swagger **thứ hai** — màn quản trị tài khoản/vai trò (GĐ6 Đ-6.1). Lớn dần theo D2–D5; so bởi `AdminContractTests` |
+| `IdentityApiGroup.cs`, `AdminApiGroup.cs` | Tên hai nhóm Swagger — mỗi tên khớp `[ApiExplorerSettings]`, dòng `apiGroups` ở Program.cs và tên file yaml |
+| `*Controller.cs` | Hiện thực — `AuthController`, `MeController` thuộc `identity-v1`; `AdminUsersController` thuộc `admin-v1`, mang `[PrivilegedEndpoint]` |
 
 ## Ranh giới
 

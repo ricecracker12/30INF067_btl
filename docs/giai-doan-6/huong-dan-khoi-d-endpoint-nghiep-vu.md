@@ -123,8 +123,8 @@ mốc đã từng đỏ khi cố tình bỏ đúng thứ bảo vệ nó (bảng 
 Đọc B.6, Mục 6, Mục 8 đối chiếu với code ngày 2026-09-24 (`5c93f42`), thấy các chỗ dưới đây viết chưa đủ, tự mâu thuẫn, hoặc
 **không chạy được** trên code hiện tại.
 
-**Trạng thái (chốt 2026-09-24, người thi công):** cả mười lăm chỗ đi **theo cột "Đề xuất"**. L-D16 tìm ra khi thi công D1 — ràng
-buộc kỹ thuật, đi theo đề xuất, ghi ở "Thực tế thi công".
+**Trạng thái (chốt 2026-09-24, người thi công):** cả mười lăm chỗ đi **theo cột "Đề xuất"**. L-D16 tìm ra khi thi công D1, L-D17 khi
+thi công D2 — ràng buộc kỹ thuật, đi theo đề xuất, ghi ở "Thực tế thi công".
 - Mười chỗ là **lựa chọn thiết kế**. Mỗi chỗ đã cân nhắc phương án khác rồi loại:
   - L-D5: tách D7 thay vì một commit lớn.
   - L-D6: khuôn hai bước thay vì truy vấn con trong `RETURNING`. Cách đó chạy được, nhưng dưới lượt đua nó trả `NULL`, và phải lập
@@ -165,6 +165,7 @@ ngày và lý do.
 | L-D14 | D8: "`action` chỉ đi kèm một trong hai hoặc khoảng id" | Cho phép lọc `action` đứng một mình (không 400). Truy vấn đi theo PK lùi + lọc, `LIMIT` dừng sớm | Câu đó là **ghi chú hiệu năng** của Mục 4 ("không index theo action"), không phải luật validation. 400 cho "xem mọi `user.lock`" là chặn một câu hỏi hợp lệ của Admin trên một bảng nhỏ |
 | L-D15 | Mục 8.1: `ReportDetail.history: [{ decision, resolverId, resolvedAt, note? }]` | Đổi tên trường thành `outcome: "resolved" \| "dismissed"`, **trước** khi yaml có operation này (D7b), nên chưa client nào dùng | Bảng `reports` chỉ có `status` (`resolved\|dismissed`), không phân biệt `hide` với `resolve`. Trả `decision` thì hoặc bịa, hoặc thêm cột bằng một migration Moderation mới. "Đã ẩn hay xử lý ngoài luồng" đã có ở `target.status` và trong audit |
 | L-D16 *(thêm 2026-09-24 khi thi công D1)* | Mục 8.5: `identity-v1` chỉ thêm `permissions` và 403 `account-disabled` | Nới `RoleCode` từ enum `[USER, MODERATOR, ADMIN]` thành chuỗi có pattern `^[A-Z][A-Z0-9_]{2,29}$`, cùng commit D1. Test kiểu của FE (`schema.test-d.ts`) đổi theo | `/me.role` đọc `roles.code` từ DB, nên từ lúc có vai trò tự tạo (D5, và ca `ME-01` vai trò tự tạo của D1) response nằm ngoài enum của hợp đồng. Cổng hợp đồng không so giá trị enum nên không đỏ: hợp đồng nói dối mà không ai biết. Không chỗ nào của FE so tên vai trò (grep) |
+| L-D17 *(thêm 2026-09-24 khi thi công D2)* | Mục 6.3: "chỉ thêm dòng vào `AuthZMatrix.cs`, **không** sửa `AuthZMatrixTests`, `AuthZCase`, `AuthZApiFactory`" | Matrix chạy với **Redis thật** từ D2: `AuthZApiFactory.UseRedis` (mặc định giữ cổng 1, khuôn `ModulesApiFactory`/`IdentityApiFactory`) + `AuthZMatrixTests` nhận `RedisFixture` và chờ kết nối của app trước dòng đầu. `AuthZCase` không đổi | `AuthZApiFactory` trỏ Redis vào cổng 1. Endpoint `[PrivilegedEndpoint]` fail-closed (Đ-6.8), nên mọi người gọi có token nhận **503** trước khi tới tầng 2: `TC-A05` (403) và `TC-A05b` (200) không thể xanh — và mọi dòng `TC-A05*`/`TC-A06*` sau này cũng vậy. Stub `ITokenRevocationStore` thay vì Redis thật cũng chạy, nhưng là stub trên đúng đường mà matrix phải canh. Endpoint thường không đổi hành vi (Unknown và "không bị thu hồi" cùng cho qua). Đột biến M0 chứng minh |
 
 ---
 
@@ -1374,9 +1375,57 @@ lưới trạng thái trong `RotateAsync`), Get `/me` (1 — `permissions`), `Lo
 gán theo dòng; `git diff -U0` chỉ có hunk ở `RotateAsync`, `FindForLoginAsync`, `FindMeAsync` và hàm mới `IsActiveAsync`. Impact trước
 khi sửa: bảng Mục 1.2 (không HIGH/CRITICAL); `LoginCandidate` LOW (4 — store + fake `LoginServiceTests`).
 
+### D2 — 2026-09-24
+
+Làm đúng Mục 4 và checklist D0 cho `admin-v1` (Mục 2): `AdminApiGroup` (`"admin-v1"`, `"Quản trị"`), dòng `apiGroups` (không
+`AddApplicationPart` — cùng assembly Identity), `admin-v1.yaml` `1.0.0-gd6` với **đúng** hai operation, `AdminContractTests` + dòng
+`Content Include`, `pnpm gen:api` sinh `lib/api/admin/schema.d.ts` (glob tự thấy, không sửa script). `AdminUsersController` mang
+`[PrivilegedEndpoint]` ở class, `[RequireAnyPermission(user.lock, user.unlock, role.assign)]` ở từng action. `IAdminUserQueries`
+(Application) + `AdminUserQueries` (Infrastructure) + `AdminUserReadService` hydrate tên một lô qua `IUserDirectory`.
+`LikePattern.Escape`/`StartsWith` ở `SharedKernel/Text/` (cạm bẫy 3 — D12 dùng lại). `Skip` của `Privileged_groups_are_not_empty`
+đã gỡ. B1: `Harness/IdentitySql.cs` — `TaoTaiKhoanAsync`, `TaoAdminThuHaiAsync`, `DatVaiTroAsync`, `TaoVaiTroAsync`, `MaVaiTroMoi`.
+
+**Lệch so với chính tài liệu này:**
+- **L-D17 (mới):** matrix chạy với Redis thật — lý do ở bảng Mục 0.6. `giai-doan-6.md` Mục 6.3 sửa cùng lượt.
+- **Hình dạng `AdminUser` so với Mục 8.2:** `status` dùng `UserStatus` bốn giá trị như `identity-v1` (quyết định 5 của GĐ1: giữ đủ
+  bốn để GĐ8 không mở lại hợp đồng), không phải `active|disabled` — bộ lọc `status` thì đúng hai giá trị Admin ghi được.
+  `lockedUntil` và `displayName` là trường **bắt buộc, nullable** (luôn có mặt, `null` khi không có), không phải `lockedUntil?`: app
+  không bỏ trường null khi ghi JSON, và FE sinh `string | null` đúng với dây. `lockedUntil` chỉ có giá trị khi mốc còn ở tương lai.
+- **Validation cụ thể hóa "sai → 400 theo trường":** `status` ngoài `active|disabled`, `roleCode` sai dạng `RoleCode` (so từng ký tự,
+  không Regex — bẫy `$` của .NET), `q` dài hơn 254 ký tự. `roleCode` đúng dạng mà không tồn tại → trang rỗng 200 (vai trò là dữ liệu).
+- **Thêm ca ngoài bảng:** `FC_01_admin_users_…` (fail-closed trên endpoint thật — bản probe của C4 giữ nguyên), `Moderator_403_va_co_dong_access_denied`,
+  `ANY_01` chạy cả chi tiết (vai trò có quyền → 404 cho id lạ, không 403), đủ ba mã của policy + một mã ngoài policy.
+
+**Test:** Unit 344 → 353 (+9 `LikePatternTests`), Integration 555 → 582 (+22 `AdminUsersTests`: `ADM-07`, `ADM-07b` ×3, `ADM-07c`,
+`ANY-01` ×4…; +2 `AdminContractTests`; +2 matrix `TC-A05`, `TC-A05b`; +1 FC-01 thật), Architecture 23 + 1 Skip → 24, 0 Skip. Vitest
+544 → 544. Còn đỏ nền R2 trên máy dev. FE: `pnpm lint`, `typecheck`, `test`, `build` xanh.
+
+**Thử cho đỏ — 9/9 đột biến bị bắt**, build hợp lệ ở mọi lượt (`0 Error(s)`), file khôi phục nguyên byte (`cmp`):
+
+| Đột biến | Ca đỏ thực tế |
+|---|---|
+| M0 — matrix không `UseRedis` (L-D17) | `TC-A05`, `TC-A05b` (503) |
+| M1 — bỏ `[PrivilegedEndpoint]` khỏi `AdminUsersController` | `Privileged_controllers_carry_the_attribute`; `FC_01_admin_users_…` |
+| M2 — bỏ `[RequireAnyPermission]` khỏi `GET /admin/users` | `TC-A05`; `ANY_01(report.resolve)`; `Moderator_403_…` |
+| M3 — keyset `<` thành `<=` ở khóa phụ | `ADM_07_…` |
+| M3b — bỏ `ThenByDescending(user_id)` | `ADM_07_…` |
+| M4 — `StartsWith` không escape | `ADM_07b` ×3 (`x_`, `y%`, `w\`) |
+| M5 — hydrate tên từng dòng (N+1) | `ADM_07c_…` |
+| M6 — trả `lockedUntil` đã qua mốc | `Tung_truong_cua_AdminUser_…` |
+| M7 — validator không giải mã cursor | `Tham_so_sai_dang_400_dung_truong` (hai ca `cursor`) |
+
+"Đã đỏ trước khi có controller" (L-D7): `TC-A05`/`TC-A05b` gọi đường chưa có route → 401/404, và M0 cho thấy chúng đỏ 503 khi thiếu
+Redis — hai lý do đỏ khác nhau, đều không phải 403/200.
+
+**detect-changes:** low, 0 luồng (10 file đã theo dõi, 17 symbol: `IdentityErrors`, `AddIdentityModule`, `apiGroups`, khung matrix,
+`PrivilegedEndpointTests`, tài liệu). Impact trước khi sửa: `AddIdentityModule`, `IdentityErrors`, `AuthZMatrixTests`,
+`PrivilegedEndpointTests` — UNKNOWN, text search xác nhận (16 lời gọi `AddIdentityModule` không đổi chữ ký; `IdentityErrors` chỉ
+thêm trường); `AuthZApiFactory` MEDIUM (6 nút trong assembly test; bốn lớp dùng làm fixture, `UseRedis` mặc định giữ cổng 1 nên ba
+lớp không gọi nó không đổi hành vi).
+
 ### Các đầu việc còn lại
 
-D2 → D13. Mỗi đầu việc khi xong điền theo khuôn của hướng dẫn khối A+C:
+D3 → D13. Mỗi đầu việc khi xong điền theo khuôn của hướng dẫn khối A+C:
 
 - chỗ nào đi theo / không theo đề xuất Mục 0.6, và vì sao;
 - lệch so với chính tài liệu này;

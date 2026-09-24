@@ -20,6 +20,7 @@ namespace SocialApp.IntegrationTests.AuthZ;
 public sealed class AuthZApiFactory : WebApplicationFactory<Program>
 {
     private string? _postgres;
+    private string _redis = ApiFactory.UnreachableRedis;   // mặc định GIỮ NGUYÊN: lớp nào không gọi UseRedis vẫn chạy không Redis
 
     /// <summary>
     /// C5 (GĐ2): lưu trữ đối tượng giả cho test của D3/D4/D5 và B3 — test dựng sẵn object bằng <c>Storage.Put(...)</c> rồi gọi
@@ -30,12 +31,21 @@ public sealed class AuthZApiFactory : WebApplicationFactory<Program>
     /// <summary>Gọi trước CreateClient đầu tiên. Gọi lại với cùng giá trị là vô hại.</summary>
     public void UseDatabase(string connectionString) => _postgres ??= connectionString;
 
+    /// <summary>
+    /// GĐ6 D2 (L-D17 của hướng dẫn khối D): Redis THẬT cho matrix. Dòng <c>TC-A05*</c>/<c>TC-A06*</c> gọi endpoint
+    /// <c>[PrivilegedEndpoint]</c>, mà endpoint đó fail-closed (Đ-6.8): với Redis cổng 1 mọi người gọi có token đều nhận 503 — dòng
+    /// "User → 403" và dòng đối chứng "Admin → 200" không bao giờ chạm tới tầng 2. Gọi trước CreateClient đầu tiên, cùng luật với
+    /// <see cref="UseDatabase"/>. Endpoint thường không đổi hành vi: thu hồi Unknown (Redis chết) và "không bị thu hồi" (Redis sống,
+    /// không có key) cùng cho qua.
+    /// </summary>
+    public void UseRedis(string connectionString) => _redis = connectionString;
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment(Environments.Development);
         builder.UseSetting("ConnectionStrings:Postgres",
             _postgres ?? throw new InvalidOperationException("Gọi UseDatabase trước CreateClient."));
-        builder.UseSetting("ConnectionStrings:Redis", ApiFactory.UnreachableRedis);
+        builder.UseSetting("ConnectionStrings:Redis", _redis);
         TestJwt.Configure(builder);
 
         builder.ConfigureTestServices(services =>

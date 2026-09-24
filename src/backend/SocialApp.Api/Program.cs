@@ -90,6 +90,8 @@ var apiGroups = new[]
 {
     (Name: PingController.ApiGroup, Title: "Platform"),
     (Name: IdentityApiGroup.Name, Title: IdentityApiGroup.Title),
+    // GĐ6 D2 (Đ-6.1): nhóm thứ hai của Identity — cùng assembly nên không thêm AddApplicationPart.
+    (Name: AdminApiGroup.Name, Title: AdminApiGroup.Title),
     (Name: ProfileApiGroup.Name, Title: ProfileApiGroup.Title),
     (Name: ContentApiGroup.Name, Title: ContentApiGroup.Title),
     (Name: SocialGraphApiGroup.Name, Title: SocialGraphApiGroup.Title),
