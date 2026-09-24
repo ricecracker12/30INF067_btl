@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using SocialApp.Modules.Identity.Application.Admin.Users;
 using SocialApp.Modules.Identity.Domain;
+using SocialApp.SharedKernel.Authentication;
 using SocialApp.SharedKernel.Authorization;
 using SocialApp.SharedKernel.Http;
 
@@ -27,7 +28,7 @@ namespace SocialApp.Modules.Identity.Presentation;
 [Route("api/v1/admin/users")]
 [PrivilegedEndpoint]
 [ApiExplorerSettings(GroupName = AdminApiGroup.Name)]
-public sealed class AdminUsersController(AdminUserReadService users) : ControllerBase
+public sealed class AdminUsersController(AdminUserReadService users, AccountAdministrationService accounts) : ControllerBase
 {
     /// <summary>
     /// Danh sách tài khoản, mới tạo trước. Policy any-of (Mục 6.1): người chỉ có <c>role.assign</c> cũng phải xem được danh sách để
@@ -62,6 +63,44 @@ public sealed class AdminUsersController(AdminUserReadService users) : Controlle
     public async Task<ActionResult<AdminUser>> Get(Guid userId, CancellationToken ct)
     {
         var result = await users.GetAsync(userId, ct);
+        return result.ToActionResult(this);
+    }
+
+    /// <summary>
+    /// Khóa tài khoản (Đ-6.5–6.7, D3). Người bị khóa văng ra ở request kế tiếp: mọi refresh family bị thu hồi trong DB, mốc
+    /// <c>revoked:user</c> ghi SAU <c>COMMIT</c>. Tự khóa → 400; làm hệ thống còn 0 Admin → 409 <c>last-admin</c>; đã khóa → 200
+    /// <c>not-needed</c> (L-D10).
+    /// </summary>
+    [HttpPost("{userId}/lock")]
+    [RequirePermission(PermissionCodes.UserLock)]
+    [ProducesResponseType<AdminUserChange>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest, "application/problem+json")]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized, "application/problem+json")]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden, "application/problem+json")]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound, "application/problem+json")]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict, "application/problem+json")]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status503ServiceUnavailable, "application/problem+json")]
+    public async Task<ActionResult<AdminUserChange>> Lock(Guid userId, LockRequest request, CancellationToken ct)
+    {
+        var result = await accounts.LockAsync(userId, User.GetUserId(), request, ct);
+        return result.ToActionResult(this);
+    }
+
+    /// <summary>
+    /// Mở khóa (D3): <c>active</c>, xóa khóa tạm FR-003 và bộ đếm sai — người đó đăng nhập được ngay (Đ-6.5). Không body. Không
+    /// thu hồi gì nên <c>revocation</c> luôn <c>not-needed</c>.
+    /// </summary>
+    [HttpPost("{userId}/unlock")]
+    [RequirePermission(PermissionCodes.UserUnlock)]
+    [ProducesResponseType<AdminUserChange>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest, "application/problem+json")]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized, "application/problem+json")]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden, "application/problem+json")]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound, "application/problem+json")]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status503ServiceUnavailable, "application/problem+json")]
+    public async Task<ActionResult<AdminUserChange>> Unlock(Guid userId, CancellationToken ct)
+    {
+        var result = await accounts.UnlockAsync(userId, User.GetUserId(), ct);
         return result.ToActionResult(this);
     }
 }

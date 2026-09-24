@@ -14,20 +14,25 @@
 # operation vào file này TRONG CÙNG COMMIT với controller hiện thực nó — không có operation nào
 # nằm đây trước code.
 #   D2 (2026-09-24): GET /admin/users, GET /admin/users/{userId}.
-#   D3: POST …/lock, …/unlock · D4: PUT …/role · D5: /admin/roles*, GET /admin/permissions.
+#   D3 (2026-09-24): POST /admin/users/{userId}/lock, POST /admin/users/{userId}/unlock — version 1.1.0-gd6.
+#   D4: PUT …/role · D5: /admin/roles*, GET /admin/permissions.
 #
 # QUYẾT ĐỊNH ĐỨNG SAU (giai-doan-6.md):
 #   Đ-6.8   Mọi endpoint ở đây FAIL-CLOSED: không kiểm được thu hồi token (Redis chết) → 503
 #           `urn:socialapp:problem:revocation-unavailable`, không fail-open như phần còn lại.
 #   Đ-6.15  Tầng 2 từ chối → 403 + một dòng audit `access.denied` (tối đa một dòng/phút/người/route).
 #   Mục 6.1 Danh sách + chi tiết tài khoản: policy ANY-OF `user.lock` | `user.unlock` | `role.assign`.
+#   Đ-6.6   Thao tác ghi: một transaction DB → COMMIT → ghi Redis `revoked:user`. Redis hỏng sau COMMIT
+#           → 200 `revocation: deferred`, không 503 (thay đổi đã lưu).
+#   Đ-6.7   Luôn còn ≥ 1 Admin hoạt động — 409 `urn:socialapp:problem:last-admin`.
+#   L-D10   Thao tác không đổi gì (khóa tài khoản đã khóa…) → 200 `revocation: not-needed`, không audit.
 #   Mục 8.2 `email` là PII — chỉ trả ở nhóm này, không bao giờ vào log.
 # ---------------------------------------------------------------------------------------------
 openapi: 3.0.3
 
 info:
   title: SocialApp — Admin API
-  version: 1.0.0-gd6
+  version: 1.1.0-gd6
   description: |
     Màn quản trị của GĐ6 (UC-20): tài khoản, vai trò, quyền. Chỉ người có quyền quản trị gọi được —
     người dùng thường nhận **403** (dòng `TC-A05` của AuthZ matrix).
@@ -60,7 +65,7 @@ servers:
 
 tags:
   - name: admin-users
-    description: Tài khoản — danh sách, chi tiết (UC-20).
+    description: Tài khoản — danh sách, chi tiết, khóa, mở khóa (UC-20).
 
 paths:
 
@@ -172,6 +177,127 @@ paths:
                 emailVerified: true
                 lockedUntil: '2026-09-24T08:15:00Z'
                 createdAt: '2026-09-08T03:10:22Z'
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/RevocationUnavailable'
+
+  /admin/users/{userId}/lock:
+    post:
+      tags: [admin-users]
+      operationId: lockAdminUser
+      summary: Khóa tài khoản
+      description: |
+        Tầng 2: `user.lock`. `status` thành `disabled` (Đ-6.5) và **mọi** refresh family của người đó bị thu hồi trong CÙNG
+        transaction; mốc `revoked:user` ghi **sau** `COMMIT` (Đ-6.6). Người bị khóa: request kế tiếp 401 → refresh 401 → về màn
+        đăng nhập; đăng nhập lại đúng mật khẩu → 403 `account-disabled` (`identity-v1`).
+
+        | Tình huống | Phản hồi |
+        |---|---|
+        | Khóa thành công | 200, `revocation: applied` (hoặc `deferred` nếu Redis hỏng sau khi đã lưu) |
+        | Tài khoản đã bị khóa | 200, `revocation: not-needed` — không đổi gì, không ghi nhật ký |
+        | Tự khóa chính mình | 400 `errors.userId` |
+        | Khóa quản trị viên hoạt động cuối cùng | 409 `last-admin` — không đổi gì |
+
+        `reason` vào nhật ký kiểm toán (`metadata.reason`), không lưu ở tài khoản.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LockRequest'
+            example:
+              reason: Đăng nội dung lừa đảo lặp lại sau hai lần nhắc.
+      responses:
+        '200':
+          description: Tài khoản sau thao tác, kèm trạng thái thu hồi phiên.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUserChange'
+              example:
+                user:
+                  userId: 0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10
+                  email: an.nguyen@example.com
+                  displayName: Nguyễn Văn An
+                  roleCode: USER
+                  roleDisplayName: Người dùng
+                  status: disabled
+                  emailVerified: true
+                  lockedUntil: null
+                  createdAt: '2026-09-08T03:10:22Z'
+                revocation: applied
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+        '409':
+          $ref: '#/components/responses/LastAdmin'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/RevocationUnavailable'
+
+  /admin/users/{userId}/unlock:
+    post:
+      tags: [admin-users]
+      operationId: unlockAdminUser
+      summary: Mở khóa tài khoản
+      description: |
+        Tầng 2: `user.unlock`. Không body. `status` về `active` **và** xóa khóa tạm do đăng nhập sai (`lockedUntil`, bộ đếm) —
+        người đó đăng nhập được ngay, không phải đợi 15 phút (Đ-6.5).
+
+        Không thu hồi gì (tài khoản bị khóa không có phiên sống) nên `revocation` luôn là `not-needed`. Tài khoản đang hoạt động
+        và không bị khóa tạm → 200, không đổi gì, không ghi nhật ký.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: Tài khoản sau thao tác.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUserChange'
+              example:
+                user:
+                  userId: 0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10
+                  email: an.nguyen@example.com
+                  displayName: Nguyễn Văn An
+                  roleCode: USER
+                  roleDisplayName: Người dùng
+                  status: active
+                  emailVerified: true
+                  lockedUntil: null
+                  createdAt: '2026-09-08T03:10:22Z'
+                revocation: not-needed
         '400':
           $ref: '#/components/responses/ValidationProblem'
         '401':
@@ -305,6 +431,22 @@ components:
             instance: /api/v1/admin/users/0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10
             traceId: d2f4a6c8e0b2d4f6a8c0e2b4d6f8a0c2
 
+    LastAdmin:
+      description: |
+        Thao tác sẽ làm hệ thống còn **0** quản trị viên hoạt động (Đ-6.7) — không có gì bị đổi. Kiểm sau khi ghi, trong cùng
+        transaction, dưới khóa tư vấn: hai Admin khóa nhau cùng lúc thì đúng một bên thành công. Phân nhánh theo `type`.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/LastAdminProblem'
+          example:
+            type: urn:socialapp:problem:last-admin
+            title: Xung đột dữ liệu
+            status: 409
+            detail: Hệ thống phải còn ít nhất một quản trị viên đang hoạt động.
+            instance: /api/v1/admin/users/0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10/lock
+            traceId: a2c4e6b8d0f2a4c6e8b0d2f4a6c8e0b2
+
     TooManyRequests:
       description: Vượt hạn mức 100 req/phút/user (ISS-04). Không có `Retry-After`.
       content:
@@ -400,6 +542,17 @@ components:
               enum: ['urn:socialapp:problem:revocation-unavailable']
           required: [type]
 
+    LastAdminProblem:
+      description: 409 "phải còn ít nhất một quản trị viên hoạt động" (Đ-6.7). Cùng hình dạng `ProblemDetails`, `type` cố định.
+      allOf:
+        - $ref: '#/components/schemas/ProblemDetails'
+        - type: object
+          properties:
+            type:
+              type: string
+              enum: ['urn:socialapp:problem:last-admin']
+          required: [type]
+
     RoleCode:
       type: string
       pattern: '^[A-Z][A-Z0-9_]{2,29}$'
@@ -465,3 +618,32 @@ components:
           nullable: true
           description: Opaque. `null` khi hết dữ liệu — không phải chuỗi rỗng.
       required: [items, nextCursor]
+
+    LockRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: |
+            Lý do khóa, 1–500 ký tự sau khi cắt khoảng trắng hai đầu. Vào `metadata.reason` của nhật ký kiểm toán — không lưu ở
+            tài khoản, không vào log. Thiếu, rỗng hay quá dài → 400 `errors.reason`.
+      required: [reason]
+
+    AdminUserChange:
+      type: object
+      properties:
+        user:
+          $ref: '#/components/schemas/AdminUser'
+        revocation:
+          type: string
+          enum: [applied, deferred, not-needed]
+          description: |
+            Phiên đang mở của người bị đổi (Đ-6.6):
+            - `applied` — đã thu hồi; request kế tiếp của họ 401.
+            - `deferred` — thay đổi **đã lưu** nhưng chưa thu hồi được phiên: phiên đang mở có thể giữ quyền cũ tối đa 15 phút.
+              UI hiện đúng câu đó, không báo lỗi.
+            - `not-needed` — không có gì để thu hồi (mở khóa, hoặc thao tác không đổi gì).
+      required: [user, revocation]

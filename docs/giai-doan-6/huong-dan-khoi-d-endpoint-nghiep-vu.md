@@ -1423,9 +1423,72 @@ Redis — hai lý do đỏ khác nhau, đều không phải 403/200.
 thêm trường); `AuthZApiFactory` MEDIUM (6 nút trong assembly test; bốn lớp dùng làm fixture, `UseRedis` mặc định giữ cổng 1 nên ba
 lớp không gọi nó không đổi hành vi).
 
+### D3 — 2026-09-24
+
+Làm đúng Mục 5; L-D7, L-D8, L-D9, L-D10 áp như chốt. `AdminInvariant` (`Infrastructure/Administration/`, namespace khóa `0x4144`
+"AD") · `IAccountAdministrationStore` + `AccountAdministrationStore` (một transaction mỗi thao tác, `IAuditTrail` inject vào store) ·
+`UserRevoker` (3 lần, chờ 0/250/500 ms qua `TimeProvider`) · `AccountAdministrationService` · `AdminErrors` (`SelfLock`, `LastAdmin`,
+`type …:last-admin`) · `LockRequest` + validator · `BusinessMetrics.RevocationFailed` · hai action trên `AdminUsersController` ·
+`admin-v1.yaml` `1.1.0-gd6`. `giai-doan-6.md` sửa cùng lượt: Đ-6.6 (`not-needed`), Đ-6.7 (khóa tư vấn luôn lấy), Đ-6.15 (metadata
+tài khoản), Mục 7.3, 7.4, B.6 D3 — mỗi chỗ ghi "sửa 2026-09-24". Comment `AuditActions` (metadata tài khoản) sửa theo L-D9.
+
+**Lệch so với chính tài liệu này:**
+- **Route `{userId}` không ràng buộc `:guid`** (Mục 5 bước 6 ghi `{userId:guid}`): cùng nếp D2 — id sai dạng thành 400 `errors.userId`
+  như hợp đồng, `:guid` thì thành 404 do không khớp route.
+- **`UserNotFound` dùng lại `IdentityErrors.UserNotFound` của D2**, không tạo bản thứ hai trong `AdminErrors`. `SelfLock` là
+  `Error.Validation("userId", …)` — cùng hình dạng `SelfFollow`.
+- **Khóa chỉ đổi tài khoản `active`**: `disabled` (và `locked`/`deleted`, không ai ghi) → `NoChange`. **Mở khóa là thay đổi khi**
+  `disabled` **hoặc** `active` mà còn khóa tạm FR-003 (`locked_until > now`) — thêm ca `Mo_khoa_tai_khoan_chi_bi_khoa_tam_FR003_…`.
+  Mốc FR-003 đã qua coi như không khóa, khớp `lockedUntil` của D2.
+- **`ADM-04` gọi bằng vai trò tự tạo chỉ có `user.lock`**, không bằng một Admin: "Admin kia đã `disabled`" thì Admin đó không gọi
+  được API. Ca trả Admin của lớp về `active` trong `finally`.
+- **`ADM-C2` chấp nhận bên thua 409 HOẶC 401**, không chỉ 409: request của bên thua tới tầng 1 sau khi bên thắng đã ghi
+  `revoked:user` thì 401 — đúng thiết kế, vẫn giữ bất biến. Thứ bị cấm là hai 200. Ca đòi ≥ 10/20 lượt là 409 để chắc nó chạm
+  nhánh bất biến. Chạy 6 lần × 20 lượt = 120 lượt xanh.
+- **Đăng nhập thật qua `ModulesApiFactory`**, không `IdentityApiFactory`: factory đó chỉ migrate Identity, còn audit ghi vào
+  `moderation.audit_logs`. `IdentitySql.TaoTaiKhoanAsync` thêm tham số `passwordHash` (hash BCrypt thật từ `IPasswordHasher`).
+- **Seed không có tài khoản Admin nào** — database test không có Admin thì bất biến chặn MỌI lần khóa (409). Lớp test dựng Admin
+  trước tiên; comment của `TaoAdminThuHaiAsync` ghi lại.
+- **Một lỗ đua đã cân nhắc, để lưới D1 lo:** lượt refresh đang xoay (khóa family, chưa `COMMIT`) chèn token kế nhiệm sau khi câu
+  `UPDATE refresh_tokens` của lệnh khóa chụp snapshot → token đó sống sót trong DB. Lần refresh kế tiếp của nó chạm lưới trạng thái
+  của `RotateAsync` (Đ-6.5) → 401; access token phát kèm có `iat` trước mốc Redis → 401. Không lấy khóa family ở lệnh khóa (nhiều
+  family, thứ tự khóa phức tạp) — ghi trong comment của store.
+
+**Tự rà B.10 #1** (DB trước, Redis sau): `ITokenRevocationStore.RevokeUserAsync` chỉ gọi ở `UserRevoker.RevokeAsync` (mới) và
+`SessionService.RevokeAccessTokensAsync` (GĐ1, sau khi store đã thu hồi family và `COMMIT`). `UserRevoker.RevokeAsync` chỉ gọi ở
+`AccountAdministrationService.LockAsync`, **sau** `store.LockAsync` trả về (đã `COMMIT`); nhánh `NotFound`/`LastAdmin` return trước,
+không chạm Redis; nhánh `Changed` luôn đi qua thu hồi; `UnlockAsync` không thu hồi. Unit `Khoa_thanh_cong_ghi_DB_truoc_Redis_sau…`
+khẳng định thứ tự gọi. `grep '"ADMIN"' src/backend` vẫn chỉ ra `SystemRoles.cs` (+ comment).
+
+**Test:** Unit 353 → 369 (+9 `AccountAdministrationServiceTests`, +7 `LockRequestValidatorTests`), Integration 582 → 598 (+14
+`AccountLockTests`: `ADM-01`, `-01b`, `-02`, `-03`, `-04`, `-06`, mở khóa FR-003, 5 ca `reason`, 404/400, quyền riêng từng action; +1
+`ADM-C2`; +1 matrix `TC-A05-mod-lock`; `MetricsEndpointTests` thêm một chuỗi vào ca có sẵn), Architecture 24 → 24. Vitest 544 → 544.
+Còn đỏ nền R2 trên máy dev. FE: `pnpm lint`, `typecheck`, `test`, `build` xanh.
+
+**Thử cho đỏ — 8/8 đột biến bị bắt, 1 đột biến tương đương**, build hợp lệ ở mọi lượt (`0 Error(s)`), file khôi phục nguyên byte (`cmp`):
+
+| Đột biến | Ca đỏ thực tế |
+|---|---|
+| M1 — bỏ `AdminInvariant.AcquireAsync` ở `LockAsync` | `ADM_C2_…` |
+| M2 — đếm Admin TRƯỚC `UPDATE` (thay vì sau) | `ADM_C2_…`; `ADM_04_…` |
+| M3 — khóa không thu hồi `refresh_tokens` | `ADM_01_…` |
+| M4 — mở khóa không xóa `locked_until`/bộ đếm | `ADM_02_…`; `Mo_khoa_tai_khoan_chi_bi_khoa_tam_FR003_…` |
+| M5 — thu hồi Redis TRƯỚC store (đảo B.10 #1) | `ADM_04_…` (có key `revoked:user` sau 409) |
+| M6 — bỏ `[RequirePermission(user.lock)]` | `TC-A05-mod-lock`; `Moi_action_mot_ma_quyen_rieng` |
+| M7 — bỏ nhánh `NoChange` của khóa | `ADM_01b_…` |
+| M8 — `UserRevoker` chỉ thử một lần | `ADM_06_…` (3 lần thử) |
+| M9 — bỏ `_ = RevocationFailuresCounter` trong `Initialize()` | *không ca nào đỏ — tương đương:* counter không nhãn đã đăng ký khi khởi tạo static của lớp; dòng đó giữ cho đồng dạng với hai counter không nhãn có sẵn |
+
+Lượt viết sai, không tính: M2 bản đầu chỉ THÊM một lần đếm trước mà giữ lần đếm sau — không phải "đếm trước thay vì sau", xanh là đúng.
+
+**detect-changes:** low, 0 luồng (22 file, 37 symbol, đã `git add` để tính file mới). Impact trước khi sửa: `BusinessMetrics` MEDIUM
+(16 nút, chỉ thêm counter), `AuditActions` MEDIUM (41 nút, chỉ sửa comment), `AdminUsersController`, `IdentitySql`,
+`AddIdentityModule` UNKNOWN — text search: controller chỉ nối qua routing MVC; `IdentitySql` thêm tham số cuối có mặc định (ba lớp
+gọi không đổi); `AddIdentityModule` 16 lời gọi, chữ ký không đổi.
+
 ### Các đầu việc còn lại
 
-D3 → D13. Mỗi đầu việc khi xong điền theo khuôn của hướng dẫn khối A+C:
+D4 → D13. Mỗi đầu việc khi xong điền theo khuôn của hướng dẫn khối A+C:
 
 - chỗ nào đi theo / không theo đề xuất Mục 0.6, và vì sao;
 - lệch so với chính tài liệu này;

@@ -26,7 +26,8 @@ public static class AuditActions
     /// <summary>Khôi phục đối tượng đã ẩn.</summary>
     public const string ContentRestore = "content.restore";
 
-    // --- Tài khoản (target_type: user) — metadata: fromRole, toRole, revocation ---
+    // --- Tài khoản (target_type: user) — metadata: user.lock → reason; role.assign → fromRole, toRole. KHÔNG `revocation`:
+    //     audit ghi trong transaction, thu hồi chạy sau COMMIT nên lúc ghi chưa biết kết quả (L-D9, sửa 2026-09-24 khi thi công D3).
 
     public const string UserLock = "user.lock";
 

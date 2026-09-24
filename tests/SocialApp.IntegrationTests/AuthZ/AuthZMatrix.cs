@@ -176,6 +176,12 @@ public static class AuthZMatrix
         // Đối chứng bắt buộc: TC-A05 xanh cả khi handler "chặn mọi người", hay khi policy any-of đòi đủ cả ba mã.
         new("TC-A05b", "Đối chứng: Admin đọc danh sách tài khoản", "GĐ6",
             Caller.Admin, HttpMethod.Get, "/api/v1/admin/users", HttpStatusCode.OK),
+
+        // D3: MODERATOR có report.resolve, post.hide — không có user.lock. Id đích không cần tồn tại: tầng 2 chặn trước mọi I/O.
+        new("TC-A05-mod-lock", "Moderator khóa tài khoản", "GĐ6",
+            Caller.Moderator, HttpMethod.Post, "/api/v1/admin/users/{id}/lock", HttpStatusCode.Forbidden,
+            ArrangePath: _ => Task.FromResult($"/api/v1/admin/users/{Guid.NewGuid()}/lock"),
+            Body: new { reason = "Thử khóa khi không có user.lock." }),
     ];
 
     /// <summary>

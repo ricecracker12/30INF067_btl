@@ -327,7 +327,9 @@ Không test tự động nào bắt được thứ tự này → nằm trong dan
 lỗi (thu hồi mất âm thầm — `ITokenRevocationStore.RevokeUserAsync` cố ý ném để người gọi thấy). Chốt:
 
 - Thử lại 3 lần trong ~1 giây; vẫn hỏng → log **Error** + metric `socialapp_revocation_failures_total`.
-- Phản hồi 200 mang `revocation: "applied" | "deferred"`. `deferred` → UI Admin hiện: *"Đã lưu. Phiên đang mở của người
+- Phản hồi 200 mang `revocation: "applied" | "deferred"` (và `"not-needed"` khi thao tác không đổi gì hoặc là mở khóa — *sửa
+  2026-09-24 khi thi công D3*, L-D10 của `huong-dan-khoi-d-endpoint-nghiep-vu.md`: khóa tài khoản đã khóa → 200, không audit,
+  không đụng Redis). `deferred` → UI Admin hiện: *"Đã lưu. Phiên đang mở của người
   này có thể giữ quyền cũ tối đa 15 phút."* — đúng cửa sổ phơi nhiễm mà fail-open của GĐ1 đã chấp nhận.
 - Với **khóa**, refresh family đã bị thu hồi **trong DB** nên cửa sổ đó chỉ còn là access token đang sống, và lưới refresh
   của Đ-6.5 chặn việc gia hạn.
@@ -351,8 +353,9 @@ COMMIT
 ```
 
 - **Đếm sau khi ghi** chứ không trước: không phải tự suy "thao tác này có làm giảm số Admin không" — cho DB trả lời.
-- Khóa tư vấn chỉ lấy khi thao tác **có thể** chạm tập Admin (người bị đổi đang là ADMIN, hoặc vai trò đích là ADMIN) — gán
-  vai trò giữa USER và MODERATOR không xếp hàng sau ai.
+- ~~Khóa tư vấn chỉ lấy khi thao tác **có thể** chạm tập Admin~~ — *sửa 2026-09-24 khi thi công D3* (L-D8): **luôn** lấy khóa
+  tư vấn cho mọi thao tác ghi của `admin-v1` lên `users` (khóa, mở khóa, gán vai trò), TRƯỚC mọi khóa dòng. Quyết định "có lấy
+  không" dựa trên lần đọc vai trò trước khi khóa dòng là một lỗ đua; thao tác quản trị tần suất thấp nên xếp hàng không ai thấy.
 - Một hàm duy nhất `AdminInvariant.EnsureRemainsAsync(db, ct)` ở `Identity.Infrastructure` — GĐ8 gọi lại cho đường tự xóa.
 - **Không tự khóa chính mình:** `lock` với `target == actor` → 400 *"Không thể tự khóa tài khoản của mình."* (khóa xong thì
   không còn phiên để mở lại). Tự hạ vai trò thì được, miễn còn Admin khác — bất biến lo phần còn lại.
@@ -541,7 +544,7 @@ sang staging xóa sạch nhật ký.
 | Nhóm | `action` | `target_type` | `metadata` (không bao giờ có nội dung bài/bình luận/tin nhắn) |
 |---|---|---|---|
 | Kiểm duyệt | `report.hide` · `report.dismiss` · `report.resolve` · `content.restore` | `post` · `comment` · `user` | `reportIds[]`, `reasonCode`, `note` (≤ 500, của Moderator) |
-| Tài khoản | `user.lock` · `user.unlock` · `role.assign` | `user` | `fromRole`, `toRole`, `revocation: applied\|deferred` |
+| Tài khoản | `user.lock` · `user.unlock` · `role.assign` | `user` | `user.lock`: `reason` · `role.assign`: `fromRole`, `toRole` — **không** `revocation` (*sửa 2026-09-24 khi thi công D3*, L-D9: audit ghi trong transaction, thu hồi chạy sau `COMMIT` nên lúc ghi chưa biết kết quả; `deferred` để lại dấu bằng log Error + metric) |
 | Vai trò | `role.create` · `role.rename` · `role.permissions` · `role.delete` | `role` | `code`, `added[]`, `removed[]`, `confirmed` |
 | Truy cập | `access.denied` | `endpoint` | `method`, `routeTemplate` (không query string, không id trên đường) |
 
@@ -993,7 +996,7 @@ AC-02 (bỏ qua) cùng đường, `decision: dismiss`, không bước 6–7. AC-
 ```
 10:00:00  M (MODERATOR) đăng nhập → access (role=MODERATOR, iat 10:00:00) + refresh family F1 — trong Redis phiên BFF
 10:07:30  Admin: PUT /admin/users/M/role { roleCode: USER }
-            BEGIN · advisory lock (M đang không phải ADMIN, vai trò đích không phải ADMIN → KHÔNG lấy khóa bất biến)
+            BEGIN · advisory lock (luôn lấy — L-D8, sửa 2026-09-24 khi thi công D3; bản đầu: "M không phải ADMIN → không lấy")
                   · UPDATE users SET role_id = USER · IAuditTrail(tx, role.assign {fromRole, toRole}) · COMMIT
             SET revoked:user:M = 10:07:30 EX 930                              ← SAU COMMIT (Đ-6.6)
             ← 200 { …, revocation: "applied" }
@@ -1012,7 +1015,7 @@ liên kết "Kiểm duyệt" hiện ra, không tải lại trang. **E2E-06 (Mụ
 
 ```
 POST /admin/users/X/lock { reason }
-  BEGIN · advisory lock nếu X là ADMIN · UPDATE users SET status='disabled'
+  BEGIN · advisory lock (luôn lấy — L-D8, sửa 2026-09-24) · SELECT … FOR UPDATE · UPDATE users SET status='disabled'
         · UPDATE refresh_tokens SET revoked_at = now WHERE user_id = X AND revoked_at IS NULL     -- mọi family, mọi thiết bị
         · kiểm bất biến Admin · IAuditTrail(tx, user.lock) · COMMIT
   SET revoked:user:X · (kết nối hub của X chết ở lời gọi kế tiếp hoặc sau ≤ 15 phút — filter + tuổi thọ của GĐ5 Đ-5.10)
@@ -1853,6 +1856,10 @@ Keyset `(created_at, user_id)`; `q` tiền tố email (citext `LIKE q || '%'` c�
 **Làm như nào:** viết `ADM-04`, `ADM-C1/C2` **trước** (đỏ). Một transaction Identity: khóa tư vấn (khi chạm tập Admin) → `UPDATE
 users` → `UPDATE refresh_tokens` → bất biến → `IAuditTrail.AppendAsync(tx)` → `COMMIT` → `RevokeUserAsync` (thử lại 3 lần) →
 `revocation`.
+
+*Sửa 2026-09-24 khi thi công D3* (L-D7, L-D8, L-D9, L-D10 của `huong-dan-khoi-d-endpoint-nghiep-vu.md`): "đỏ trước" làm ở local, ghi
+trong thân commit — không commit đỏ; khóa tư vấn **luôn** lấy; audit không có `revocation`; khóa lại tài khoản đã khóa → 200
+`not-needed`. `ADM-C1` (hạ vai trò đồng thời) thuộc D4 — D3 chỉ có `ADM-C2`.
 
 **Xong khi:** `ADM-01..04`, `ADM-06`, `ADM-C1/C2` (20 lần), `TC-A05-mod-lock` xanh.
 

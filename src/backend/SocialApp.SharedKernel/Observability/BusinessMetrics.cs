@@ -46,18 +46,24 @@ public static class BusinessMetrics
         "Event bị rơi vì hàng đợi event bus đầy. Lớn hơn 0 = handler chậm chặn hàng đợi, thông báo đã mất (R6-10).",
         new CounterConfiguration { LabelNames = ["event"] });
 
+    // GĐ6 D3 (Đ-6.6): không nhãn — số lần, không phải của ai. Id tài khoản nằm trong log Error cùng lúc, không ở đây.
+    private static readonly Counter RevocationFailuresCounter = Metrics.CreateCounter(
+        "socialapp_revocation_failures_total",
+        "Lần ghi mốc thu hồi revoked:user hỏng sau 3 lần thử, SAU khi DB đã đổi (khóa tài khoản, đổi vai trò). Lớn hơn 0 = có phiên giữ quyền cũ tới 15 phút (Đ-6.6).");
+
     /// <summary>
     /// Host gọi MỘT lần lúc khởi động. Không có lời gọi này thì <c>/metrics</c> <b>trống</b> các chỉ số trên cho tới sự
     /// kiện đầu tiên: field static của lớp chỉ khởi tạo khi có ai chạm vào lớp, và nhãn chỉ thành chuỗi thời gian khi có
     /// giá trị đầu tiên (đã gặp trên staging 2026-09-23 — deploy xong, <c>grep socialapp_</c> ra rỗng). Hậu quả không
     /// chỉ là "chưa thấy": <c>increase()</c> mất luôn lần tăng đầu tiên sau mỗi lần deploy, và cảnh báo "đứng yên ở 0"
-    /// không kêu được trên một chuỗi không tồn tại. Nên ở đây tạo sẵn cả bảy chuỗi với giá trị 0 — và hai counter event bus
+    /// không kêu được trên một chuỗi không tồn tại. Nên ở đây tạo sẵn cả tám chuỗi với giá trị 0 — và hai counter event bus
     /// cho mọi kiểu event của SharedKernel (tìm bằng phản chiếu: thêm record event mới là tự có chuỗi, không sửa ở đây).
     /// </summary>
     public static void Initialize()
     {
         _ = LoginFailedCounter;
         _ = PostsCreatedCounter;
+        _ = RevocationFailuresCounter;
         foreach (var purpose in (string[])["post", "avatar"])
             PresignIssuedCounter.WithLabels(purpose);
         foreach (var result in (string[])["ran", "lock", "failed"])
@@ -81,6 +87,11 @@ public static class BusinessMetrics
 
     /// <summary>Một lượt worker dọn rác kết thúc với <paramref name="result"/> (<c>ran</c> | <c>lock</c> | <c>failed</c>).</summary>
     public static void MediaCleanupRun(string result) => MediaCleanupRunsCounter.WithLabels(result).Inc();
+
+    /// <summary>
+    /// Ghi <c>revoked:user</c> hỏng hẳn sau 3 lần thử (Đ-6.6) — người gọi đã log Error và trả <c>revocation: deferred</c>.
+    /// </summary>
+    public static void RevocationFailed() => RevocationFailuresCounter.Inc();
 
     /// <summary>Event bus vừa nhận <paramref name="eventType"/> vào hàng đợi — gọi ở <c>Publish</c>, trước khi biết có rơi hay không.</summary>
     public static void EventPublished(Type eventType) => EventsPublishedCounter.WithLabels(eventType.Name).Inc();

@@ -51,6 +51,61 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/users/{userId}/lock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Khóa tài khoản
+         * @description Tầng 2: `user.lock`. `status` thành `disabled` (Đ-6.5) và **mọi** refresh family của người đó bị thu hồi trong CÙNG
+         *     transaction; mốc `revoked:user` ghi **sau** `COMMIT` (Đ-6.6). Người bị khóa: request kế tiếp 401 → refresh 401 → về màn
+         *     đăng nhập; đăng nhập lại đúng mật khẩu → 403 `account-disabled` (`identity-v1`).
+         *
+         *     | Tình huống | Phản hồi |
+         *     |---|---|
+         *     | Khóa thành công | 200, `revocation: applied` (hoặc `deferred` nếu Redis hỏng sau khi đã lưu) |
+         *     | Tài khoản đã bị khóa | 200, `revocation: not-needed` — không đổi gì, không ghi nhật ký |
+         *     | Tự khóa chính mình | 400 `errors.userId` |
+         *     | Khóa quản trị viên hoạt động cuối cùng | 409 `last-admin` — không đổi gì |
+         *
+         *     `reason` vào nhật ký kiểm toán (`metadata.reason`), không lưu ở tài khoản.
+         */
+        post: operations["lockAdminUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/users/{userId}/unlock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mở khóa tài khoản
+         * @description Tầng 2: `user.unlock`. Không body. `status` về `active` **và** xóa khóa tạm do đăng nhập sai (`lockedUntil`, bộ đếm) —
+         *     người đó đăng nhập được ngay, không phải đợi 15 phút (Đ-6.5).
+         *
+         *     Không thu hồi gì (tài khoản bị khóa không có phiên sống) nên `revocation` luôn là `not-needed`. Tài khoản đang hoạt động
+         *     và không bị khóa tạm → 200, không đổi gì, không ghi nhật ký.
+         */
+        post: operations["unlockAdminUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -85,6 +140,11 @@ export interface components {
         RevocationUnavailableProblem: components["schemas"]["ProblemDetails"] & {
             /** @enum {string} */
             type: "urn:socialapp:problem:revocation-unavailable";
+        };
+        /** @description 409 "phải còn ít nhất một quản trị viên hoạt động" (Đ-6.7). Cùng hình dạng `ProblemDetails`, `type` cố định. */
+        LastAdminProblem: components["schemas"]["ProblemDetails"] & {
+            /** @enum {string} */
+            type: "urn:socialapp:problem:last-admin";
         };
         /**
          * @description `roles.code` — bất biến, cùng định nghĩa `RoleCode` của `identity-v1`. Ba vai trò hệ thống luôn có: `USER`,
@@ -131,6 +191,25 @@ export interface components {
             items: components["schemas"]["AdminUser"][];
             /** @description Opaque. `null` khi hết dữ liệu — không phải chuỗi rỗng. */
             nextCursor: string | null;
+        };
+        LockRequest: {
+            /**
+             * @description Lý do khóa, 1–500 ký tự sau khi cắt khoảng trắng hai đầu. Vào `metadata.reason` của nhật ký kiểm toán — không lưu ở
+             *     tài khoản, không vào log. Thiếu, rỗng hay quá dài → 400 `errors.reason`.
+             */
+            reason: string;
+        };
+        AdminUserChange: {
+            user: components["schemas"]["AdminUser"];
+            /**
+             * @description Phiên đang mở của người bị đổi (Đ-6.6):
+             *     - `applied` — đã thu hồi; request kế tiếp của họ 401.
+             *     - `deferred` — thay đổi **đã lưu** nhưng chưa thu hồi được phiên: phiên đang mở có thể giữ quyền cũ tối đa 15 phút.
+             *       UI hiện đúng câu đó, không báo lỗi.
+             *     - `not-needed` — không có gì để thu hồi (mở khóa, hoặc thao tác không đổi gì).
+             * @enum {string}
+             */
+            revocation: "applied" | "deferred" | "not-needed";
         };
     };
     responses: {
@@ -219,6 +298,28 @@ export interface components {
                  *     }
                  */
                 "application/problem+json": components["schemas"]["ProblemDetails"];
+            };
+        };
+        /**
+         * @description Thao tác sẽ làm hệ thống còn **0** quản trị viên hoạt động (Đ-6.7) — không có gì bị đổi. Kiểm sau khi ghi, trong cùng
+         *     transaction, dưới khóa tư vấn: hai Admin khóa nhau cùng lúc thì đúng một bên thành công. Phân nhánh theo `type`.
+         */
+        LastAdmin: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "type": "urn:socialapp:problem:last-admin",
+                 *       "title": "Xung đột dữ liệu",
+                 *       "status": 409,
+                 *       "detail": "Hệ thống phải còn ít nhất một quản trị viên đang hoạt động.",
+                 *       "instance": "/api/v1/admin/users/0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10/lock",
+                 *       "traceId": "a2c4e6b8d0f2a4c6e8b0d2f4a6c8e0b2"
+                 *     }
+                 */
+                "application/problem+json": components["schemas"]["LastAdminProblem"];
             };
         };
         /** @description Vượt hạn mức 100 req/phút/user (ISS-04). Không có `Retry-After`. */
@@ -398,6 +499,110 @@ export interface operations {
                      *     }
                      */
                     "application/json": components["schemas"]["AdminUser"];
+                };
+            };
+            400: components["responses"]["ValidationProblem"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["UserNotFound"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["RevocationUnavailable"];
+        };
+    };
+    lockAdminUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID của tài khoản đích. Sai dạng → 400 `errors.userId`. */
+                userId: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "reason": "Đăng nội dung lừa đảo lặp lại sau hai lần nhắc."
+                 *     }
+                 */
+                "application/json": components["schemas"]["LockRequest"];
+            };
+        };
+        responses: {
+            /** @description Tài khoản sau thao tác, kèm trạng thái thu hồi phiên. */
+            200: {
+                headers: {
+                    "X-Correlation-ID": components["headers"]["XCorrelationId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "user": {
+                     *         "userId": "0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10",
+                     *         "email": "an.nguyen@example.com",
+                     *         "displayName": "Nguyễn Văn An",
+                     *         "roleCode": "USER",
+                     *         "roleDisplayName": "Người dùng",
+                     *         "status": "disabled",
+                     *         "emailVerified": true,
+                     *         "lockedUntil": null,
+                     *         "createdAt": "2026-09-08T03:10:22Z"
+                     *       },
+                     *       "revocation": "applied"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["AdminUserChange"];
+                };
+            };
+            400: components["responses"]["ValidationProblem"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["UserNotFound"];
+            409: components["responses"]["LastAdmin"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["RevocationUnavailable"];
+        };
+    };
+    unlockAdminUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID của tài khoản đích. Sai dạng → 400 `errors.userId`. */
+                userId: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Tài khoản sau thao tác. */
+            200: {
+                headers: {
+                    "X-Correlation-ID": components["headers"]["XCorrelationId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "user": {
+                     *         "userId": "0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10",
+                     *         "email": "an.nguyen@example.com",
+                     *         "displayName": "Nguyễn Văn An",
+                     *         "roleCode": "USER",
+                     *         "roleDisplayName": "Người dùng",
+                     *         "status": "active",
+                     *         "emailVerified": true,
+                     *         "lockedUntil": null,
+                     *         "createdAt": "2026-09-08T03:10:22Z"
+                     *       },
+                     *       "revocation": "not-needed"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["AdminUserChange"];
                 };
             };
             400: components["responses"]["ValidationProblem"];

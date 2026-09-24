@@ -45,6 +45,7 @@ public sealed class MetricsEndpointTests(ApiFactory factory)
             "socialapp_media_cleanup_runs_total{result=\"ran\"} ",
             "socialapp_media_cleanup_runs_total{result=\"lock\"} ",
             "socialapp_media_cleanup_runs_total{result=\"failed\"} ",
+            "socialapp_revocation_failures_total ",   // GĐ6 D3 (Đ-6.6)
         ];
         Assert.All(chuoi, c => Assert.Contains(dong, l => l.StartsWith(c, StringComparison.Ordinal)));
     }

@@ -72,6 +72,11 @@ public static class IdentityModuleExtensions
         // GĐ6 D2: màn quản trị tài khoản (nhóm admin-v1). AdminUserReadService cần IUserDirectory — Profile đăng ký nó ở host.
         services.AddScoped<IAdminUserQueries, AdminUserQueries>();
         services.AddScoped<AdminUserReadService>();
+
+        // GĐ6 D3: khóa / mở khóa. Store cần IAuditTrail — Moderation đăng ký nó ở host (Đ-6.3).
+        services.AddScoped<IAccountAdministrationStore, AccountAdministrationStore>();
+        services.AddScoped<UserRevoker>();
+        services.AddScoped<AccountAdministrationService>();
         return services;
     }
 

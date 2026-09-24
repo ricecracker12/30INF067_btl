@@ -7,8 +7,8 @@ namespace SocialApp.IntegrationTests.Harness;
 /// lại. SQL chứ không qua API: đăng ký thật tốn một lần BCrypt + một mail mỗi tài khoản, và nhóm <c>auth</c> giới hạn 10 req/phút
 /// theo IP — 45 tài khoản của <c>ADM-07</c> là 5 phút chờ. Vai trò tự tạo đi SQL vì API vai trò là D5.
 ///
-/// <c>password_hash</c> là chuỗi giả: tài khoản dựng ở đây không đăng nhập được, test ký token bằng <c>TestJwt</c>. Test cần đăng
-/// nhập thật thì đi <c>AuthTestClient</c> của GĐ1.
+/// <c>password_hash</c> mặc định là chuỗi giả: tài khoản không đăng nhập được, test ký token bằng <c>TestJwt</c>. Test cần đăng nhập
+/// THẬT (D3 <c>ADM-01</c>: refresh family, login bị khóa) truyền hash BCrypt thật — băm bằng <c>IPasswordHasher</c> của app.
 ///
 /// Mỗi lời gọi mở một kết nối tới CÙNG chuỗi kết nối của app → chung pool. Lớp test dùng helper này nên <c>ClearPool</c> ở
 /// <c>DisposeAsync</c> (cạm bẫy 7 Mục 3 của hướng dẫn khối A+C).
@@ -26,20 +26,24 @@ public static class IdentitySql
         string status = "active",
         DateTimeOffset? createdAt = null,
         DateTimeOffset? lockedUntil = null,
-        bool emailVerified = true)
+        bool emailVerified = true,
+        string passwordHash = "khong-phai-hash")
     {
         var userId = Guid.NewGuid();
         await ExecAsync(connectionString, """
             INSERT INTO identity.users (user_id, email, password_hash, role_id, status, email_verified_at, locked_until, created_at)
-            VALUES ($1, $2, 'khong-phai-hash', (SELECT role_id FROM identity.roles WHERE code = $3), $4,
+            VALUES ($1, $2, $8, (SELECT role_id FROM identity.roles WHERE code = $3), $4,
                     CASE WHEN $5 THEN now() END, $6, COALESCE($7, now()))
             """,
             userId, email, roleCode, status, emailVerified,
-            (object?)lockedUntil ?? DBNull.Value, (object?)createdAt ?? DBNull.Value);
+            (object?)lockedUntil ?? DBNull.Value, (object?)createdAt ?? DBNull.Value, passwordHash);
         return userId;
     }
 
-    /// <summary>Admin thứ hai (ngoài Admin seed) — cho test bất biến ≥ 1 Admin của D3/D4.</summary>
+    /// <summary>
+    /// Một Admin hoạt động. Seed KHÔNG tạo tài khoản Admin nào (chỉ vai trò) — database test không có Admin thì bất biến Đ-6.7 chặn
+    /// MỌI lần khóa/hạ quyền bằng 409, nên lớp test của D3/D4 dựng Admin trước tiên. Test bất biến dựng đúng số Admin nó cần.
+    /// </summary>
     public static Task<Guid> TaoAdminThuHaiAsync(string connectionString) =>
         TaoTaiKhoanAsync(connectionString, $"admin-{Guid.NewGuid():N}@test.local", "ADMIN");
 
