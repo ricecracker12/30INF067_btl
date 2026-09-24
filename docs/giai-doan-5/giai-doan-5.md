@@ -1803,3 +1803,19 @@ phía".
   `login-storage` "đăng bài có ảnh", `post-create` "2 ảnh thật"). Nguyên nhân MÔI TRƯỜNG: máy này không có khóa R2 cho dev
   (không user-secrets, Đ-2.14) → API dùng `UnconfiguredObjectStorage` (log: "R2__Endpoint, R2__Bucket… trong deploy/.env"). Không liên
   quan GĐ5; chạy lại ba ca này trên máy có khóa R2 dev trước khi mở PR.
+
+## Điểm dừng 2026-09-24 — việc chờ người có quyền server
+
+Mọi thứ làm được trên máy dev đã xong và commit trên nhánh `gd5` (CHƯA push). Còn lại cần quyền VM / merge / tài khoản thật:
+
+| # | Việc | Ai | Mở khóa |
+|---|---|---|---|
+| 1 | Áp khối `/hubs/` của `deploy/apache-socialapp.conf.example` lên VM (`apache2 -v` ≥ 2.4.47, `apachectl configtest`, `systemctl reload apache2`); Cloudflare Network → WebSockets = On | chủ dự án | F1 (C0 dời xuống đây) |
+| 2 | Push `gd5`, mở PR vào `develop` (agent mở khi được bảo), người trong đội merge → CD deploy. `.env` staging KHÔNG bắt buộc thêm khóa (`Realtime__Backplane__Enabled` thiếu = false); migration mới `InitialMessaging` chạy ở service `migrate` | chủ dự án | F1 |
+| 3 | Chạy lại 3 spec upload R2 trên máy có khóa R2 dev (hoặc bỏ qua, ghi vào PR) | chủ dự án | PR |
+| 4 | Hai tài khoản staging ĐÃ xác minh, có hồ sơ, là bạn của nhau → `E2E_A_EMAIL/PASSWORD`, `E2E_B_EMAIL/PASSWORD` (biến môi trường, không dán vào chat) | chủ dự án | F2, F3 |
+
+Sau (1)–(4): F1 kiểm staging (1 vé/kết nối, `access.log` không có `access_token=`, để yên 10 phút 0 lần nối lại), F2 chạy
+`e2e/chat.spec.ts` trỏ staging + ảnh bằng chứng vào `bang-chung/`, F3 `chat-latency.spec.ts` N = 200 → `bao-cao-p95-chat.md`,
+F4 tick Mục 11–12, F5 đóng băng hợp đồng + bàn giao GĐ6 (vé/scheme/filter/presence/`MessageSent` đã sẵn — GĐ6 C6 mở khóa ngay khi
+`gd5` vào `develop`).
