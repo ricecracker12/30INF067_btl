@@ -853,10 +853,11 @@ Theo Mục 3.5 của PTTK, áp cho **từng** UC (UC-06 bình luận, UC-07 cả
   trên CI, bảng đột biến `B3` *(local: matrix 40/40; B3 12 đột biến đều bị bắt — `0403ee1`. "Xanh trên CI" tick lại khi PR chạy)*
 - [x] Lỗi theo RFC 7807, `errors` đúng key hợp đồng (`body`, `parentId`, `type`, `cursor`), 404 không phân biệt "không có"
   với "không được xem" *(CMT-03/04/05/09b, "Bai_da_xoa_va_khong_duoc_xem_cung_mot_404", type sai → 400)*
-- [ ] Bộ đếm khớp bản ghi thật — `COUNT-01..04` xanh **và** câu SQL đối soát Mục 12 trả 0 dòng trên staging
-  *(COUNT-01..04 xanh ×5; đối soát trên DB dev sau E2E: 0 dòng. **Chờ server:** chạy lại trên staging sau F3)*
-- [ ] Đã chạy thử trên **staging** bằng hai tài khoản thật, qua domain HTTPS (`F3`) *(**chờ server** — cần merge `develop` +
-  CD; `e2e/comment-reaction.spec.ts` đã xanh trên stack local, chạy staging bằng `.env.e2e.local`)*
+- [x] Bộ đếm khớp bản ghi thật — `COUNT-01..04` xanh **và** câu SQL đối soát Mục 12 trả 0 dòng trên staging
+  *(COUNT-01..04 xanh ×5; đối soát trên Postgres staging 2026-09-25 (F4): `(0 rows)` cho cả bốn câu)*
+- [x] Đã chạy thử trên **staging** bằng hai tài khoản thật, qua domain HTTPS (`F3`) *(2026-09-25:
+  `e2e/comment-reaction.spec.ts` với `PLAYWRIGHT_BASE_URL=https://mxh.banhgao.net`, hai tài khoản thật từ `.env.e2e.local` —
+  passed; ảnh `docs/giai-doan-3/bang-chung/gd3-{1,2,3}-*.png`)*
 - [x] Hợp đồng `.yaml` khớp Swagger runtime, `pnpm gen:api` chạy lại thì worktree sạch *(ContentContractTests xanh; B5 thử
   đỏ bằng 409 lạ rồi khôi phục)*
 - [x] Không lộ secret/PII: bình luận đã xóa không trả `body`/`author` ở **bất kỳ** endpoint nào; log không chứa nội dung
@@ -866,12 +867,15 @@ Theo Mục 3.5 của PTTK, áp cho **từng** UC (UC-06 bình luận, UC-07 cả
 
 **Dữ liệu**
 
-- [ ] Migration GĐ3 áp trên staging, log CD có tên migration; `--migrate` chạy lần hai không đổi gì *(dev 2026-09-25: DB có
-  7 bài GĐ2/GĐ4 → `20260924163546_Gd3Interactions` áp, thoát 0, lần hai thoát 0. **Chờ server:** staging — trước merge chạy
-  `SELECT count(*) FROM content.comments` (cạm bẫy 2))*
+- [x] Migration GĐ3 áp trên staging, log CD có tên migration; `--migrate` chạy lần hai không đổi gì *(dev 2026-09-25: DB có
+  7 bài GĐ2/GĐ4 → `20260924163546_Gd3Interactions` áp, thoát 0, lần hai thoát 0. Staging: trước merge
+  `SELECT count(*) FROM content.comments` = 0 (cạm bẫy 2 không xảy ra); sau CD `content."__EFMigrationsHistory"` có đủ ba dòng,
+  cuối là `20260924163546_Gd3Interactions`. **Lệch:** log CD KHÔNG có tên migration — hook `--migrate` chỉ in một dòng tổng
+  "Đã áp dụng migration cho schema …", nên bằng chứng lấy từ bảng lịch sử thay cho log)*
 - [x] `\d content.comments` có `reply_count`, `reaction_counts`, `ck_comments_root_depth`; **còn** `IX_comments_post_id`
   *(dev + `ContentDbContextSchemaTests`; thêm `ck_comments_status` có `hidden` — Đ-6.14. Staging kiểm lại lúc F1)*
-- [ ] Câu đối soát trả **0 dòng** trên staging sau `F3` *(dev sau E2E: 0 dòng cho cả bốn câu. **Chờ server**)*:
+- [x] Câu đối soát trả **0 dòng** trên staging sau `F3` *(dev sau E2E: 0 dòng. Staging 2026-09-25: `(0 rows)` cho cả bốn câu
+  — bài `comment_count`/`reaction_counts`, bình luận `reply_count`/`reaction_counts`)*:
 
   ```sql
   -- bài: comment_count lệch số bình luận visible
@@ -898,15 +902,18 @@ Theo Mục 3.5 của PTTK, áp cho **từng** UC (UC-06 bình luận, UC-07 cả
   biệt hoa thường: 0 kết quả — không tắt Aa thì khớp nhầm chuỗi ngẫu nhiên trong header `report-to` của Cloudflare. (3)
   `GET /bff/api/posts/01a0cf11-…/comments?limit=20`: dòng `status: "deleted"` có `author: null`, `body: null`,
   `reactionCounts: {}`, `myReaction: null`, `canDelete: false`, vẫn `replyCount: 1`; dòng `visible` bên cạnh đủ tác giả + nội dung)*
-- [ ] Đã `SELECT` trên staging: vai trò `USER` có `comment.create` và `reaction.set` (Mục 5) *(dev: USER + MODERATOR có cả hai.
-  **Chờ server**)*
+- [x] Đã `SELECT` trên staging: vai trò `USER` có `comment.create` và `reaction.set` (Mục 5) *(staging 2026-09-25: 4 dòng —
+  MODERATOR và USER đều có `comment.create`, `reaction.set`)*
 
 **Lát cắt dọc**
 
-- [ ] E2E trên staging, hai tài khoản: bình luận → trả lời cấp 2 → cấp 3 → nút Trả lời biến mất ở cấp 3 → xóa bình
-  luận giữa nhánh → nhánh còn → thả / đổi / gỡ cảm xúc trên bài và bình luận (`F3`) *(xanh local, Chrome 153. **Chờ server**)*
-- [ ] Bấm tim liên tục 10 lần trên staging: không 429, trạng thái cuối đúng lần bấm cuối, reload thấy đúng như vậy *(local
-  xanh: 10 request 200, không 429 — mỗi request về trước cú bấm kế. **Chờ server**: staging trễ mạng thật mới gộp được chuỗi)*
+- [x] E2E trên staging, hai tài khoản: bình luận → trả lời cấp 2 → cấp 3 → nút Trả lời biến mất ở cấp 3 → xóa bình
+  luận giữa nhánh → nhánh còn → thả / đổi / gỡ cảm xúc trên bài và bình luận (`F3`) *(staging 2026-09-25 passed; ảnh
+  `gd3-2-xoa-giua-nhanh.png`: "Bình luận đã bị xóa." giữa nhánh, cấp 3 của BTC còn, không có nút Trả lời)*
+- [x] Bấm tim liên tục 10 lần trên staging: không 429, trạng thái cuối đúng lần bấm cuối, reload thấy đúng như vậy *(cùng
+  lượt F3 — spec khẳng định không 429, nút tắt sau lần bấm thứ 10, reload vẫn tắt, "0 cảm xúc"; ảnh `gd3-3-cam-xuc.png`.
+  Log lượt chạy: "10 lần bấm tim → 4 request (200,200,200,200)", 32,5 s — trễ mạng thật cho reducer gộp các cú bấm trong lúc
+  request còn bay (local cùng spec: 10 request, vì API trả trong vài ms))*
 
 ## 13. Sai khác so với kế hoạch gốc và báo cáo v5.0
 
@@ -1310,6 +1317,11 @@ thoát 0; câu đối soát Mục 12 trên DB dev sau E2E: 0 dòng.
 3. **Test "bấm nhanh" không được dựa vào độ trễ giả.** Cả bộ Vitest chạy nặng thì một cú bấm của `userEvent` chậm hơn 150 ms độ
    trễ giả; request đầu về giữa hai cú bấm và mỗi cú bấm thành một chuỗi riêng (4 request — hợp lệ). Test giữ response đầu bằng
    một chốt thì tất định. Cùng lý do, E2E local thấy 10 request cho 10 cú bấm (API trả trong vài ms).
+
+**Khối F trên staging (2026-09-25, sau khi `develop` fast-forward tới `204a496` và CD chạy):** F1 — trước merge `content.comments` = 0
+dòng, sau CD bảng lịch sử có `Gd3Interactions` (log CD không in tên migration — xem Mục 12). F2 — Firefox DevTools, ba ý đạt. F3 —
+Playwright hai tài khoản thật passed, ảnh ở `bang-chung/`. F4 — đối soát `(0 rows)`, `USER` có hai quyền. **Còn lại: F5** (k6 +
+đóng băng + báo GĐ6). Danh sách việc lúc còn chờ server, giữ để truy nguồn:
 
 **Chờ server (khối F) — không xóa dòng nào ở Mục 11–12:**
 

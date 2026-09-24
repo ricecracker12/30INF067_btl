@@ -417,7 +417,7 @@ còn biên độ thêm index/cache nếu trượt; và thứ cắt được thì
 > **Chốt 2026-09-21:** GĐ3 làm **sau** GĐ4 (giữ thứ tự gốc), **một người** làm cả hai lane, ước lượng ~6 ngày làm việc.
 > **Trạng thái 2026-09-25:** code A–E xong trên nhánh `endgame` (backend, frontend, matrix, `COUNT-*`, E2E local). Lệch
 > thêm vì GĐ6 merge trước: event phát thật qua `IEventPublisher` (Đ-3.12) và `comments.status` có `hidden` (Đ-6.14).
-> Khối F (staging) chờ merge `develop` + CD — xem Mục 11–12 và "Thực tế thi công" của `giai-doan-3.md`.
+> Khối F: F1–F4 xong trên staging cùng ngày (E2E hai tài khoản thật, đối soát bộ đếm 0 dòng); còn F5 (k6, đóng băng).
 - **Làm gì:** Bình luận ≤1000 ký tự, trả lời tối đa 3 cấp, xóa giữ nhánh (FR-007, BR-08);
   thả/đổi/gỡ 1 cảm xúc/đối tượng + cập nhật bộ đếm (FR-008, BR-05).
 - **Làm như nào:**
