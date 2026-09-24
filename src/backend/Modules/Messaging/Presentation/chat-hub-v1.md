@@ -8,6 +8,10 @@
 > Tên file cố ý không khớp glob `*-v1.yaml` của codegen FE và `ContractGateCoverageTests`.
 >
 > **Luật sửa:** đổi hợp đồng hub → sửa file này + `examples.json` + code hub **trong cùng commit**.
+>
+> **Đóng băng (2026-09-24, cổng đóng GĐ5 — F5):** không đổi hình dạng (tên phương thức, sự kiện, trường, mã lỗi) trong phạm vi
+> GĐ5. Đổi sau mốc này theo luật **chỉ-thêm** ở cổng mở của giai đoạn cần đổi, hoặc hotfix blocking cả nhóm thống nhất. Hub
+> thông báo GĐ6 (`/hubs/notifications`) là hợp đồng RIÊNG — dùng lại vé + scheme, không sửa file này.
 
 ## 1. Kết nối
 

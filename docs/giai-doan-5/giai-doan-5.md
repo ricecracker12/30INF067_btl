@@ -1085,43 +1085,48 @@ Mọi cổng mới: **thử cho đỏ một lần rồi khôi phục**, `git sta
 
 Theo Mục 3.5 báo cáo:
 
-- [ ] Đủ AC US-015 (AC-01..04), mỗi AC có test hoặc bằng chứng E2E trỏ tới
-- [ ] Mọi cửa vào (REST **và** hub) có tầng 2 + tầng 3; mọi endpoint chạm hội thoại có dòng matrix; hub có `HUB-*`
-- [ ] Lỗi REST là RFC 7807; lỗi hub là mã trong bảng Mục 8.2 — không câu nào chứa id, nội dung tin hay tên kiểu
-- [ ] Chạy thử trên staging bằng **hai tài khoản thật là bạn của nhau**
-- [ ] Swagger nhóm `messaging-v1` cập nhật; `chat-hub-v1.md` khớp code (cổng Mục 8.3 xanh)
-- [ ] Không lộ secret/PII: vé không nằm trong log (Serilog + apache), nội dung tin không nằm trong log
-- [ ] `README.md` Mục 1 cập nhật trạng thái GĐ5 (luật vàng 7); lệch quyết định đã ghi ngược vào tài liệu này
+- [x] Đủ AC US-015 (AC-01..04), mỗi AC có test hoặc bằng chứng E2E trỏ tới — `e2e/chat.spec.ts` 3 ca xanh trên staging (F2), ảnh ở `bang-chung/`
+- [x] Mọi cửa vào (REST **và** hub) có tầng 2 + tầng 3; mọi endpoint chạm hội thoại có dòng matrix; hub có `HUB-*`
+- [x] Lỗi REST là RFC 7807; lỗi hub là mã trong bảng Mục 8.2 — không câu nào chứa id, nội dung tin hay tên kiểu
+- [x] Chạy thử trên staging bằng **hai tài khoản thật là bạn của nhau** (F1, F2, F3 — 2026-09-24)
+- [x] Swagger nhóm `messaging-v1` cập nhật; `chat-hub-v1.md` khớp code (cổng Mục 8.3 xanh)
+- [ ] Không lộ secret/PII: vé không nằm trong log (Serilog + apache), nội dung tin không nằm trong log — Serilog: xanh (`HubLogTests`,
+      `LOG-01`, C6). **apache: chờ server** (`grep access_token= access.log` trên VM)
+- [x] `README.md` Mục 1 cập nhật trạng thái GĐ5 (luật vàng 7); lệch quyết định đã ghi ngược vào tài liệu này
 
 ## 12. Checklist nghiệm thu cuối GĐ5
 
 **Dữ liệu (A)**
-- [ ] `--migrate` chạy hai lần liên tiếp trên DB sạch: lần hai không đổi gì, exit 0
-- [ ] Schema `messaging` có hai bảng với đủ UQ + CHECK của Mục 4
-- [ ] `EXPLAIN` lịch sử tin: `Index Scan Backward` trên `uq_messages_conv_seq`, không `Sort`
+- [x] `--migrate` chạy hai lần liên tiếp trên DB sạch: lần hai không đổi gì, exit 0
+- [x] Schema `messaging` có hai bảng với đủ UQ + CHECK của Mục 4
+- [x] `EXPLAIN` lịch sử tin: `Index Scan Backward` trên `uq_messages_conv_seq`, không `Sort`
 
 **Realtime (C)**
-- [ ] Kết nối hub trên staging qua Cloudflare + apache, 1 lần xin vé mỗi lần kết nối
-- [ ] Access log apache và log API **không** chứa `access_token=`
-- [ ] Để yên tab chat 10 phút: 0 lần kết nối lại (keep-alive qua được timeout của apache và Cloudflare)
-- [ ] Kết nối tự cắt sau 15 phút và tự nối lại không ai nhận ra
-- [ ] Backplane: E2E hai instance ở local xanh *(ghi "chưa bật trên staging — chờ GĐ7 khối E")*
-- [ ] Presence: `IPresenceReader` có test *(hoặc ghi "hoãn tới GĐ6" nếu đã cắt)*
+- [x] Kết nối hub trên staging qua Cloudflare + apache, 1 lần xin vé mỗi lần kết nối (F1; `chat.spec.ts` khẳng định 1 vé + 1 WebSocket)
+- [ ] Access log apache và log API **không** chứa `access_token=` — log API: xanh (`HubLogTests`). **apache: chờ server**
+- [x] Để yên tab chat 10 phút: 0 lần kết nối lại (keep-alive qua được timeout của apache và Cloudflare) — `e2e/chat-idle.spec.ts`
+      trên staging: phút 10 vẫn 1 WebSocket, 1 vé
+- [x] Kết nối tự cắt sau 15 phút và tự nối lại không ai nhận ra — cùng spec: server cắt đúng phút 15,0, nối lại ngay bằng vé thứ 2,
+      không hiện banner, tin B gửi sau đó tới trong 3 s
+- [x] Backplane: E2E hai instance ở local xanh — `BackplaneTests` hai host; chưa bật trên staging — chờ GĐ7 khối E
+- [x] Presence: `IPresenceReader` có test *(hoặc ghi "hoãn tới GĐ6" nếu đã cắt)*
 
 **Bảo mật (B, D)**
-- [ ] Matrix Mục 6.3 xanh trên CI; đã từng đỏ khi bỏ kiểm thành viên (bảng đột biến: bỏ `ConversationAccess` → `TC-A04*` đỏ;
+- [x] Matrix Mục 6.3 xanh trên CI; đã từng đỏ khi bỏ kiểm thành viên (bảng đột biến: bỏ `ConversationAccess` → `TC-A04*` đỏ;
       bỏ `AreFriendsAsync` → `TC-A07*` đỏ; đổi 403 thành 404 → đỏ)
-- [ ] `HUB-01..10` xanh; đã từng đỏ (bỏ `GETDEL` → `HUB-02`; đổi `Clients.Users` thành `Clients.All` → `HUB-09`)
-- [ ] `MSG-C1`, `MSG-C2` xanh 20 lần liền
+- [x] `HUB-01..10` xanh; đã từng đỏ (bỏ `GETDEL` → `HUB-02`; đổi `Clients.Users` thành `Clients.All` → `HUB-09`)
+- [x] `MSG-C1`, `MSG-C2` xanh 20 lần liền (20/20 lượt, local, 2026-09-24)
 
 **Lát cắt dọc (E, F) — trên staging, hai trình duyệt**
-- [ ] A gửi → B thấy; trạng thái Đã gửi → Đã nhận → Đã xem hiện đúng ở A (AC-01)
-- [ ] B đăng xuất, A gửi 3 tin, B đăng nhập lại → badge 3, mở ra thấy đủ, badge về 0 (AC-02)
-- [ ] Tắt mạng A giữa lúc gửi, bật lại, bấm Thử lại → B thấy **một** tin (AC-03)
-- [ ] Hủy kết bạn → cả hai thấy thanh "chỉ đọc", gửi → bị chặn, lịch sử còn nguyên (AC-04)
-- [ ] Chặn WebSocket (DevTools → chặn `/hubs/*`) → vẫn gửi và nhận được qua fallback, trễ ≤ ~3s
-- [ ] Tab Network: chỉ thấy `/bff/*` và **một** WebSocket `/hubs/chat` — không JWT nào, không id hội thoại của người khác
-- [ ] **Báo cáo p95 gửi→nhận** trên staging đã lưu, có số (Mục 10.7)
+- [x] A gửi → B thấy; trạng thái Đã gửi → Đã nhận → Đã xem hiện đúng ở A (AC-01) — `f2-1-*.png`
+- [x] B đăng xuất, A gửi 3 tin, B đăng nhập lại → badge 3, mở ra thấy đủ, badge về 0 (AC-02) — ca 3 của `chat.spec.ts`, `f2-5-*.png`
+- [x] Tắt mạng A giữa lúc gửi, bật lại, bấm Thử lại → B thấy **một** tin (AC-03)
+- [x] Hủy kết bạn → cả hai thấy thanh "chỉ đọc", gửi → bị chặn, lịch sử còn nguyên (AC-04) — `f2-3-a-chi-doc.png`
+- [x] Chặn WebSocket (DevTools → chặn `/hubs/*`) → vẫn gửi và nhận được qua fallback, trễ ≤ ~3s — ca 2 `chat.spec.ts`
+      (`routeWebSocket`): 2 888 ms và 2 871 ms ở hai lượt, `f2-4-b-fallback-nhan.png`
+- [x] Tab Network: chỉ thấy `/bff/*` và **một** WebSocket `/hubs/chat` — không JWT nào, không id hội thoại của người khác —
+      thay ảnh bằng khẳng định trong spec: đúng 1 WebSocket, `access_token` là vé 43 ký tự, URL không chứa `eyJ`
+- [x] **Báo cáo p95 gửi→nhận** trên staging đã lưu, có số (Mục 10.7) — **174,7 ms**, `bao-cao-p95-chat.md`
 
 ## 13. Sai khác so với kế hoạch gốc và báo cáo v5.0
 
@@ -1846,3 +1851,33 @@ tin kế tiếp. Local không lộ vì hub nối nhanh. Lỗi đi kèm tìm ra k
 `RedisRealtimeTicketStore` dùng `ConnectedOrNull()` (không chờ) nên kết nối Redis nền chưa xong là coi như Redis chết. Cấp/đổi vé
 giờ CHỜ lần kết nối đầu có kết quả (≤ `ConnectTimeout` 2 s) rồi mới xét `IsConnected`; Redis chết vẫn 503 (`RealtimeTicketUnavailableTests`
 xanh). Cùng khe này trên staging: request vé đầu ngay sau khi API khởi động có thể nhận 503 oan → FE rơi fallback REST.
+
+## Khối F — cổng đóng (2026-09-24 chiều, bản `develop@6503549` trên staging)
+
+**F2 — xanh trên staging.** `e2e/chat.spec.ts` giờ có 3 ca, cả 3 xanh `--retries=0`: (1) lát cắt AC-01/03/04 + badge realtime,
+(2) **mới** — chặn mọi WebSocket `/hubs/*` của B bằng `routeWebSocket` → fallback, B nhận sau 2 888 / 2 871 ms, B gửi bằng REST tới A,
+(3) **mới** — AC-02 đúng nguyên văn: B không đăng nhập, A gửi 3 tin, B đăng nhập lại → badge +3 nạp qua REST. Ca 1 thêm khẳng định
+thay ảnh tab Network: đúng 1 WebSocket, `access_token` là vé 43 ký tự, URL không có `eyJ`. Ảnh: `bang-chung/f2-*.png`, bật bằng
+`E2E_BANG_CHUNG=<thư mục>`; ảnh chụp ở màn chat hoặc `/friends`, **không ở `/me`** (trang đó hiện email — lượt đầu đã chụp phải, xóa
+trước khi commit).
+
+**F3 — ĐẠT: p95 174,7 ms** (400/400 mẫu, N = 200 mỗi chiều) — `bao-cao-p95-chat.md`. VM đã ổn (TTFB ping 0,30–0,57 s). Phân rã
+histogram server chờ người có quyền VM, không chặn cổng.
+
+**F4 — thêm `e2e/chat-idle.spec.ts`** (`CHAT_IDLE=1`, ~17 phút): hai dòng Mục 12 trước ghi "phải kiểm trên VM" hóa ra kiểm được từ
+ngoài — phút 10 vẫn 1 WebSocket + 1 vé; phút 15,0 server cắt (tuổi thọ = access token), client nối lại ngay bằng vé thứ 2, không
+banner, tin B gửi sau đó tới trong 3 s (BFF làm mới access token của A đúng lúc). `MSG-C1`/`MSG-C2` 20/20 lượt. Còn **một** việc chờ
+server: `grep access_token= /var/log/apache2/*access*.log` trên VM phải rỗng (dòng Mục 11 + dòng Mục 12 tương ứng để `[ ]`).
+
+**F5 — đóng băng** `messaging-v1.yaml` và `chat-hub-v1.md` (dấu ĐÓNG BĂNG trong đầu file, khuôn GĐ4). README Mục 1: GĐ5 xong, GĐ6 C6
+mở khóa. Bàn giao GĐ6 như bảng "GĐ5 để lại gì cho GĐ6–GĐ8" — không đổi.
+
+**Sự cố khi đo (đã chặn tái diễn):** lượt đo đầu nạp tài khoản bằng vòng `read` của shell — file `.env.e2e.local` không có dòng
+trống cuối nên rơi mất `E2E_B_PASSWORD` → spec p95 lặng lẽ rơi sang nhánh dev và gọi **`POST /auth/register` trên staging** với
+`lat-a-…@example.com` → staging trả **500** (traceId `1832d9f62ce84d3cb8b5c7621ec7eccf`). Sửa: `taiKhoanCoSan()` chung ở
+`post-helpers.ts` (đọc file, bỏ BOM), và thiếu khóa khi API không phải localhost thì **dừng**, không đăng ký. Nợ cho chủ dự án: xem log
+traceId trên để biết vì sao đăng ký trả 500 (nghi gửi mail tới `example.com` hỏng) và có dòng tài khoản rác nào không.
+
+**Quan sát (không chặn cổng):** ảnh `f2-1-b-nhan-tin.png` — B đang mở đúng hội thoại, A đã thấy "Đã xem", nhưng badge header của B vẫn
+`1` lúc chụp; bước 4 của cùng spec cho thấy badge về đúng. Badge trễ một nhịp sau biên nhận "đã xem" — ghi để GĐ6/GĐ8 xem nếu người
+dùng để ý.

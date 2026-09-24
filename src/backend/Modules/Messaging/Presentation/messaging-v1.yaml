@@ -16,6 +16,11 @@
 #
 # LUẬT SỬA: đổi hợp đồng → sửa file này TRONG CÙNG COMMIT với code và chạy lại `pnpm gen:api`.
 #
+# ĐÓNG BĂNG (2026-09-24, cổng đóng GĐ5 — F5): file này KHÔNG đổi hình dạng trong phạm vi GĐ5. Đổi sau mốc này thuộc cổng
+# mở của giai đoạn cần đổi (GĐ6 hub thông báo dùng lại /realtime/tickets NGUYÊN VẸN, không cần đổi file này; media tin nhắn
+# và chat nhóm là phần hoãn ở Mục 2), theo luật CHỈ-THÊM, hoặc là hotfix blocking cả nhóm thống nhất. Sửa comment/mô tả
+# không đổi schema thì không tính là đổi hình dạng.
+#
 # QUYẾT ĐỊNH chạm tới hợp đồng này (giai-doan-5.md Mục 3):
 #   Đ-5.3  Tạo hội thoại cần đang là bạn; ĐỌC hội thoại cũ thì không. `canSend` chỉ ở GET /{id} và POST (tính sống).
 #   Đ-5.5  Gửi lại cùng clientMsgId + cùng nội dung → 200 + ĐÚNG tin cũ; 409 CHỈ khi cùng id mà khác nội dung.
