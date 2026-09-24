@@ -43,6 +43,10 @@ public static class ModerationModuleExtensions
         services.AddScoped<IReportStore, ReportStore>();
         services.AddScoped<ReportSubmissionService>();
 
+        // D7b (Đ-6.13): GET /reports, GET /reports/{id}. IUserDirectory, IObjectStorage do host + module chủ đăng ký — cùng lý do trên.
+        services.AddScoped<IReportQueries, ReportQueries>();
+        services.AddScoped<ReportReadService>();
+
         // CHỈ đăng ký validator của module. KHÔNG gọi AddFluentValidationAutoValidation ở đây: cấu hình MVC toàn cục, host
         // đã gọi một lần.
         services.AddValidatorsFromAssembly(typeof(ModerationModuleExtensions).Assembly, ServiceLifetime.Singleton);

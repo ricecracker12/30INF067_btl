@@ -256,6 +256,11 @@ public static class AuthZMatrix
         // D6 (Đ-6.12): IDOR theo chiều ĐỌC — "thấy được mới báo được". 404, KHÔNG 403 (quy ước 3b, như READ-01): 403 tự nó tố
         // cáo bài riêng tư có tồn tại. POST /reports không đặc quyền (B.10 #8) nên không phụ thuộc Redis của matrix.
         RepIdor(),
+
+        // D7b (Mục 8.1): hàng đợi là cửa vào đường DUY NHẤT Moderator đọc nội dung không công khai. USER không có report.resolve.
+        // Audit của lần từ chối này (AUD-03) ở ReportQueueTests — matrix chỉ so status.
+        new("TC-A06-queue", "User thường đọc hàng đợi kiểm duyệt", "GĐ6",
+            Caller.User, HttpMethod.Get, "/api/v1/reports", HttpStatusCode.Forbidden),
     ];
 
     /// <summary>

@@ -1719,9 +1719,67 @@ có chủ đích; không luồng nào ngoài hai hàm D7a sửa. 13 file, 43 sym
 UNKNOWN — text search: `new PostResponse(` chỉ ở mapper; test đọc qua JSON; phía FE `moderation` là trường không required nên
 fixture `satisfies` không đỏ (`pnpm typecheck` xanh).
 
+### D7b — 2026-09-25
+
+Làm đúng Mục 10; L-D15 áp như chốt. `ReportsController` (`[PrivilegedEndpoint]` ở class, `[RequirePermission(report.resolve)]` từng
+action) · `ReportReadService` · `IReportQueries` + `ReportQueries` (SQL thô, một câu mỗi đường) · `ListReportsQuery` + validator ·
+`ReportQueueCursor` · DTO `ReportQueueItem`/`ReportQueuePage`/`ReportDetail`/`ReportTargetSnapshot`/`OpenReport`/`ReportHistoryEntry` ·
+`ModerationErrors.ReportNotFound` · `moderation-v1.yaml` `1.1.0-gd6` (hai operation, `UserCard`, `TargetSnapshot`, `ReportDetail`
+với `history[].outcome`, 403 + 404 + 503) · `pnpm gen:api` → chỉ `lib/api/moderation/schema.d.ts` đổi. Matrix `TC-A06-queue`.
+`giai-doan-6.md` sửa cùng lượt: Mục 8.1 (L-D15, hình dạng `TargetSnapshot`), B.6 D7 — ghi "sửa 2026-09-25".
+
+**Lệch so với chính tài liệu này:**
+- **Đường đọc là interface riêng `IReportQueries`**, không thêm vào `IReportStore` như comment D6 định: khuôn `IAdminUserQueries` /
+  `IAccountAdministrationStore` của D2 — hai đường không chung phụ thuộc, và fake `IReportStore` của unit test D6 không phải hiện
+  thực hàm nó không dùng. Comment của `IReportStore` sửa theo.
+- **Chi tiết là MỘT câu SQL** (tự join `reports` với báo cáo neo) trả cả báo cáo mở lẫn đã đóng; service tách mở/lịch sử và gom lịch
+  sử theo `(status, resolver_id, resolved_at, resolution_note)`, cũ nhất trước. Mục 10 bước 2 để ngỏ thứ tự lịch sử — chọn cũ nhất
+  trước, cùng chiều `openReports`.
+- **`TargetSnapshot` mọi trường luôn có mặt, `null` khi không áp dụng** (như `AdminUser` của D2) — `body`, `postId`, `createdAt`,
+  `editedAt`, `author` nullable; `createdAt` chỉ null khi đối tượng không còn trong bảng nào. `UserCard` thêm vào `moderation-v1`
+  (`userId`, `displayName`, `avatarUrl | null`).
+- **`status` hàng đợi so chính xác chữ thường** (`OPEN` → 400), cùng luật chuỗi của CHECK.
+- **`reasons` dựng từ `ReasonCodes.All`** (chính mảng dựng `ck_reports_reason`): thêm lý do là thêm cột đếm, không sửa câu.
+- **Thêm ca ngoài bảng:** `QUE-01b` (báo cáo đã đóng rời hàng đợi, đối tượng còn báo cáo mở vẫn một dòng), `QUE-06` (mở chi tiết
+  bằng báo cáo đã đóng: thấy báo cáo mở mới + một dòng lịch sử), `QUE-07` (đối tượng biến mất → `deleted`, nội dung null), chi tiết
+  báo cáo tài khoản (ảnh chụp là hồ sơ), 404, sáu biến thể 400, MODERATOR + ADMIN 200; `QUE-03` thêm bài bị ẩn; `QUE-04` soi cả
+  chuỗi id người báo trong thân (không chỉ tên trường); `AUD-03` năm lần bị chặn → đúng MỘT dòng, trên cả hai route; `QUE-02` ở
+  lớp riêng (`ReportQueuePagingTests`, database riêng) để khẳng định đúng 20/20/5, với nhóm ba đối tượng cùng mốc để khóa phụ
+  `target_id` thật sự được dùng. Unit: cursor, validator, gom lịch sử, đối tượng biến mất, ký URL, cursor neo dòng cuối.
+
+"Đã đỏ trước" (L-D7): dòng `TC-A06-queue` và ca `AUD-03` đỏ khi bỏ tầng 2 (M1) hoặc `[PrivilegedEndpoint]` (M2) — xem bảng dưới.
+
+**Test:** Unit 460 → 477 (+17 `ReportReadServiceTests`), Integration 744 → 765 (+19 `ReportQueueTests`, +1 `ReportQueuePagingTests`,
++1 matrix `TC-A06-queue`), Architecture 27 → 27. Vitest 591 → 591 (chỉ `schema.d.ts` đổi). Còn đỏ nền R2 trên máy dev. FE:
+`pnpm lint`, `typecheck`, `test`, `build` xanh.
+
+**Thử cho đỏ — 12/12 đột biến bị bắt**, build hợp lệ ở mọi lượt (`0 Error(s)`), file khôi phục nguyên byte (`md5`):
+
+| Đột biến | Ca đỏ thực tế |
+|---|---|
+| M1 — bỏ `[RequirePermission]` của `GET /reports` | matrix `TC-A06-queue`; `AUD_03_…(/api/v1/reports)` |
+| M2 — bỏ `[PrivilegedEndpoint]` khỏi `ReportsController` | `Privileged_controllers_carry_the_attribute`; `AUD_03_…` cả hai route |
+| M3 — đại diện là báo cáo MỚI nhất | `QUE_01_…` |
+| M4 — keyset bỏ khóa phụ `target_id` | `QUE_02_…` |
+| M5 — hàng đợi không lọc `status = open` | `QUE_01b_…` |
+| M6 — `reasons` giữ lý do đếm 0 | `QUE_01_…` |
+| M7 — chi tiết chỉ đọc báo cáo được mở | `QUE_06_…` |
+| M8 — lịch sử không gom theo lần quyết | `QUE_06_…`; `Lich_su_gom_theo_lan_quyet_…` (unit) |
+| M9 — cursor neo vào dòng thừa `limit + 1` | `QUE_02_…`; `Cursor_trang_sau_neo_vao_dong_cuoi_trang_nay` (unit) |
+| M10 — hydrate tác giả mỗi ảnh một lần (N+1) | `QUE_05_…` |
+| M11 — validator bỏ luật `status` | `Tham_so_sai_400_…` ×2; `Validator_status_cursor_limit` ×2 (unit) |
+| M12 — controller bỏ khai 503 của chi tiết | `ModerationContractTests.Contract_must_be_fully_implemented` |
+
+Chưa thử: `array_agg` BỎ HẲN `ORDER BY` (cạm bẫy 4) — Postgres thường trả theo thứ tự chèn nên ca có thể xanh ngẫu nhiên; M3 (đảo
+chiều) là bản bắt được một cách tất định.
+
+**detect-changes:** low, 0 luồng (19 file, 24 symbol; file mới đã `git add -N`). Lưu ý: index báo có luồng bị cắt ở bước dựng process
+(`truncation`) — "0 luồng" là số tối thiểu. Impact trước khi sửa: `ModerationErrors` LOW (3 nút — chỉ thêm thành viên), `IReportStore` LOW
+(9 nút — chỉ sửa comment), `AddModerationModule` UNKNOWN — text search: 7 lời gọi, chữ ký không đổi, chỉ thêm hai đăng ký scoped.
+
 ### Các đầu việc còn lại
 
-D7b → D13. Mỗi đầu việc khi xong điền theo khuôn của hướng dẫn khối A+C:
+D7c → D13. Mỗi đầu việc khi xong điền theo khuôn của hướng dẫn khối A+C:
 
 - chỗ nào đi theo / không theo đề xuất Mục 0.6, và vì sao;
 - lệch so với chính tài liệu này;

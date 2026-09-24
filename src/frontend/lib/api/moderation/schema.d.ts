@@ -11,7 +11,18 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * Hàng đợi kiểm duyệt — mỗi đối tượng bị báo một dòng, cũ nhất trước
+         * @description Tầng 2: `report.resolve` (MODERATOR, ADMIN có). Endpoint đặc quyền: fail-closed khi không kiểm được thu hồi
+         *     (503 `revocation-unavailable`), bị từ chối thì ghi nhật ký kiểm toán `access.denied`.
+         *
+         *     Báo cáo **đang mở** gom theo đối tượng (Đ-6.13): ba người báo cùng một bài là **một** dòng `reportCount: 3`.
+         *     Sắp theo `firstReportedAt` tăng dần (báo cáo mở cũ nhất của đối tượng), hòa thì theo `target.id`. `reportId` là
+         *     báo cáo mở cũ nhất của đối tượng — mở chi tiết bằng id này; nó không đổi giữa các lần tải.
+         *
+         *     Hết dữ liệu khi và chỉ khi `nextCursor` là `null`. Cursor opaque — không tự dựng.
+         */
+        get: operations["listReports"];
         put?: never;
         /**
          * Báo cáo một bài viết, bình luận hoặc tài khoản
@@ -34,6 +45,36 @@ export interface paths {
          *     Phản hồi **không** nhắc lại đối tượng bị báo — không xác nhận thêm điều gì về nó.
          */
         post: operations["createReport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reports/{reportId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Chi tiết báo cáo — nội dung thật của đối tượng, báo cáo đang mở, lịch sử quyết định
+         * @description Tầng 2: `report.resolve`. Endpoint đặc quyền như `GET /reports`.
+         *
+         *     - `target` là ảnh chụp **tại lúc đọc**, kể cả bài `private`/`friends`, đã bị ẩn hay đã xóa mềm — Moderator phải thấy
+         *       nội dung mới quyết được. Đây là đường **duy nhất** Moderator đọc nội dung không công khai (`GET /posts/{id}` trả
+         *       404 cho họ với bài bị ẩn). Đối tượng không còn trong bảng nào → `status: deleted`, `author`, `body`, `createdAt` là
+         *       `null`.
+         *     - `openReports`: mọi báo cáo **đang mở** của cùng đối tượng, cũ nhất trước — quyết định (D7c) đóng tất cả cùng lúc.
+         *     - `history`: mỗi quyết định đã có một dòng, cũ nhất trước.
+         *     - **Không có người báo** ở bất kỳ trường nào — quyết theo nội dung, không theo người báo.
+         *
+         *     Báo cáo đã đóng vẫn mở được (xem lại lịch sử). Báo cáo không tồn tại → 404.
+         */
+        get: operations["getReport"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -109,12 +150,136 @@ export interface components {
             /** Format: date-time */
             createdAt: string;
         };
+        /** @description Đối tượng bị báo, dạng tham chiếu. */
+        ReportTargetRef: {
+            type: components["schemas"]["ReportTargetType"];
+            /** Format: uuid */
+            id: string;
+        };
+        /** @description Một dòng hàng đợi = một ĐỐI TƯỢNG bị báo (không phải một báo cáo). Không có người báo, không có nội dung. */
+        ReportQueueItem: {
+            /**
+             * Format: uuid
+             * @description Báo cáo mở cũ nhất của đối tượng — dùng để mở `GET /reports/{reportId}`.
+             */
+            reportId: string;
+            target: components["schemas"]["ReportTargetRef"];
+            /**
+             * Format: int32
+             * @description Số báo cáo đang mở của đối tượng.
+             */
+            reportCount: number;
+            /** @description Số báo cáo đang mở theo lý do. Chỉ có lý do đếm được ít nhất một; key là `ReasonCode`. */
+            reasons: {
+                [key: string]: number;
+            };
+            /**
+             * Format: date-time
+             * @description Thời điểm báo cáo mở cũ nhất — khóa sắp xếp, cũ nhất trước.
+             */
+            firstReportedAt: string;
+        };
+        ReportQueuePage: {
+            items: components["schemas"]["ReportQueueItem"][];
+            /** @description Opaque. `null` khi hết dữ liệu — không phải chuỗi rỗng. */
+            nextCursor: string | null;
+        };
+        /** @description Thẻ người dùng (tên hiển thị + ảnh đại diện) — hydrate từ hồ sơ. */
+        UserCard: {
+            /** Format: uuid */
+            userId: string;
+            displayName: string;
+            /**
+             * Format: uri
+             * @description Presigned GET 15 phút, `null` khi chưa có ảnh đại diện.
+             */
+            avatarUrl: string | null;
+        };
+        /** @description Một ảnh của đối tượng. Không có key lưu trữ. */
+        TargetMedia: {
+            /**
+             * Format: uri
+             * @description Presigned GET 15 phút.
+             */
+            url: string;
+        };
+        /**
+         * @description Ảnh chụp đối tượng tại lúc đọc, **không** theo luật hiển thị của người dùng: bài riêng tư, bị ẩn, đã xóa mềm vẫn có
+         *     `body`. Mọi trường luôn có mặt; trường không áp dụng là `null`.
+         */
+        TargetSnapshot: {
+            type: components["schemas"]["ReportTargetType"];
+            /** Format: uuid */
+            id: string;
+            /**
+             * @description Bài: `published` · `hidden` · `deleted`. Người dùng: `active` · `disabled`. Đối tượng không còn trong bảng nào →
+             *     `deleted`.
+             * @enum {string}
+             */
+            status: "published" | "hidden" | "deleted" | "active" | "disabled";
+            /** @description Tác giả bài; với người dùng là chính người đó. `null` khi không có hồ sơ hoặc đối tượng đã biến mất. */
+            author: components["schemas"]["UserCard"] | null;
+            /** @description Nội dung bài / tiểu sử người dùng. */
+            body: string | null;
+            /** @description Ảnh bài theo thứ tự hiển thị / ảnh đại diện của người dùng. */
+            media: components["schemas"]["TargetMedia"][];
+            /**
+             * Format: uuid
+             * @description Bài chứa đối tượng — với bài là chính nó; với người dùng là `null`.
+             */
+            postId: string | null;
+            /**
+             * Format: date-time
+             * @description `null` chỉ khi đối tượng không còn trong bảng nào.
+             */
+            createdAt: string | null;
+            /** Format: date-time */
+            editedAt: string | null;
+        };
+        /** @description Một báo cáo đang mở. **Không** có người báo. */
+        OpenReport: {
+            /** Format: uuid */
+            reportId: string;
+            reasonCode: components["schemas"]["ReasonCode"];
+            /** @description Mô tả người báo tự gõ (bắt buộc với `other`). */
+            detail: string | null;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        /**
+         * @description Một quyết định đã có trên đối tượng. `outcome` là trạng thái các báo cáo sau quyết định (L-D15): `resolved` (đã ẩn
+         *     nội dung hoặc đã xử lý) hoặc `dismissed` (không vi phạm). Nội dung có đang bị ẩn không: đọc `target.status`.
+         */
+        ReportHistoryEntry: {
+            /** @enum {string} */
+            outcome: "resolved" | "dismissed";
+            /**
+             * Format: uuid
+             * @description Moderator/Admin đã quyết.
+             */
+            resolverId: string;
+            /** Format: date-time */
+            resolvedAt: string;
+            /** @description Ghi chú của người quyết. */
+            note: string | null;
+        };
+        /** @description Chi tiết một báo cáo. **Không** có người báo ở bất kỳ độ sâu nào. */
+        ReportDetail: {
+            /** Format: uuid */
+            reportId: string;
+            target: components["schemas"]["TargetSnapshot"];
+            /** @description Mọi báo cáo đang mở của cùng đối tượng, cũ nhất trước. */
+            openReports: components["schemas"]["OpenReport"][];
+            /** @description Các quyết định đã có trên đối tượng, cũ nhất trước. */
+            history: components["schemas"]["ReportHistoryEntry"][];
+        };
     };
     responses: {
         /**
          * @description Dữ liệu đầu vào không hợp lệ. `errors` là map `tên trường → danh sách thông điệp`: `targetType`, `targetId`,
          *     `reasonCode` thiếu hoặc ngoài tập giá trị, `detail` thiếu khi `other` hoặc quá 500 ký tự; `targetId` cũng là key của
-         *     lỗi "báo cáo chính mình".
+         *     lỗi "báo cáo chính mình". Hàng đợi và chi tiết: `status` khác `open`, `cursor` rác, `limit` ngoài `1..50`,
+         *     `reportId` sai dạng UUID.
          */
         ValidationProblem: {
             headers: {
@@ -159,9 +324,9 @@ export interface components {
             };
         };
         /**
-         * @description Tầng 2 từ chối — vai trò của người gọi không có mã quyền endpoint đòi (`report.create` với `POST /reports`). Vai trò
-         *     hệ thống USER, MODERATOR đều có mã này; 403 chỉ gặp ở vai trò tự tạo không được gán nó. Thông điệp không nêu quyền
-         *     còn thiếu.
+         * @description Tầng 2 từ chối — vai trò của người gọi không có mã quyền endpoint đòi. `POST /reports` đòi `report.create` (USER,
+         *     MODERATOR đều có; 403 chỉ gặp ở vai trò tự tạo không được gán nó). Hàng đợi và chi tiết đòi `report.resolve` (USER
+         *     không có) — lần từ chối đó ghi nhật ký kiểm toán `access.denied`. Thông điệp không nêu quyền còn thiếu.
          */
         Forbidden: {
             headers: {
@@ -198,6 +363,25 @@ export interface components {
                  *       "status": 404,
                  *       "detail": "Không tìm thấy nội dung cần báo cáo.",
                  *       "instance": "/api/v1/reports",
+                 *       "traceId": "d2f4a6c8e0b2d4f6a8c0e2b4d6f8a0c2"
+                 *     }
+                 */
+                "application/problem+json": components["schemas"]["ProblemDetails"];
+            };
+        };
+        /** @description Báo cáo không tồn tại. Chỉ người có `report.resolve` tới được đây — người khác dừng ở 403. */
+        ReportNotFound: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "type": "https://httpstatuses.io/404",
+                 *       "title": "Không tìm thấy tài nguyên",
+                 *       "status": 404,
+                 *       "detail": "Không tìm thấy báo cáo.",
+                 *       "instance": "/api/v1/reports/0192f3ca-6e41-7a02-b3d5-8c7e9f1a2b30",
                  *       "traceId": "d2f4a6c8e0b2d4f6a8c0e2b4d6f8a0c2"
                  *     }
                  */
@@ -271,7 +455,14 @@ export interface components {
             };
         };
     };
-    parameters: never;
+    parameters: {
+        /** @description UUID v7 của báo cáo. Sai dạng → 400 `errors.reportId`. */
+        ReportId: string;
+        /** @description `nextCursor` của trang trước, opaque. Sai dạng → 400 `errors.cursor`. */
+        Cursor: string;
+        /** @description Số dòng mỗi trang, `1..50`. Ngoài khoảng → 400 `errors.limit`. */
+        Limit: number;
+    };
     requestBodies: never;
     headers: {
         /**
@@ -285,6 +476,60 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    listReports: {
+        parameters: {
+            query?: {
+                /** @description Chỉ `open` (mặc định). Giá trị khác → 400 `errors.status`. */
+                status?: "open";
+                /** @description `nextCursor` của trang trước, opaque. Sai dạng → 400 `errors.cursor`. */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Số dòng mỗi trang, `1..50`. Ngoài khoảng → 400 `errors.limit`. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Một trang hàng đợi. */
+            200: {
+                headers: {
+                    "X-Correlation-ID": components["headers"]["XCorrelationId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "reportId": "0192f3ca-6e41-7a02-b3d5-8c7e9f1a2b30",
+                     *           "target": {
+                     *             "type": "post",
+                     *             "id": "0192f3c9-2b7d-7e10-8c4a-1f3e5d7b9a20"
+                     *           },
+                     *           "reportCount": 3,
+                     *           "reasons": {
+                     *             "spam": 2,
+                     *             "violence": 1
+                     *           },
+                     *           "firstReportedAt": "2026-09-24T08:15:42.123456Z"
+                     *         }
+                     *       ],
+                     *       "nextCursor": null
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ReportQueuePage"];
+                };
+            };
+            400: components["responses"]["ValidationProblem"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["RevocationUnavailable"];
+        };
+    };
     createReport: {
         parameters: {
             query?: never;
@@ -345,6 +590,66 @@ export interface operations {
             404: components["responses"]["ReportTargetNotFound"];
             429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalError"];
+        };
+    };
+    getReport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID v7 của báo cáo. Sai dạng → 400 `errors.reportId`. */
+                reportId: components["parameters"]["ReportId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Chi tiết báo cáo. */
+            200: {
+                headers: {
+                    "X-Correlation-ID": components["headers"]["XCorrelationId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "reportId": "0192f3ca-6e41-7a02-b3d5-8c7e9f1a2b30",
+                     *       "target": {
+                     *         "type": "post",
+                     *         "id": "0192f3c9-2b7d-7e10-8c4a-1f3e5d7b9a20",
+                     *         "status": "published",
+                     *         "author": {
+                     *           "userId": "0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10",
+                     *           "displayName": "Bình Minh",
+                     *           "avatarUrl": null
+                     *         },
+                     *         "body": "Nội dung bài bị báo cáo.",
+                     *         "media": [],
+                     *         "postId": "0192f3c9-2b7d-7e10-8c4a-1f3e5d7b9a20",
+                     *         "createdAt": "2026-09-24T07:00:00.000000Z",
+                     *         "editedAt": null
+                     *       },
+                     *       "openReports": [
+                     *         {
+                     *           "reportId": "0192f3ca-6e41-7a02-b3d5-8c7e9f1a2b30",
+                     *           "reasonCode": "spam",
+                     *           "detail": null,
+                     *           "createdAt": "2026-09-24T08:15:42.123456Z"
+                     *         }
+                     *       ],
+                     *       "history": []
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ReportDetail"];
+                };
+            };
+            400: components["responses"]["ValidationProblem"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["ReportNotFound"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["RevocationUnavailable"];
         };
     };
 }

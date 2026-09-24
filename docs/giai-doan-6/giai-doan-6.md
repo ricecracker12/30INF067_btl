@@ -1107,9 +1107,15 @@ ReportReceipt        { reportId, status: "open", createdAt }                    
 ReportQueueItem      { reportId, target: { type, id }, reportCount, reasons: { [reasonCode]: integer }, firstReportedAt }
 ReportQueuePage      { items: [ReportQueueItem], nextCursor: string | null }           // firstReportedAt ASC — cũ nhất trước
 TargetSnapshot       { type, id, status: "published"|"hidden"|"deleted"|"active"|"disabled",
-                       author: UserCard | null, body?: string, media?: [ { url } ], postId?: uuid, createdAt, editedAt? }
-ReportDetail         { reportId, target: TargetSnapshot, openReports: [ { reportId, reasonCode, detail?, createdAt } ],
-                       history: [ { decision, resolverId, resolvedAt, note? } ] }      // reporterId KHÔNG trả — Moderator không cần biết ai báo
+                       author: UserCard | null, body: string | null, media: [ { url } ], postId: uuid | null,
+                       createdAt: date-time | null, editedAt: date-time | null }
+                       // sửa 2026-09-25 khi thi công D7b: mọi trường luôn có mặt (app không bỏ trường null), createdAt null khi đối
+                       // tượng không còn trong bảng nào (status "deleted"); UserCard = { userId, displayName, avatarUrl | null }
+ReportDetail         { reportId, target: TargetSnapshot, openReports: [ { reportId, reasonCode, detail: string | null, createdAt } ],
+                       history: [ { outcome: "resolved"|"dismissed", resolverId, resolvedAt, note: string | null } ] }
+                       // reporterId KHÔNG trả — Moderator không cần biết ai báo
+                       // sửa 2026-09-25 khi thi công D7b (L-D15): history mang outcome (chính reports.status), không decision —
+                       // bảng không phân biệt hide với resolve; "đã ẩn chưa" đọc ở target.status và trong audit
 DecideReportRequest  { decision: "hide"|"dismiss"|"resolve", reasonCode?: …, note?: string (≤ 500; bắt buộc khi resolve) }
 ReportDecisionResult { decision, closedReportIds: [uuid], targetStatus }
 AuditLogItem         { id: integer, actorId, actor: UserCard | null, action, targetType?, targetId?, metadata?, ip?, createdAt }
@@ -1924,6 +1930,10 @@ Content (một commit nhỏ, để rebase với A theo Mục 9.4), D7b hàng đ�
 Content sửa **ba** chỗ, không chỉ "nhánh tác giả": `GetAsync` trả 404 cho người không phải tác giả (trước D7a, bài `hidden` trả 200
 cho mọi người qua BR-02), mapper gắn `moderation` cho tác giả, `UpdateAsync` trả 409 (trước D7a, `PATCH` sửa được bài `hidden`).
 `HID-01..06` xanh ở D7a, trước khi có endpoint nào ẩn được bài — bài ẩn bằng `IModerationTargets.HideAsync` trong test.
+
+*Sửa 2026-09-25 khi thi công D7b* (L-D15): hai `GET` của `moderation-v1` (`1.1.0-gd6`) ở `ReportsController` mang
+`[PrivilegedEndpoint]`; đường đọc tách interface riêng `IReportQueries` (khuôn `IAdminUserQueries` của D2), không dồn vào
+`IReportStore`. `history[].outcome` thay `decision` (Mục 8.1). Matrix thêm `TC-A06-queue`; `AUD-03` chạy cả trên controller thật.
 
 ### D8 — `GET /admin/audit-logs`
 

@@ -20,6 +20,12 @@ public static class ModerationErrors
     public static readonly Error ReportTargetNotFound =
         new("moderation.report_target_not_found", "Không tìm thấy nội dung cần báo cáo.", 404);
 
+    /// <summary>
+    /// 404 của <c>GET /reports/{reportId}</c> (D7b): báo cáo không tồn tại. Endpoint đặc quyền — người không có <c>report.resolve</c>
+    /// dừng ở 403 trước khi tới đây, nên 404 không lộ gì cho người ngoài.
+    /// </summary>
+    public static readonly Error ReportNotFound = new("moderation.report_not_found", "Không tìm thấy báo cáo.", 404);
+
     /// <summary>400 <c>errors.targetId</c>: báo cáo bài/bình luận của chính mình. Kiểm SAU "thấy được" — xem service.</summary>
     public static Error SelfReportContent =>
         Error.Validation("targetId", "Không thể báo cáo nội dung của chính mình.");
