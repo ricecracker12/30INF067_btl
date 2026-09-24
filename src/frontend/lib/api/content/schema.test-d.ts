@@ -1,12 +1,18 @@
 import { expectTypeOf, test } from "vitest"
 
 import type {
+  CommentPage,
+  CommentResponse,
+  CreateCommentRequest,
   FeedMode,
   FeedPage,
+  PostAuthor,
   PostMedia,
   PostPage,
   PostPrivacy,
   PostResponse,
+  ReactionSummary,
+  ReactionType,
 } from "../types"
 
 // Pin vài hình dạng DỄ TRÔI của content-v1.yaml. Hợp đồng đổi một trong số này thì file này đỏ
@@ -56,4 +62,46 @@ test("FeedPage.items là PostResponse — GĐ3 thêm field vào bài thì feed t
   expectTypeOf<FeedPage>()
     .toHaveProperty("items")
     .toEqualTypeOf<PostResponse[]>()
+})
+
+// --- GĐ3: bình luận + cảm xúc ---
+
+test("PostResponse.myReaction bắt buộc có mặt, được null — trường theo người xem (Đ-3.10)", () => {
+  expectTypeOf<PostResponse>()
+    .toHaveProperty("myReaction")
+    .toEqualTypeOf<ReactionType | null>()
+})
+
+test("ReactionType là union sáu loại chữ thường, khớp CHECK ck_reactions_type", () => {
+  expectTypeOf<ReactionType>().toEqualTypeOf<
+    "like" | "love" | "haha" | "wow" | "sad" | "angry"
+  >()
+})
+
+test("CommentResponse.author và body nullable — bình luận đã xóa không lộ ai viết, viết gì (Đ-3.5)", () => {
+  expectTypeOf<CommentResponse>()
+    .toHaveProperty("author")
+    .toEqualTypeOf<PostAuthor | null>()
+  expectTypeOf<CommentResponse>()
+    .toHaveProperty("body")
+    .toEqualTypeOf<string | null>()
+  expectTypeOf<CommentResponse>()
+    .toHaveProperty("myReaction")
+    .toEqualTypeOf<ReactionType | null>()
+})
+
+test("CommentPage.nextCursor là `string | null` — cùng quy ước cursor với danh sách bài", () => {
+  expectTypeOf<CommentPage>()
+    .toHaveProperty("nextCursor")
+    .toEqualTypeOf<string | null>()
+})
+
+test("ReactionSummary.reactionCounts là object KHÔNG nullable — FE đối chiếu optimistic với số thật (Đ-3.7)", () => {
+  expectTypeOf<ReactionSummary>()
+    .toHaveProperty("reactionCounts")
+    .toEqualTypeOf<{ [key: string]: number }>()
+})
+
+test("CreateCommentRequest không có depth — server tính cấp từ cha (Đ-3.4)", () => {
+  expectTypeOf<CreateCommentRequest>().not.toHaveProperty("depth")
 })

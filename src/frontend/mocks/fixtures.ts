@@ -118,6 +118,8 @@ export const post = {
   createdAt: "2026-09-20T02:10:22Z",
   editedAt: null,
   canEdit: true,
+  // GĐ3 (Đ-3.10): trường theo người xem, bắt buộc có mặt, được `null`.
+  myReaction: null,
 } satisfies T.PostResponse
 
 export const postPage = {
@@ -214,6 +216,7 @@ export const feedPost = {
   createdAt: "2026-09-23T08:15:00Z",
   editedAt: null,
   canEdit: false,
+  myReaction: null,
 } satisfies T.PostResponse
 
 /**

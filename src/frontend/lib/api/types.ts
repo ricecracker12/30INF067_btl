@@ -57,6 +57,15 @@ export type FeedPage = C["FeedPage"]
 /** 503 feed quá tải — `type` là literal sinh từ enum của hợp đồng (Q-E4). */
 export type FeedOverloadedProblem = C["FeedOverloadedProblem"]
 
+// --- Content, thêm ở GĐ3 (bình luận + cảm xúc) ---
+export type ReactionType = C["ReactionType"]
+export type CommentStatus = C["CommentStatus"]
+export type CreateCommentRequest = C["CreateCommentRequest"]
+export type CommentResponse = C["CommentResponse"]
+export type CommentPage = C["CommentPage"]
+export type SetReactionRequest = C["SetReactionRequest"]
+export type ReactionSummary = C["ReactionSummary"]
+
 // --- SocialGraph (socialgraph-v1.yaml) — GĐ4 E1 ---
 export type FriendshipState = G["FriendshipState"]
 export type FriendRequestDirection = G["FriendRequestDirection"]
