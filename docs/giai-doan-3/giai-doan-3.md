@@ -250,6 +250,11 @@ Bình luận đã xóa **vẫn nằm trong danh sách**, ở đúng vị trí, d
 - Cảm xúc trên bình luận đã xóa: không trả số, không nhận thêm (`PUT …/reactions/me` → 404).
 - Xóa lần hai, hoặc xóa bình luận của người khác → **403**, cùng một phản hồi — đúng khuôn D8 của GĐ2.
 
+*Chốt 2026-09-24 (lệch, theo Đ-6.14 của GĐ6):* `CommentStatus` có thêm giá trị **`hidden`** ngay trong migration
+`Gd3Interactions` — CHECK `ck_comments_status` nhận `('visible','deleted','hidden')` — để GĐ6 ẩn bình luận vi phạm mà
+không phải ALTER CHECK trên bảng của Content. GĐ3 không có đường nào ghi `hidden`; mapper coi nó như `deleted`
+(`body`/`author` = `null`, không nhận cảm xúc, không làm cha được). Câu "Bình luận đã bị ẩn…" và bộ đếm khi ẩn là việc của GĐ6.
+
 **Ngữ nghĩa hai bộ đếm** — chốt để không ai phải đoán:
 
 | Bộ đếm | Đếm gì | Đổi khi |
@@ -460,6 +465,10 @@ ALTER TABLE content.comments
     ADD COLUMN reaction_counts jsonb   NOT NULL DEFAULT '{}'::jsonb,
     ADD CONSTRAINT ck_comments_reply_count CHECK (reply_count >= 0),
     ADD CONSTRAINT ck_comments_root_depth  CHECK ((parent_id IS NULL) = (depth = 1));
+
+-- Đ-6.14 (chốt 2026-09-24): nới CHECK trạng thái để GĐ6 ẩn được bình luận — chỉ-thêm một giá trị
+ALTER TABLE content.comments DROP CONSTRAINT ck_comments_status,
+    ADD CONSTRAINT ck_comments_status CHECK (status IN ('visible','deleted','hidden'));
 
 -- ENT-02 · posts: bộ đếm có sẵn từ GĐ2, thêm lưới không âm
 ALTER TABLE content.posts
@@ -890,6 +899,7 @@ Theo Mục 3.5 của PTTK, áp cho **từng** UC (UC-06 bình luận, UC-07 cả
 | 5 | — (không nói ai được xóa bình luận) | Chỉ tác giả; tầng 2 chỉ `[Authorize]`, không thêm mã quyền (Đ-3.2) | Xóa dữ liệu của mình là quyền của chủ dữ liệu; giữ ma trận 17 mã |
 | 6 | "Trả lời tối đa 3 cấp" | Server tính `depth` từ cha, thêm `ck_comments_root_depth` (Đ-3.4) | Client không được quyết định cấp; CHECK bắt lỗi rẻ nhất ở DB |
 | 7 | GĐ3 do 3 người làm trong 2 ngày (Ngày 13–15) | **Một người** làm cả hai lane, tuần tự, sau GĐ4, ước lượng ~6 ngày làm việc (Mục 9) | Nhân lực thực tế. Thứ tự GĐ4 → GĐ3 giữ nguyên lịch gốc; lịch tổng dời theo |
+| 8 | `comments.status` chỉ `visible`/`deleted` | Thêm `hidden` vào CHECK ngay migration `Gd3Interactions` (Đ-3.5, chốt 2026-09-24) | Thỏa thuận Đ-6.14 với GĐ6 — GĐ6 merge trước GĐ3 |
 
 Mỗi dòng trong bảng phải được nhắc lại trong commit tương ứng, mở bằng "Lệch …" theo luật commit Mục 5.3.
 

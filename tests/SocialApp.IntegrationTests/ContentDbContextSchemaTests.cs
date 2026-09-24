@@ -235,4 +235,97 @@ public sealed class ContentDbContextSchemaTests(PostgresFixture postgres)
         Assert.EndsWith(
             "WHERE (((status)::text = 'published'::text) AND ((privacy)::text = 'public'::text))", indexDef);
     }
+
+    /// <summary>
+    /// A3 (GĐ3, Mục 4 cạm bẫy 1) — bộ index của <c>comments</c> sau <c>Gd3Interactions</c>: hai index keyset mới có mặt,
+    /// index quy ước của FK <c>parent_id</c> đã được thay, và <c>IX_comments_post_id</c> (FK <c>post_id</c> ON DELETE
+    /// CASCADE) CÒN — index một phần của trang gốc không thay được nó.
+    /// </summary>
+    [Fact]
+    public async Task Index_comments_GD3_dung_bo_va_con_IX_comments_post_id()
+    {
+        var (services, _) = await MigratedAsync(postgres);
+
+        await using var scope = services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<ContentDbContext>();
+
+        var indexes = (await db.Database
+                .SqlQuery<string>($"""
+                    select indexname || ' ' || indexdef as "Value"
+                    from pg_indexes
+                    where schemaname = 'content' and tablename = 'comments'
+                    """)
+                .ToListAsync())
+            .ToDictionary(s => s[..s.IndexOf(' ')], s => s[(s.IndexOf(' ') + 1)..]);
+
+        Assert.Contains("IX_comments_post_id", indexes.Keys);
+        Assert.DoesNotContain("IX_comments_parent_id", indexes.Keys);
+        Assert.Contains("(parent_id, created_at, comment_id)", indexes["idx_comments_parent"]);
+        Assert.Contains("(post_id, created_at, comment_id)", indexes["idx_comments_post_roots"]);
+        Assert.EndsWith("WHERE (parent_id IS NULL)", indexes["idx_comments_post_roots"]);
+    }
+
+    /// <summary>
+    /// A3 (GĐ3) — <c>ck_comments_root_depth</c> chặn hai lỗi rẻ nhất (gốc mang depth 2, phản hồi mang depth 1);
+    /// <c>ck_comments_status</c> nhận <c>hidden</c> (Đ-6.14); bộ đếm mới của bình luận mặc định <c>0</c> / <c>{}</c>.
+    /// </summary>
+    [Fact]
+    public async Task Check_comments_GD3_chan_goc_sai_cap_va_nhan_hidden()
+    {
+        var (_, connectionString) = await MigratedAsync(postgres);
+        await using var conn = await OpenAsync(connectionString);
+
+        var postId = Guid.NewGuid();
+        var rootId = Guid.NewGuid();
+        await using (var seed = new NpgsqlCommand(
+            """
+            insert into content.posts (post_id, author_id, body, media_count, created_at, updated_at)
+            values (@p, gen_random_uuid(), 'bài', 0, now(), now());
+            insert into content.comments (comment_id, post_id, parent_id, author_id, depth, body, status)
+            values (@r, @p, null, gen_random_uuid(), 1, 'gốc', 'hidden');
+            """, conn))
+        {
+            seed.Parameters.AddWithValue("p", postId);
+            seed.Parameters.AddWithValue("r", rootId);
+            await seed.ExecuteNonQueryAsync();
+        }
+
+        async Task<PostgresException> InsertBadAsync(Guid? parentId, short depth)
+        {
+            await using var cmd = new NpgsqlCommand(
+                """
+                insert into content.comments (comment_id, post_id, parent_id, author_id, depth, body)
+                values (gen_random_uuid(), @p, @parent, gen_random_uuid(), @d, 'sai cấp')
+                """, conn);
+            cmd.Parameters.AddWithValue("p", postId);
+            cmd.Parameters.AddWithValue("parent", (object?)parentId ?? DBNull.Value).NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Uuid;
+            cmd.Parameters.AddWithValue("d", depth);
+            return await Assert.ThrowsAsync<PostgresException>(() => cmd.ExecuteNonQueryAsync());
+        }
+
+        Assert.Equal("ck_comments_root_depth", (await InsertBadAsync(null, 2)).ConstraintName);
+        Assert.Equal("ck_comments_root_depth", (await InsertBadAsync(rootId, 1)).ConstraintName);
+
+        await using var read = new NpgsqlCommand(
+            "select reply_count, reaction_counts::text from content.comments where comment_id = @r", conn);
+        read.Parameters.AddWithValue("r", rootId);
+        await using var reader = await read.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync());
+        Assert.Equal(0, reader.GetInt32(0));
+        Assert.Equal("{}", reader.GetString(1));
+    }
+
+    /// <summary>A3 — <c>--migrate</c> chạy lần hai trên DB đã đủ migration thì không làm gì và không lỗi.</summary>
+    [Fact]
+    public async Task Migrate_lan_hai_khong_doi_gi()
+    {
+        var (services, _) = await MigratedAsync(postgres);
+
+        await services.MigrateContentModuleAsync();
+
+        await using var scope = services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<ContentDbContext>();
+        Assert.Empty(await db.Database.GetPendingMigrationsAsync());
+        Assert.Contains("Gd3Interactions", string.Join(",", await db.Database.GetAppliedMigrationsAsync()));
+    }
 }

@@ -1,7 +1,7 @@
 namespace SocialApp.Modules.Content.Domain;
 
 /// <summary>
-/// BR-07 (nội dung bình luận) dưới dạng HÀM THUẦN — đúng nếp <see cref="PostContentPolicy"/>: đầu vào là giá
+/// FR-007 (nội dung bình luận, Đ-3.14) dưới dạng HÀM THUẦN — đúng nếp <see cref="PostContentPolicy"/>: đầu vào là giá
 /// trị, đầu ra là kết quả, không I/O, không <c>DbContext</c>.
 ///
 /// Khác <see cref="PostContentPolicy"/> ở một điểm: bình luận KHÔNG có ảnh, nên chỉ một mệnh đề — <c>body</c>
@@ -19,7 +19,7 @@ public static class CommentPolicy
     public static readonly string BodyTooLong = $"Bình luận không được vượt quá {MaxBodyLength} ký tự.";
     public const string Empty = "Bình luận không được để trống.";
 
-    /// <summary>Kiểm BR-07 cho một bình luận sắp tạo.</summary>
+    /// <summary>Kiểm FR-007 cho một bình luận sắp tạo.</summary>
     /// <param name="body">Nội dung client gửi; <c>null</c> và chuỗi toàn khoảng trắng là như nhau.</param>
     public static CommentValidation Validate(string? body)
     {
@@ -35,7 +35,7 @@ public static class CommentPolicy
 
 /// <summary>
 /// Kết quả của <see cref="CommentPolicy.Validate"/>. Cùng khuôn <see cref="PostContentValidation"/> — không
-/// dùng lại nó vì BR-07 độc lập với BR-01, dù hình dạng giống hệt.
+/// dùng lại nó vì luật bình luận độc lập với BR-01, dù hình dạng giống hệt.
 /// </summary>
 public readonly record struct CommentValidation(string? ErrorKey, string? Message)
 {

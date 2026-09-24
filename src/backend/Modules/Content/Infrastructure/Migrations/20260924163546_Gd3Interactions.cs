@@ -15,6 +15,11 @@ namespace SocialApp.Modules.Content.Infrastructure.Migrations
                 schema: "content",
                 table: "comments");
 
+            migrationBuilder.DropCheckConstraint(
+                name: "ck_comments_status",
+                schema: "content",
+                table: "comments");
+
             migrationBuilder.AddColumn<string>(
                 name: "reaction_counts",
                 schema: "content",
@@ -61,6 +66,12 @@ namespace SocialApp.Modules.Content.Infrastructure.Migrations
                 schema: "content",
                 table: "comments",
                 sql: "(parent_id IS NULL) = (depth = 1)");
+
+            migrationBuilder.AddCheckConstraint(
+                name: "ck_comments_status",
+                schema: "content",
+                table: "comments",
+                sql: "status IN ('visible','deleted','hidden')");
         }
 
         /// <inheritdoc />
@@ -91,6 +102,11 @@ namespace SocialApp.Modules.Content.Infrastructure.Migrations
                 schema: "content",
                 table: "comments");
 
+            migrationBuilder.DropCheckConstraint(
+                name: "ck_comments_status",
+                schema: "content",
+                table: "comments");
+
             migrationBuilder.DropColumn(
                 name: "reaction_counts",
                 schema: "content",
@@ -106,6 +122,12 @@ namespace SocialApp.Modules.Content.Infrastructure.Migrations
                 schema: "content",
                 table: "comments",
                 column: "parent_id");
+
+            migrationBuilder.AddCheckConstraint(
+                name: "ck_comments_status",
+                schema: "content",
+                table: "comments",
+                sql: "status IN ('visible','deleted')");
         }
     }
 }

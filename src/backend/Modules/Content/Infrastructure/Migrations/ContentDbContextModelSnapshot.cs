@@ -110,7 +110,7 @@ namespace SocialApp.Modules.Content.Infrastructure.Migrations
 
                             t.HasCheckConstraint("ck_comments_root_depth", "(parent_id IS NULL) = (depth = 1)");
 
-                            t.HasCheckConstraint("ck_comments_status", "status IN ('visible','deleted')");
+                            t.HasCheckConstraint("ck_comments_status", "status IN ('visible','deleted','hidden')");
                         });
                 });
 
