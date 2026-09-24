@@ -26,7 +26,7 @@ public sealed class MeTests(PostgresFixture postgres, IdentityApiFactory factory
     public Task DisposeAsync() => Task.CompletedTask;
 
     [Fact]
-    public async Task Dang_nhap_roi_goi_me_200_dung_7_truong_doc_tu_DB()
+    public async Task Dang_nhap_roi_goi_me_200_dung_8_truong_doc_tu_DB()
     {
         var (userId, email, accessToken) = await LoggedInUserAsync();
 
@@ -35,9 +35,9 @@ public sealed class MeTests(PostgresFixture postgres, IdentityApiFactory factory
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
 
-        // Đúng tập trường của hợp đồng — không passwordHash, không cột nào khác của users lọt ra.
+        // Đúng tập trường của hợp đồng — không passwordHash, không cột nào khác của users lọt ra. `permissions` thêm ở GĐ6 D1.
         Assert.Equal(
-            ["createdAt", "email", "emailVerifiedAt", "role", "roleDisplayName", "status", "userId"],
+            ["createdAt", "email", "emailVerifiedAt", "permissions", "role", "roleDisplayName", "status", "userId"],
             body.EnumerateObject().Select(p => p.Name).Order(StringComparer.Ordinal));
         Assert.Equal(userId, body.GetProperty("userId").GetGuid());
         Assert.Equal(email, body.GetProperty("email").GetString());
@@ -107,6 +107,79 @@ public sealed class MeTests(PostgresFixture postgres, IdentityApiFactory factory
             Assert.True(response.StatusCode == HttpStatusCode.OK, $"request {attempt}: nhận {(int)response.StatusCode}");
         }
     }
+
+    /// <summary>
+    /// <c>ME-01</c> (GĐ6 D1, Đ-6.11) — quyền HIỆU LỰC đọc từ DB theo vai trò hiện tại. Kỳ vọng viết tay theo bảng bootstrap của
+    /// giai-doan-1.md Mục 5.3, thứ tự <c>permission_id</c>. Đổi vai trò bằng SQL: <c>/me</c> đọc DB, không đọc claim, nên token
+    /// cũ (role = USER) vẫn thấy tập mới — đúng thứ FE cần khi nạp lại <c>/me</c> lúc tab lấy lại focus.
+    /// </summary>
+    [Theory]
+    [InlineData("USER", new[]
+    {
+        "post.read.public", "post.read.friends", "post.create", "post.update", "post.delete", "comment.create",
+        "reaction.set", "friend.request", "friend.respond", "message.send", "report.create",
+    })]
+    [InlineData("MODERATOR", new[]
+    {
+        "post.read.public", "post.read.friends", "post.create", "post.update", "post.delete", "post.hide", "comment.create",
+        "reaction.set", "friend.request", "friend.respond", "message.send", "report.create", "report.resolve",
+    })]
+    [InlineData("ADMIN", new[]
+    {
+        "post.read.public", "post.read.friends", "post.create", "post.update", "post.delete", "post.hide", "comment.create",
+        "reaction.set", "friend.request", "friend.respond", "message.send", "report.create", "report.resolve",
+        "user.lock", "user.unlock", "role.assign", "audit.read", "role.manage",
+    })]
+    public async Task ME_01_permissions_la_quyen_hieu_luc_cua_vai_tro_doc_tu_DB(string roleCode, string[] expected)
+    {
+        var (userId, _, accessToken) = await LoggedInUserAsync();
+        await _auth.ExecuteSqlAsync(
+            "UPDATE identity.users SET role_id = (SELECT role_id FROM identity.roles WHERE code = $1) WHERE user_id = $2",
+            roleCode, userId);
+
+        var body = await MeBodyAsync(accessToken);
+
+        Assert.Equal(roleCode, body.GetProperty("role").GetString());
+        Assert.Equal(expected, Permissions(body));
+    }
+
+    /// <summary>
+    /// <c>ME-01</c> vế vai trò tự tạo — thứ Đ-6.11 sinh ra để phục vụ: <c>REVIEWER</c> không có tên hệ thống nào, FE chỉ biết nó
+    /// được vào hàng đợi nhờ <c>permissions</c>. Hợp đồng <c>RoleCode</c> nới thành chuỗi mở (L-D16). Tạo bằng SQL — API vai trò
+    /// là D5 — lấy id từ sequence của A3.
+    /// </summary>
+    [Fact]
+    public async Task ME_01_vai_tro_tu_tao_tra_dung_ma_va_dung_tap_quyen()
+    {
+        var (userId, _, accessToken) = await LoggedInUserAsync();
+        var code = $"REVIEWER_{Guid.NewGuid():N}"[..20].ToUpperInvariant();
+        await _auth.ExecuteSqlAsync("""
+            WITH r AS (
+                INSERT INTO identity.roles (role_id, code, display_name)
+                VALUES (nextval('identity.roles_role_id_seq'), $1, 'Người xem xét') RETURNING role_id)
+            INSERT INTO identity.role_permissions (role_id, permission_id)
+            SELECT r.role_id, p.permission_id FROM r, identity.permissions p WHERE p.code IN ('report.resolve', 'report.create')
+            """, code);
+        await _auth.ExecuteSqlAsync(
+            "UPDATE identity.users SET role_id = (SELECT role_id FROM identity.roles WHERE code = $1) WHERE user_id = $2",
+            code, userId);
+
+        var body = await MeBodyAsync(accessToken);
+
+        Assert.Equal(code, body.GetProperty("role").GetString());
+        Assert.Equal("Người xem xét", body.GetProperty("roleDisplayName").GetString());
+        Assert.Equal(["report.create", "report.resolve"], Permissions(body));
+    }
+
+    private async Task<JsonElement> MeBodyAsync(string accessToken)
+    {
+        using var response = await _auth.GetMeAsync(accessToken);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return await response.Content.ReadFromJsonAsync<JsonElement>();
+    }
+
+    private static string[] Permissions(JsonElement body) =>
+        [.. body.GetProperty("permissions").EnumerateArray().Select(p => p.GetString()!)];
 
     private async Task<(Guid UserId, string Email, string AccessToken)> LoggedInUserAsync()
     {

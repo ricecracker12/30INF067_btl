@@ -123,7 +123,8 @@ mốc đã từng đỏ khi cố tình bỏ đúng thứ bảo vệ nó (bảng 
 Đọc B.6, Mục 6, Mục 8 đối chiếu với code ngày 2026-09-24 (`5c93f42`), thấy các chỗ dưới đây viết chưa đủ, tự mâu thuẫn, hoặc
 **không chạy được** trên code hiện tại.
 
-**Trạng thái (chốt 2026-09-24, người thi công):** cả mười lăm chỗ đi **theo cột "Đề xuất"**.
+**Trạng thái (chốt 2026-09-24, người thi công):** cả mười lăm chỗ đi **theo cột "Đề xuất"**. L-D16 tìm ra khi thi công D1 — ràng
+buộc kỹ thuật, đi theo đề xuất, ghi ở "Thực tế thi công".
 - Mười chỗ là **lựa chọn thiết kế**. Mỗi chỗ đã cân nhắc phương án khác rồi loại:
   - L-D5: tách D7 thay vì một commit lớn.
   - L-D6: khuôn hai bước thay vì truy vấn con trong `RETURNING`. Cách đó chạy được, nhưng dưới lượt đua nó trả `NULL`, và phải lập
@@ -163,6 +164,7 @@ ngày và lý do.
 | L-D13 | D6: `targetType: comment` trong hợp đồng; C2 chưa có provider bình luận | `IModerationTargets` thêm `bool Supports(ModerationTargetType)` (chỉ-thêm). D6 trả **404** cho loại chưa hỗ trợ, cùng thân lỗi với "không tồn tại"; D7c chặn bằng bảng `decision × targetType` như C2 đã ghi | `ModerationTargets` ném `NotSupportedException` cho loại không có provider → **500**. Trước khi A merge, không có bình luận nào tồn tại qua API, nên 404 là câu trả lời đúng nghĩa đen. Khi A merge, thêm provider là `Supports` tự đúng, không sửa D6 |
 | L-D14 | D8: "`action` chỉ đi kèm một trong hai hoặc khoảng id" | Cho phép lọc `action` đứng một mình (không 400). Truy vấn đi theo PK lùi + lọc, `LIMIT` dừng sớm | Câu đó là **ghi chú hiệu năng** của Mục 4 ("không index theo action"), không phải luật validation. 400 cho "xem mọi `user.lock`" là chặn một câu hỏi hợp lệ của Admin trên một bảng nhỏ |
 | L-D15 | Mục 8.1: `ReportDetail.history: [{ decision, resolverId, resolvedAt, note? }]` | Đổi tên trường thành `outcome: "resolved" \| "dismissed"`, **trước** khi yaml có operation này (D7b), nên chưa client nào dùng | Bảng `reports` chỉ có `status` (`resolved\|dismissed`), không phân biệt `hide` với `resolve`. Trả `decision` thì hoặc bịa, hoặc thêm cột bằng một migration Moderation mới. "Đã ẩn hay xử lý ngoài luồng" đã có ở `target.status` và trong audit |
+| L-D16 *(thêm 2026-09-24 khi thi công D1)* | Mục 8.5: `identity-v1` chỉ thêm `permissions` và 403 `account-disabled` | Nới `RoleCode` từ enum `[USER, MODERATOR, ADMIN]` thành chuỗi có pattern `^[A-Z][A-Z0-9_]{2,29}$`, cùng commit D1. Test kiểu của FE (`schema.test-d.ts`) đổi theo | `/me.role` đọc `roles.code` từ DB, nên từ lúc có vai trò tự tạo (D5, và ca `ME-01` vai trò tự tạo của D1) response nằm ngoài enum của hợp đồng. Cổng hợp đồng không so giá trị enum nên không đỏ: hợp đồng nói dối mà không ai biết. Không chỗ nào của FE so tên vai trò (grep) |
 
 ---
 
@@ -289,7 +291,8 @@ cho mọi symbol **mới** mà đầu việc sau sửa lại (ví dụ `AdminInv
    ```
 
    `type` riêng vì login giờ có **hai** 403 (chưa xác minh / bị khóa) mà FE phải hiện hai câu khác nhau (luật frontend Mục 4).
-   403 `email-not-verified` **giữ nguyên** hình dạng cũ (Mục 8.5).
+   403 `email-not-verified` **giữ nguyên** hình dạng cũ (Mục 8.5). Thứ tự: 4b đứng **trước** bước 5 — tài khoản vừa bị khóa vừa
+   chưa xác minh thì báo "đã bị khóa".
 
 2. **Login** — `LoginCandidate` thêm `Status` (cuối record); `FindForLoginAsync` chọn thêm `u.Status`. `LoginService`: chèn bước
    **4b** ngay sau bước 4 (mật khẩu đúng), **trước** bước 5 (chưa xác minh):
@@ -304,8 +307,9 @@ cho mọi symbol **mới** mà đầu việc sau sửa lại (ví dụ `AdminInv
    Sửa `FakeUsers` trong `LoginServiceTests` (đổi `LoginCandidate`). Thêm hai ca unit: `disabled` + mật khẩu đúng → `AccountDisabled`
    và **không** gọi `CreateAsync`; `disabled` + mật khẩu sai → `InvalidCredentials` và bộ đếm vẫn tăng.
 
-3. **Refresh** — `RefreshTokenStore.RotateAsync` (L-D2): sau các kiểm hợp lệ (token tồn tại, chưa hết hạn, chưa thu hồi, không
-   reuse) và **trước** bước 5 "Xoay":
+3. **Refresh** — `RefreshTokenStore.RotateAsync` (L-D2): kiểm **trước mỗi chỗ phát token** — nhánh ân hạn 3a (phát token anh em
+   cùng family) và trước bước 5 "Xoay" (sau các kiểm hợp lệ: tồn tại, chưa hết hạn, chưa thu hồi, không reuse). Nhánh reuse 3b giữ
+   nguyên: nó thu hồi, không phát. Khuôn ở bước 5:
 
    ```csharp
    // Lưới thứ hai của Đ-6.5: khóa tài khoản (D3) đã thu hồi mọi family, nhưng nếu một đường nào đó quên bước ấy thì refresh vẫn
@@ -334,11 +338,13 @@ cho mọi symbol **mới** mà đầu việc sau sửa lại (ví dụ `AdminInv
    ổn định để test và FE so được. `PermissionCodes.All` đã có thứ tự id 1..18.
 
 5. **`identity-v1.yaml`** chỉ-thêm: `MeResponse.permissions` (`type: array`, `items: string`, **required**, ví dụ cho USER),
-   `POST /auth/login` 403 thêm ví dụ `account-disabled` + `type` trong `enum` của schema lỗi 403. `info.version` → `1.1.0-gd6`.
+   `POST /auth/login` 403 đổi `example` thành hai `examples` (chưa xác minh / bị khóa) kèm bảng `type` trong mô tả; `RoleCode` nới
+   thành chuỗi có pattern (L-D16). `info.version` → `1.1.0-gd6`.
    Khối comment đầu file thêm dòng "GĐ6 D1 (2026-09-…)".
 
-6. **FE:** `pnpm gen:api` → sửa `mocks/fixtures.ts` thêm `permissions` cho fixture `MeResponse` (L-D3) → `pnpm lint typecheck test
-   build`. **Không** sửa màn nào, vì điều hướng theo quyền là E2.
+6. **FE:** `pnpm gen:api` → sửa `mocks/fixtures.ts` thêm `permissions` cho fixture `MeResponse` (L-D3), `schema.test-d.ts` đổi
+   kỳ vọng `RoleCode` thành `string` + thêm ca `permissions` (L-D16) → `pnpm lint typecheck test build`. **Không** sửa màn nào, vì
+   điều hướng theo quyền là E2.
 
 7. **Test** (integration, `Auth/`):
 
@@ -1322,7 +1328,55 @@ tự merge. Mô tả PR mang danh sách tự rà B.10 (tám mục) và bảng đ
 
 **2026-09-24 — chốt trước khi thi công:** mười lăm chỗ lệch Mục 0.6 đi theo đề xuất; L-D9 theo phương án (a). Chi tiết ở đó.
 
-Mỗi đầu việc khi xong điền theo khuôn của hướng dẫn khối A+C:
+### D1 — 2026-09-24
+
+Làm đúng Mục 3; L-D2, L-D3 áp như chốt. `giai-doan-6.md` sửa cùng lượt: Đ-6.5 (vị trí kiểm `status` ở refresh), Đ-6.11 (`RoleCode`),
+Mục 8.5 (hàng `identity-v1`), B.6 D1, B.7 (L-D7 — D1 là commit D đầu tiên mang test) — mỗi chỗ ghi "sửa 2026-09-24".
+
+**Lệch so với chính tài liệu này:**
+- **L-D16 (mới):** nới `RoleCode` của `identity-v1.yaml` thành chuỗi có pattern — lý do ở bảng Mục 0.6. Test kiểu GĐ1
+  `RoleCode là union chuỗi đúng hợp đồng` đổi thành `RoleCode là chuỗi mở từ GĐ6`; thêm ca `MeResponse có permissions bắt buộc`.
+- **Lưới refresh đặt ở HAI chỗ**, không một như bản đầu của Mục 3 bước 3: nhánh ân hạn 3a cũng phát token (anh em cùng family).
+  Có ca riêng `ADM_01_refresh_trong_an_han_…` và đột biến riêng (M3 dưới đây).
+- **Quyền hiệu lực đọc bằng hai câu SQL** (user + vai trò, rồi mã quyền của vai trò theo `permission_id`), không projection lồng:
+  câu thứ hai không chạy khi user không tồn tại, và thứ tự khớp `PermissionCodes.All` mà ADMIN nhận. `EffectivePermissions` so
+  `RoleCodes.Admin` (trỏ về `SystemRoles.Admin`), không gõ chuỗi.
+- **403 của login dùng `examples` (hai ví dụ có tên)** thay cho `example` — cổng hợp đồng không so ví dụ (`ContractTestsBase`), FE
+  đọc bảng `type` trong mô tả.
+- **Thêm ca ngoài bảng:** `Bi_Admin_khoa_va_chua_xac_minh_thi_bao_bi_khoa` (unit, thứ tự 4b trước 5), `…_sai_mat_khau_401_cung_than_voi_email_khong_ton_tai`
+  (integration, AC-02 không thủng qua đường mới), `Tai_khoan_active_refresh_van_200` (đối chứng). Test GĐ1
+  `Dang_nhap_roi_goi_me_200_dung_7_truong_…` đổi thành `…_8_truong_…` — tập trường của hợp đồng có thêm `permissions`, khẳng định
+  giữ nguyên kiểu so cả tập.
+
+**Lỗi tìm ra khi chạy test, đã sửa:** lượt đầu Integration đỏ 3 ca `PrivilegedEndpointAuditTests` trong 1 ms với `53300: sorry, too
+many clients already` — không phải lỗi của lớp đó. `AccountDisabledTests` là lớp thứ mười dùng `IdentityApiFactory`, mỗi lớp một
+database, một pool; pool giữ kết nối rỗi 5 phút sau khi host dừng, nên cả bộ vượt `max_connections` 100 của container ở lớp chạy
+SAU. Sửa ở gốc: `IdentityApiFactory.DisposeAsync` gọi `ClearPool` (khuôn các lớp test schema của khối A, cạm bẫy 7). Lượt hai: xanh.
+Impact `IdentityApiFactory`: UNKNOWN — text search: mười lớp `IClassFixture<IdentityApiFactory>` trong `Auth/`, không đổi hành vi
+test nào ngoài việc trả kết nối sớm hơn.
+
+**Test:** Unit 336 → 344 (+3 `LoginServiceTests`, +5 `EffectivePermissionsTests`), Integration 546 → 555 (+5 `AccountDisabledTests`,
++4 `ME-01`; đổi tên một ca GĐ1), Architecture 23 + 1 Skip → không đổi (Skip gỡ ở D2), Vitest 543 → 544 (+1 test kiểu). Còn đỏ nền
+R2 trên máy dev. FE: `pnpm lint`, `typecheck`, `test`, `build` xanh.
+
+**Thử cho đỏ — 4/4 đột biến bị bắt**, build hợp lệ ở mọi lượt (`0 Error(s)`), file khôi phục nguyên byte (`cmp`):
+
+| Đột biến | Ca đỏ thực tế |
+|---|---|
+| M1 — `LoginService` bỏ bước 4b | `ADM_01_login_dung_mat_khau_tren_tai_khoan_bi_khoa_403_account_disabled_khong_phat_token` |
+| M2 — `RotateAsync` bỏ kiểm trạng thái trước bước 5 | `ADM_01_refresh_tren_tai_khoan_bi_khoa_401_khong_xoay_khong_chen_token` |
+| M3 — nhánh ân hạn 3a bỏ kiểm trạng thái | `ADM_01_refresh_trong_an_han_tren_tai_khoan_bi_khoa_401_khong_phat_anh_em` |
+| M4 — `EffectivePermissions` bỏ nhánh ADMIN | `ME_01_permissions_la_quyen_hieu_luc_cua_vai_tro_doc_tu_DB(roleCode: "ADMIN", …)` |
+
+**detect-changes:** high, 11 luồng. Chín luồng có chủ đích: Login (4 — bước 4b, `FindForLoginAsync` đọc thêm `status`), Refresh (3 —
+lưới trạng thái trong `RotateAsync`), Get `/me` (1 — `permissions`), `LoginCandidate` (1). Hai luồng `Logout → LockFamilyAsync`
+(`RevokeFamilyAsync`) và `AddWithVerificationAsync → StampUpdatedAt` **không** bị sửa thân hàm — cùng file với hàm đã sửa nên bị
+gán theo dòng; `git diff -U0` chỉ có hunk ở `RotateAsync`, `FindForLoginAsync`, `FindMeAsync` và hàm mới `IsActiveAsync`. Impact trước
+khi sửa: bảng Mục 1.2 (không HIGH/CRITICAL); `LoginCandidate` LOW (4 — store + fake `LoginServiceTests`).
+
+### Các đầu việc còn lại
+
+D2 → D13. Mỗi đầu việc khi xong điền theo khuôn của hướng dẫn khối A+C:
 
 - chỗ nào đi theo / không theo đề xuất Mục 0.6, và vì sao;
 - lệch so với chính tài liệu này;

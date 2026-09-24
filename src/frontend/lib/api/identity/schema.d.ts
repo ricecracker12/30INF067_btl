@@ -300,21 +300,36 @@ export interface components {
             status: components["schemas"]["UserStatus"];
             /** Format: date-time */
             createdAt: string;
+            /**
+             * @description Quyền **hiệu lực** của vai trò hiện tại (GĐ6, Đ-6.11), đọc từ DB cùng lúc với `role` — không
+             *     từ token. `ADMIN` nhận cả 18 mã (lối tắt tầng 2, không có dòng `role_permissions` nào); vai
+             *     trò khác nhận đúng tập trong `role_permissions`, theo thứ tự `permission_id`.
+             *
+             *     FE dùng trường này **chỉ để vẽ** (ẩn/hiện liên kết, guard mềm) — server vẫn chặn thật ở
+             *     tầng 2. Nạp lại `/me` khi tab lấy lại focus là cách thay đổi quyền hiện ra mà không tải
+             *     lại trang.
+             */
+            permissions: string[];
         };
         /**
          * @description `roles.code` — **bất biến theo hợp đồng API**. Không endpoint nào cho phép sửa trường này;
          *     endpoint sửa vai trò ở GĐ6 chỉ nhận `displayName`.
          *
+         *     Ba vai trò hệ thống luôn có: `USER`, `MODERATOR`, `ADMIN`. Từ GĐ6 Admin tạo được vai trò mới
+         *     (`admin-v1`), nên giá trị là chuỗi mở — **GĐ1–GĐ5 là enum ba giá trị** (mở lại chỉ-thêm
+         *     2026-09-24). FE không suy quyền từ tên vai trò: dùng `MeResponse.permissions`.
+         *
          *     Đây cũng chính là giá trị của claim `role` trong JWT, cho **mọi** vai trò. `ADMIN` đi lối
          *     tắt ở tầng 2 nên không có dòng nào trong `role_permissions` — đúng thiết kế, không phải
          *     thiếu dữ liệu seed.
          * @example USER
-         * @enum {string}
          */
-        RoleCode: "USER" | "MODERATOR" | "ADMIN";
+        RoleCode: string;
         /**
-         * @description Khớp `CONSTRAINT ck_users_status`. Ở GĐ1 chỉ `active` xuất hiện thực tế — khóa do lockout
-         *     FR-003 là trạng thái tạm nằm ở cột `locked_until`, còn `disabled`/`deleted` chờ GĐ6/GĐ8.
+         * @description Khớp `CONSTRAINT ck_users_status`. Khóa do lockout FR-003 là trạng thái tạm nằm ở cột
+         *     `locked_until`, không ở đây. `disabled` = bị quản trị viên khóa (GĐ6) — tài khoản đó không
+         *     đăng nhập, không refresh được nên không bao giờ gọi được `/me`. `locked` không ai ghi (giữ
+         *     trong CHECK để khỏi migration); `deleted` chờ GĐ8.
          * @example active
          * @enum {string}
          */
@@ -613,22 +628,22 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetails"];
                 };
             };
-            /** @description Tài khoản chưa xác minh email (AC-04). */
+            /**
+             * @description Mật khẩu đúng nhưng không được đăng nhập. Hai nghĩa, phân biệt bằng `type` (FE **không** so `title`):
+             *
+             *     | `type` | Nghĩa |
+             *     |---|---|
+             *     | `https://httpstatuses.io/403` | Tài khoản chưa xác minh email (AC-04) |
+             *     | `urn:socialapp:problem:account-disabled` | Tài khoản bị quản trị viên khóa (GĐ6, Đ-6.5) |
+             *
+             *     Cả hai chỉ trả **sau** khi mật khẩu đúng: sai mật khẩu luôn là 401, nên người không biết mật
+             *     khẩu không dò được tài khoản nào bị khóa hay chưa xác minh.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    /**
-                     * @example {
-                     *       "type": "https://httpstatuses.io/403",
-                     *       "title": "Bị từ chối",
-                     *       "status": 403,
-                     *       "detail": "Tài khoản chưa xác minh email. Vui lòng kiểm tra hộp thư.",
-                     *       "instance": "/api/v1/auth/login",
-                     *       "traceId": "7d3f1b5e9a2c4068b4d6f8a0c2e4b6d8"
-                     *     }
-                     */
                     "application/problem+json": components["schemas"]["ProblemDetails"];
                 };
             };
@@ -762,7 +777,20 @@ export interface operations {
                      *       "roleDisplayName": "Người dùng",
                      *       "emailVerifiedAt": "2026-09-08T03:14:07Z",
                      *       "status": "active",
-                     *       "createdAt": "2026-09-08T03:10:22Z"
+                     *       "createdAt": "2026-09-08T03:10:22Z",
+                     *       "permissions": [
+                     *         "post.read.public",
+                     *         "post.read.friends",
+                     *         "post.create",
+                     *         "post.update",
+                     *         "post.delete",
+                     *         "comment.create",
+                     *         "reaction.set",
+                     *         "friend.request",
+                     *         "friend.respond",
+                     *         "message.send",
+                     *         "report.create"
+                     *       ]
                      *     }
                      */
                     "application/json": components["schemas"]["MeResponse"];

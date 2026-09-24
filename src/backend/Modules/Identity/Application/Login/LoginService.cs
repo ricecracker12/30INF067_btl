@@ -2,6 +2,7 @@ using System.Net;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using SocialApp.Modules.Identity.Application.Security;
+using SocialApp.Modules.Identity.Domain;
 using SocialApp.SharedKernel.Authentication;
 using SocialApp.SharedKernel.Ids;
 using SocialApp.SharedKernel.Observability;
@@ -49,6 +50,12 @@ public sealed class LoginService(
             BusinessMetrics.LoginFailed();
             return IdentityErrors.InvalidCredentials;   // CÙNG đối tượng lỗi với bước 2
         }
+
+        // 4b. Bị Admin khóa (GĐ6, Đ-6.5) → 403 `account-disabled`. SAU bước kiểm mật khẩu là cố ý: người không biết mật khẩu
+        //     không được biết tài khoản bị khóa (khác 423 của FR-003). Không reset bộ đếm, không phát token. Giá trị `locked`
+        //     của UserStatus không ai ghi — chỉ so `disabled`.
+        if (user.Status == UserStatus.Disabled)
+            return IdentityErrors.AccountDisabled;
 
         // 5. Chưa xác minh → 403. Mật khẩu đúng nhưng KHÔNG reset bộ đếm và KHÔNG phát token.
         if (user.EmailVerifiedAt is null)

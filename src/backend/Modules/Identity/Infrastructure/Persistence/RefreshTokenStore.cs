@@ -72,6 +72,13 @@ internal sealed class RefreshTokenStore(IdentityDbContext db) : IRefreshTokenSto
                 && row.RevokedAt > now - RefreshTokenPolicy.ReuseGracePeriod
                 && await db.RefreshTokens.AnyAsync(t => t.FamilyId == row.FamilyId && t.RevokedAt == null, ct))
             {
+                // Nhánh này cũng PHÁT token — cùng lưới trạng thái tài khoản với bước 5 (Đ-6.5).
+                if (!await IsActiveAsync(row.UserId, ct))
+                {
+                    await transaction.CommitAsync(ct);
+                    return RotateOutcome.Invalid.Instance;
+                }
+
                 // Token ANH EM cùng family, không đụng token kế nhiệm: DB chỉ giữ băm của nó, không có bản rõ để trả lại.
                 db.RefreshTokens.Add(Successor(row, newTokenHash, newExpiresAt, createdIp, now));
                 await db.SaveChangesAsync(ct);
@@ -91,6 +98,16 @@ internal sealed class RefreshTokenStore(IdentityDbContext db) : IRefreshTokenSto
 
         // 4. Hết hạn — không phải reuse, family giữ nguyên.
         if (row.ExpiresAt <= now)
+        {
+            await transaction.CommitAsync(ct);
+            return RotateOutcome.Invalid.Instance;
+        }
+
+        // 4b. Tài khoản không còn hoạt động (Admin khóa — GĐ6 Đ-6.5) → 401 như refresh hỏng, KHÔNG xoay. Lưới thứ hai: khóa tài
+        //     khoản đã thu hồi mọi family, nhưng đường nào quên bước đó thì refresh vẫn không cấp được token. Kiểm TRƯỚC khi chèn
+        //     token kế nhiệm — RoleCodeAsync ở cuối là quá muộn (token mới đã nằm trong DB). Không thu hồi family ở đây: việc đó
+        //     là của đường khóa, trong transaction của nó.
+        if (!await IsActiveAsync(row.UserId, ct))
         {
             await transaction.CommitAsync(ct);
             return RotateOutcome.Invalid.Instance;
@@ -155,6 +172,10 @@ internal sealed class RefreshTokenStore(IdentityDbContext db) : IRefreshTokenSto
         CreatedIp = createdIp,
         CreatedAt = now,
     };
+
+    // Chỉ `active` được cấp token mới — `disabled` (Admin khóa), `deleted` (GĐ8) đều không. `locked` không ai ghi (Đ-6.5).
+    private Task<bool> IsActiveAsync(Guid userId, CancellationToken ct) =>
+        db.Users.AnyAsync(u => u.UserId == userId && u.Status == UserStatus.Active, ct);
 
     // Vai trò cho access token mới đọc từ DB (join users → roles), KHÔNG chép từ token cũ: hạ/nâng quyền ở GĐ6 có hiệu lực
     // sau một lần refresh (Mục 7.5).

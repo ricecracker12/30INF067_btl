@@ -301,6 +301,10 @@ tài khoản khác.
 401 như refresh hỏng. Đây là **lưới thứ hai**: khóa tài khoản đã thu hồi mọi refresh family (Đ-6.6), nhưng nếu một ngày ai đó
 quên bước đó thì refresh vẫn không cấp được token cho tài khoản bị khóa.
 
+*Sửa 2026-09-24 khi thi công D1* (L-D2 của `huong-dan-khoi-d-endpoint-nghiep-vu.md`): điều kiện **không** nằm trong join đọc vai
+trò — join đó chạy sau khi token kế nhiệm đã chèn. `RotateAsync` kiểm `status = 'active'` **trước mỗi chỗ phát token**: nhánh ân hạn
+3a (phát token anh em) và trước bước 5 (xoay). Không đạt → `Invalid` (401), không xoay, không chèn dòng nào.
+
 **Mở khóa** (`unlock`) đưa `status` về `active` **và** xóa `locked_until`, `failed_login_count` — Admin mở khóa thì người dùng
 vào được ngay, không phải đợi hết 15 phút của FR-003.
 
@@ -434,6 +438,10 @@ có `report.resolve` cũng phải thấy hàng đợi. Chốt:
   bằng chứng phân quyền.
 - FE nạp lại `/me` khi cửa sổ lấy lại focus và khi vào một route cần quyền. Đó là cách "Admin nâng quyền X" hiện ra trên màn
   của X mà X không phải tải lại trang — **bằng chứng UI** mà kế hoạch gốc đòi (mốc 1).
+
+*Sửa 2026-09-24 khi thi công D1* (L-D16): `RoleCode` của `identity-v1.yaml` là enum `[USER, MODERATOR, ADMIN]` từ GĐ1 — `/me.role`
+của vai trò tự tạo sẽ nằm ngoài hợp đồng. Nới thành chuỗi có pattern `^[A-Z][A-Z0-9_]{2,29}$` (cùng luật mã của Đ-6.9), cùng commit
+với `permissions`. FE sinh `RoleCode = string`; không chỗ nào của FE so tên vai trò.
 
 ### Nhóm III — Kiểm duyệt
 
@@ -1175,7 +1183,7 @@ nhận hai lần hay sai thứ tự đều vô hại. Nối lại → nạp lạ
 | File | Thêm | Không đổi |
 |---|---|---|
 | `profile-v1.yaml` | `GET /search?q=&type=user&limit=` → 200 `{ items: [{ userId, displayName, avatarUrl? }] }` · 400 `errors.q` · 401 | Mọi schema GĐ2 |
-| `identity-v1.yaml` | `MeResponse.permissions: string[]` (required) · `POST /auth/login` thêm 403 type `…:account-disabled` | Mọi trường đã có; 403 `email-not-verified` giữ nguyên type riêng |
+| `identity-v1.yaml` | `MeResponse.permissions: string[]` (required) · `POST /auth/login` thêm 403 type `…:account-disabled` · `RoleCode` nới từ enum thành chuỗi có pattern (*sửa 2026-09-24, D1 — L-D16*) | Mọi trường đã có; 403 `email-not-verified` giữ nguyên type riêng |
 | `content-v1.yaml` | `PostResponse.moderation?: { status: "hidden", reasonCode, hiddenAt }` · `PATCH /posts/{id}` thêm 409 `…:post-hidden` | Mọi trường GĐ2/GĐ3/GĐ4 |
 
 Mỗi lần mở: `info.version` → `…-gd6`, `pnpm gen:api`, commit `schema.d.ts` **cùng commit**, cổng `API contract` + codegen xanh.
@@ -1820,6 +1828,10 @@ dòng hub ở Mục 12 ghi "chờ GĐ5 — đang chạy chế độ hỏi lại"
 Đ-6.5, Đ-6.11; mở `identity-v1.yaml` chỉ-thêm **trong cùng commit**. **Xong khi:** `ADM-01` (phần login/refresh), `ME-01` xanh; cổng
 hợp đồng Identity xanh; codegen FE xanh.
 
+*Sửa 2026-09-24 khi thi công D1* (L-D2, L-D3, L-D16 của `huong-dan-khoi-d-endpoint-nghiep-vu.md`): kiểm `status` ở refresh đứng trước
+mỗi chỗ phát token, không trong join vai trò; fixture `MeResponse` của `mocks/` và test kiểu `RoleCode` của FE sửa cùng commit;
+`RoleCode` nới thành chuỗi có pattern.
+
 ### D2 — `GET /admin/users`, `GET /admin/users/{id}`
 
 Keyset `(created_at, user_id)`; `q` tiền tố email (citext `LIKE q || '%'` có escape); hydrate `displayName` một lô `IUserDirectory`.
@@ -1901,6 +1913,11 @@ nội dung. **Xong khi:** ba lớp cổng hợp đồng mới + ba cũ xanh hai 
 ## B.7 Khối B — Test và cổng CI
 
 > **Mục tiêu khối:** biến mọi luật của Phần A thành thứ **chặn merge**, giữ tinh thần GĐ1: khung không sửa, chỉ thêm dòng.
+
+*Sửa 2026-09-24 (L-D7 của `huong-dan-khoi-d-endpoint-nghiep-vu.md`, chốt trước khối D):* khối B **không còn commit riêng**. Dòng
+matrix (B2), ca đồng thời (B3), ca transaction (B5) đi cùng commit D làm chúng xanh; B1 đi cùng D đầu tiên dùng helper; B4 đi cùng
+endpoint đầu tiên của mỗi nhóm (L-D1). "Viết cho đỏ trước" làm ở local — bằng chứng là bảng đột biến trong thân commit và mô tả PR,
+không phải một commit đỏ trên nhánh (PR vào `develop` giữa giai đoạn thì commit đỏ là CI đỏ).
 
 ### B1 — Harness
 
