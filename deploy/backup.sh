@@ -31,9 +31,14 @@ log() { echo "$(date -u +%FT%TZ) [$MODE] $*"; }
 pg()  { docker compose exec -T postgres "$@"; }
 env_value() { { grep -E "^$1=" "$BACKUP_ENV" 2>/dev/null || true; } | head -1 | cut -d= -f2-; }
 
-# full (03:00) và sync (*/15) có thể gặp nhau — không cho chạy chồng
+# full (20:00 UTC) và sync (*/15) CHẮC CHẮN gặp nhau ở phút :00 — không cho chạy chồng. sync nhường (lần sau
+# 15 phút nữa); full phải CHỜ, vì full bỏ qua = mất bản ngày + không báo Kuma → Push đỏ sau 26 giờ.
 exec 9>/tmp/socialmedia-backup.lock
-flock -n 9 || { log "đang có lần chạy khác — bỏ qua"; exit 0; }
+if [ "$MODE" = full ]; then
+  flock -w 1800 9 || { log "LỖI: chờ khóa 30 phút vẫn bị lần chạy khác giữ"; exit 1; }
+else
+  flock -n 9 || { log "đang có lần chạy khác — bỏ qua"; exit 0; }
+fi
 
 sync_to_r2() {
   if [ ! -f "$BACKUP_ENV" ]; then
