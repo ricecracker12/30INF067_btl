@@ -891,6 +891,7 @@ xanh; `socialapp_reports_decided_total` có ba nhãn từ lúc khởi động.
    Thử cho đỏ trước khi commit: bỏ `FOR UPDATE` → `MOD-C1` đỏ; bước 5 chỉ đóng `id = @rid` → `MOD-01` đỏ (còn 2 báo cáo mở); audit
    ghi `tx: null` → `TX-01` đỏ (đột biến bắt buộc của B5, bản qua API). *Sửa 2026-09-25 khi thi công D7c:* `tx: null` là đột biến
    TƯƠNG ĐƯƠNG ở đây (nhánh null của `SqlAuditTrail` dùng chính kết nối scoped đang giữ transaction) — thay bằng "audit ghi SAU `COMMIT`".
+   *Sửa lần hai 2026-09-25 (fix(gd6-c)):* nhánh null nay mở kết nối riêng — `tx: null` lại là đột biến có nghĩa, `TX-01` bắt.
 
 ### Cạm bẫy đã biết
 
@@ -1261,7 +1262,8 @@ tự merge. Mô tả PR mang danh sách tự rà B.10 (tám mục) và bảng đ
 
 **Mốc 3 — ẩn + đóng báo cáo + audit một transaction**
 
-- [ ] `MOD-01..06`, `MOD-C1` (20/20), `TX-01`, `TX-02` qua API xanh; `TX-01` đã đỏ khi audit ghi sau `COMMIT` (*sửa 2026-09-25:* `tx: null` tương đương — Thực tế thi công D7c)
+- [ ] `MOD-01..06`, `MOD-C1` (20/20), `TX-01`, `TX-02` qua API xanh; `TX-01` đã đỏ khi audit ghi `tx: null` VÀ khi audit ghi sau `COMMIT` (*sửa 2026-09-25:* `tx: null` từng tương đương tới khi
+  fix(gd6-c) đổi nhánh null sang kết nối riêng — Thực tế thi công D7c)
 - [ ] `AUD-01` (không `SECRET-` trong audit), `AUD-03` qua endpoint thật, `AUD-04` xanh
 - [ ] `HID-01..06` xanh; hai lỗ BR-07 (L-D4) ghi trong thân commit D7a
 
@@ -1302,7 +1304,7 @@ tự merge. Mô tả PR mang danh sách tự rà B.10 (tám mục) và bảng đ
 | Bỏ kiểm `post.hide` | `ROLE-01` (vế `hide`) |
 | Bước 5 D7c chỉ đóng `id = @rid` | `MOD-01` |
 | Bỏ `FOR UPDATE` ở D7c | `MOD-C1` |
-| Audit D7c ghi SAU `COMMIT` (*sửa 2026-09-25 khi thi công D7c:* bản đầu ghi "`tx: null`" — tương đương, xem Thực tế thi công D7c) | `TX-01` (API) |
+| Audit D7c ghi `tx: null` · ghi SAU `COMMIT` (*sửa 2026-09-25:* `tx: null` tương đương lúc thi công D7c, có nghĩa lại sau fix(gd6-c) — xem Thực tế thi công D7c) | `TX-01` (API) |
 | `GetAsync` bỏ nhánh `hidden` cho người khác | `HID-02`, `HID-03` |
 | `UpdateAsync` bỏ 409 | `HID-04` |
 | Upsert tăng `actor_count` mỗi lượt | `NOTIF-04` |
@@ -1844,6 +1846,10 @@ nguyên byte (`md5`):
 hành vi đúng của code hiện tại, không phải test yếu: nhánh `tx: null` của `SqlAuditTrail` ghi trên kết nối của `ModerationDbContext`
 **scoped** — chính kết nối đang giữ transaction của store — nên Postgres cho câu `INSERT` vào luôn transaction đó (Npgsql không bắt
 gán `cmd.Transaction`). Thay bằng M3b (audit SAU `COMMIT`) để chứng minh `TX-01` canh đúng "audit cùng số phận". Dòng Mục 20 sửa theo.
+
+*Cập nhật 2026-09-25 — ĐÃ SỬA ở commit `fix(gd6-c)` riêng (người thi công chọn đổi hiện thực):* nhánh `tx: null` nay mở kết nối RIÊNG
+từ cùng pool; ca `AuditTrailTests.Khong_tx_song_sot_khi_transaction_cua_scope_rollback` đỏ với bản cũ. M3 hết tương đương: chạy lại,
+`TX_01_audit_hong_giua_chung_khong_gi_thay_doi` đỏ. Đoạn dưới giữ nguyên làm dấu vết.
 
 **Điểm tìm ra khi rà, CHƯA sửa (ngoài phạm vi D7c — code của C1):** `IAuditTrail` hứa "`tx` null → tự ghi trên kết nối riêng", nhưng
 `SqlAuditTrail` dùng kết nối của context scoped. Ai gọi `AppendAsync(null, access.denied)` trong lúc CÙNG scope đang mở transaction

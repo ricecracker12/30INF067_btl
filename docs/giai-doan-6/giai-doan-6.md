@@ -1762,6 +1762,10 @@ của `ModerationDbContext` — repo không đăng ký `NpgsqlDataSource` nào, 
 hợp đồng); bản đầy đủ qua `PATCH /reports` là của D7. Đột biến B5 "hiện thực ghi trên kết nối riêng dù có `tx`" đã chạy ở C1 →
 `TX-01` đỏ (còn 1 dòng audit sau rollback).
 
+*Sửa 2026-09-25 (tìm ra khi thi công D7c, sửa ở `fix(gd6-c)`):* `tx == null` mở `new NpgsqlConnection` với **chính** chuỗi kết nối của
+`ModerationDbContext` — kết nối riêng từ **cùng** pool (Npgsql gom pool theo chuỗi), không phải kết nối scoped. Kết nối scoped có thể
+đang giữ transaction của người gọi, và khi đó dòng `access.denied` mất theo rollback — trái dòng 242 phía trên ("tự mở kết nối riêng").
+
 ### C2 — `IModerationTargets` + hiện thực (Đ-6.3, Đ-6.12, Đ-6.14)
 
 **Làm gì:** interface ở `SharedKernel/Moderation/`; `ContentModerationTargets` (bài; bình luận **sau khi A merge**) ở Content;

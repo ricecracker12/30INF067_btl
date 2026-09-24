@@ -8,6 +8,7 @@ using SocialApp.IntegrationTests.Harness;
 using SocialApp.Modules.Identity.DependencyInjection;
 using SocialApp.Modules.Identity.Infrastructure;
 using SocialApp.Modules.Moderation.DependencyInjection;
+using SocialApp.Modules.Moderation.Infrastructure;
 using SocialApp.SharedKernel.Audit;
 using Xunit;
 
@@ -161,6 +162,29 @@ public sealed class AuditTrailTests(PostgresFixture postgres) : IAsyncLifetime
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => audit.AppendAsync(dbTx, LockEntry()));
         Assert.Equal("0", await ScalarAsync("select count(*)::text from moderation.audit_logs"));
+    }
+
+    /// <summary>
+    /// <c>tx == null</c> là kết nối RIÊNG (lời hứa của <see cref="IAuditTrail"/>): ghi <c>access.denied</c> trong lúc CHÍNH
+    /// <c>ModerationDbContext</c> của cùng scope đang giữ transaction, rồi transaction đó rollback → dòng audit VẪN còn, còn thứ ghi
+    /// trong transaction thì mất (đối chứng: đúng là có transaction đang mở và đã rollback). Việc treo của D7c (2026-09-25): bản đầu
+    /// dùng kết nối scoped nên dòng này biến mất cùng rollback — ca đỏ với bản đó.
+    /// </summary>
+    [Fact]
+    public async Task Khong_tx_song_sot_khi_transaction_cua_scope_rollback()
+    {
+        await using (var scope = _services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ModerationDbContext>();
+            var audit = scope.ServiceProvider.GetRequiredService<IAuditTrail>();
+
+            await using var tx = await db.Database.BeginTransactionAsync();
+            await audit.AppendAsync(tx.GetDbTransaction(), LockEntry());   // đối chứng: phải mất theo rollback
+            await audit.AppendAsync(null, new AuditEntry(Admin, AuditActions.AccessDenied, "endpoint", null));
+            await tx.RollbackAsync();
+        }
+
+        Assert.Equal("access.denied", await ScalarAsync("select string_agg(action, ',') from moderation.audit_logs"));
     }
 
     private static AuditEntry LockEntry() => new(
