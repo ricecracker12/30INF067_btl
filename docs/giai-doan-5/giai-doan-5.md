@@ -1754,3 +1754,15 @@ và log test thì có.
 | C5 | *(commit C5)* | `IPresenceReader` + `RedisPresenceTracker` (sorted set `rt:presence:{userId}`, member = connectionId, score = hạn 90 s, gia hạn mỗi 30 s cho kết nối CỦA instance này, `KeyExpire` chống khóa mồ côi) + `PresenceHubFilter` toàn cục. Redis không trả lời → `false` (offline) — với người tiêu thụ duy nhất (thông báo GĐ6) thì thừa một thông báo an toàn hơn mất một thông báo. **Không cắt** (Đ-6.17 cần) |
 
 Đột biến: đếm mọi member thay vì chỉ member còn hạn → ca "instance chết" đỏ, đã khôi phục.
+
+## C4 — Backplane (2026-09-24)
+
+| Việc | Commit | Kết quả / chỗ lệch |
+|---|---|---|
+| C4 | *(commit C4)* | `Realtime:Backplane:Enabled` (mặc định `false`) → `AddStackExchangeRedis` với kết nối RIÊNG (không dùng kết nối chung timeout 250 ms), `ChannelPrefix = socialapp-{môi trường}`. Khóa mới trong `deploy/.env.example` |
+
+**Lệch B.5 C4:** thay vì thử tay bằng compose `--scale api=2` sau Caddy tạm, `BackplaneTests` dựng HAI host thật (TestServer) chung
+Postgres + Redis: A nối bản sao 1, B nối bản sao 2 → có backplane thì B nhận, tắt thì không (đối chứng). Cùng bằng chứng, nhưng chạy
+lại mỗi lần — GĐ7 khối E bật cờ là biết ngay. Checklist Mục 12 dòng backplane: "xanh ở test hai host — chưa bật trên staging".
+
+**Theo dõi:** bộ Integration lên 627 ca, 2 phút 31 giây — sát ngưỡng ~3 phút của GĐ1 để tách collection Postgres. Chưa tách.

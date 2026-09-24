@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using SocialApp.SharedKernel.Redis;
+using StackExchange.Redis;
 
 namespace SocialApp.SharedKernel.Realtime;
 
@@ -19,7 +20,7 @@ public static class RealtimeExtensions
     /// SignalR + kho vé + <see cref="SubClaimUserIdProvider"/> + <see cref="RevocationHubFilter"/> toàn cục. Đòi
     /// <see cref="RedisConnection"/> đã đăng ký (<c>AddSharedKernelRedis</c>) — thiếu thì chết ngay lúc khởi động.
     /// </summary>
-    public static ISignalRServerBuilder AddSharedKernelRealtime(this IServiceCollection services)
+    public static ISignalRServerBuilder AddSharedKernelRealtime(this IServiceCollection services, RealtimeBackplane? backplane = null)
     {
         if (!services.Any(d => d.ServiceType == typeof(RedisConnection)))
             throw new InvalidOperationException(
@@ -35,7 +36,7 @@ public static class RealtimeExtensions
         services.AddSingleton<IPresenceReader>(sp => sp.GetRequiredService<RedisPresenceTracker>());
         services.AddHostedService(sp => sp.GetRequiredService<RedisPresenceTracker>());
 
-        return services
+        var signalR = services
             .AddSignalR(o =>
             {
                 o.AddFilter<RevocationHubFilter>();
@@ -48,6 +49,19 @@ public static class RealtimeExtensions
                 // Cùng quy ước JSON với REST (Program.cs): camelCase, enum là chuỗi thường ("delivered" | "seen").
                 o.PayloadSerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
             });
+
+        // C4 (Đ-5.13, ADR-003): backplane Redis CHỈ khi bật — một instance thì nó chỉ thêm một điểm hỏng (Redis chết = mọi lần đẩy
+        // chết, kể cả tới kết nối cùng instance). Kết nối RIÊNG, không dùng RedisConnection chung: kết nối chung có SyncTimeout =
+        // AsyncTimeout = 250 ms (RedisExtensions) — hợp cho kiểm thu hồi, quá ngắn cho pub/sub. ChannelPrefix theo môi trường để
+        // staging và production chung một Redis không nghe lẫn nhau.
+        if (backplane is { Enabled: true })
+            signalR.AddStackExchangeRedis(backplane.ConnectionString, o =>
+            {
+                o.Configuration.ChannelPrefix = RedisChannel.Literal(backplane.ChannelPrefix);
+                o.Configuration.AbortOnConnectFail = false;
+            });
+
+        return signalR;
     }
 
     /// <summary>
@@ -57,3 +71,9 @@ public static class RealtimeExtensions
     public static AuthenticationBuilder AddRealtimeTicket(this AuthenticationBuilder builder) =>
         builder.AddScheme<AuthenticationSchemeOptions, RealtimeTicketAuthenticationHandler>(RealtimeTicketDefaults.Scheme, null);
 }
+
+/// <summary>
+/// Cấu hình backplane (C4). <see cref="Enabled"/> đọc từ <c>Realtime:Backplane:Enabled</c> (mặc định <c>false</c> — staging hiện một
+/// bản sao); bật khi GĐ7 khối E chạy bản sao thứ hai. <see cref="ChannelPrefix"/> = <c>socialapp-{môi trường}</c>.
+/// </summary>
+public sealed record RealtimeBackplane(bool Enabled, string ConnectionString, string ChannelPrefix);

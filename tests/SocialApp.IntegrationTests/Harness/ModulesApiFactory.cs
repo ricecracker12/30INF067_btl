@@ -40,6 +40,7 @@ public sealed class ModulesApiFactory : WebApplicationFactory<Program>
     private Task<string>? _database;
     private string _redis = ApiFactory.UnreachableRedis;   // mặc định GIỮ NGUYÊN: mọi lớp cũ vẫn chạy không Redis
     private Action<IServiceCollection>? _testServices;
+    private readonly Dictionary<string, string> _settings = new(StringComparer.Ordinal);
 
     /// <summary>
     /// C5: lưu trữ đối tượng giả. Test dựng sẵn object bằng <c>Storage.Put(...)</c> rồi gọi API thật. MỘT instance cho cả
@@ -71,6 +72,12 @@ public sealed class ModulesApiFactory : WebApplicationFactory<Program>
     /// <c>IClassFixture&lt;ModulesApiFactory&gt;</c> dựng một factory cho mỗi lớp test, không dùng chung giữa các lớp.
     /// </summary>
     public void UseTestServices(Action<IServiceCollection> configure) => _testServices = configure;
+
+    /// <summary>
+    /// C4 (GĐ5): đặt một khóa cấu hình của host (vd <c>Realtime:Backplane:Enabled</c>). Gọi trước CreateClient đầu tiên — cùng luật
+    /// với <see cref="UseRedis"/>.
+    /// </summary>
+    public void UseSetting(string key, string value) => _settings[key] = value;
 
     public string ConnectionString => _database is { IsCompletedSuccessfully: true } db
         ? db.Result
@@ -127,6 +134,8 @@ public sealed class ModulesApiFactory : WebApplicationFactory<Program>
         builder.UseSetting("ConnectionStrings:Postgres", ConnectionString);
         builder.UseSetting("ConnectionStrings:Redis", _redis);
         TestJwt.Configure(builder);
+        foreach (var (key, value) in _settings)
+            builder.UseSetting(key, value);
 
         builder.ConfigureTestServices(services =>
         {

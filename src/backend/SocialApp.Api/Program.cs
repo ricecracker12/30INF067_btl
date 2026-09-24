@@ -349,7 +349,10 @@ builder.Services.AddSharedKernelTokenRevocation();
 
 // Realtime (GĐ5 Đ-5.8–Đ-5.10): SignalR + vé dùng một lần + IUserIdProvider đọc "sub" + filter thu hồi/tuổi thọ TOÀN CỤC cho mọi
 // hub (/hubs/chat của GĐ5, /hubs/notifications của GĐ6 dùng lại — Đ-6.18). Dùng chung kết nối Redis ở trên.
-builder.Services.AddSharedKernelRealtime();
+builder.Services.AddSharedKernelRealtime(new RealtimeBackplane(
+    builder.Configuration.GetValue<bool>("Realtime:Backplane:Enabled"),
+    redis,
+    $"socialapp-{builder.Environment.EnvironmentName.ToLowerInvariant()}"));
 
 // MỘT chỗ đăng ký lưu trữ đối tượng cho cả app (Đ-2.14): Profile (avatar), Content (ảnh bài), GĐ5 (media tin nhắn) dùng chung
 // IObjectStorage; không module nào gọi AWS SDK. r2 đã qua RequireR2Options ở trên — ngoài Development chắc chắn đủ.

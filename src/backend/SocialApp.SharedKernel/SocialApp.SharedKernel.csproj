@@ -25,6 +25,9 @@
          Prometheus. Không dùng System.Diagnostics.Metrics: đã thử 4 cách, counter không tự xuất ra /metrics (hướng dẫn khối
          C, Mục 2). Cùng version với prometheus-net.AspNetCore của Api — lệch là hai bản prometheus-net trong một process. -->
     <PackageReference Include="prometheus-net" Version="8.2.1" />
+    <!-- GĐ5 C4 (Đ-5.13, ADR-003): backplane Redis cho SignalR khi có bản sao API thứ hai. Ghim 8.0.x cùng lineage net8; chỉ nạp
+         vào pipeline khi Realtime:Backplane:Enabled = true. Managed code thuần — chạy được trên ARM64. -->
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.StackExchangeRedis" Version="8.0.10" />
   </ItemGroup>
 
 </Project>
