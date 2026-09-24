@@ -12,6 +12,7 @@ using SocialApp.Modules.Identity.Application.Login;
 using SocialApp.Modules.Identity.Application.Me;
 using SocialApp.Modules.Identity.Application.Session;
 using SocialApp.Modules.Identity.Application.Registration;
+using SocialApp.Modules.Identity.Application.Roles;
 using SocialApp.Modules.Identity.Application.Security;
 using SocialApp.Modules.Identity.Infrastructure;
 using SocialApp.Modules.Identity.Infrastructure.Authorization;
@@ -77,6 +78,10 @@ public static class IdentityModuleExtensions
         services.AddScoped<IAccountAdministrationStore, AccountAdministrationStore>();
         services.AddScoped<UserRevoker>();
         services.AddScoped<AccountAdministrationService>();
+
+        // GĐ6 D5: CRUD vai trò. RoleAdministrationService cần IPermissionChangeNotifier (SharedKernel, C3) — host đăng ký.
+        services.AddScoped<IRoleStore, RoleStore>();
+        services.AddScoped<RoleAdministrationService>();
         return services;
     }
 

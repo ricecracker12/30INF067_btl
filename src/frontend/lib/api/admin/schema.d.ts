@@ -140,6 +140,115 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Mọi vai trò, kèm quyền hiệu lực và số người mang
+         * @description Tầng 2: `role.manage` (chỉ ADMIN có — Đ-6.9). Sắp theo `roleId`. `ADMIN` có `permissions` = cả 18 mã và
+         *     `editable: false`.
+         */
+        get: operations["listAdminRoles"];
+        put?: never;
+        /**
+         * Tạo vai trò
+         * @description `code` bất biến từ lúc tạo — không endpoint nào sửa được nó (Đ-6.9). `permissions` là tập mã GÁN ĐƯỢC
+         *     (`GET /admin/permissions` với `assignable: true`); rỗng được — vai trò tự tạo không có luật "ít nhất một quyền".
+         *
+         *     | Tình huống | Phản hồi |
+         *     |---|---|
+         *     | Mã sai dạng, trùng ba mã hệ thống, tên rỗng/quá 50, mã quyền lạ hoặc `role.manage` | 400 theo trường |
+         *     | Mã đã có | 409 `role-code-taken` |
+         */
+        post: operations["createAdminRole"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/roles/{roleId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Xóa vai trò tự tạo
+         * @description Ba vai trò hệ thống → 409 `system-role`. Còn tài khoản mang vai trò (mọi trạng thái) → 409 `role-in-use` — gán họ sang
+         *     vai trò khác trước. Tập quyền của vai trò bị xóa theo. Cache quyền mọi instance được xóa ngay (Đ-6.10).
+         */
+        delete: operations["deleteAdminRole"];
+        options?: never;
+        head?: never;
+        /**
+         * Đổi tên hiển thị của vai trò
+         * @description CHỈ nhận `displayName` (1–50 ký tự sau cắt khoảng trắng). Body có `code` hay trường lạ bất kỳ → 400 theo tên trường —
+         *     không lờ đi (GĐ1 Mục 3.1). Đổi tên vai trò hệ thống được. Cùng tên → 200, không ghi nhật ký.
+         */
+        patch: operations["renameAdminRole"];
+        trace?: never;
+    };
+    "/admin/roles/{roleId}/permissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Thay cả tập quyền của vai trò
+         * @description Thay **cả tập** (idempotent) — gửi đúng tập muốn có, không gửi phần thêm/bớt. Có hiệu lực ở request KẾ TIẾP trên mọi
+         *     instance (Đ-6.10) — người mang vai trò không phải đăng nhập lại.
+         *
+         *     | Tình huống | Phản hồi |
+         *     |---|---|
+         *     | `ADMIN` | 409 `system-role` — ADMIN có mọi quyền, không có tập nào để sửa |
+         *     | Mã quyền lạ hoặc `role.manage` | 400 `errors.permissions` |
+         *     | Không đổi gì | 200, không ghi nhật ký |
+         *     | `USER`/`MODERATOR` về tập rỗng | 400 `errors.permissions` |
+         *     | `USER`/`MODERATOR` có thay đổi mà thiếu `confirm: true` | **409** `confirmation-required` kèm `added`, `removed`, `affectedUsers` — không đổi gì; FE hiện đúng các con số đó rồi gửi lại với `confirm: true` |
+         *
+         *     Bước xác nhận bắt buộc ở SERVER — gọi thẳng API cũng phải qua.
+         */
+        put: operations["setAdminRolePermissions"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/permissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Danh mục 18 mã quyền
+         * @description Theo `permission_id`. `assignable: false` đúng với một mã, `role.manage` — chỉ ADMIN có (Đ-6.9), không gán cho vai trò
+         *     nào qua API (L-D19); FE vẽ ô đó khóa.
+         */
+        get: operations["listAdminPermissions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -253,6 +362,65 @@ export interface components {
              */
             roleCode: string;
         };
+        /** @description 409 của vai trò (Đ-6.9). Cùng hình dạng `ProblemDetails`, `type` cho biết loại. */
+        RoleConflictProblem: components["schemas"]["ProblemDetails"] & {
+            /** @enum {string} */
+            type: "urn:socialapp:problem:role-code-taken" | "urn:socialapp:problem:system-role" | "urn:socialapp:problem:role-in-use";
+        };
+        /**
+         * @description 409 khi sửa quyền USER/MODERATOR mà chưa xác nhận (Đ-6.9, L-D11). Không có gì bị đổi. `added`/`removed` sắp theo mã;
+         *     `affectedUsers` đếm MỌI tài khoản mang vai trò (kể cả đang bị khóa).
+         */
+        ConfirmationRequiredProblem: components["schemas"]["ProblemDetails"] & {
+            /** @enum {string} */
+            type: "urn:socialapp:problem:confirmation-required";
+            added: string[];
+            removed: string[];
+            /** Format: int32 */
+            affectedUsers: number;
+        };
+        RoleSummary: {
+            /**
+             * Format: int32
+             * @description Id vai trò. Ba vai trò hệ thống 1–3; vai trò tự tạo từ 100.
+             */
+            roleId: number;
+            code: components["schemas"]["RoleCode"];
+            displayName: string;
+            /** @description `USER`, `MODERATOR`, `ADMIN` — tính từ mã, không phải cột. */
+            isSystem: boolean;
+            /** @description Sửa được tập quyền — mọi vai trò trừ `ADMIN`. */
+            editable: boolean;
+            /**
+             * Format: int32
+             * @description Số tài khoản mang vai trò, mọi trạng thái.
+             */
+            userCount: number;
+            /** @description Quyền hiệu lực, theo `permission_id`. `ADMIN` = cả 18 mã. */
+            permissions: string[];
+        };
+        CreateRoleRequest: {
+            code: components["schemas"]["RoleCode"];
+            displayName: string;
+            /** @description Tập mã gán được. Mã trùng được gộp. */
+            permissions: string[];
+        };
+        /** @description CHỈ `displayName` — có `code` hay trường lạ → 400. */
+        RenameRoleRequest: {
+            displayName: string;
+        };
+        SetRolePermissionsRequest: {
+            /** @description CẢ tập mong muốn. Mã trùng được gộp. */
+            permissions: string[];
+            /** @description Bắt buộc `true` khi sửa `USER`/`MODERATOR` — thiếu thì 409 `confirmation-required`. */
+            confirm?: boolean;
+        };
+        PermissionInfo: {
+            code: string;
+            description: string | null;
+            /** @description `false` với `role.manage` — không gán được cho vai trò nào (L-D19). */
+            assignable: boolean;
+        };
     };
     responses: {
         /**
@@ -365,6 +533,74 @@ export interface components {
                 "application/problem+json": components["schemas"]["LastAdminProblem"];
             };
         };
+        /** @description Vai trò không tồn tại. */
+        RoleNotFound: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "type": "https://httpstatuses.io/404",
+                 *       "title": "Không tìm thấy tài nguyên",
+                 *       "status": 404,
+                 *       "detail": "Không tìm thấy vai trò.",
+                 *       "instance": "/api/v1/admin/roles/100",
+                 *       "traceId": "d2f4a6c8e0b2d4f6a8c0e2b4d6f8a0c2"
+                 *     }
+                 */
+                "application/problem+json": components["schemas"]["ProblemDetails"];
+            };
+        };
+        /**
+         * @description Xung đột với trạng thái vai trò. Phân nhánh theo `type`: `role-code-taken` (tạo trùng mã) · `system-role` (xóa vai trò
+         *     hệ thống) · `role-in-use` (xóa vai trò còn người mang).
+         */
+        RoleConflict: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "type": "urn:socialapp:problem:role-in-use",
+                 *       "title": "Xung đột dữ liệu",
+                 *       "status": 409,
+                 *       "detail": "Vai trò đang có người dùng, không xóa được.",
+                 *       "instance": "/api/v1/admin/roles/100",
+                 *       "traceId": "a2c4e6b8d0f2a4c6e8b0d2f4a6c8e0b2"
+                 *     }
+                 */
+                "application/problem+json": components["schemas"]["RoleConflictProblem"];
+            };
+        };
+        /**
+         * @description `system-role` (sửa quyền ADMIN) hoặc `confirmation-required` (sửa USER/MODERATOR thiếu `confirm: true` — mang `added`,
+         *     `removed`, `affectedUsers`). Phân nhánh theo `type`.
+         */
+        RolePermissionsConflict: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "type": "urn:socialapp:problem:confirmation-required",
+                 *       "title": "Cần xác nhận",
+                 *       "status": 409,
+                 *       "detail": "Thay đổi quyền của vai trò hệ thống cần được xác nhận.",
+                 *       "instance": "/api/v1/admin/roles/1/permissions",
+                 *       "traceId": "a2c4e6b8d0f2a4c6e8b0d2f4a6c8e0b2",
+                 *       "added": [],
+                 *       "removed": [
+                 *         "post.create"
+                 *       ],
+                 *       "affectedUsers": 1523
+                 *     }
+                 */
+                "application/problem+json": components["schemas"]["ConfirmationRequiredProblem"] | components["schemas"]["RoleConflictProblem"];
+            };
+        };
         /** @description Vượt hạn mức 100 req/phút/user (ISS-04). Không có `Retry-After`. */
         TooManyRequests: {
             headers: {
@@ -429,6 +665,8 @@ export interface components {
         };
     };
     parameters: {
+        /** @description Id vai trò. Sai dạng → 400 `errors.roleId`. */
+        RoleId: number;
         /** @description UUID của tài khoản đích. Sai dạng → 400 `errors.userId`. */
         UserId: string;
         /** @description `nextCursor` của trang trước. Bỏ trống để lấy trang đầu. Cursor rác → 400 `errors.cursor`. */
@@ -709,6 +947,275 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["UserNotFound"];
             409: components["responses"]["LastAdmin"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["RevocationUnavailable"];
+        };
+    };
+    listAdminRoles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Danh sách vai trò. */
+            200: {
+                headers: {
+                    "X-Correlation-ID": components["headers"]["XCorrelationId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoleSummary"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["RevocationUnavailable"];
+        };
+    };
+    createAdminRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "code": "REVIEWER",
+                 *       "displayName": "Người xem xét báo cáo",
+                 *       "permissions": [
+                 *         "report.resolve"
+                 *       ]
+                 *     }
+                 */
+                "application/json": components["schemas"]["CreateRoleRequest"];
+            };
+        };
+        responses: {
+            /** @description Vai trò vừa tạo. */
+            201: {
+                headers: {
+                    "X-Correlation-ID": components["headers"]["XCorrelationId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "roleId": 100,
+                     *       "code": "REVIEWER",
+                     *       "displayName": "Người xem xét báo cáo",
+                     *       "isSystem": false,
+                     *       "editable": true,
+                     *       "userCount": 0,
+                     *       "permissions": [
+                     *         "report.resolve"
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["RoleSummary"];
+                };
+            };
+            400: components["responses"]["ValidationProblem"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["RoleConflict"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["RevocationUnavailable"];
+        };
+    };
+    deleteAdminRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Id vai trò. Sai dạng → 400 `errors.roleId`. */
+                roleId: components["parameters"]["RoleId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Đã xóa. */
+            204: {
+                headers: {
+                    "X-Correlation-ID": components["headers"]["XCorrelationId"];
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["ValidationProblem"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["RoleNotFound"];
+            409: components["responses"]["RoleConflict"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["RevocationUnavailable"];
+        };
+    };
+    renameAdminRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Id vai trò. Sai dạng → 400 `errors.roleId`. */
+                roleId: components["parameters"]["RoleId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "displayName": "Kiểm duyệt nội dung"
+                 *     }
+                 */
+                "application/json": components["schemas"]["RenameRoleRequest"];
+            };
+        };
+        responses: {
+            /** @description Vai trò sau thao tác. */
+            200: {
+                headers: {
+                    "X-Correlation-ID": components["headers"]["XCorrelationId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "roleId": 100,
+                     *       "code": "REVIEWER",
+                     *       "displayName": "Người xem xét báo cáo",
+                     *       "isSystem": false,
+                     *       "editable": true,
+                     *       "userCount": 2,
+                     *       "permissions": [
+                     *         "report.resolve"
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["RoleSummary"];
+                };
+            };
+            400: components["responses"]["ValidationProblem"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["RoleNotFound"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["RevocationUnavailable"];
+        };
+    };
+    setAdminRolePermissions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Id vai trò. Sai dạng → 400 `errors.roleId`. */
+                roleId: components["parameters"]["RoleId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "permissions": [
+                 *         "post.read.public",
+                 *         "post.read.friends",
+                 *         "post.update",
+                 *         "post.delete",
+                 *         "comment.create",
+                 *         "reaction.set",
+                 *         "friend.request",
+                 *         "friend.respond",
+                 *         "message.send",
+                 *         "report.create"
+                 *       ],
+                 *       "confirm": true
+                 *     }
+                 */
+                "application/json": components["schemas"]["SetRolePermissionsRequest"];
+            };
+        };
+        responses: {
+            /** @description Vai trò sau thao tác. */
+            200: {
+                headers: {
+                    "X-Correlation-ID": components["headers"]["XCorrelationId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "roleId": 100,
+                     *       "code": "REVIEWER",
+                     *       "displayName": "Người xem xét báo cáo",
+                     *       "isSystem": false,
+                     *       "editable": true,
+                     *       "userCount": 2,
+                     *       "permissions": [
+                     *         "report.resolve"
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["RoleSummary"];
+                };
+            };
+            400: components["responses"]["ValidationProblem"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["RoleNotFound"];
+            409: components["responses"]["RolePermissionsConflict"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["RevocationUnavailable"];
+        };
+    };
+    listAdminPermissions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Danh mục quyền. */
+            200: {
+                headers: {
+                    "X-Correlation-ID": components["headers"]["XCorrelationId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example [
+                     *       {
+                     *         "code": "post.read.public",
+                     *         "description": "Đọc bài công khai",
+                     *         "assignable": true
+                     *       },
+                     *       {
+                     *         "code": "role.manage",
+                     *         "description": "Định nghĩa vai trò và tập quyền",
+                     *         "assignable": false
+                     *       }
+                     *     ]
+                     */
+                    "application/json": components["schemas"]["PermissionInfo"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalError"];
             503: components["responses"]["RevocationUnavailable"];

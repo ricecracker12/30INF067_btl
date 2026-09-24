@@ -125,7 +125,7 @@ mốc đã từng đỏ khi cố tình bỏ đúng thứ bảo vệ nó (bảng 
 
 **Trạng thái (chốt 2026-09-24, người thi công):** cả mười lăm chỗ đi **theo cột "Đề xuất"**. L-D16 tìm ra khi thi công D1, L-D17 khi
 thi công D2 — ràng buộc kỹ thuật, đi theo đề xuất, ghi ở "Thực tế thi công". L-D18 tìm ra khi thi công D4 — lỗ bảo mật trong thiết
-kế, người thi công chốt theo đề xuất trước khi viết code.
+kế, người thi công chốt theo đề xuất trước khi viết code. L-D19 (D5) đi theo đúng câu "chỉ ADMIN có" của Đ-6.9.
 - Mười chỗ là **lựa chọn thiết kế**. Mỗi chỗ đã cân nhắc phương án khác rồi loại:
   - L-D5: tách D7 thay vì một commit lớn.
   - L-D6: khuôn hai bước thay vì truy vấn con trong `RETURNING`. Cách đó chạy được, nhưng dưới lượt đua nó trả `NULL`, và phải lập
@@ -168,6 +168,7 @@ ngày và lý do.
 | L-D16 *(thêm 2026-09-24 khi thi công D1)* | Mục 8.5: `identity-v1` chỉ thêm `permissions` và 403 `account-disabled` | Nới `RoleCode` từ enum `[USER, MODERATOR, ADMIN]` thành chuỗi có pattern `^[A-Z][A-Z0-9_]{2,29}$`, cùng commit D1. Test kiểu của FE (`schema.test-d.ts`) đổi theo | `/me.role` đọc `roles.code` từ DB, nên từ lúc có vai trò tự tạo (D5, và ca `ME-01` vai trò tự tạo của D1) response nằm ngoài enum của hợp đồng. Cổng hợp đồng không so giá trị enum nên không đỏ: hợp đồng nói dối mà không ai biết. Không chỗ nào của FE so tên vai trò (grep) |
 | L-D17 *(thêm 2026-09-24 khi thi công D2)* | Mục 6.3: "chỉ thêm dòng vào `AuthZMatrix.cs`, **không** sửa `AuthZMatrixTests`, `AuthZCase`, `AuthZApiFactory`" | Matrix chạy với **Redis thật** từ D2: `AuthZApiFactory.UseRedis` (mặc định giữ cổng 1, khuôn `ModulesApiFactory`/`IdentityApiFactory`) + `AuthZMatrixTests` nhận `RedisFixture` và chờ kết nối của app trước dòng đầu. `AuthZCase` không đổi | `AuthZApiFactory` trỏ Redis vào cổng 1. Endpoint `[PrivilegedEndpoint]` fail-closed (Đ-6.8), nên mọi người gọi có token nhận **503** trước khi tới tầng 2: `TC-A05` (403) và `TC-A05b` (200) không thể xanh — và mọi dòng `TC-A05*`/`TC-A06*` sau này cũng vậy. Stub `ITokenRevocationStore` thay vì Redis thật cũng chạy, nhưng là stub trên đúng đường mà matrix phải canh. Endpoint thường không đổi hành vi (Unknown và "không bị thu hồi" cùng cho qua). Đột biến M0 chứng minh |
 | L-D18 *(thêm 2026-09-24 khi thi công D4)* | Đ-6.9, Mục 6.1, Mục 8.2: `PUT /admin/users/{id}/role` chỉ cần `role.assign` | Thao tác **chạm ADMIN** — vai trò đích là ADMIN, hoặc người bị đổi đang là ADMIN — cần **thêm** `role.manage`: tầng 2 kép, khuôn L-D12. Service tra `IsAllowedAsync(role.manage)` **trước** `BEGIN` (đích ADMIN → 403 ngay); store kiểm vế "đang là ADMIN" sau khi khóa dòng với cờ tra sẵn. Từ chối → 403 + `access.denied` (`tx: null`, target `user`, `metadata.permission = role.manage`) | Đ-6.9 lấy ví dụ vai trò "Nhân sự" có `role.assign` mà không phải ADMIN. Không chặn thì người đó tự gán mình lên ADMIN: `role.assign` tương đương toàn quyền, `role.manage` "chỉ ADMIN có" mất nghĩa. Vế "đang là ADMIN" chặn chiều ngược lại — "Nhân sự" hạ hết Admin. Phương án "chỉ ADMIN mới gán ADMIN" bị loại: phải so `role == ADMIN` ở Identity (luật 3 Mục 1.3); dùng quyền thì Admin short-circuit tự đúng |
+| L-D19 *(thêm 2026-09-24 khi thi công D5)* | Đ-6.9: "`role.manage` … Chỉ ADMIN có" — nhưng `POST /admin/roles` và `PUT …/permissions` nhận "tập mã có thật" | API **không** gán `role.manage` cho vai trò nào: validator chỉ nhận 17 mã còn lại → 400 `errors.permissions`. `GET /admin/permissions` trả thêm `assignable` (sai với đúng `role.manage`) để FE khóa ô đó | Câu "chỉ ADMIN có" mất nghĩa nếu API gán được. Gắn nhầm vào USER là mọi người dùng sửa được vai trò, và với L-D18 nâng được bất kỳ ai lên ADMIN — bước xác nhận không cứu được một cú nhấp nhầm có hộp thoại đi kèm. Muốn trao toàn quyền thì gán vai trò ADMIN (D4), có bất biến và audit riêng |
 
 ---
 
@@ -1252,7 +1253,10 @@ tự merge. Mô tả PR mang danh sách tự rà B.10 (tám mục) và bảng đ
 - [ ] `ADM-C1`, `ADM-C2` xanh **20/20**, đã đỏ khi bỏ khóa tư vấn
 - [ ] Matrix `TC-A05*`, `TC-A06*` + hai dòng đối chứng xanh; đã đỏ khi bỏ `[RequirePermission]`
 - [ ] `Privileged_controllers_carry_the_attribute` xanh **không** `Skip`; `POST /reports` là ngoại lệ duy nhất (B.10 #8)
-- [ ] `grep -rn '"ADMIN"' src/backend` chỉ ra `SystemRoles.cs`; so `SystemRoles.Admin` chỉ ở `PermissionChecks` + `EffectivePermissions`
+- [ ] `grep -rn '"ADMIN"' src/backend` chỉ ra `SystemRoles.cs`; so CLAIM `role` của người gọi với ADMIN chỉ ở `PermissionChecks` (*sửa
+  2026-09-24 khi thi công D5:* bản đầu ghi "so `SystemRoles.Admin` chỉ ở `PermissionChecks` + `EffectivePermissions`". Các chỗ so
+  `RoleCodes.Admin` còn lại so vai trò của DỮ LIỆU, không phải quyền người gọi: `EffectivePermissions` (D1), `AdminInvariant` (D3),
+  `AccountAdministrationService`/`Store` vế L-D18 (D4), `RoleStore` — ADMIN không sửa quyền, `editable` (D5))
 
 **Mốc 3 — ẩn + đóng báo cáo + audit một transaction**
 
@@ -1538,9 +1542,70 @@ thật trên đường D3 là `LockTargetAsync` (join `roles`). Toàn bộ ca D3
 không `truncated`. Impact trước khi sửa: `AdminOutcome` HIGH, `LockTargetAsync` HIGH (ba luồng Lock/Unlock — đã cảnh báo người thi
 công); `IAccountAdministrationStore`, `AccountAdministrationStore` LOW; `AccountAdministrationService` MEDIUM.
 
+### D5 — 2026-09-24
+
+Làm đúng Mục 7 cộng **L-D19** (bảng Mục 0.6). L-D11: `Error` thêm tham số cuối `Extensions`; `ResultHttpExtensions.Problem` dựng
+qua `ProblemDetailsFactory` rồi chép extensions (nhánh không-extensions giữ nguyên `controller.Problem`). `RolePermissionDiff` (hàm
+thuần) · `RoleModels` (`RoleSummary`, `PermissionInfo`, ba request + validator, `RoleRules`) · `IRoleStore` + `RoleStore` ·
+`RoleAdministrationService` · `AdminRolesController` + `AdminPermissionsController` (`[RequirePermission(role.manage)]` ở CLASS —
+cả năm action cùng một mã) · bốn `type` 409 mới trong `AdminErrors` · `admin-v1.yaml` `1.3.0-gd6`. `giai-doan-6.md` sửa: Đ-6.9
+(L-D19), Mục 8.2 (`PermissionInfo.assignable`, lỗi 409), B.6 D5.
+
+**Lệch so với chính tài liệu này:**
+- **Cạm bẫy 1 giả định sai:** `UnmappedMemberHandling = Disallow` đã là cấu hình TOÀN CỤC của host từ GĐ1 (`Program.cs`), không phải
+  lựa chọn "đặt sai chỗ". `PATCH` có `code` (hay trường lạ) ra 400 `errors.code` mà không cần attribute trên `RenameRoleRequest`.
+  Bước 3 bảng dòng `PATCH` cũng vậy — không thêm attribute thừa.
+- **L-D19 (mới):** `role.manage` không gán được qua API.
+- **Phát invalidate cả khi TẠO vai trò** (hướng dẫn chỉ ghi sửa quyền + xóa): mã của vai trò đã xóa có thể còn trong cache dưới
+  dạng tập rỗng — token cũ mang mã đó sống tới 15 phút. Tạo lại cùng mã thì 60 giây đầu người được gán không có quyền nào. Một lần
+  PUBLISH, rẻ. Đổi tên không phát: cache giữ quyền, không giữ tên.
+- **Audit vai trò `target_id = null`**: cột là `uuid`, `role_id` là `smallint` — mã nằm ở `metadata.code` như bảng Đ-6.15.
+  `role.rename` ghi `from`/`to` (tên hiển thị, không phải nội dung người dùng).
+- **Thứ tự kiểm của `PUT …/permissions`**: ADMIN → không đổi gì → về rỗng → chưa xác nhận. "Không đổi gì" đứng trước hai luật vai
+  trò hệ thống: gửi lại đúng tập hiện có không cần `confirm`.
+- **`[Trait("Category","AuthZ")]` cho cả `RoleManagementTests`** (Mục 10.4 #7 của `giai-doan-6.md` nói `ROLE-01` mang trait đó):
+  lớp canh tầng 2 `role.manage` ở cả sáu operation.
+- **Thêm ca ngoài bảng:** danh sách vai trò + `userCount` gồm tài khoản bị khóa, danh mục quyền (`assignable`), tạo trùng mã 409 /
+  mã hệ thống 400 / `role.manage` 400, PUT không đổi 200 không audit, sáu operation × hai vai trò không `role.manage` → 403 (một vai
+  trò tự tạo có ĐỦ 17 mã gán được vẫn 403), 404/400 `roleId`; `ProblemDetailsTests.Error_co_Extensions_…` qua probe
+  `Harness/ProblemProbeController`; matrix `TC-A05-roles`.
+
+**Tự rà Đ-6.10 (cạm bẫy 2):** `IPermissionChangeNotifier.NotifyAsync` gọi ở ba chỗ của `RoleAdministrationService` — `CreateAsync`,
+`SetPermissionsAsync` (nhánh `Changed`), `DeleteAsync` — cả ba SAU khi store trả về (đã `COMMIT`); nhánh lỗi return trước. Mỗi
+thao tác MỘT lời gọi (L-C4).
+
+**Test:** Unit 387 → 412 (+25 `RoleRulesTests`: diff, hình dạng mã, ba validator, L-D19), Integration 614 → 629 (+13
+`RoleManagementTests`, +1 `ProblemDetailsTests`, +1 matrix `TC-A05-roles`), Architecture 24 → 24. Vitest 544 → 544. Còn đỏ nền R2
+trên máy dev. FE: `pnpm lint`, `typecheck`, `test`, `build` xanh.
+
+**Thử cho đỏ — 10/10 đột biến bị bắt; 2 lượt kiểm lưới xanh đúng thiết kế**, build hợp lệ ở mọi lượt, file khôi phục nguyên byte:
+
+| Đột biến | Ca đỏ thực tế |
+|---|---|
+| M1 — bỏ nhánh `confirm` | `ROLE_04_…` |
+| M2 — cho USER về 0 quyền | `ROLE_04_…` |
+| M3 — bỏ `NotifyAsync` sau `PUT …/permissions` | `PERM_01_…` (request kế tiếp vẫn 201) |
+| M4 — bỏ chặn ADMIN ở `SetPermissionsAsync` | `ROLE_06_…` |
+| M5b — bỏ kiểm vai trò hệ thống VÀ lưới `P0001` khi xóa | `ROLE_03_…` (500) |
+| M6b — bỏ đếm người mang VÀ lưới FK `23503` khi xóa | `ROLE_03_…` (500) |
+| M7 — cho gán `role.manage` (L-D19) | `Tao_vai_tro_…`, `Danh_muc_quyen_…`, `Sua_quyen_…` |
+| M8 — `affectedUsers` chỉ đếm tài khoản `active` | `ROLE_04_…` |
+| M9 — bỏ `[RequirePermission(role.manage)]` ở `AdminRolesController` | `TC-A05-roles`, `Moi_action_doi_role_manage_403` — và bốn dòng matrix GĐ4 đỏ LÂY: dòng `TC-A05-roles` (USER) thật sự ghi đè tập quyền USER trong database dùng chung của matrix |
+| M10 — `ResultHttpExtensions` không chép `Extensions` | `Error_co_Extensions_…`, `ROLE_04_…` |
+
+Kiểm lưới (xanh là ĐÚNG): M5 — chỉ bỏ kiểm vai trò hệ thống ở store → trigger A3 ném `P0001`, store dịch ra 409; M6 — chỉ bỏ đếm
+người mang → FK RESTRICT ném `23503`, store dịch ra 409. Hai lưới dưới DB đỡ được khi lớp trên thủng, và không bao giờ thành 500.
+
+Chưa thử: `NotifyAsync` TRƯỚC `COMMIT` (cạm bẫy 2) — một instance không phân biệt được với đúng thứ tự vì request kế tiếp chạy sau
+`COMMIT`; bắt nó cần hai instance và một lần nạp chen giữa (PERM-02 của C3 dựng được khung, chưa dựng cảnh đua).
+
+**detect-changes:** low, 0 luồng (19 file, 36 symbol, đã `git add`). Impact trước khi sửa: `Error` constructor LOW, record UNKNOWN — text search: mọi `*Errors.cs` gọi
+theo vị trí tối đa 6 tham số, thêm tham số thứ 7 có mặc định không đổi lời gọi nào; `ResultHttpExtensions.Problem` LOW (3 nút);
+`AdminErrors` UNKNOWN — chỉ thêm thành viên.
+
 ### Các đầu việc còn lại
 
-D5 → D13. Mỗi đầu việc khi xong điền theo khuôn của hướng dẫn khối A+C:
+D6 → D13. Mỗi đầu việc khi xong điền theo khuôn của hướng dẫn khối A+C:
 
 - chỗ nào đi theo / không theo đề xuất Mục 0.6, và vì sao;
 - lệch so với chính tài liệu này;

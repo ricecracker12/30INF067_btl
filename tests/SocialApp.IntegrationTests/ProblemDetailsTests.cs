@@ -4,6 +4,8 @@ using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
 using SocialApp.IntegrationTests.Harness;
 
 namespace SocialApp.IntegrationTests;
@@ -172,6 +174,32 @@ public sealed class ProblemDetailsTests(ApiFactory factory) : IClassFixture<ApiF
         var problem = await AssertProblemAsync(response, 500, "Đã xảy ra lỗi không mong muốn");
         Assert.False(problem.TryGetProperty("detail", out var detail) && detail.ValueKind != JsonValueKind.Null,
             $"500 lộ detail: {problem}");
+    }
+
+    /// <summary>
+    /// GĐ6 D5 (L-D11): <c>Error.Extensions</c> lên thân Problem Details đúng key, đúng giá trị — VẪN có <c>traceId</c> khớp header,
+    /// <c>type</c> riêng, <c>instance</c>, content type <c>problem+json</c>: cùng factory với mọi lỗi khác, không phải chỗ dựng thứ hai.
+    /// </summary>
+    [Fact]
+    public async Task Error_co_Extensions_len_than_loi_van_co_traceId_va_type()
+    {
+        await using var app = new ApiFactory();
+        using var probed = app.WithWebHostBuilder(b => b.ConfigureTestServices(s =>
+            s.AddControllers().AddApplicationPart(typeof(ProblemProbeController).Assembly)));
+
+        using var response = await probed.CreateClient().GetAsync("/__test/problem/extensions");
+
+        Assert.Equal(409, (int)response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("urn:socialapp:problem:probe", problem.GetProperty("type").GetString());
+        Assert.Equal("Cần xác nhận", problem.GetProperty("title").GetString());
+        Assert.Equal("Cần xác nhận.", problem.GetProperty("detail").GetString());
+        Assert.Equal("/__test/problem/extensions", problem.GetProperty("instance").GetString());
+        Assert.Equal(response.Headers.GetValues("X-Correlation-ID").Single(), problem.GetProperty("traceId").GetString());
+        Assert.Equal(["a.b"], problem.GetProperty("added").EnumerateArray().Select(e => e.GetString()));
+        Assert.Equal(0, problem.GetProperty("removed").GetArrayLength());
+        Assert.Equal(3, problem.GetProperty("affectedUsers").GetInt32());
     }
 
     private async Task<HttpResponseMessage> SendAsync(HttpMethod method, string path, bool bearer)

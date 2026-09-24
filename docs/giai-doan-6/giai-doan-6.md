@@ -392,7 +392,7 @@ Thiết kế GĐ1 đã hứa (PTTK 6.7.2 "nâng cấp là thay dữ liệu, khô
 | Đổi tên | `PATCH /admin/roles/{roleId}` | `role.manage` | **Chỉ** nhận `displayName`; body có `code` → 400 (không phải lờ đi — GĐ1 Mục 3.1) |
 | Sửa tập quyền | `PUT /admin/roles/{roleId}/permissions` | `role.manage` | Thay **cả tập** (idempotent); ADMIN → 409; USER/MODERATOR → cần `confirm: true` và **không được về 0 quyền** |
 | Xóa | `DELETE /admin/roles/{roleId}` | `role.manage` | Ba vai trò hệ thống → 409; còn người mang → 409 (dịch từ FK `RESTRICT`, không để 500) |
-| Liệt kê quyền | `GET /admin/permissions` | `role.manage` | 18 mã + `description` |
+| Liệt kê quyền | `GET /admin/permissions` | `role.manage` | 18 mã + `description` + `assignable` (*thêm 2026-09-24, L-D19*) |
 
 **Mã quyền thứ 18 `role.manage` — lệch ma trận PTTK (17 mã).** "Gán vai trò cho người" (`role.assign`) và "định nghĩa vai trò
 là gì" là hai quyền khác bậc: một vai trò "Nhân sự" gán được người vào MODERATOR không có nghĩa được sửa MODERATOR có những
@@ -402,7 +402,11 @@ quyền gì. Chỉ ADMIN có (short-circuit — không dòng `role_permissions` 
 vai trò "Nhân sự" tự gán được mình (hay bất kỳ ai) lên ADMIN — tức `role.assign` tương đương toàn quyền, và `role.manage` "chỉ ADMIN
 có" mất nghĩa. `PUT /admin/users/{id}/role` **chạm ADMIN** (vai trò đích là ADMIN, hoặc người bị đổi đang là ADMIN) cần **thêm**
 `role.manage` — tầng 2 kép trong service, cùng khuôn `post.hide` của Đ-6.13 (tra trước `BEGIN`; vế "đang là ADMIN" kiểm sau khi khóa
-dòng). Thiếu → 403 + một dòng `access.denied` (`metadata.permission = role.manage`). Gán giữa các vai trò khác vẫn chỉ cần `role.assign`. Seeder tự chèn dòng `permissions` thứ 18 vì đọc
+dòng). Thiếu → 403 + một dòng `access.denied` (`metadata.permission = role.manage`). Gán giữa các vai trò khác vẫn chỉ cần `role.assign`.
+
+*Thêm 2026-09-24 khi thi công D5* (L-D19): "chỉ ADMIN có" giữ bằng API — `POST /admin/roles` và `PUT …/permissions` **không** nhận
+`role.manage` (400 `errors.permissions`); `GET /admin/permissions` trả `assignable: false` cho đúng mã đó. Muốn trao toàn quyền thì
+gán vai trò ADMIN (có bất biến và audit riêng). Seeder tự chèn dòng `permissions` thứ 18 vì đọc
 `PermissionCodes.All` (`DO NOTHING`); **không** thêm vào bộ bootstrap của USER/MODERATOR. *(Sửa 2026-09-23, A3: seeder chèn kèm
 mô tả — xem Mục 4 phần Identity.)*
 
@@ -1147,7 +1151,7 @@ RoleSummary      { roleId, code, displayName, isSystem: boolean, editable: boole
 CreateRoleRequest{ code, displayName (1–50), permissions: [string] }
 RenameRoleRequest{ displayName }                                     // additionalProperties: false → có `code` là 400
 SetRolePermissionsRequest { permissions: [string], confirm?: boolean }
-PermissionInfo   { code, description }
+PermissionInfo   { code, description, assignable: boolean }            // assignable = false với role.manage (L-D19, thêm 2026-09-24)
 ConfirmationRequiredProblem  (409, type …:confirmation-required) { added: [string], removed: [string], affectedUsers: integer }
 ```
 
@@ -1884,6 +1888,9 @@ Cùng khuôn D3, không đụng refresh family. **Xong khi:** `ADM-05`, `ROLE-01
 (FK RESTRICT) → 409 `role-in-use`; bắt `P0001` từ trigger → 409 (lưới — service đã chặn trước); sau `COMMIT` gọi C3.
 
 **Xong khi:** `ROLE-01..07`, `PERM-01`, `TC-A05-roles` xanh.
+
+*Sửa 2026-09-24 khi thi công D5* (L-D11, L-D19): `Error.Extensions` mang `added`/`removed`/`affectedUsers` của 409; `role.manage` không
+gán được qua API; phát invalidate cả khi tạo vai trò.
 
 ### D6 — `POST /reports`
 

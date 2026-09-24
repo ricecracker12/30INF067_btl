@@ -16,7 +16,7 @@
 #   D2 (2026-09-24): GET /admin/users, GET /admin/users/{userId}.
 #   D3 (2026-09-24): POST /admin/users/{userId}/lock, POST /admin/users/{userId}/unlock — version 1.1.0-gd6.
 #   D4 (2026-09-24): PUT /admin/users/{userId}/role — version 1.2.0-gd6.
-#   D5: /admin/roles*, GET /admin/permissions.
+#   D5 (2026-09-24): /admin/roles*, GET /admin/permissions — version 1.3.0-gd6.
 #
 # QUYẾT ĐỊNH ĐỨNG SAU (giai-doan-6.md):
 #   Đ-6.8   Mọi endpoint ở đây FAIL-CLOSED: không kiểm được thu hồi token (Redis chết) → 503
@@ -28,13 +28,15 @@
 #   Đ-6.7   Luôn còn ≥ 1 Admin hoạt động — 409 `urn:socialapp:problem:last-admin`.
 #   L-D10   Thao tác không đổi gì (khóa tài khoản đã khóa…) → 200 `revocation: not-needed`, không audit.
 #   L-D18   Đổi vai trò CHẠM ADMIN (đích là ADMIN, hoặc người bị đổi đang là ADMIN) cần thêm `role.manage`.
+#   Đ-6.9   Vai trò: `code` bất biến; ADMIN không sửa quyền; USER/MODERATOR cần xác nhận và không về 0 quyền.
+#   L-D19   `role.manage` chỉ ADMIN có — API không gán nó cho vai trò nào (`assignable: false`).
 #   Mục 8.2 `email` là PII — chỉ trả ở nhóm này, không bao giờ vào log.
 # ---------------------------------------------------------------------------------------------
 openapi: 3.0.3
 
 info:
   title: SocialApp — Admin API
-  version: 1.2.0-gd6
+  version: 1.3.0-gd6
   description: |
     Màn quản trị của GĐ6 (UC-20): tài khoản, vai trò, quyền. Chỉ người có quyền quản trị gọi được —
     người dùng thường nhận **403** (dòng `TC-A05` của AuthZ matrix).
@@ -68,6 +70,8 @@ servers:
 tags:
   - name: admin-users
     description: Tài khoản — danh sách, chi tiết, khóa, mở khóa, đổi vai trò (UC-20).
+  - name: admin-roles
+    description: Vai trò và ma trận quyền (Đ-6.9). Chỉ ADMIN (`role.manage`).
 
 paths:
 
@@ -387,6 +391,290 @@ paths:
         '503':
           $ref: '#/components/responses/RevocationUnavailable'
 
+  /admin/roles:
+    get:
+      tags: [admin-roles]
+      operationId: listAdminRoles
+      summary: Mọi vai trò, kèm quyền hiệu lực và số người mang
+      description: |
+        Tầng 2: `role.manage` (chỉ ADMIN có — Đ-6.9). Sắp theo `roleId`. `ADMIN` có `permissions` = cả 18 mã và
+        `editable: false`.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Danh sách vai trò.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RoleSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/RevocationUnavailable'
+
+    post:
+      tags: [admin-roles]
+      operationId: createAdminRole
+      summary: Tạo vai trò
+      description: |
+        `code` bất biến từ lúc tạo — không endpoint nào sửa được nó (Đ-6.9). `permissions` là tập mã GÁN ĐƯỢC
+        (`GET /admin/permissions` với `assignable: true`); rỗng được — vai trò tự tạo không có luật "ít nhất một quyền".
+
+        | Tình huống | Phản hồi |
+        |---|---|
+        | Mã sai dạng, trùng ba mã hệ thống, tên rỗng/quá 50, mã quyền lạ hoặc `role.manage` | 400 theo trường |
+        | Mã đã có | 409 `role-code-taken` |
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRoleRequest'
+            example:
+              code: REVIEWER
+              displayName: Người xem xét báo cáo
+              permissions: [report.resolve]
+      responses:
+        '201':
+          description: Vai trò vừa tạo.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoleSummary'
+              example:
+                roleId: 100
+                code: REVIEWER
+                displayName: Người xem xét báo cáo
+                isSystem: false
+                editable: true
+                userCount: 0
+                permissions: [report.resolve]
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/RoleConflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/RevocationUnavailable'
+
+  /admin/roles/{roleId}:
+    patch:
+      tags: [admin-roles]
+      operationId: renameAdminRole
+      summary: Đổi tên hiển thị của vai trò
+      description: |
+        CHỈ nhận `displayName` (1–50 ký tự sau cắt khoảng trắng). Body có `code` hay trường lạ bất kỳ → 400 theo tên trường —
+        không lờ đi (GĐ1 Mục 3.1). Đổi tên vai trò hệ thống được. Cùng tên → 200, không ghi nhật ký.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/RoleId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RenameRoleRequest'
+            example:
+              displayName: Kiểm duyệt nội dung
+      responses:
+        '200':
+          description: Vai trò sau thao tác.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoleSummary'
+              example:
+                roleId: 100
+                code: REVIEWER
+                displayName: Người xem xét báo cáo
+                isSystem: false
+                editable: true
+                userCount: 2
+                permissions: [report.resolve]
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/RoleNotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/RevocationUnavailable'
+
+    delete:
+      tags: [admin-roles]
+      operationId: deleteAdminRole
+      summary: Xóa vai trò tự tạo
+      description: |
+        Ba vai trò hệ thống → 409 `system-role`. Còn tài khoản mang vai trò (mọi trạng thái) → 409 `role-in-use` — gán họ sang
+        vai trò khác trước. Tập quyền của vai trò bị xóa theo. Cache quyền mọi instance được xóa ngay (Đ-6.10).
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/RoleId'
+      responses:
+        '204':
+          description: Đã xóa.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/RoleNotFound'
+        '409':
+          $ref: '#/components/responses/RoleConflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/RevocationUnavailable'
+
+  /admin/roles/{roleId}/permissions:
+    put:
+      tags: [admin-roles]
+      operationId: setAdminRolePermissions
+      summary: Thay cả tập quyền của vai trò
+      description: |
+        Thay **cả tập** (idempotent) — gửi đúng tập muốn có, không gửi phần thêm/bớt. Có hiệu lực ở request KẾ TIẾP trên mọi
+        instance (Đ-6.10) — người mang vai trò không phải đăng nhập lại.
+
+        | Tình huống | Phản hồi |
+        |---|---|
+        | `ADMIN` | 409 `system-role` — ADMIN có mọi quyền, không có tập nào để sửa |
+        | Mã quyền lạ hoặc `role.manage` | 400 `errors.permissions` |
+        | Không đổi gì | 200, không ghi nhật ký |
+        | `USER`/`MODERATOR` về tập rỗng | 400 `errors.permissions` |
+        | `USER`/`MODERATOR` có thay đổi mà thiếu `confirm: true` | **409** `confirmation-required` kèm `added`, `removed`, `affectedUsers` — không đổi gì; FE hiện đúng các con số đó rồi gửi lại với `confirm: true` |
+
+        Bước xác nhận bắt buộc ở SERVER — gọi thẳng API cũng phải qua.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/RoleId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetRolePermissionsRequest'
+            example:
+              permissions: [post.read.public, post.read.friends, post.update, post.delete, comment.create, reaction.set,
+                            friend.request, friend.respond, message.send, report.create]
+              confirm: true
+      responses:
+        '200':
+          description: Vai trò sau thao tác.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoleSummary'
+              example:
+                roleId: 100
+                code: REVIEWER
+                displayName: Người xem xét báo cáo
+                isSystem: false
+                editable: true
+                userCount: 2
+                permissions: [report.resolve]
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/RoleNotFound'
+        '409':
+          $ref: '#/components/responses/RolePermissionsConflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/RevocationUnavailable'
+
+  /admin/permissions:
+    get:
+      tags: [admin-roles]
+      operationId: listAdminPermissions
+      summary: Danh mục 18 mã quyền
+      description: |
+        Theo `permission_id`. `assignable: false` đúng với một mã, `role.manage` — chỉ ADMIN có (Đ-6.9), không gán cho vai trò
+        nào qua API (L-D19); FE vẽ ô đó khóa.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Danh mục quyền.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PermissionInfo'
+              example:
+                - code: post.read.public
+                  description: Đọc bài công khai
+                  assignable: true
+                - code: role.manage
+                  description: Định nghĩa vai trò và tập quyền
+                  assignable: false
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/RevocationUnavailable'
+
 components:
 
   securitySchemes:
@@ -400,6 +688,15 @@ components:
         của vai trò đó. Lane FE: token nằm ở BFF, trình duyệt không cầm (Đ-E14).
 
   parameters:
+
+    RoleId:
+      name: roleId
+      in: path
+      required: true
+      description: Id vai trò. Sai dạng → 400 `errors.roleId`.
+      schema:
+        type: integer
+        format: int32
 
     UserId:
       name: userId
@@ -521,6 +818,57 @@ components:
             detail: Hệ thống phải còn ít nhất một quản trị viên đang hoạt động.
             instance: /api/v1/admin/users/0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10/lock
             traceId: a2c4e6b8d0f2a4c6e8b0d2f4a6c8e0b2
+
+    RoleNotFound:
+      description: Vai trò không tồn tại.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://httpstatuses.io/404
+            title: Không tìm thấy tài nguyên
+            status: 404
+            detail: Không tìm thấy vai trò.
+            instance: /api/v1/admin/roles/100
+            traceId: d2f4a6c8e0b2d4f6a8c0e2b4d6f8a0c2
+
+    RoleConflict:
+      description: |
+        Xung đột với trạng thái vai trò. Phân nhánh theo `type`: `role-code-taken` (tạo trùng mã) · `system-role` (xóa vai trò
+        hệ thống) · `role-in-use` (xóa vai trò còn người mang).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/RoleConflictProblem'
+          example:
+            type: urn:socialapp:problem:role-in-use
+            title: Xung đột dữ liệu
+            status: 409
+            detail: Vai trò đang có người dùng, không xóa được.
+            instance: /api/v1/admin/roles/100
+            traceId: a2c4e6b8d0f2a4c6e8b0d2f4a6c8e0b2
+
+    RolePermissionsConflict:
+      description: |
+        `system-role` (sửa quyền ADMIN) hoặc `confirmation-required` (sửa USER/MODERATOR thiếu `confirm: true` — mang `added`,
+        `removed`, `affectedUsers`). Phân nhánh theo `type`.
+      content:
+        application/problem+json:
+          schema:
+            oneOf:
+              - $ref: '#/components/schemas/ConfirmationRequiredProblem'
+              - $ref: '#/components/schemas/RoleConflictProblem'
+          example:
+            type: urn:socialapp:problem:confirmation-required
+            title: Cần xác nhận
+            status: 409
+            detail: Thay đổi quyền của vai trò hệ thống cần được xác nhận.
+            instance: /api/v1/admin/roles/1/permissions
+            traceId: a2c4e6b8d0f2a4c6e8b0d2f4a6c8e0b2
+            added: []
+            removed: [post.create]
+            affectedUsers: 1523
 
     TooManyRequests:
       description: Vượt hạn mức 100 req/phút/user (ISS-04). Không có `Retry-After`.
@@ -736,3 +1084,124 @@ components:
             `errors.roleCode`; không tồn tại → 400 `errors.roleCode` *"Vai trò không tồn tại."*
           example: MODERATOR
       required: [roleCode]
+
+    RoleConflictProblem:
+      description: 409 của vai trò (Đ-6.9). Cùng hình dạng `ProblemDetails`, `type` cho biết loại.
+      allOf:
+        - $ref: '#/components/schemas/ProblemDetails'
+        - type: object
+          properties:
+            type:
+              type: string
+              enum:
+                - 'urn:socialapp:problem:role-code-taken'
+                - 'urn:socialapp:problem:system-role'
+                - 'urn:socialapp:problem:role-in-use'
+          required: [type]
+
+    ConfirmationRequiredProblem:
+      description: |
+        409 khi sửa quyền USER/MODERATOR mà chưa xác nhận (Đ-6.9, L-D11). Không có gì bị đổi. `added`/`removed` sắp theo mã;
+        `affectedUsers` đếm MỌI tài khoản mang vai trò (kể cả đang bị khóa).
+      allOf:
+        - $ref: '#/components/schemas/ProblemDetails'
+        - type: object
+          properties:
+            type:
+              type: string
+              enum: ['urn:socialapp:problem:confirmation-required']
+            added:
+              type: array
+              items:
+                type: string
+            removed:
+              type: array
+              items:
+                type: string
+            affectedUsers:
+              type: integer
+              format: int32
+          required: [type, added, removed, affectedUsers]
+
+    RoleSummary:
+      type: object
+      properties:
+        roleId:
+          type: integer
+          format: int32
+          description: Id vai trò. Ba vai trò hệ thống 1–3; vai trò tự tạo từ 100.
+        code:
+          $ref: '#/components/schemas/RoleCode'
+        displayName:
+          type: string
+        isSystem:
+          type: boolean
+          description: '`USER`, `MODERATOR`, `ADMIN` — tính từ mã, không phải cột.'
+        editable:
+          type: boolean
+          description: Sửa được tập quyền — mọi vai trò trừ `ADMIN`.
+        userCount:
+          type: integer
+          format: int32
+          description: Số tài khoản mang vai trò, mọi trạng thái.
+        permissions:
+          type: array
+          items:
+            type: string
+          description: Quyền hiệu lực, theo `permission_id`. `ADMIN` = cả 18 mã.
+      required: [roleId, code, displayName, isSystem, editable, userCount, permissions]
+
+    CreateRoleRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        code:
+          $ref: '#/components/schemas/RoleCode'
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 50
+        permissions:
+          type: array
+          items:
+            type: string
+          description: Tập mã gán được. Mã trùng được gộp.
+      required: [code, displayName, permissions]
+
+    RenameRoleRequest:
+      type: object
+      additionalProperties: false
+      description: CHỈ `displayName` — có `code` hay trường lạ → 400.
+      properties:
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 50
+      required: [displayName]
+
+    SetRolePermissionsRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        permissions:
+          type: array
+          items:
+            type: string
+          description: CẢ tập mong muốn. Mã trùng được gộp.
+        confirm:
+          type: boolean
+          description: Bắt buộc `true` khi sửa `USER`/`MODERATOR` — thiếu thì 409 `confirmation-required`.
+      required: [permissions]
+
+    PermissionInfo:
+      type: object
+      properties:
+        code:
+          type: string
+        description:
+          type: string
+          nullable: true
+        assignable:
+          type: boolean
+          description: '`false` với `role.manage` — không gán được cho vai trò nào (L-D19).'
+      required: [code, description, assignable]

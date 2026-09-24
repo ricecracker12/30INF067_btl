@@ -188,6 +188,11 @@ public static class AuthZMatrix
             Caller.Moderator, HttpMethod.Put, "/api/v1/admin/users/{id}/role", HttpStatusCode.Forbidden,
             ArrangePath: _ => Task.FromResult($"/api/v1/admin/users/{Guid.NewGuid()}/role"),
             Body: new { roleCode = "USER" }),
+
+        // D5: USER không có role.manage. {USER} = role_id 1 (Mục 5.1 GĐ1) — viết tay, không đọc hằng.
+        new("TC-A05-roles", "User sửa quyền một vai trò", "GĐ6",
+            Caller.User, HttpMethod.Put, "/api/v1/admin/roles/1/permissions", HttpStatusCode.Forbidden,
+            Body: new { permissions = new[] { "post.create" }, confirm = true }),
     ];
 
     /// <summary>

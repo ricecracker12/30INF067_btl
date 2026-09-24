@@ -84,6 +84,20 @@ public static class ResultHttpExtensions
         }
 
         // `type: null` → factory điền `https://httpstatuses.io/{status}` (ProblemTitles.TypeFor) — hành vi của mọi lỗi cũ.
-        return controller.Problem(statusCode: error.Status, detail: error.Message, title: error.Title, type: error.Type);
+        if (error.Extensions is not { Count: > 0 } extensions)
+            return controller.Problem(statusCode: error.Status, detail: error.Message, title: error.Title, type: error.Type);
+
+        // L-D11 (GĐ6 D5): CÙNG ProblemDetailsFactory mà controller.Problem dùng — traceId, instance, title mặc định y hệt — rồi
+        // chép Extensions. controller.Problem không nhận extensions; tự `new ProblemDetails` là chỗ dựng lỗi thứ hai.
+        var problem = controller.ProblemDetailsFactory.CreateProblemDetails(
+            controller.HttpContext, statusCode: error.Status, title: error.Title, type: error.Type, detail: error.Message);
+        foreach (var (key, value) in extensions)
+            problem.Extensions[key] = value;
+
+        return new ObjectResult(problem)
+        {
+            StatusCode = problem.Status,
+            ContentTypes = { "application/problem+json", "application/problem+xml" },
+        };
     }
 }
