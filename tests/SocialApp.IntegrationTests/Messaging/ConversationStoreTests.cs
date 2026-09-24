@@ -30,7 +30,10 @@ public sealed class ConversationStoreTests(PostgresFixture postgres) : IAsyncLif
 
     public async Task InitializeAsync()
     {
-        _cs = await postgres.CreateDatabaseAsync();
+        // Trần pool 10 cho DB của lớp này: MSG-C1 bắn 50 lượt song song, và container dùng chung max_connections = 100 với pool
+        // rảnh của mọi DB khác — trần mặc định 80 đẩy cả bộ sang 53300 (đo 2026-09-24: MSG-C1, MSG-C3 đỏ khi chạy cả bộ, xanh khi
+        // chạy riêng). 10 kết nối vẫn đủ để các lượt tranh khóa dòng thật; phần còn lại xếp hàng chờ kết nối.
+        _cs = new NpgsqlConnectionStringBuilder(await postgres.CreateDatabaseAsync()) { MaxPoolSize = 10 }.ConnectionString;
         _services = new ServiceCollection().AddMessagingModule(_cs).BuildServiceProvider();
         await _services.MigrateMessagingModuleAsync();
     }
