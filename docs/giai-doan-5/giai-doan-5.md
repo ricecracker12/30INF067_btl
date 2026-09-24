@@ -1743,3 +1743,14 @@ thông báo chỉ đúng chỗ sửa.
 sửa. Sửa ở `appsettings.json` (mọi môi trường): `Microsoft.AspNetCore.Hosting.Diagnostics`, `Microsoft.AspNetCore.Http.Connections`,
 `Microsoft.AspNetCore.SignalR` = `Warning`. Staging/Production vốn đã `Microsoft.AspNetCore = Warning` nên không lộ, nhưng log máy dev
 và log test thì có.
+
+**Đính chính commit `508d36a`:** thân commit ghi "AuthZ gate 43 → 52" — đếm lại bằng `--filter Category=AuthZ` là **43 → 50**
+(43 + 7 `ChatHubTests`). Mã và test không sai, chỉ con số trong thông điệp commit.
+
+## C5 — Presence (2026-09-24)
+
+| Việc | Commit | Kết quả / chỗ lệch |
+|---|---|---|
+| C5 | *(commit C5)* | `IPresenceReader` + `RedisPresenceTracker` (sorted set `rt:presence:{userId}`, member = connectionId, score = hạn 90 s, gia hạn mỗi 30 s cho kết nối CỦA instance này, `KeyExpire` chống khóa mồ côi) + `PresenceHubFilter` toàn cục. Redis không trả lời → `false` (offline) — với người tiêu thụ duy nhất (thông báo GĐ6) thì thừa một thông báo an toàn hơn mất một thông báo. **Không cắt** (Đ-6.17 cần) |
+
+Đột biến: đếm mọi member thay vì chỉ member còn hạn → ca "instance chết" đỏ, đã khôi phục.

@@ -30,10 +30,16 @@ public static class RealtimeExtensions
         services.AddSingleton<IRealtimeTicketStore, RedisRealtimeTicketStore>();
         services.AddSingleton<IUserIdProvider, SubClaimUserIdProvider>();
 
+        // C5 (Đ-5.11): presence — MỘT tracker vừa là IPresenceReader (GĐ6 đọc) vừa là BackgroundService gia hạn kết nối cục bộ.
+        services.AddSingleton<RedisPresenceTracker>();
+        services.AddSingleton<IPresenceReader>(sp => sp.GetRequiredService<RedisPresenceTracker>());
+        services.AddHostedService(sp => sp.GetRequiredService<RedisPresenceTracker>());
+
         return services
             .AddSignalR(o =>
             {
                 o.AddFilter<RevocationHubFilter>();
+                o.AddFilter<PresenceHubFilter>();
                 // Lỗi hub chỉ mang MÃ trong HubException.Message (Mục 8.2); không bao giờ gửi chi tiết exception ra client.
                 o.EnableDetailedErrors = false;
             })
