@@ -24,7 +24,7 @@ internal sealed class RedisRealtimeTicketStore(
 
     public async Task<RealtimeTicketIssue?> IssueAsync(RealtimeTicketClaims claims, CancellationToken ct = default)
     {
-        if (redis.ConnectedOrNull() is not { } connection)
+        if (await ConnectedOrNullAsync(ct) is not { } connection)
             return null;
 
         var ticket = Base64UrlEncode(RandomNumberGenerator.GetBytes(32));
@@ -47,7 +47,7 @@ internal sealed class RedisRealtimeTicketStore(
     public async Task<RealtimeTicketClaims?> RedeemAsync(string ticket, CancellationToken ct = default)
     {
         // Vé là 32 byte base64url = 43 ký tự. Chặn chuỗi rác trước khi chạm Redis — không để một query dài tùy ý thành khóa.
-        if (ticket.Length is < 40 or > 64 || redis.ConnectedOrNull() is not { } connection)
+        if (ticket.Length is < 40 or > 64 || await ConnectedOrNullAsync(ct) is not { } connection)
             return null;
 
         RedisValue value;
@@ -72,6 +72,18 @@ internal sealed class RedisRealtimeTicketStore(
             return null;
 
         return new RealtimeTicketClaims(parts[3], parts[2], iat);
+    }
+
+    /// <summary>
+    /// CHỜ lần kết nối đầu có kết quả (tối đa <c>ConnectTimeout</c>), không dùng <see cref="RedisConnection.ConnectedOrNull"/>: cấp/đổi
+    /// vé không nằm trên mọi request như kiểm thu hồi, và không chờ thì request đầu ngay sau khi host khởi động nhận 503 oan dù
+    /// Redis sống (lộ ở <c>BackplaneTests</c> trên CI — host thứ hai xin vé khi kết nối nền chưa xong). Redis chết thì chỉ lần đầu
+    /// chờ, sau đó task đã xong và trả null ngay.
+    /// </summary>
+    private async Task<IConnectionMultiplexer?> ConnectedOrNullAsync(CancellationToken ct)
+    {
+        var connection = await redis.GetAsync().WaitAsync(ct);
+        return connection.IsConnected ? connection : null;
     }
 
     private static string Key(string ticket) =>

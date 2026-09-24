@@ -1841,3 +1841,8 @@ tin kế tiếp. Local không lộ vì hub nối nhanh. Lỗi đi kèm tìm ra k
 **F3 — HOÃN: staging chập chờn lúc đo.** Lần đo đầu dừng ở bước đăng nhập với Cloudflare **520**. Đo tiếp từ máy dev: kết nối tới Cloudflare
 < 0,1 s nhưng thời gian chờ origin trả byte đầu (`/api/v1/ping`, không chạm DB) dao động **0,4–13,6 s**; không có deploy nào đang chạy
 (deploy cuối xong 03:08 UTC). Nút thắt ở VM, không ở mạng máy đo. Đo p95 lúc này là đo VM quá tải, không phải chat — chờ VM ổn định.
+
+**CI đỏ chập chờn ở `BackplaneTests.Co_backplane_…` (sửa 2026-09-24):** lần xin vé đầu trên host 2 vừa dựng trả **503** —
+`RedisRealtimeTicketStore` dùng `ConnectedOrNull()` (không chờ) nên kết nối Redis nền chưa xong là coi như Redis chết. Cấp/đổi vé
+giờ CHỜ lần kết nối đầu có kết quả (≤ `ConnectTimeout` 2 s) rồi mới xét `IsConnected`; Redis chết vẫn 503 (`RealtimeTicketUnavailableTests`
+xanh). Cùng khe này trên staging: request vé đầu ngay sau khi API khởi động có thể nhận 503 oan → FE rơi fallback REST.
