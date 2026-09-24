@@ -1,6 +1,8 @@
+import { readFileSync } from "node:fs"
+import { join } from "node:path"
+
 import { describe, expect, it } from "vitest"
 
-import examples from "../../../backend/Modules/Messaging/Presentation/chat-hub-v1.examples.json"
 import {
   HUB_ERROR_CODES,
   HUB_EVENTS,
@@ -16,6 +18,22 @@ import {
 // Fixture dưới đây GẮN KIỂU bằng `satisfies` (đổi kiểu TS mà không đổi fixture → typecheck đỏ) và được SO với file ví dụ lúc chạy
 // (đổi ví dụ mà không đổi fixture → Vitest đỏ). JSON import vào TS bị nới kiểu (`"seen"` thành `string`) nên không `satisfies`
 // thẳng file JSON được — hai bước này thay cho một.
+//
+// Đọc file lúc CHẠY (fs), KHÔNG `import`: image frontend build với context CHỈ là `src/frontend/`, mà `next build` typecheck cả
+// file test — `import` một file ngoài context là TS2307 và build hỏng (đã gặp trên CD 2026-09-24). Vitest chạy trong repo đầy đủ.
+type Examples = {
+  methods: Record<string, { args: unknown; result: unknown }>
+  events: Record<string, unknown>
+  errors: string[]
+}
+
+const examples = JSON.parse(
+  readFileSync(
+    // Vitest chạy từ `src/frontend/` (cùng gốc với `gen:api`, luật FE Mục 7) — không dùng import.meta.url: jsdom không cho `file:`.
+    join(process.cwd(), "../backend/Modules/Messaging/Presentation/chat-hub-v1.examples.json"),
+    "utf8"
+  )
+) as Examples
 
 const sendMessageArgs = {
   conversationId: "0192f3c1-9b2d-7e40-8a11-3c5d7e9f1a20",
