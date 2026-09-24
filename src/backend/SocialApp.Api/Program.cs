@@ -517,6 +517,9 @@ app.MapControllers();
 // Hub nhắn tin (GĐ5). Sau UseAuthentication/UseAuthorization — hub khai [Authorize(AuthenticationSchemes = RealtimeTicket)].
 app.MapHub<ChatHub>(ChatHub.Path);
 
+// Hub thông báo (GĐ6 C6, Đ-6.18) — cùng vé, cùng filter toàn cục của hub chat; chỉ server → client. apache đã chuyển cả /hubs/.
+app.MapHub<NotificationHub>(NotificationHub.Path);
+
 app.Run();
 
 // Cho phép WebApplicationFactory<Program> trong IntegrationTests tham chiếu Program.

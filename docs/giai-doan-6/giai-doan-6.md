@@ -1875,6 +1875,11 @@ hướng dẫn khối A+C Mục 13: không tự dựng vé, không sửa thư m�
 giây (Đ-6.18 — đường lùi vĩnh viễn, không phải tạm). Làm C6 khi vé của GĐ5 có trên `develop`; nếu tới cổng đóng vẫn chưa có thì
 dòng hub ở Mục 12 ghi "chờ GĐ5 — đang chạy chế độ hỏi lại" (R6-01, thứ tự cắt B.10 #3).
 
+*Sửa 2026-09-25 — ĐÃ LÀM:* GĐ5 đã merge, bốn điều kiện đủ. Hub `/hubs/notifications` trên vé của GĐ5, không sửa `SharedKernel/Realtime/`.
+Đẩy bằng bộ trang trí `PushingNotificationStore` quanh `INotificationStore` (sau `COMMIT`, đọc lại nhóm + số chưa đọc), không sửa D9 hay
+handler; đẩy hỏng chỉ log. Payload một object `{ notification, unreadTotal }` như Mục 8.4. Chi tiết ở "Thực tế thi công" C6 của
+`huong-dan-khoi-a-c-nen-du-lieu-va-ha-tang.md`.
+
 **Kết quả khối C:** mọi thứ Mục 6 đòi hỏi ở tầng hạ tầng đã có test; D chỉ còn nghiệp vụ.
 
 ---

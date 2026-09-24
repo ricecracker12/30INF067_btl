@@ -32,6 +32,9 @@ public interface INotificationQueries
 
     Task<int> CountUnreadAsync(Guid recipientId, CancellationToken ct);
 
+    /// <summary>Một nhóm theo khóa gộp — cho hub (C6) đọc lại dòng vừa upsert. Không có → <c>null</c>.</summary>
+    Task<NotificationRow?> FindGroupAsync(Guid recipientId, string groupKey, CancellationToken ct);
+
     /// <returns><c>false</c> khi không dòng nào khớp <c>(id, recipient_id)</c> — không tồn tại HOẶC không phải của người gọi.</returns>
     Task<bool> MarkReadAsync(Guid recipientId, Guid notificationId, CancellationToken ct);
 
@@ -71,6 +74,22 @@ public sealed class NotificationService(INotificationQueries queries, IUserDirec
 
     public async Task<UnreadNotificationCount> CountUnreadAsync(Guid recipientId, CancellationToken ct) =>
         new(await queries.CountUnreadAsync(recipientId, ct));
+
+    /// <summary>
+    /// Sự kiện hub <c>NotificationUpserted</c> (C6, Mục 8.4) cho nhóm vừa upsert: đúng hình dạng một phần tử của <c>GET /notifications</c>
+    /// + số chưa đọc TUYỆT ĐỐI (nhận hai lần hay sai thứ tự đều vô hại). Nhóm không còn (job dọn của GĐ8 chen giữa) → <c>null</c>.
+    /// </summary>
+    public async Task<NotificationUpsertedEvent?> UpsertedEventAsync(Guid recipientId, string groupKey, CancellationToken ct)
+    {
+        if (await queries.FindGroupAsync(recipientId, groupKey, ct) is not { } row)
+            return null;
+
+        var cards = row.LastActorId is { } actor
+            ? await directory.GetManyAsync([actor], ct)
+            : new Dictionary<Guid, UserCard>();
+
+        return new NotificationUpsertedEvent(ToResponse(row, cards), await queries.CountUnreadAsync(recipientId, ct));
+    }
 
     /// <summary>
     /// 403 cho CẢ "không tồn tại" lẫn "của người khác" (quy ước 3b, <c>NOTIF-IDOR</c>): 404 cho một và 403 cho cái kia là để status code tố

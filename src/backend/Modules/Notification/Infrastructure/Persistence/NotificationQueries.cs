@@ -35,6 +35,15 @@ internal sealed class NotificationQueries(NotificationDbContext db) : INotificat
     public Task<int> CountUnreadAsync(Guid recipientId, CancellationToken ct) =>
         db.Notifications.CountAsync(n => n.RecipientId == recipientId && !n.IsRead, ct);
 
+    /// <summary>Theo <c>uq_notifications_group (recipient_id, group_key)</c> — đúng một dòng hoặc không.</summary>
+    public Task<NotificationRow?> FindGroupAsync(Guid recipientId, string groupKey, CancellationToken ct) =>
+        db.Notifications.AsNoTracking()
+            .Where(n => n.RecipientId == recipientId && n.GroupKey == groupKey)
+            .Select(n => new NotificationRow(
+                n.Id, n.Type, n.TargetType, n.TargetId, n.PostId, n.LastActorId, n.ActorCount, n.ReasonCode, n.IsRead, n.CreatedAt,
+                n.UpdatedAt))
+            .SingleOrDefaultAsync(ct);
+
     /// <summary>
     /// Điều kiện KHÔNG có <c>is_read = false</c>: đã đọc rồi vẫn khớp một dòng → 204, không 403. Có vế đó thì bấm lại một thông báo đã đọc
     /// (hai tab) nhận 403 như thể thông báo của người khác.

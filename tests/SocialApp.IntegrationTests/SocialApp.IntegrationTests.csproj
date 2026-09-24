@@ -67,6 +67,9 @@
     <Content Include="..\..\src\backend\Modules\Notification\Presentation\notification-v1.yaml"
              Link="Contracts\notification-v1.yaml"
              CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\src\backend\Modules\Notification\Presentation\notification-hub-v1.examples.json"
+             Link="Contracts\notification-hub-v1.examples.json"
+             CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

@@ -1,11 +1,14 @@
 using FluentValidation;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using SocialApp.Modules.Notification.Application;
 using SocialApp.Modules.Notification.Application.Handlers;
 using SocialApp.Modules.Notification.Infrastructure;
 using SocialApp.Modules.Notification.Infrastructure.Persistence;
+using SocialApp.Modules.Notification.Presentation;
 using SocialApp.SharedKernel.Events;
 
 namespace SocialApp.Modules.Notification.DependencyInjection;
@@ -34,7 +37,21 @@ public static class NotificationModuleExtensions
         services.TryAddSingleton(TimeProvider.System);
 
         // D9 (Đ-6.16): upsert gộp — chỗ duy nhất ghi thông báo. Scoped vì giữ NotificationDbContext; handler D10 chạy mỗi lượt một scope.
-        services.AddScoped<INotificationStore, NotificationStore>();
+        // C6 (Đ-6.18): có hub (host đã AddSignalR qua AddSharedKernelRealtime) thì bọc PushingNotificationStore — đẩy sau COMMIT. Container
+        // trần (NotificationStoreTests, test schema) không có IHubContext → store gốc, không cần SignalR/IUserDirectory/logging để dựng.
+        services.AddScoped<NotificationStore>();
+        services.AddScoped<INotificationStore>(sp =>
+        {
+            var store = sp.GetRequiredService<NotificationStore>();
+            return sp.GetService<IHubContext<NotificationHub>>() is null
+                ? store
+                : new PushingNotificationStore(
+                    store,
+                    sp.GetRequiredService<NotificationService>(),
+                    sp.GetRequiredService<INotificationPusher>(),
+                    sp.GetRequiredService<ILogger<PushingNotificationStore>>());
+        });
+        services.AddSingleton<INotificationPusher, NotificationHubPusher>();
 
         // D10 (Đ-6.17): ba loại "làm ngay". CHỈ qua AddIntegrationEventHandler (C0) — AddScoped<IIntegrationEventHandler<…>> compile được
         // nhưng bus không bao giờ gọi. Bus đọc danh sách đăng ký lúc dựng; container trần của test schema không dựng bus nên không sao.

@@ -1518,8 +1518,64 @@ SharedKernel`. Event bus của C0 đã có `Meter("SocialApp.Events")` riêng �
 chỉ số `socialapp_events_*` có được `/metrics` của GĐ7 xuất ra không. *Đã kiểm 2026-09-24:* không trùng tên, nhưng **không** được
 xuất ra. Counter đã chuyển về `BusinessMetrics` (chi tiết ở "Thực tế thi công" của `huong-dan-khoi-c0-duong-ray.md`).
 
+### C6 — 2026-09-25
+
+Điều kiện bắt đầu của Mục 13 đủ cả bốn trên nhánh (GĐ5 đã merge): `SharedKernel/Realtime/` (scheme `RealtimeTicket`,
+`RevocationHubFilter`, `SubClaimUserIdProvider`, presence), `POST /realtime/tickets`, `MapHub<ChatHub>`, khuôn `HubAuthZTests` +
+`ChatHubContractTests`. Không sửa dòng nào của `SharedKernel/Realtime/` — vé đã đọc `?access_token=` cho mọi `/hubs/*`, và
+`RevocationHubFilter` đã viết sẵn cho `/hubs/notifications`.
+
+Làm đúng Mục 13: `NotificationHub` (`Notification/Presentation/`, `[Authorize(AuthenticationSchemes = RealtimeTicket)]`, không phương thức
+nào) · `NotificationHubPusher` (`IHubContext`, `Clients.User(recipient)`) · `MapHub<NotificationHub>("/hubs/notifications")` cạnh hub chat ·
+`notification-hub-v1.md` + `.examples.json` + `NotificationHubContractTests` + `Content Include`. `giai-doan-6.md` sửa B.5 C6.
+
+**Lệch so với chính tài liệu này:**
+- **Đẩy bằng bộ trang trí, không sửa D9:** Mục 13 bước 2 ghi "D9 gọi pusher sau `COMMIT`". Store D9 là Infrastructure, không dựng được
+  `NotificationResponse` (cần `IUserDirectory` + ký avatar). Thay vào đó `PushingNotificationStore` (Application) bọc `INotificationStore`:
+  store trả về (đã `COMMIT`) → nếu không `Skipped` thì đọc lại nhóm + số chưa đọc qua `NotificationService.UpsertedEventAsync` → đẩy qua
+  `INotificationPusher` (Application định nghĩa, Presentation hiện thực — khuôn `IChatNotifier` của GĐ5). Sáu handler không đổi dòng nào,
+  và không đường ghi nào quên đẩy được.
+- **Chỉ bọc khi host có SignalR:** đăng ký `INotificationStore` là factory — có `IHubContext<NotificationHub>` (host gọi
+  `AddSharedKernelRealtime`) thì bọc, không có (container trần của `NotificationStoreTests`, test schema) thì trả store gốc. Không phải mở
+  hàm DI thứ hai, không phải sửa test cũ.
+- **Payload là MỘT object** `{ notification, unreadTotal }` như Mục 8.4 (Đ-6.18 ghi hai tham số) — hub chat cũng đẩy một object mỗi sự
+  kiện; một object thì thêm trường sau này là chỉ-thêm.
+- **Đẩy hỏng không ném:** mọi lỗi của phần đẩy (đọc lại, hub, backplane) → log Warning (chỉ loại lỗi, không id), trả kết quả upsert như cũ
+  — thông báo đã lưu, lượt hỏi lại 30 giây thấy nó. Lỗi của chính upsert vẫn ném cho bus ghi log.
+- **Presence:** tab chỉ nối hub thông báo cũng là "online" (filter presence toàn cục của GĐ5) — đúng nghĩa "đang mở app" mà
+  `MessageSentHandler` dùng. Ghi trong hợp đồng hub.
+- **Thêm ca ngoài Mục 13:** `NHUB_00` (đối chứng bắt tay xanh — không có nó mọi ca 401 xanh cả khi hub không được map), `NHUB_03` (JWT trên
+  query 401), `NHUB_02` dùng vé đã dùng cho HUB CHAT (vé một lần xuyên hub); `NHUB_09` thêm lượt thứ hai cho A (số chưa đọc 2) và chứng
+  minh "B không nhận của A" bằng thứ tự trên một kết nối, không bằng chờ thời gian; unit `PushingNotificationStoreTests` (đẩy sau upsert,
+  `Skipped` không đẩy, đẩy hỏng không ném, upsert hỏng thì ném và không đẩy).
+
+**Lỗi tìm ra khi rà, đã sửa (test của GĐ5):** `ConversationEndpointTests.LIST_02_so_cau_SQL_khong_doi_theo_so_hoi_thoai` đỏ ở lượt chạy
+đủ đầu tiên sau C6. Dựng cảnh của lớp đó gửi lời mời, chấp nhận, tin nhắn → handler thông báo (D10, bước 9) chạy NỀN trên cùng
+database; C6 làm mỗi lượt handler dài thêm (đọc lại nhóm + số chưa đọc để đẩy) nên câu SQL của nó rơi vào khung `SqlCommandCounter`.
+Đo: bỏ bước chờ → cả lớp đỏ 5/5; thêm `await factory.DrainEventsAsync()` trước khi đếm (luật của harness C0) → 5/5 xanh. Rà mọi lớp dùng
+`SqlCommandCounter`: chỉ lớp này dựng cảnh có phát event.
+
+**Test:** Unit 572 → 576 (+4 `PushingNotificationStoreTests`), Integration 909 → 916 (+5 `NotificationHubTests`, +2
+`NotificationHubContractTests`), Architecture 27 → 27. `NotificationHubTests` chạy 10 lượt liền: 10/10. Vitest không chạy (không chạm
+FE — client hub là việc của lane E, trong `lib/realtime/`). Còn đỏ nền R2 trên máy dev.
+
+**Thử cho đỏ — 7/7 đột biến bị bắt**, build hợp lệ ở mọi lượt (`0 Error(s)`), file khôi phục nguyên byte (`md5`):
+
+| Đột biến | Ca đỏ thực tế |
+|---|---|
+| M1 — bỏ `MapHub<NotificationHub>` | `NHUB_00`; `NHUB_09` |
+| M2 — không bọc bộ đẩy | `NHUB_09` |
+| M3 — `Clients.All` thay `Clients.User` | `NHUB_09` |
+| M4 — hub `[AllowAnonymous]` | `NHUB_01`, `_02`, `_03`, `_09` |
+| M5 — hub có một phương thức public | `NotificationHubContractTests.Hub_khong_phuong_thuc_nao_…` |
+| M6 — đẩy cả khi `Skipped` | `Tu_bao_minh_khong_day` (unit) |
+| M7 — không bắt lỗi của phần đẩy | `Day_hong_van_tra_ket_qua_upsert_khong_nem` (unit) |
+
+**detect-changes:** high, 8 luồng (16 file, 18 symbol — so với cây C2b; file mới đã `git add -N`). Cả tám là luồng `Read`, `ReadAll`, `ToResponse` của D11 — hàm bị gán theo dòng vì `FindGroupAsync` và `UpsertedEventAsync` chèn ngay cạnh; `git diff` hai file đó chỉ có dòng THÊM (28 dòng, 0 dòng sửa/xóa), `MarkReadAsync`, `MarkAllReadAsync`, `ToResponse` không đổi. Impact trước khi sửa: `AddNotificationModule` UNKNOWN — như D9–D11 (4 lời gọi, chữ ký không đổi; đăng ký
+`INotificationStore` đổi sang factory — container trần vẫn nhận store gốc, `NotificationStoreTests` không đổi).
+
 ### Các đầu việc còn lại
 
-*Cập nhật 2026-09-24:* A1–A5, C1–C5 đã thi công (các mục trên). Chỉ còn **C6** (chờ GĐ5). Làm C6 thì điền theo khuôn trên: chỗ nào
+*Cập nhật 2026-09-24:* A1–A5, C1–C5 đã thi công (các mục trên). Chỉ còn **C6** (chờ GĐ5). *Cập nhật 2026-09-25:* C6 và C2b (provider bình luận) đã thi công — hai khối không còn đầu việc nào. Làm C6 thì điền theo khuôn trên: chỗ nào
 phải đổi hướng so với Mục 0.4 và vì sao; lệch so với chính tài liệu này; số test trước → sau; bảng đột biến thực tế;
 `detect-changes` của từng commit. Kết quả kiểm extension trên staging ghi vào A4 sau F1.
