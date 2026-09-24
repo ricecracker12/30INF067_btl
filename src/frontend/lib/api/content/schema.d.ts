@@ -182,6 +182,144 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/posts/{postId}/comments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Bình luận gốc của một bài, cũ trước, phân trang keyset (Đ-3.6)
+         * @description Tầng 2: `post.read.public`. Tầng 3: BR-02 **của bài** (Đ-3.3) — bài không tồn tại, đã xóa, bị ẩn, hay người gọi
+         *     không được xem → **404**, cùng một phản hồi với `GET /posts/{postId}`.
+         *
+         *     Chỉ bình luận gốc (`depth = 1`); phản hồi tải riêng qua `GET /comments/{commentId}/replies` khi người dùng mở nhánh.
+         *     Sắp `(createdAt ASC, commentId ASC)` — bình luận mới rơi vào **cuối**, keyset không nhân đôi hay nhảy cóc.
+         *
+         *     Bình luận đã xóa (hay bị ẩn) **vẫn nằm trong danh sách** ở đúng vị trí, với `body` và `author` là `null` (Đ-3.5),
+         *     để nhánh con của nó vẫn mở được.
+         */
+        get: operations["listComments"];
+        put?: never;
+        /**
+         * Bình luận vào bài, hoặc trả lời một bình luận — tối đa 3 cấp (FR-007, BR-08)
+         * @description Tầng 2: `comment.create`. Thứ tự kiểm (Mục 6.1): **có hồ sơ** (không → 403) → **BR-02 của bài** (không → 404) →
+         *     **cha hợp lệ** (400 `errors.parentId`).
+         *
+         *     Client **không** gửi `depth` — server tính từ cha (Đ-3.4). `parentId` phải là bình luận **cùng bài**, còn hiển
+         *     thị, và ở cấp 1 hoặc 2. Cha không tồn tại, thuộc bài khác hay đã xóa → cùng một câu *"Bình luận cần trả lời không
+         *     còn tồn tại."*; cha ở cấp 3 → *"Chỉ được trả lời tối đa 3 cấp."*
+         *
+         *     `body` 1–1000 ký tự (đếm UTF-16), không toàn khoảng trắng, lưu nguyên văn (Đ-3.14).
+         */
+        post: operations["createComment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/comments/{commentId}/replies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Phản hồi trực tiếp của một bình luận, cũ trước, phân trang keyset (Đ-3.6)
+         * @description Tầng 2: `post.read.public`. Tầng 3: lần từ bình luận về **bài chứa nó** rồi hỏi BR-02 (Đ-3.3) — bình luận không
+         *     tồn tại hay nằm trong bài người gọi không được xem → **404**, cùng một phản hồi. Đây là dòng `READ-CMT-03`.
+         *
+         *     Cha đã xóa vẫn mở được nhánh (Đ-3.5). Cùng cursor, cùng chiều sắp với danh sách bình luận gốc.
+         */
+        get: operations["listReplies"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/comments/{commentId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Xóa mềm bình luận của mình, nhánh con vẫn còn (FR-007, Đ-3.5)
+         * @description Tầng 2: chỉ `[Authorize]` — xóa dữ liệu của chính mình là quyền của chủ dữ liệu, không phải tính năng được cấp
+         *     (Đ-3.2). Tầng 3: `author == người gọi` **và** bình luận còn hiển thị. Không tồn tại, không phải của bạn, hay đã xóa
+         *     (xóa lần hai) → **403**, cùng một phản hồi (`TC-A03-comment`).
+         *
+         *     Được xóa kể cả khi bài giờ đã `private` với bạn — quyền xóa dữ liệu của mình không phụ thuộc cài đặt của người khác.
+         */
+        delete: operations["deleteComment"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/posts/{postId}/reactions/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Thả hoặc đổi cảm xúc của tôi trên một bài (FR-008, BR-05)
+         * @description Tầng 2: `reaction.set`. Tầng 3: BR-02 của bài → không xem được → **404** (`READ-REACT-01`).
+         *
+         *     Idempotent: `PUT` cùng `type` hai lần là một dòng, bộ đếm không đổi lần hai. Đổi loại thì loại cũ −1, loại mới +1.
+         *     Trả tóm tắt **thật** của server để FE đối chiếu optimistic update (Đ-3.7, Đ-3.13).
+         */
+        put: operations["setPostReaction"];
+        post?: never;
+        /**
+         * Gỡ cảm xúc của tôi trên một bài (FR-008)
+         * @description Tầng 2: `reaction.set`. Tầng 3: BR-02 của bài (404). Chưa thả gì mà gọi vẫn **200** với tóm tắt hiện tại —
+         *     "đảm bảo tôi không còn cảm xúc ở đây" đã đúng (Đ-3.7). Loại về 0 thì **không còn khóa** trong `reactionCounts`.
+         */
+        delete: operations["clearPostReaction"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/comments/{commentId}/reactions/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Thả hoặc đổi cảm xúc của tôi trên một bình luận (FR-008, BR-05)
+         * @description Như `PUT /posts/{postId}/reactions/me`, đối tượng là bình luận. Bình luận phải còn hiển thị (đã xóa → 404) và nằm
+         *     trong bài người gọi được xem (`READ-REACT-02`) — cả hai trường hợp là cùng một 404.
+         */
+        put: operations["setCommentReaction"];
+        post?: never;
+        /**
+         * Gỡ cảm xúc của tôi trên một bình luận (FR-008)
+         * @description Như `DELETE /posts/{postId}/reactions/me`, đối tượng là bình luận (đã xóa → 404).
+         */
+        delete: operations["clearCommentReaction"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -320,10 +458,13 @@ export interface components {
             media: components["schemas"]["PostMedia"][];
             /**
              * Format: int32
-             * @description GĐ2 luôn 0 (khung Đ-2.12).
+             * @description Số bình luận **đang hiển thị** ở mọi cấp của bài (Đ-3.5). GĐ2 luôn 0 (khung Đ-2.12).
              */
             commentCount: number;
-            /** @description GĐ2 luôn `{}` rỗng — **không** `null` (Đ-2.12). Key là loại cảm xúc, value là số lượt. */
+            /**
+             * @description **Không bao giờ** `null` — `{}` khi chưa ai thả (Đ-2.12). Key là `ReactionType`, value là số lượt > 0; loại về 0 thì
+             *     không còn khóa (Đ-3.8).
+             */
             reactionCounts: {
                 [key: string]: number;
             };
@@ -336,6 +477,11 @@ export interface components {
             editedAt?: string | null;
             /** @description Do **server** tính (`author_id == actorId`). FE không tự so id (Mục 8.2). */
             canEdit: boolean;
+            /**
+             * @description GĐ3 (Đ-3.10, Đ-3.11) — cảm xúc của **chính người gọi** trên bài, `null` nếu chưa thả. Luôn có mặt. Trường theo
+             *     người xem: không bao giờ nằm trong cache dùng chung.
+             */
+            myReaction: components["schemas"]["ReactionType"] | null;
             /**
              * @description GĐ6 (Đ-6.14). Khác `null` **chỉ** khi bài bị kiểm duyệt ẩn và người gọi là tác giả — FE hiện biểu ngữ "bài bị
              *     ẩn" theo `reasonCode`. `null` với mọi bài khác. Không required: client cũ bỏ qua được.
@@ -386,6 +532,78 @@ export interface components {
             /** @description `items` có thể ít hơn `limit`. Hết dữ liệu khi và chỉ khi `nextCursor` là `null`. */
             nextCursor: string | null;
             mode: components["schemas"]["FeedMode"];
+        };
+        /**
+         * @description Chữ thường, khớp CHECK `ck_reactions_type`. Định nghĩa MỘT lần, mọi chỗ khác `$ref` tới đây (Mục 8.2).
+         * @enum {string}
+         */
+        ReactionType: "like" | "love" | "haha" | "wow" | "sad" | "angry";
+        /**
+         * @description `deleted` — tác giả đã xóa; `hidden` — bị ẩn do vi phạm (GĐ6, Đ-6.14). Cả hai giữ vị trí và nhánh con, nhưng
+         *     `body`/`author` là `null` và không nhận cảm xúc.
+         * @enum {string}
+         */
+        CommentStatus: "visible" | "deleted" | "hidden";
+        CreateCommentRequest: {
+            /** @description 1–1000 ký tự (UTF-16), không toàn khoảng trắng. Lưu nguyên văn (Đ-3.14). */
+            body: string;
+            /**
+             * Format: uuid
+             * @description Bình luận được trả lời — cùng bài, còn hiển thị, cấp 1 hoặc 2. Bỏ trống = bình luận gốc.
+             */
+            parentId?: string | null;
+        };
+        CommentResponse: {
+            /** Format: uuid */
+            commentId: string;
+            /** Format: uuid */
+            postId: string;
+            /**
+             * Format: uuid
+             * @description `null` khi là bình luận gốc.
+             */
+            parentId: string | null;
+            /**
+             * Format: int32
+             * @description Do server tính (Đ-3.4). Cấp 3 không trả lời được nữa — FE ẩn nút Trả lời (BR-08).
+             */
+            depth: number;
+            status: components["schemas"]["CommentStatus"];
+            /** @description `null` khi `status` khác `visible` — "biến mất" gồm cả việc ai đã viết (Đ-3.5). */
+            author: components["schemas"]["PostAuthor"] | null;
+            /** @description `null` khi `status` khác `visible`. */
+            body: string | null;
+            /**
+             * Format: int32
+             * @description Số phản hồi **trực tiếp**, mọi trạng thái — khớp số dòng FE thấy khi mở nhánh (Đ-3.5).
+             */
+            replyCount: number;
+            /** @description Như `PostResponse.reactionCounts`; `{}` khi `status` khác `visible`. */
+            reactionCounts: {
+                [key: string]: number;
+            };
+            /** @description Cảm xúc của người gọi trên bình luận, `null` nếu chưa thả. Luôn có mặt. */
+            myReaction: components["schemas"]["ReactionType"] | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** @description Do **server** tính (`author == người gọi` và `visible`). FE không tự so id. */
+            canDelete: boolean;
+        };
+        CommentPage: {
+            items: components["schemas"]["CommentResponse"][];
+            /** @description Opaque. `null` khi hết dữ liệu — không phải chuỗi rỗng. */
+            nextCursor: string | null;
+        };
+        SetReactionRequest: {
+            type: components["schemas"]["ReactionType"];
+        };
+        /** @description Con số **thật** của server sau thao tác — FE đối chiếu optimistic update với nó (Đ-3.7, Đ-3.13). */
+        ReactionSummary: {
+            /** @description Không bao giờ `null`; không có khóa giá trị 0. */
+            reactionCounts: {
+                [key: string]: number;
+            };
+            myReaction: components["schemas"]["ReactionType"] | null;
         };
     };
     responses: {
@@ -574,6 +792,12 @@ export interface components {
         UserId: string;
         /** @description UUID v7 của bài. Sai dạng → 400. */
         PostId: string;
+        /** @description UUID v7 của bình luận. Sai dạng → 400. */
+        CommentId: string;
+        /** @description `nextCursor` của trang trước. Bỏ trống để lấy trang đầu. Rác → 400 `errors.cursor`. */
+        Cursor: string;
+        /** @description Số dòng mỗi trang, mặc định 20, tối đa 50 (AGENTS.md Mục 9). Ngoài `1..50` → 400 `errors.limit`. */
+        Limit: number;
     };
     requestBodies: never;
     headers: {
@@ -947,7 +1171,8 @@ export interface operations {
                      *           "reactionCounts": {},
                      *           "createdAt": "2026-09-23T08:15:00Z",
                      *           "editedAt": null,
-                     *           "canEdit": false
+                     *           "canEdit": false,
+                     *           "myReaction": null
                      *         }
                      *       ],
                      *       "nextCursor": "MjAyNi0wOS0yM1QwODoxNTowMC4wMDAwMDAwKzAwOjAwfDAxOTJmM2MxLThhNGUtN2MzMS05ZjJhLTZiNWQ0ZTNjMmExMA",
@@ -962,6 +1187,345 @@ export interface operations {
             429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalError"];
             503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    listComments: {
+        parameters: {
+            query?: {
+                /** @description `nextCursor` của trang trước. Bỏ trống để lấy trang đầu. Rác → 400 `errors.cursor`. */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Số dòng mỗi trang, mặc định 20, tối đa 50 (AGENTS.md Mục 9). Ngoài `1..50` → 400 `errors.limit`. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                /** @description UUID v7 của bài. Sai dạng → 400. */
+                postId: components["parameters"]["PostId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Một trang bình luận gốc. */
+            200: {
+                headers: {
+                    "X-Correlation-ID": components["headers"]["XCorrelationId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "commentId": "0192f3d0-1a2b-7c3d-8e4f-5a6b7c8d9e01",
+                     *           "postId": "0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10",
+                     *           "parentId": null,
+                     *           "depth": 1,
+                     *           "status": "visible",
+                     *           "author": {
+                     *             "userId": "0192f3c0-1b2d-7e4f-8a6c-9d0e1f2a3b4c",
+                     *             "displayName": "Nguyễn Văn An",
+                     *             "avatarUrl": null
+                     *           },
+                     *           "body": "Ảnh đẹp quá!",
+                     *           "replyCount": 2,
+                     *           "reactionCounts": {
+                     *             "like": 3
+                     *           },
+                     *           "myReaction": "like",
+                     *           "createdAt": "2026-09-24T08:20:00Z",
+                     *           "canDelete": false
+                     *         },
+                     *         {
+                     *           "commentId": "0192f3d0-1a2b-7c3d-8e4f-5a6b7c8d9e02",
+                     *           "postId": "0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10",
+                     *           "parentId": null,
+                     *           "depth": 1,
+                     *           "status": "deleted",
+                     *           "author": null,
+                     *           "body": null,
+                     *           "replyCount": 1,
+                     *           "reactionCounts": {},
+                     *           "myReaction": null,
+                     *           "createdAt": "2026-09-24T08:25:00Z",
+                     *           "canDelete": false
+                     *         }
+                     *       ],
+                     *       "nextCursor": null
+                     *     }
+                     */
+                    "application/json": components["schemas"]["CommentPage"];
+                };
+            };
+            400: components["responses"]["ValidationProblem"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    createComment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID v7 của bài. Sai dạng → 400. */
+                postId: components["parameters"]["PostId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "body": "Đồng ý với bạn!",
+                 *       "parentId": "0192f3d0-1a2b-7c3d-8e4f-5a6b7c8d9e01"
+                 *     }
+                 */
+                "application/json": components["schemas"]["CreateCommentRequest"];
+            };
+        };
+        responses: {
+            /** @description Bình luận vừa tạo (`canDelete = true`, `replyCount = 0`, `reactionCounts = {}`). */
+            201: {
+                headers: {
+                    "X-Correlation-ID": components["headers"]["XCorrelationId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "commentId": "0192f3d0-1a2b-7c3d-8e4f-5a6b7c8d9e03",
+                     *       "postId": "0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10",
+                     *       "parentId": "0192f3d0-1a2b-7c3d-8e4f-5a6b7c8d9e01",
+                     *       "depth": 2,
+                     *       "status": "visible",
+                     *       "author": {
+                     *         "userId": "0192f3c0-1b2d-7e4f-8a6c-9d0e1f2a3b4d",
+                     *         "displayName": "Trần Thị Bình",
+                     *         "avatarUrl": null
+                     *       },
+                     *       "body": "Đồng ý với bạn!",
+                     *       "replyCount": 0,
+                     *       "reactionCounts": {},
+                     *       "myReaction": null,
+                     *       "createdAt": "2026-09-24T08:30:00Z",
+                     *       "canDelete": true
+                     *     }
+                     */
+                    "application/json": components["schemas"]["CommentResponse"];
+                };
+            };
+            400: components["responses"]["ValidationProblem"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listReplies: {
+        parameters: {
+            query?: {
+                /** @description `nextCursor` của trang trước. Bỏ trống để lấy trang đầu. Rác → 400 `errors.cursor`. */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Số dòng mỗi trang, mặc định 20, tối đa 50 (AGENTS.md Mục 9). Ngoài `1..50` → 400 `errors.limit`. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                /** @description UUID v7 của bình luận. Sai dạng → 400. */
+                commentId: components["parameters"]["CommentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Một trang phản hồi. */
+            200: {
+                headers: {
+                    "X-Correlation-ID": components["headers"]["XCorrelationId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommentPage"];
+                };
+            };
+            400: components["responses"]["ValidationProblem"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    deleteComment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID v7 của bình luận. Sai dạng → 400. */
+                commentId: components["parameters"]["CommentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Đã xóa mềm. `commentCount` của bài giảm 1; `replyCount` của cha không đổi. */
+            204: {
+                headers: {
+                    "X-Correlation-ID": components["headers"]["XCorrelationId"];
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["ValidationProblem"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    setPostReaction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID v7 của bài. Sai dạng → 400. */
+                postId: components["parameters"]["PostId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "type": "love"
+                 *     }
+                 */
+                "application/json": components["schemas"]["SetReactionRequest"];
+            };
+        };
+        responses: {
+            /** @description Tóm tắt cảm xúc sau thao tác. */
+            200: {
+                headers: {
+                    "X-Correlation-ID": components["headers"]["XCorrelationId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "reactionCounts": {
+                     *         "like": 2,
+                     *         "love": 1
+                     *       },
+                     *       "myReaction": "love"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ReactionSummary"];
+                };
+            };
+            400: components["responses"]["ValidationProblem"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    clearPostReaction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID v7 của bài. Sai dạng → 400. */
+                postId: components["parameters"]["PostId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Tóm tắt cảm xúc sau thao tác, `myReaction = null`. */
+            200: {
+                headers: {
+                    "X-Correlation-ID": components["headers"]["XCorrelationId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReactionSummary"];
+                };
+            };
+            400: components["responses"]["ValidationProblem"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    setCommentReaction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID v7 của bình luận. Sai dạng → 400. */
+                commentId: components["parameters"]["CommentId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "type": "haha"
+                 *     }
+                 */
+                "application/json": components["schemas"]["SetReactionRequest"];
+            };
+        };
+        responses: {
+            /** @description Tóm tắt cảm xúc của bình luận sau thao tác. */
+            200: {
+                headers: {
+                    "X-Correlation-ID": components["headers"]["XCorrelationId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReactionSummary"];
+                };
+            };
+            400: components["responses"]["ValidationProblem"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    clearCommentReaction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID v7 của bình luận. Sai dạng → 400. */
+                commentId: components["parameters"]["CommentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Tóm tắt cảm xúc của bình luận sau thao tác, `myReaction = null`. */
+            200: {
+                headers: {
+                    "X-Correlation-ID": components["headers"]["XCorrelationId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReactionSummary"];
+                };
+            };
+            400: components["responses"]["ValidationProblem"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalError"];
         };
     };
 }

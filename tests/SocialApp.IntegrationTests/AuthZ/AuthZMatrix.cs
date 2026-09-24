@@ -274,7 +274,95 @@ public static class AuthZMatrix
             Caller.Moderator, HttpMethod.Patch, "/api/v1/reports/{id}", HttpStatusCode.OK,
             ArrangePath: async a => $"/api/v1/reports/{await BaoCaoMoAsync(a)}",
             Body: new { decision = "dismiss" }),
+
+        // --- GĐ3 (B2). giai-doan-3.md Mục 6.3. Kỳ vọng viết tay theo Mục 6.1 + hợp đồng content-v1, không lấy từ output. ---
+        //
+        // Bình luận và cảm xúc THỪA KẾ BR-02 của bài (Đ-3.3): không xem được bài → 404 ở MỌI đường, kể cả ghi — cùng quy ước
+        // 3b với READ-01. 403 chỉ dành cho thao tác cần SỞ HỮU (TC-A03-comment). READ-CMT-03 và READ-REACT-02 là hai dòng
+        // quan trọng nhất: chúng đi vòng qua `commentId` của một bình luận nằm trong bài đã thành private — đúng lỗ LEAK-01.
+
+        new("TC-A03-comment", "A xóa bình luận của B", "GĐ3",
+            Caller.User, HttpMethod.Delete, "/api/v1/comments/{id của B}", HttpStatusCode.Forbidden,
+            ArrangePath: async a => $"/api/v1/comments/{(await BinhLuanCuaNguoiKhacAsync(a, doiSangRiengTu: false)).CommentId}"),
+
+        new("READ-CMT-01", "A đọc bình luận của bài private của B", "GĐ3",
+            Caller.User, HttpMethod.Get, "/api/v1/posts/{id của B}/comments", HttpStatusCode.NotFound,
+            ArrangePath: async a => $"/api/v1/posts/{await TaoBaiCuaNguoiKhacAsync(a, PrivacyRiengTu)}/comments"),
+
+        // Người gọi CÓ hồ sơ: không có bước đó thì 403 "chưa onboarding" (Mục 6.1, kiểm trước BR-02) che mất đúng thứ dòng
+        // này canh — bỏ kiểm BR-02 ở CreateAsync mà dòng vẫn "đỏ đúng mã" là lưới giả (cùng lý do TC-A03-media).
+        new("READ-CMT-02", "A bình luận vào bài private của B", "GĐ3",
+            Caller.User, HttpMethod.Post, "/api/v1/posts/{id của B}/comments", HttpStatusCode.NotFound,
+            ArrangePath: async a =>
+            {
+                await TaoHoSoAsync(a.Client, a.CallerUserId);
+                return $"/api/v1/posts/{await TaoBaiCuaNguoiKhacAsync(a, PrivacyRiengTu)}/comments";
+            },
+            Body: new { body = "Bình luận lén." }),
+
+        new("READ-CMT-03", "A đọc phản hồi của một bình luận nằm trong bài private của B", "GĐ3",
+            Caller.User, HttpMethod.Get, "/api/v1/comments/{id}/replies", HttpStatusCode.NotFound,
+            ArrangePath: async a => $"/api/v1/comments/{(await BinhLuanCuaNguoiKhacAsync(a, doiSangRiengTu: true)).CommentId}/replies"),
+
+        new("READ-REACT-01", "A thả cảm xúc vào bài private của B", "GĐ3",
+            Caller.User, HttpMethod.Put, "/api/v1/posts/{id của B}/reactions/me", HttpStatusCode.NotFound,
+            ArrangePath: async a => $"/api/v1/posts/{await TaoBaiCuaNguoiKhacAsync(a, PrivacyRiengTu)}/reactions/me",
+            Body: new { type = "like" }),
+
+        new("READ-REACT-02", "A thả cảm xúc vào bình luận nằm trong bài private của B", "GĐ3",
+            Caller.User, HttpMethod.Put, "/api/v1/comments/{id}/reactions/me", HttpStatusCode.NotFound,
+            ArrangePath: async a => $"/api/v1/comments/{(await BinhLuanCuaNguoiKhacAsync(a, doiSangRiengTu: true)).CommentId}/reactions/me",
+            Body: new { type = "like" }),
+
+        new("TC-A01-comment", "Bình luận không kèm JWT", "GĐ3",
+            Caller.Anonymous, HttpMethod.Post, $"/api/v1/posts/{NguoiLaD:D}/comments", HttpStatusCode.Unauthorized,
+            Body: new { body = "Không có token." }),
     ];
+
+    /// <summary>
+    /// B1 (GĐ3): B có hồ sơ, đăng bài <c>public</c>, tự bình luận vào bài — rồi (<paramref name="doiSangRiengTu"/>) <c>PATCH</c>
+    /// bài sang <c>private</c>. Trả id bài và id bình luận. Bình luận tạo KHI bài còn public (lúc private thì không ai ngoài B
+    /// tạo được) — đúng cảnh LEAK-01: người gọi cầm một <c>commentId</c> có thật của bài giờ đã không được xem. Toàn bộ qua
+    /// API thật (luật B2 của GĐ2).
+    /// </summary>
+    private static async Task<(Guid PostId, Guid CommentId)> BinhLuanCuaNguoiKhacAsync(AuthZArrange a, bool doiSangRiengTu)
+    {
+        var b = Guid.NewGuid();
+        await TaoHoSoAsync(a.Client, b);
+
+        using var createPost = new HttpRequestMessage(HttpMethod.Post, "/api/v1/posts")
+        {
+            Content = JsonContent.Create(new { body = "Bài có bình luận.", privacy = PrivacyCongKhai, mediaKeys = Array.Empty<object>() }),
+        };
+        createPost.Headers.Authorization = Bearer(b);
+        using var created = await a.Client.SendAsync(createPost);
+        await NemNeuKhongPhaiAsync(created, HttpStatusCode.Created, "POST /api/v1/posts public cho B");
+        using var post = JsonDocument.Parse(await created.Content.ReadAsStringAsync());
+        var postId = post.RootElement.GetProperty("postId").GetGuid();
+
+        using var comment = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/posts/{postId:D}/comments")
+        {
+            Content = JsonContent.Create(new { body = "Bình luận của B." }),
+        };
+        comment.Headers.Authorization = Bearer(b);
+        using var commented = await a.Client.SendAsync(comment);
+        await NemNeuKhongPhaiAsync(commented, HttpStatusCode.Created, $"POST /posts/{postId:D}/comments bởi B");
+        using var body = JsonDocument.Parse(await commented.Content.ReadAsStringAsync());
+        var commentId = body.RootElement.GetProperty("commentId").GetGuid();
+
+        if (doiSangRiengTu)
+        {
+            using var patch = new HttpRequestMessage(HttpMethod.Patch, $"/api/v1/posts/{postId:D}")
+            {
+                Content = JsonContent.Create(new { privacy = PrivacyRiengTu }),
+            };
+            patch.Headers.Authorization = Bearer(b);
+            using var patched = await a.Client.SendAsync(patch);
+            await NemNeuKhongPhaiAsync(patched, HttpStatusCode.OK, $"PATCH /posts/{postId:D} → private");
+        }
+
+        return (postId, commentId);
+    }
 
     /// <summary>
     /// B2 (GĐ5): A và B là bạn, có hội thoại với một tin; người gọi C có hồ sơ nhưng KHÔNG liên quan. Trả id hội thoại A-B.

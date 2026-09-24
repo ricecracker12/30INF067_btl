@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using SocialApp.IntegrationTests.Harness;
 using SocialApp.Modules.Content.Application.Feed;
+using SocialApp.Modules.Content.Domain;
 using SocialApp.SharedKernel.Redis;
 using StackExchange.Redis;
 
@@ -187,6 +188,10 @@ public sealed class FeedCacheTests(PostgresFixture postgres, RedisFixture redis,
     /// <c>FEED-13</c> (L5) — A và B là bạn, mỗi người một bài; mỗi người đọc feed CỦA MÌNH hai lần (lần 2 trúng):
     /// <c>canEdit = true</c> CHỈ trên bài của người đọc. Giá trị thô của CẢ HAI khóa đúng bốn trường. Khóa theo người xem nên
     /// cache lưu <c>PostResponse</c> vẫn cho <c>canEdit</c> đúng — vế giá trị thô mới là thứ bắt được đột biến đó.
+    ///
+    /// GĐ3 (Đ-3.11, rủi ro GĐ4-01): mở rộng với <c>myReaction</c> — A thả love vào bài của B; A thấy love, B thấy null trên CÙNG bài;
+    /// A đổi sang haha rồi đọc lần nữa (vẫn trúng cache) thấy ngay haha. <c>myReaction</c> hydrate từ DB mỗi lần, không nằm trong
+    /// cache dùng chung.
     /// </summary>
     [Fact]
     public async Task FEED_13_canEdit_dung_nguoi_xem_va_gia_tri_tho_chi_co_id()
@@ -197,6 +202,7 @@ public sealed class FeedCacheTests(PostgresFixture postgres, RedisFixture redis,
         await client.MakeFriendsAsync(a, b);
         var ofA = await client.CreatePostOkAsync(a, new { body = "Bài của A.", privacy = "friends" });
         var ofB = await client.CreatePostOkAsync(b, new { body = "Bài của B.", privacy = "friends" });
+        await client.ReactOkAsync(a, "posts", ofB.PostId, "love");
 
         foreach (var (reader, own, other) in new[] { (a, ofA.PostId, ofB.PostId), (b, ofB.PostId, ofA.PostId) })
         {
@@ -206,7 +212,15 @@ public sealed class FeedCacheTests(PostgresFixture postgres, RedisFixture redis,
 
             Assert.True(hit.Items.Single(i => i.PostId == own).CanEdit);
             Assert.False(hit.Items.Single(i => i.PostId == other).CanEdit);
+            Assert.Equal(reader == a ? ReactionType.Love : (ReactionType?)null, hit.Items.Single(i => i.PostId == ofB.PostId).MyReaction);
+            Assert.Null(hit.Items.Single(i => i.PostId == ofA.PostId).MyReaction);
             AssertRawValueHoldsOnlyIds(redis.Database, reader);
         }
+
+        await client.ReactOkAsync(a, "posts", ofB.PostId, "haha");
+        await AssertCachedAsync(a);
+        var afterChange = await client.GetFeedOkAsync(a);
+        Assert.Equal(ReactionType.Haha, afterChange.Items.Single(i => i.PostId == ofB.PostId).MyReaction);
+        AssertRawValueHoldsOnlyIds(redis.Database, a);
     }
 }

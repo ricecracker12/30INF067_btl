@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using SocialApp.Modules.Content.Application;
 using SocialApp.Modules.Content.Application.Feed;
 using SocialApp.Modules.Content.Application.Posts;
+using SocialApp.Modules.Content.Application.Reactions;
 using SocialApp.Modules.Content.Domain;
 using SocialApp.SharedKernel.Contracts;
 using SocialApp.SharedKernel.Storage;
@@ -31,7 +32,7 @@ public sealed class FeedServiceTests
     private FeedService Service()
     {
         var mapper = new PostResponseMapper(new SigningOnlyStorage(), NullLogger<PostResponseMapper>.Instance);
-        var hydrator = new PostHydrator(_posts, new EveryoneDirectory(), mapper);
+        var hydrator = new PostHydrator(_posts, new EveryoneDirectory(), new NoReactions(), mapper);
         return new FeedService(_sources, _store, _cache, _posts, hydrator, NullLogger<FeedService>.Instance);
     }
 
@@ -274,6 +275,14 @@ public sealed class FeedServiceTests
         public Task<Post?> FindForUpdateAsync(Guid postId, CancellationToken ct) => throw new NotSupportedException();
 
         public Task SaveAsync(CancellationToken ct) => throw new NotSupportedException();
+    }
+
+    /// <summary>GĐ3: người xem chưa thả cảm xúc nào — FeedService không quan tâm myReaction, chỉ cần hydrator dựng được.</summary>
+    private sealed class NoReactions : IReactionReader
+    {
+        public Task<IReadOnlyDictionary<Guid, ReactionType>> GetMineAsync(
+            Guid actorId, ReactionTargetType targetType, IReadOnlyCollection<Guid> targetIds, CancellationToken ct) =>
+            Task.FromResult<IReadOnlyDictionary<Guid, ReactionType>>(new Dictionary<Guid, ReactionType>());
     }
 
     private sealed class EveryoneDirectory : IUserDirectory

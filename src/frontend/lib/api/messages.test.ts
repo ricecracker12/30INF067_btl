@@ -331,3 +331,43 @@ describe("validationErrors", () => {
     })
   })
 })
+
+describe("errorMessage — bốn ngữ cảnh GĐ3 (bình luận + cảm xúc)", () => {
+  it("403 của comment-create (chưa có hồ sơ) và comment-delete (không phải của bạn) là HAI câu khác nhau", () => {
+    const e = problem(403, {
+      detail: "Bạn không có quyền thực hiện thao tác này.",
+    })
+
+    expect(errorMessage("comment-create", e)).toBe(
+      "Bạn cần hoàn tất hồ sơ trước khi bình luận."
+    )
+    expect(errorMessage("comment-delete", e)).toBe(
+      "Bình luận không còn tồn tại, hoặc không phải của bạn."
+    )
+  })
+
+  it("404 không tiết lộ thứ nào có thật — bài/bình luận không có và không được xem là một câu (Đ-3.3)", () => {
+    const e = problem(404, { detail: "Không tìm thấy bình luận." })
+
+    expect(errorMessage("comment-read", e)).toBe(
+      "Không tìm thấy bài viết hoặc bình luận."
+    )
+    expect(errorMessage("reaction", e)).toBe("Nội dung này không còn tồn tại.")
+  })
+
+  it("400 parentId đọc ĐÚNG câu server dưới errors.parentId (Đ-E5)", () => {
+    const e = problem(400, {
+      errors: { parentId: ["Chỉ được trả lời tối đa 3 cấp."] },
+    })
+
+    expect(fieldMessage(e, "parentId", "comment-create")).toBe(
+      "Chỉ được trả lời tối đa 3 cấp."
+    )
+  })
+
+  it("429 bấm tim liên tục: câu chung, không đồng hồ đếm ngược", () => {
+    expect(errorMessage("reaction", problem(429))).toBe(
+      "Bạn thao tác quá nhanh. Vui lòng thử lại sau ít phút."
+    )
+  })
+})

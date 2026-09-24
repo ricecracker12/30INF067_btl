@@ -66,4 +66,56 @@ export const contentApi = {
     request<T.FeedPage>(`${BFF_ROUTES.api}/feed${pageQuery(opts)}`, {
       signal,
     }),
+
+  // ---- GĐ3: bình luận (Đ-3.6) — tải lười theo cấp, cũ trước ----
+
+  /** Bình luận GỐC của bài. Bài không xem được → 404, cùng câu với `getPost` (Đ-3.3). */
+  listComments: (
+    postId: string,
+    opts: { cursor?: string | null; limit?: number } = {},
+    signal?: AbortSignal
+  ) =>
+    request<T.CommentPage>(
+      `${BFF_ROUTES.api}/posts/${encodeURIComponent(postId)}/comments${pageQuery(opts)}`,
+      { signal }
+    ),
+
+  /** Phản hồi TRỰC TIẾP của một bình luận — mở từng nhánh khi người dùng bấm "Xem N phản hồi". */
+  listReplies: (
+    commentId: string,
+    opts: { cursor?: string | null; limit?: number } = {},
+    signal?: AbortSignal
+  ) =>
+    request<T.CommentPage>(
+      `${BFF_ROUTES.api}/comments/${encodeURIComponent(commentId)}/replies${pageQuery(opts)}`,
+      { signal }
+    ),
+
+  /** 201. Không gửi `depth` — server tính từ cha (Đ-3.4). */
+  createComment: (postId: string, b: T.CreateCommentRequest) =>
+    request<T.CommentResponse>(
+      `${BFF_ROUTES.api}/posts/${encodeURIComponent(postId)}/comments`,
+      { method: "POST", body: b }
+    ),
+
+  /** 204. Xóa mềm, nhánh con còn nguyên (Đ-3.5); gọi lại là 403. */
+  deleteComment: (commentId: string) =>
+    request<void>(
+      `${BFF_ROUTES.api}/comments/${encodeURIComponent(commentId)}`,
+      { method: "DELETE" }
+    ),
+
+  // ---- GĐ3: cảm xúc "của tôi" (Đ-3.7) — trả tóm tắt THẬT để đối chiếu optimistic ----
+
+  /** `type = null` là gỡ (`DELETE`, luôn 200 kể cả khi chưa thả); khác null là thả/đổi (`PUT`). */
+  react: (target: ReactionTarget, type: T.ReactionType | null) =>
+    request<T.ReactionSummary>(
+      `${BFF_ROUTES.api}/${target.kind === "post" ? "posts" : "comments"}/${encodeURIComponent(target.id)}/reactions/me`,
+      type === null
+        ? { method: "DELETE" }
+        : { method: "PUT", body: { type } satisfies T.SetReactionRequest }
+    ),
 }
+
+/** Đối tượng nhận cảm xúc — bài hoặc bình luận (Đ-3.7: đối tượng nằm trên đường dẫn). */
+export type ReactionTarget = { kind: "post" | "comment"; id: string }

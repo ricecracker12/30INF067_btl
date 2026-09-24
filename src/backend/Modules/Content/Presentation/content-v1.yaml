@@ -48,9 +48,19 @@
 #           `info.version` 1.0.0-gd4 → 1.0.1-gd4 (vá sau D7); → 1.0.2-gd4 khi Đ-4.6 đổi (bài của mình vào feed gợi ý). Swagger sinh từ code vẫn khai 503 là `ProblemDetails`
 #           (không thêm DTO chỉ để đặt tên schema) — dữ liệu trên dây giống nhau; file này là nguồn sự thật.
 #
+# MỞ LẠI Ở GĐ3 (cổng mở 2026-09-24 — docs/giai-doan-3/giai-doan-3.md Mục 8), luật CHỈ-THÊM (Đ-3.10): 8 operation mới trên
+# 5 path (bình luận + cảm xúc), schema `ReactionType`, `CommentStatus`, `CommentResponse`, `CommentPage`,
+# `CreateCommentRequest`, `SetReactionRequest`, `ReactionSummary`; tham số dùng chung `CommentId`, `Cursor`, `Limit`;
+# `PostResponse.myReaction` (bắt buộc có mặt, được null). Không đổi tên, kiểu hay tính bắt buộc của trường nào đã có.
+#   Đ-3.3   Bình luận và cảm xúc thừa kế BR-02 của bài: không xem được → 404 ở MỌI đường, kể cả qua `commentId`.
+#   Đ-3.4   Server tính `depth` từ cha; cha sai → 400 errors.parentId (hai câu cố định).
+#   Đ-3.5   Xóa mềm giữ nhánh; bình luận không còn `visible` trả `body`/`author` = null. `hidden` (Đ-6.14) để GĐ6 ghi.
+#   Đ-3.7   `PUT`/`DELETE …/reactions/me`, idempotent; DELETE khi chưa thả vẫn 200.
+#   `info.version` 1.0.2-gd4 → 1.1.0-gd3 (tăng minor: thêm tính năng tương thích ngược).
+#
 # MỞ LẠI Ở GĐ6 (D7a, 2026-09-25 — docs/giai-doan-6/giai-doan-6.md Mục 8.5), luật CHỈ-THÊM: `PostModeration`,
 # `PostResponse.moderation` (KHÔNG required, đặt cuối — A của GĐ3 cũng thêm trường, Mục 9.4), 409 `post-hidden` ở
-# `PATCH /posts/{postId}` (`PostHiddenProblem`). Không sửa hay xóa gì của GĐ2/GĐ4 ngoài `info.version` 1.0.2-gd4 → 1.1.0-gd6.
+# `PATCH /posts/{postId}` (`PostHiddenProblem`). Không sửa hay xóa gì của GĐ2/GĐ4 ngoài `info.version` 1.1.0-gd3 → 1.2.0-gd6 (merge sau GĐ3).
 #   Đ-6.14  BR-07 phía người đọc: bài `hidden` — tác giả 200 kèm `moderation`; người khác (bạn bè, Moderator, Admin) 404
 #           cùng phản hồi với bài không tồn tại; tác giả `PATCH` → 409; `DELETE` vẫn được.
 #
@@ -63,7 +73,7 @@ openapi: 3.0.3
 
 info:
   title: SocialApp — Content API
-  version: 1.1.0-gd6
+  version: 1.2.0-gd6
   description: |
     Bài đăng kèm ảnh của GĐ2: xin URL tải ảnh theo lô, đăng bài, đọc một bài, đọc danh sách bài của một người
     (cursor keyset), sửa và xóa mềm.
@@ -99,6 +109,13 @@ info:
     `limit`** — FE không bao giờ suy "hết" từ độ dài `items`, chỉ từ `nextCursor: null`. 503 → thẻ "Bảng tin đang quá
     tải" + nút Thử lại, không đồng hồ đếm ngược.
 
+    ### Bình luận và cảm xúc (GĐ3)
+
+    Bình luận tải lười theo cấp: `GET /posts/{postId}/comments` cho bình luận gốc, `GET /comments/{commentId}/replies`
+    khi mở một nhánh — cũ trước, mới sau. Tối đa 3 cấp; server tính cấp. Bình luận đã xóa giữ chỗ với `body`/`author`
+    `null`. Cảm xúc là tài nguyên "của tôi": `PUT`/`DELETE …/reactions/me` trả `ReactionSummary` thật để FE đối chiếu.
+    Mọi thứ thừa kế BR-02 của bài: không xem được bài → 404 ở mọi đường, kể cả qua `commentId`.
+
     ### Bài bị ẩn (GĐ6, BR-07)
 
     Bài bị kiểm duyệt ẩn **chỉ tác giả** đọc được qua `GET /posts/{postId}`, kèm `moderation { status, reasonCode,
@@ -121,6 +138,10 @@ tags:
     description: Đăng, đọc, sửa, xóa mềm bài viết. BR-01 lúc ghi, BR-02 lúc đọc.
   - name: feed
     description: Bảng tin (GĐ4, FR-009, UC-08). Nguồn và mức nhìn theo Đ-4.5; feed gợi ý theo Đ-4.6.
+  - name: comments
+    description: Bình luận 3 cấp (GĐ3, FR-007, UC-06). Thừa kế BR-02 của bài (Đ-3.3); xóa mềm giữ nhánh (Đ-3.5).
+  - name: reactions
+    description: Cảm xúc của tôi trên bài hoặc bình luận (GĐ3, FR-008, UC-07). Một người, một đối tượng, một cảm xúc (BR-05).
 
 paths:
 
@@ -564,6 +585,7 @@ paths:
                     createdAt: '2026-09-23T08:15:00Z'
                     editedAt: null
                     canEdit: false
+                    myReaction: null
                 nextCursor: MjAyNi0wOS0yM1QwODoxNTowMC4wMDAwMDAwKzAwOjAwfDAxOTJmM2MxLThhNGUtN2MzMS05ZjJhLTZiNWQ0ZTNjMmExMA
                 mode: network
         '400':
@@ -576,6 +598,365 @@ paths:
           $ref: '#/components/responses/InternalError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+
+  # ---- GĐ3 — bình luận 3 cấp + cảm xúc (UC-06, UC-07; docs/giai-doan-3/giai-doan-3.md Mục 8) — CHỈ-THÊM (Đ-3.10) ----
+
+  /posts/{postId}/comments:
+    get:
+      tags: [comments]
+      operationId: listComments
+      summary: Bình luận gốc của một bài, cũ trước, phân trang keyset (Đ-3.6)
+      description: |
+        Tầng 2: `post.read.public`. Tầng 3: BR-02 **của bài** (Đ-3.3) — bài không tồn tại, đã xóa, bị ẩn, hay người gọi
+        không được xem → **404**, cùng một phản hồi với `GET /posts/{postId}`.
+
+        Chỉ bình luận gốc (`depth = 1`); phản hồi tải riêng qua `GET /comments/{commentId}/replies` khi người dùng mở nhánh.
+        Sắp `(createdAt ASC, commentId ASC)` — bình luận mới rơi vào **cuối**, keyset không nhân đôi hay nhảy cóc.
+
+        Bình luận đã xóa (hay bị ẩn) **vẫn nằm trong danh sách** ở đúng vị trí, với `body` và `author` là `null` (Đ-3.5),
+        để nhánh con của nó vẫn mở được.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PostId'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Một trang bình luận gốc.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommentPage'
+              example:
+                items:
+                  - commentId: 0192f3d0-1a2b-7c3d-8e4f-5a6b7c8d9e01
+                    postId: 0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10
+                    parentId: null
+                    depth: 1
+                    status: visible
+                    author:
+                      userId: 0192f3c0-1b2d-7e4f-8a6c-9d0e1f2a3b4c
+                      displayName: Nguyễn Văn An
+                      avatarUrl: null
+                    body: Ảnh đẹp quá!
+                    replyCount: 2
+                    reactionCounts:
+                      like: 3
+                    myReaction: like
+                    createdAt: '2026-09-24T08:20:00Z'
+                    canDelete: false
+                  - commentId: 0192f3d0-1a2b-7c3d-8e4f-5a6b7c8d9e02
+                    postId: 0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10
+                    parentId: null
+                    depth: 1
+                    status: deleted
+                    author: null
+                    body: null
+                    replyCount: 1
+                    reactionCounts: {}
+                    myReaction: null
+                    createdAt: '2026-09-24T08:25:00Z'
+                    canDelete: false
+                nextCursor: null
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    post:
+      tags: [comments]
+      operationId: createComment
+      summary: Bình luận vào bài, hoặc trả lời một bình luận — tối đa 3 cấp (FR-007, BR-08)
+      description: |
+        Tầng 2: `comment.create`. Thứ tự kiểm (Mục 6.1): **có hồ sơ** (không → 403) → **BR-02 của bài** (không → 404) →
+        **cha hợp lệ** (400 `errors.parentId`).
+
+        Client **không** gửi `depth` — server tính từ cha (Đ-3.4). `parentId` phải là bình luận **cùng bài**, còn hiển
+        thị, và ở cấp 1 hoặc 2. Cha không tồn tại, thuộc bài khác hay đã xóa → cùng một câu *"Bình luận cần trả lời không
+        còn tồn tại."*; cha ở cấp 3 → *"Chỉ được trả lời tối đa 3 cấp."*
+
+        `body` 1–1000 ký tự (đếm UTF-16), không toàn khoảng trắng, lưu nguyên văn (Đ-3.14).
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PostId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCommentRequest'
+            example:
+              body: Đồng ý với bạn!
+              parentId: 0192f3d0-1a2b-7c3d-8e4f-5a6b7c8d9e01
+      responses:
+        '201':
+          description: Bình luận vừa tạo (`canDelete = true`, `replyCount = 0`, `reactionCounts = {}`).
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommentResponse'
+              example:
+                commentId: 0192f3d0-1a2b-7c3d-8e4f-5a6b7c8d9e03
+                postId: 0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10
+                parentId: 0192f3d0-1a2b-7c3d-8e4f-5a6b7c8d9e01
+                depth: 2
+                status: visible
+                author:
+                  userId: 0192f3c0-1b2d-7e4f-8a6c-9d0e1f2a3b4d
+                  displayName: Trần Thị Bình
+                  avatarUrl: null
+                body: Đồng ý với bạn!
+                replyCount: 0
+                reactionCounts: {}
+                myReaction: null
+                createdAt: '2026-09-24T08:30:00Z'
+                canDelete: true
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /comments/{commentId}/replies:
+    get:
+      tags: [comments]
+      operationId: listReplies
+      summary: Phản hồi trực tiếp của một bình luận, cũ trước, phân trang keyset (Đ-3.6)
+      description: |
+        Tầng 2: `post.read.public`. Tầng 3: lần từ bình luận về **bài chứa nó** rồi hỏi BR-02 (Đ-3.3) — bình luận không
+        tồn tại hay nằm trong bài người gọi không được xem → **404**, cùng một phản hồi. Đây là dòng `READ-CMT-03`.
+
+        Cha đã xóa vẫn mở được nhánh (Đ-3.5). Cùng cursor, cùng chiều sắp với danh sách bình luận gốc.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CommentId'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Một trang phản hồi.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommentPage'
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /comments/{commentId}:
+    delete:
+      tags: [comments]
+      operationId: deleteComment
+      summary: Xóa mềm bình luận của mình, nhánh con vẫn còn (FR-007, Đ-3.5)
+      description: |
+        Tầng 2: chỉ `[Authorize]` — xóa dữ liệu của chính mình là quyền của chủ dữ liệu, không phải tính năng được cấp
+        (Đ-3.2). Tầng 3: `author == người gọi` **và** bình luận còn hiển thị. Không tồn tại, không phải của bạn, hay đã xóa
+        (xóa lần hai) → **403**, cùng một phản hồi (`TC-A03-comment`).
+
+        Được xóa kể cả khi bài giờ đã `private` với bạn — quyền xóa dữ liệu của mình không phụ thuộc cài đặt của người khác.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CommentId'
+      responses:
+        '204':
+          description: Đã xóa mềm. `commentCount` của bài giảm 1; `replyCount` của cha không đổi.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /posts/{postId}/reactions/me:
+    put:
+      tags: [reactions]
+      operationId: setPostReaction
+      summary: Thả hoặc đổi cảm xúc của tôi trên một bài (FR-008, BR-05)
+      description: |
+        Tầng 2: `reaction.set`. Tầng 3: BR-02 của bài → không xem được → **404** (`READ-REACT-01`).
+
+        Idempotent: `PUT` cùng `type` hai lần là một dòng, bộ đếm không đổi lần hai. Đổi loại thì loại cũ −1, loại mới +1.
+        Trả tóm tắt **thật** của server để FE đối chiếu optimistic update (Đ-3.7, Đ-3.13).
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PostId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetReactionRequest'
+            example:
+              type: love
+      responses:
+        '200':
+          description: Tóm tắt cảm xúc sau thao tác.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReactionSummary'
+              example:
+                reactionCounts:
+                  like: 2
+                  love: 1
+                myReaction: love
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    delete:
+      tags: [reactions]
+      operationId: clearPostReaction
+      summary: Gỡ cảm xúc của tôi trên một bài (FR-008)
+      description: |
+        Tầng 2: `reaction.set`. Tầng 3: BR-02 của bài (404). Chưa thả gì mà gọi vẫn **200** với tóm tắt hiện tại —
+        "đảm bảo tôi không còn cảm xúc ở đây" đã đúng (Đ-3.7). Loại về 0 thì **không còn khóa** trong `reactionCounts`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PostId'
+      responses:
+        '200':
+          description: Tóm tắt cảm xúc sau thao tác, `myReaction = null`.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReactionSummary'
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /comments/{commentId}/reactions/me:
+    put:
+      tags: [reactions]
+      operationId: setCommentReaction
+      summary: Thả hoặc đổi cảm xúc của tôi trên một bình luận (FR-008, BR-05)
+      description: |
+        Như `PUT /posts/{postId}/reactions/me`, đối tượng là bình luận. Bình luận phải còn hiển thị (đã xóa → 404) và nằm
+        trong bài người gọi được xem (`READ-REACT-02`) — cả hai trường hợp là cùng một 404.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CommentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetReactionRequest'
+            example:
+              type: haha
+      responses:
+        '200':
+          description: Tóm tắt cảm xúc của bình luận sau thao tác.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReactionSummary'
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    delete:
+      tags: [reactions]
+      operationId: clearCommentReaction
+      summary: Gỡ cảm xúc của tôi trên một bình luận (FR-008)
+      description: Như `DELETE /posts/{postId}/reactions/me`, đối tượng là bình luận (đã xóa → 404).
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CommentId'
+      responses:
+        '200':
+          description: Tóm tắt cảm xúc của bình luận sau thao tác, `myReaction = null`.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReactionSummary'
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
 
 components:
 
@@ -608,6 +989,35 @@ components:
       schema:
         type: string
         format: uuid
+
+    CommentId:
+      name: commentId
+      in: path
+      required: true
+      description: UUID v7 của bình luận. Sai dạng → 400.
+      schema:
+        type: string
+        format: uuid
+
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: '`nextCursor` của trang trước. Bỏ trống để lấy trang đầu. Rác → 400 `errors.cursor`.'
+      schema:
+        type: string
+
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Số dòng mỗi trang, mặc định 20, tối đa 50 (AGENTS.md Mục 9). Ngoài `1..50` → 400 `errors.limit`.
+      schema:
+        type: integer
+        format: int32
+        minimum: 1
+        maximum: 50
+        default: 20
 
   headers:
 
@@ -982,10 +1392,12 @@ components:
         commentCount:
           type: integer
           format: int32
-          description: GĐ2 luôn 0 (khung Đ-2.12).
+          description: Số bình luận **đang hiển thị** ở mọi cấp của bài (Đ-3.5). GĐ2 luôn 0 (khung Đ-2.12).
         reactionCounts:
           type: object
-          description: GĐ2 luôn `{}` rỗng — **không** `null` (Đ-2.12). Key là loại cảm xúc, value là số lượt.
+          description: |
+            **Không bao giờ** `null` — `{}` khi chưa ai thả (Đ-2.12). Key là `ReactionType`, value là số lượt > 0; loại về 0 thì
+            không còn khóa (Đ-3.8).
           additionalProperties:
             type: integer
             format: int32
@@ -1000,6 +1412,13 @@ components:
         canEdit:
           type: boolean
           description: Do **server** tính (`author_id == actorId`). FE không tự so id (Mục 8.2).
+        myReaction:
+          description: |
+            GĐ3 (Đ-3.10, Đ-3.11) — cảm xúc của **chính người gọi** trên bài, `null` nếu chưa thả. Luôn có mặt. Trường theo
+            người xem: không bao giờ nằm trong cache dùng chung.
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/ReactionType'
         moderation:
           allOf:
             - $ref: '#/components/schemas/PostModeration'
@@ -1007,7 +1426,7 @@ components:
           description: |
             GĐ6 (Đ-6.14). Khác `null` **chỉ** khi bài bị kiểm duyệt ẩn và người gọi là tác giả — FE hiện biểu ngữ "bài bị
             ẩn" theo `reasonCode`. `null` với mọi bài khác. Không required: client cũ bỏ qua được.
-      required: [postId, author, privacy, media, commentCount, reactionCounts, createdAt, canEdit]
+      required: [postId, author, privacy, media, commentCount, reactionCounts, createdAt, canEdit, myReaction]
 
     PostModeration:
       type: object
@@ -1084,3 +1503,125 @@ components:
         mode:
           $ref: '#/components/schemas/FeedMode'
       required: [items, nextCursor, mode]
+
+    # ---- GĐ3 ----
+
+    ReactionType:
+      type: string
+      enum: [like, love, haha, wow, sad, angry]
+      description: Chữ thường, khớp CHECK `ck_reactions_type`. Định nghĩa MỘT lần, mọi chỗ khác `$ref` tới đây (Mục 8.2).
+
+    CommentStatus:
+      type: string
+      enum: [visible, deleted, hidden]
+      description: |
+        `deleted` — tác giả đã xóa; `hidden` — bị ẩn do vi phạm (GĐ6, Đ-6.14). Cả hai giữ vị trí và nhánh con, nhưng
+        `body`/`author` là `null` và không nhận cảm xúc.
+
+    CreateCommentRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        body:
+          type: string
+          minLength: 1
+          maxLength: 1000
+          description: 1–1000 ký tự (UTF-16), không toàn khoảng trắng. Lưu nguyên văn (Đ-3.14).
+        parentId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Bình luận được trả lời — cùng bài, còn hiển thị, cấp 1 hoặc 2. Bỏ trống = bình luận gốc.
+      required: [body]
+
+    CommentResponse:
+      type: object
+      properties:
+        commentId:
+          type: string
+          format: uuid
+        postId:
+          type: string
+          format: uuid
+        parentId:
+          type: string
+          format: uuid
+          nullable: true
+          description: '`null` khi là bình luận gốc.'
+        depth:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 3
+          description: Do server tính (Đ-3.4). Cấp 3 không trả lời được nữa — FE ẩn nút Trả lời (BR-08).
+        status:
+          $ref: '#/components/schemas/CommentStatus'
+        author:
+          description: '`null` khi `status` khác `visible` — "biến mất" gồm cả việc ai đã viết (Đ-3.5).'
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/PostAuthor'
+        body:
+          type: string
+          nullable: true
+          maxLength: 1000
+          description: '`null` khi `status` khác `visible`.'
+        replyCount:
+          type: integer
+          format: int32
+          description: Số phản hồi **trực tiếp**, mọi trạng thái — khớp số dòng FE thấy khi mở nhánh (Đ-3.5).
+        reactionCounts:
+          type: object
+          description: Như `PostResponse.reactionCounts`; `{}` khi `status` khác `visible`.
+          additionalProperties:
+            type: integer
+            format: int32
+        myReaction:
+          description: Cảm xúc của người gọi trên bình luận, `null` nếu chưa thả. Luôn có mặt.
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/ReactionType'
+        createdAt:
+          type: string
+          format: date-time
+        canDelete:
+          type: boolean
+          description: Do **server** tính (`author == người gọi` và `visible`). FE không tự so id.
+      required: [commentId, postId, parentId, depth, status, author, body, replyCount, reactionCounts, myReaction, createdAt, canDelete]
+
+    CommentPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CommentResponse'
+        nextCursor:
+          type: string
+          nullable: true
+          description: Opaque. `null` khi hết dữ liệu — không phải chuỗi rỗng.
+      required: [items, nextCursor]
+
+    SetReactionRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        type:
+          $ref: '#/components/schemas/ReactionType'
+      required: [type]
+
+    ReactionSummary:
+      type: object
+      description: Con số **thật** của server sau thao tác — FE đối chiếu optimistic update với nó (Đ-3.7, Đ-3.13).
+      properties:
+        reactionCounts:
+          type: object
+          description: Không bao giờ `null`; không có khóa giá trị 0.
+          additionalProperties:
+            type: integer
+            format: int32
+        myReaction:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/ReactionType'
+      required: [reactionCounts, myReaction]

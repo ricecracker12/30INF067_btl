@@ -5,8 +5,10 @@ using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Npgsql;
 using SocialApp.SharedKernel.Storage;
+using SocialApp.Modules.Content.Application.Comments;
 using SocialApp.Modules.Content.Application.Feed;
 using SocialApp.Modules.Content.Application.Posts;
+using SocialApp.Modules.Content.Application.Reactions;
 using SocialApp.Modules.Profile.Application.Profiles;
 using SocialApp.Modules.SocialGraph.Application.Relationships;
 
@@ -462,6 +464,79 @@ public sealed class ModulesTestClient
     /// Sửa dữ liệu trực tiếp — dùng để dựng cảnh SQL của D1 (bốn trạng thái quan hệ) khi endpoint ghi chưa có.
     /// Tham số vị trí <c>$1, $2…</c>. Trả số dòng bị ảnh hưởng. Chép khuôn <c>AuthTestClient.ExecuteSqlAsync</c>.
     /// </summary>
+    // ---- GĐ3: bình luận + cảm xúc ----
+
+    public Task<HttpResponseMessage> CreateCommentAsync(Guid userId, object postId, object body, string role = "USER")
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/posts/{postId}/comments")
+        {
+            Content = JsonContent.Create(body),
+        };
+        request.Headers.Authorization = Bearer(userId, role);
+        return Http.SendAsync(request);
+    }
+
+    public async Task<CommentResponse> CreateCommentOkAsync(Guid userId, Guid postId, string body, Guid? parentId = null)
+    {
+        using var response = await CreateCommentAsync(userId, postId, new { body, parentId });
+        Assert.Equal(System.Net.HttpStatusCode.Created, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<CommentResponse>(Json))!;
+    }
+
+    public Task<HttpResponseMessage> ListCommentsAsync(Guid userId, object postId, string query = "")
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, $"/api/v1/posts/{postId}/comments{query}");
+        request.Headers.Authorization = Bearer(userId);
+        return Http.SendAsync(request);
+    }
+
+    public async Task<CommentPage> ListCommentsOkAsync(Guid userId, Guid postId, string query = "")
+    {
+        using var response = await ListCommentsAsync(userId, postId, query);
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<CommentPage>(Json))!;
+    }
+
+    public Task<HttpResponseMessage> ListRepliesAsync(Guid userId, object commentId, string query = "")
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, $"/api/v1/comments/{commentId}/replies{query}");
+        request.Headers.Authorization = Bearer(userId);
+        return Http.SendAsync(request);
+    }
+
+    public async Task<CommentPage> ListRepliesOkAsync(Guid userId, Guid commentId, string query = "")
+    {
+        using var response = await ListRepliesAsync(userId, commentId, query);
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<CommentPage>(Json))!;
+    }
+
+    public Task<HttpResponseMessage> DeleteCommentAsync(Guid userId, object commentId)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/comments/{commentId}");
+        request.Headers.Authorization = Bearer(userId);
+        return Http.SendAsync(request);
+    }
+
+    /// <param name="target"><c>posts</c> hoặc <c>comments</c> — đoạn đường dẫn của đối tượng.</param>
+    /// <param name="type"><c>null</c> = <c>DELETE</c> (gỡ); khác null = <c>PUT</c> với loại đó.</param>
+    public Task<HttpResponseMessage> ReactAsync(Guid userId, string target, object targetId, string? type)
+    {
+        var request = new HttpRequestMessage(type is null ? HttpMethod.Delete : HttpMethod.Put,
+            $"/api/v1/{target}/{targetId}/reactions/me");
+        if (type is not null)
+            request.Content = JsonContent.Create(new { type });
+        request.Headers.Authorization = Bearer(userId);
+        return Http.SendAsync(request);
+    }
+
+    public async Task<ReactionSummary> ReactOkAsync(Guid userId, string target, Guid targetId, string? type)
+    {
+        using var response = await ReactAsync(userId, target, targetId, type);
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<ReactionSummary>(Json))!;
+    }
+
     public async Task<int> ExecuteSqlAsync(string sql, params object[] parameters)
     {
         await using var connection = new NpgsqlConnection(_factory.ConnectionString);

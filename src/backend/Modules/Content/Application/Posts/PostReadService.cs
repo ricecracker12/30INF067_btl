@@ -1,3 +1,4 @@
+using SocialApp.Modules.Content.Application.Reactions;
 using SocialApp.Modules.Content.Domain;
 using SocialApp.SharedKernel.Contracts;
 using SocialApp.SharedKernel.Results;
@@ -13,6 +14,7 @@ public sealed class PostReadService(
     IPostStore posts,
     IUserDirectory directory,
     IFriendshipReader friends,
+    IReactionReader reactions,
     PostResponseMapper mapper,
     PostHydrator hydrator)
 {
@@ -47,11 +49,13 @@ public sealed class PostReadService(
 
         var media = await posts.MediaOfAsync([post.PostId], ct);
         var cards = await directory.GetManyAsync([post.AuthorId], ct);
+        var mine = await reactions.GetMineAsync(actorId, ReactionTargetType.Post, [post.PostId], ct);   // GĐ3 REACT-08
 
         return mapper.ToResponse(
             post,
             media.TryGetValue(post.PostId, out var attachments) ? attachments : [],
             cards.GetValueOrDefault(post.AuthorId),
+            mine.TryGetValue(post.PostId, out var reaction) ? reaction : null,
             actorId);
     }
 

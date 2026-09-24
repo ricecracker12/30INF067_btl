@@ -10,6 +10,8 @@ import { AvatarCard } from "@/features/profile/avatar-card"
 import { ProfileCard } from "@/features/profile/profile-card"
 import { useProfile } from "@/features/profile/use-profile"
 
+import { postListFooter } from "../_interactions/post-interactions"
+
 // Chỉ ráp (Đ-E13). Nằm dưới `(with-profile)` (Q-E6): tới được đây nghĩa là đã có hồ sơ, nên `ProfileCard`
 // không phải có nhánh "chưa onboarding". Gọi API ở client (Đ-E11).
 //
@@ -31,6 +33,7 @@ export default function MePage() {
         emptyMessage="Bạn chưa đăng bài nào."
         emptyAction={<ComposeFirstPostButton />}
         action={<ComposeButton />}
+        renderFooter={postListFooter}
       />
       <MeProfile />
     </div>

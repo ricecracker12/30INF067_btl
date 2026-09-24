@@ -41,6 +41,12 @@ export type ErrorContext =
   | "message-send"
   | "receipt"
   | "realtime-ticket"
+  // GĐ3 (E1): bốn ngữ cảnh — 403 của `comment-create` là "chưa có hồ sơ", của `comment-delete` là "không phải của bạn"
+  // (cùng lý do Q-E4 của GĐ2).
+  | "comment-read"
+  | "comment-create"
+  | "comment-delete"
+  | "reaction"
 
 const COMMON = {
   400: "Dữ liệu không hợp lệ.",
@@ -171,6 +177,30 @@ const BY_CONTEXT: Record<ErrorContext, Partial<Record<number, string>>> = {
 
   // `POST /realtime/tickets` — 503 đi qua BY_TYPE (fallback). 429: xin vé quá nhanh (20/phút) — vẫn chat được qua fallback.
   "realtime-ticket": {},
+
+  // --- GĐ3 (E1) ---
+
+  // `GET /posts/{id}/comments`, `GET /comments/{id}/replies`. 404 = bài/bình luận không có HOẶC không được xem — MỘT câu,
+  // không tiết lộ thứ nào có thật (Đ-3.3).
+  "comment-read": {
+    404: "Không tìm thấy bài viết hoặc bình luận.",
+  },
+
+  // `POST /posts/{id}/comments`. 403 = chưa có hồ sơ (kiểm TRƯỚC BR-02, Mục 6.1). 404 = bài không còn xem được.
+  "comment-create": {
+    403: "Bạn cần hoàn tất hồ sơ trước khi bình luận.",
+    404: "Bài viết không còn tồn tại hoặc bạn không còn quyền xem.",
+  },
+
+  // `DELETE /comments/{id}`. 403 = không phải của bạn HOẶC đã xóa — một câu (Đ-3.5).
+  "comment-delete": {
+    403: "Bình luận không còn tồn tại, hoặc không phải của bạn.",
+  },
+
+  // `PUT`/`DELETE …/reactions/me`. 404 = đối tượng không còn (bị xóa, hoặc bài vừa đổi sang riêng tư).
+  reaction: {
+    404: "Nội dung này không còn tồn tại.",
+  },
 }
 
 /**
@@ -280,6 +310,9 @@ export type FieldErrorKey =
   | "afterSeq"
   | "kind"
   | "upToSeq"
+  // GĐ3 — content-v1: cha của phản hồi (Đ-3.4) và loại cảm xúc.
+  | "parentId"
+  | "type"
 
 /**
  * 400 của một endpoint đọc ĐÚNG CÂU SERVER dưới key của `errors` trước, RỒI MỚI lùi về bảng

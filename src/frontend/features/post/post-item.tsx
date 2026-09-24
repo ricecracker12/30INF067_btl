@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, type ReactNode } from "react"
 
 import { FormAlert } from "@/components/form/form-alert"
 import type { PostResponse } from "@/lib/api/types"
@@ -24,9 +24,14 @@ type Props = {
    * bài vừa bị xóa. Chỗ gọi quyết định làm gì: danh sách thay/gỡ phần tử, trang chi tiết rời đi.
    */
   onChanged: (next: PostResponse | null) => void
+  /**
+   * Hàng tương tác dưới bài (GĐ3 Đ-3.13) — HÀM của bài, không phải node: sau khi sửa, bài đổi mà slot phải đọc bản mới. `app/`
+   * ghép thanh cảm xúc + số bình luận; feature này không import `features/reaction` hay `features/comment`.
+   */
+  footer?: (post: PostResponse) => ReactNode
 }
 
-export function PostItem({ post, standalone, onChanged }: Props) {
+export function PostItem({ post, standalone, onChanged, footer }: Props) {
   const [editing, setEditing] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -67,6 +72,7 @@ export function PostItem({ post, standalone, onChanged }: Props) {
           ) : undefined
         }
         onRefreshed={onChanged}
+        footer={footer?.(post)}
       />
     </div>
   )

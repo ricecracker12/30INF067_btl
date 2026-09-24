@@ -14,8 +14,8 @@ import { PRIVACY_LABEL } from "./privacy"
 // Một bài trong danh sách và ở trang chi tiết — cùng component, khác ở chỗ `href` (card trong danh sách
 // dẫn tới chi tiết, card ở chi tiết thì không tự dẫn tới chính nó).
 //
-// GĐ2 hiện `commentCount` và `reactionCounts` nhưng KHÔNG có nút nào: endpoint bình luận/cảm xúc là GĐ3
-// (Mục 18). Hiện con số là để hợp đồng có chỗ bám; thêm nút bây giờ là thêm một nút bấm vào không làm gì.
+// Hàng dưới cùng là SLOT `footer` (GĐ3 Đ-3.13): thanh cảm xúc và số bình luận thuộc `features/reaction`, `features/comment` —
+// card không import chúng (Đ-E13 cấm import chéo), `app/` ghép vào đây cùng tiền lệ slot `actions` của E6.
 
 const dateTime = new Intl.DateTimeFormat("vi-VN", {
   dateStyle: "medium",
@@ -31,9 +31,17 @@ type Props = {
   actions?: ReactNode
   /** Bài vừa được nạp lại (ảnh hết hạn) — màn cập nhật vào danh sách nó đang cầm. */
   onRefreshed?: (post: PostResponse) => void
+  /** Hàng tương tác dưới bài (GĐ3): thanh cảm xúc, số bình luận — do `app/` ghép. */
+  footer?: ReactNode
 }
 
-export function PostCard({ post, standalone, actions, onRefreshed }: Props) {
+export function PostCard({
+  post,
+  standalone,
+  actions,
+  onRefreshed,
+  footer,
+}: Props) {
   return (
     <Card data-testid="post-card" data-post-id={post.postId}>
       <CardContent className="flex flex-col gap-4">
@@ -56,14 +64,8 @@ export function PostCard({ post, standalone, actions, onRefreshed }: Props) {
           />
         )}
 
-        <div className="flex items-center gap-4 text-sm text-muted-foreground">
-          {/* GĐ3 mới có endpoint — con số hiện được, nhưng không có nút nào để bấm. */}
-          <span data-testid="comment-count">{post.commentCount} bình luận</span>
-          <span data-testid="reaction-count">
-            {/* `reactionCounts` GĐ2 luôn `{}` rỗng, KHÔNG `null` (Đ-2.12) — không dựng nhánh `?? {}`. */}
-            {Object.values(post.reactionCounts).reduce((a, b) => a + b, 0)} cảm
-            xúc
-          </span>
+        <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
+          {footer}
           {!standalone && (
             <Link
               href={`/posts/${post.postId}`}

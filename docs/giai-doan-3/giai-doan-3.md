@@ -250,6 +250,11 @@ Bình luận đã xóa **vẫn nằm trong danh sách**, ở đúng vị trí, d
 - Cảm xúc trên bình luận đã xóa: không trả số, không nhận thêm (`PUT …/reactions/me` → 404).
 - Xóa lần hai, hoặc xóa bình luận của người khác → **403**, cùng một phản hồi — đúng khuôn D8 của GĐ2.
 
+*Chốt 2026-09-24 (lệch, theo Đ-6.14 của GĐ6):* `CommentStatus` có thêm giá trị **`hidden`** ngay trong migration
+`Gd3Interactions` — CHECK `ck_comments_status` nhận `('visible','deleted','hidden')` — để GĐ6 ẩn bình luận vi phạm mà
+không phải ALTER CHECK trên bảng của Content. GĐ3 không có đường nào ghi `hidden`; mapper coi nó như `deleted`
+(`body`/`author` = `null`, không nhận cảm xúc, không làm cha được). Câu "Bình luận đã bị ẩn…" và bộ đếm khi ẩn là việc của GĐ6.
+
 **Ngữ nghĩa hai bộ đếm** — chốt để không ai phải đoán:
 
 | Bộ đếm | Đếm gì | Đổi khi |
@@ -397,6 +402,12 @@ Event phát **sau** `COMMIT`. Phát trong transaction thì notification của G�
 Người đang mở bài **không** thấy bình luận mới của người khác cho tới khi nạp lại. Chấp nhận: kế hoạch gốc không yêu cầu
 realtime cho bình luận, và GĐ5 là giai đoạn dựng hub.
 
+*Chốt 2026-09-24 (lệch, vì GĐ6 merge trước — Đ-6.4):* không "chỉ log". Event bus của GĐ6 (`IEventPublisher`, record
+`CommentCreated`/`ReactionSet` ở `SharedKernel/Events/ContentEvents.cs`) đã có trên `develop`, nên GĐ3 **phát thật** qua lớp bọc
+`ContentInteractionEvents` (cùng khuôn `SocialGraphEvents`), vẫn **sau `COMMIT`**. `ReactionSet` phát khi thả mới (`isNew = true`)
+và khi đổi loại (`isNew = false`); gỡ và "giống nhau" không phát. `MentionedUserIds` rỗng (tag là việc của GĐ6). Handler thông
+báo `comment`/`reply`/`reaction` và provider kiểm duyệt bình luận vẫn là việc của GĐ6 (Mục 9.3 bước 9 của `giai-doan-6.md`).
+
 ### Đ-3.13 Frontend: hai feature mới, ghép vào card qua slot; optimistic update tuần tự theo đối tượng
 
 **Đặt file** (luật frontend Mục 2, Đ-E13): `features/comment/` và `features/reaction/` — tên theo **màn**, không theo
@@ -460,6 +471,10 @@ ALTER TABLE content.comments
     ADD COLUMN reaction_counts jsonb   NOT NULL DEFAULT '{}'::jsonb,
     ADD CONSTRAINT ck_comments_reply_count CHECK (reply_count >= 0),
     ADD CONSTRAINT ck_comments_root_depth  CHECK ((parent_id IS NULL) = (depth = 1));
+
+-- Đ-6.14 (chốt 2026-09-24): nới CHECK trạng thái để GĐ6 ẩn được bình luận — chỉ-thêm một giá trị
+ALTER TABLE content.comments DROP CONSTRAINT ck_comments_status,
+    ADD CONSTRAINT ck_comments_status CHECK (status IN ('visible','deleted','hidden'));
 
 -- ENT-02 · posts: bộ đếm có sẵn từ GĐ2, thêm lưới không âm
 ALTER TABLE content.posts
@@ -832,24 +847,35 @@ nhất một lần trong 20 vòng — nếu không đỏ thì ghi lại là "kh�
 
 Theo Mục 3.5 của PTTK, áp cho **từng** UC (UC-06 bình luận, UC-07 cảm xúc). Tick ở `F4`, kèm bằng chứng.
 
-- [ ] Đủ AC (FR-007, FR-008, BR-05, BR-08) — Mục 10.1 xanh
-- [ ] Có kiểm RBAC (tầng 2) **và** ownership / BR-02 (tầng 3), có dòng trong `AuthZMatrix.cs` — bảy dòng Mục 6.3 xanh
-  trên CI, bảng đột biến `B3`
-- [ ] Lỗi theo RFC 7807, `errors` đúng key hợp đồng (`body`, `parentId`, `type`, `cursor`), 404 không phân biệt "không có"
-  với "không được xem"
-- [ ] Bộ đếm khớp bản ghi thật — `COUNT-01..04` xanh **và** câu SQL đối soát Mục 12 trả 0 dòng trên staging
-- [ ] Đã chạy thử trên **staging** bằng hai tài khoản thật, qua domain HTTPS (`F3`)
-- [ ] Hợp đồng `.yaml` khớp Swagger runtime, `pnpm gen:api` chạy lại thì worktree sạch
-- [ ] Không lộ secret/PII: bình luận đã xóa không trả `body`/`author` ở **bất kỳ** endpoint nào; log không chứa nội dung
-  bình luận
+- [x] Đủ AC (FR-007, FR-008, BR-05, BR-08) — Mục 10.1 xanh *(2026-09-25: `CommentTests` CMT-01..10 + `ReactionTests` REACT-01..08,
+  Postgres thật; `a7c35b3`)*
+- [x] Có kiểm RBAC (tầng 2) **và** ownership / BR-02 (tầng 3), có dòng trong `AuthZMatrix.cs` — bảy dòng Mục 6.3 xanh
+  trên CI, bảng đột biến `B3` *(local: matrix 40/40; B3 12 đột biến đều bị bắt — `0403ee1`. "Xanh trên CI" tick lại khi PR chạy)*
+- [x] Lỗi theo RFC 7807, `errors` đúng key hợp đồng (`body`, `parentId`, `type`, `cursor`), 404 không phân biệt "không có"
+  với "không được xem" *(CMT-03/04/05/09b, "Bai_da_xoa_va_khong_duoc_xem_cung_mot_404", type sai → 400)*
+- [x] Bộ đếm khớp bản ghi thật — `COUNT-01..04` xanh **và** câu SQL đối soát Mục 12 trả 0 dòng trên staging
+  *(COUNT-01..04 xanh ×5; đối soát trên Postgres staging 2026-09-25 (F4): `(0 rows)` cho cả bốn câu)*
+- [x] Đã chạy thử trên **staging** bằng hai tài khoản thật, qua domain HTTPS (`F3`) *(2026-09-25:
+  `e2e/comment-reaction.spec.ts` với `PLAYWRIGHT_BASE_URL=https://mxh.banhgao.net`, hai tài khoản thật từ `.env.e2e.local` —
+  passed; ảnh `docs/giai-doan-3/bang-chung/gd3-{1,2,3}-*.png`)*
+- [x] Hợp đồng `.yaml` khớp Swagger runtime, `pnpm gen:api` chạy lại thì worktree sạch *(ContentContractTests xanh; B5 thử
+  đỏ bằng 409 lạ rồi khôi phục)*
+- [x] Không lộ secret/PII: bình luận đã xóa không trả `body`/`author` ở **bất kỳ** endpoint nào; log không chứa nội dung
+  bình luận *(một mapper duy nhất; CMT-06 + mapper unit + E2E soi response `/replies`; B.9 mục 5 rà log: chỉ id + cấp)*
 
 ## 12. Checklist nghiệm thu cuối GĐ3
 
 **Dữ liệu**
 
-- [ ] Migration GĐ3 áp trên staging, log CD có tên migration; `--migrate` chạy lần hai không đổi gì
-- [ ] `\d content.comments` có `reply_count`, `reaction_counts`, `ck_comments_root_depth`; **còn** `IX_comments_post_id`
-- [ ] Câu đối soát trả **0 dòng** trên staging sau `F3`:
+- [x] Migration GĐ3 áp trên staging, log CD có tên migration; `--migrate` chạy lần hai không đổi gì *(dev 2026-09-25: DB có
+  7 bài GĐ2/GĐ4 → `20260924163546_Gd3Interactions` áp, thoát 0, lần hai thoát 0. Staging: trước merge
+  `SELECT count(*) FROM content.comments` = 0 (cạm bẫy 2 không xảy ra); sau CD `content."__EFMigrationsHistory"` có đủ ba dòng,
+  cuối là `20260924163546_Gd3Interactions`. **Lệch:** log CD KHÔNG có tên migration — hook `--migrate` chỉ in một dòng tổng
+  "Đã áp dụng migration cho schema …", nên bằng chứng lấy từ bảng lịch sử thay cho log)*
+- [x] `\d content.comments` có `reply_count`, `reaction_counts`, `ck_comments_root_depth`; **còn** `IX_comments_post_id`
+  *(dev + `ContentDbContextSchemaTests`; thêm `ck_comments_status` có `hidden` — Đ-6.14. Staging kiểm lại lúc F1)*
+- [x] Câu đối soát trả **0 dòng** trên staging sau `F3` *(dev sau E2E: 0 dòng. Staging 2026-09-25: `(0 rows)` cho cả bốn câu
+  — bài `comment_count`/`reaction_counts`, bình luận `reply_count`/`reaction_counts`)*:
 
   ```sql
   -- bài: comment_count lệch số bình luận visible
@@ -868,16 +894,26 @@ Theo Mục 3.5 của PTTK, áp cho **từng** UC (UC-06 bình luận, UC-07 cả
 
 **Bảo mật**
 
-- [ ] Bảy dòng matrix mới xanh; thử cho đỏ: bỏ kiểm BR-02 ở `ListRepliesAsync` → `READ-CMT-03` đỏ; bỏ kiểm tác giả ở
-  `DeleteAsync` → `TC-A03-comment` đỏ
-- [ ] Network tab trên staging: response của bình luận đã xóa không có `body` hay `author`
-- [ ] Đã `SELECT` trên staging: vai trò `USER` có `comment.create` và `reaction.set` (Mục 5)
+- [x] Bảy dòng matrix mới xanh; thử cho đỏ: bỏ kiểm BR-02 ở `ListRepliesAsync` → `READ-CMT-03` đỏ; bỏ kiểm tác giả ở
+  `DeleteAsync` → `TC-A03-comment` đỏ *(bỏ ở service thôi thì XANH — câu UPDATE của store còn `author_id`; bỏ cả hai lớp mới đỏ)*
+- [x] Network tab trên staging: response của bình luận đã xóa không có `body` hay `author` *(2026-09-25, Firefox DevTools
+  trên `https://mxh.banhgao.net`: (1) cột Path — mọi request dữ liệu là `/bff/api/*` hoặc `/bff/auth/session`, không dòng nào
+  `/api/v1/*`; còn lại là điều hướng Next (`?_rsc=`) và `/cdn-cgi/challenge-platform` của Cloudflare. (2) tìm `eyJ` có phân
+  biệt hoa thường: 0 kết quả — không tắt Aa thì khớp nhầm chuỗi ngẫu nhiên trong header `report-to` của Cloudflare. (3)
+  `GET /bff/api/posts/01a0cf11-…/comments?limit=20`: dòng `status: "deleted"` có `author: null`, `body: null`,
+  `reactionCounts: {}`, `myReaction: null`, `canDelete: false`, vẫn `replyCount: 1`; dòng `visible` bên cạnh đủ tác giả + nội dung)*
+- [x] Đã `SELECT` trên staging: vai trò `USER` có `comment.create` và `reaction.set` (Mục 5) *(staging 2026-09-25: 4 dòng —
+  MODERATOR và USER đều có `comment.create`, `reaction.set`)*
 
 **Lát cắt dọc**
 
-- [ ] E2E trên staging, hai tài khoản: bình luận → trả lời cấp 2 → cấp 3 → nút Trả lời biến mất ở cấp 3 → xóa bình
-  luận giữa nhánh → nhánh còn → thả / đổi / gỡ cảm xúc trên bài và bình luận (`F3`)
-- [ ] Bấm tim liên tục 10 lần trên staging: không 429, trạng thái cuối đúng lần bấm cuối, reload thấy đúng như vậy
+- [x] E2E trên staging, hai tài khoản: bình luận → trả lời cấp 2 → cấp 3 → nút Trả lời biến mất ở cấp 3 → xóa bình
+  luận giữa nhánh → nhánh còn → thả / đổi / gỡ cảm xúc trên bài và bình luận (`F3`) *(staging 2026-09-25 passed; ảnh
+  `gd3-2-xoa-giua-nhanh.png`: "Bình luận đã bị xóa." giữa nhánh, cấp 3 của BTC còn, không có nút Trả lời)*
+- [x] Bấm tim liên tục 10 lần trên staging: không 429, trạng thái cuối đúng lần bấm cuối, reload thấy đúng như vậy *(cùng
+  lượt F3 — spec khẳng định không 429, nút tắt sau lần bấm thứ 10, reload vẫn tắt, "0 cảm xúc"; ảnh `gd3-3-cam-xuc.png`.
+  Log lượt chạy: "10 lần bấm tim → 4 request (200,200,200,200)", 32,5 s — trễ mạng thật cho reducer gộp các cú bấm trong lúc
+  request còn bay (local cùng spec: 10 request, vì API trả trong vài ms))*
 
 ## 13. Sai khác so với kế hoạch gốc và báo cáo v5.0
 
@@ -890,6 +926,8 @@ Theo Mục 3.5 của PTTK, áp cho **từng** UC (UC-06 bình luận, UC-07 cả
 | 5 | — (không nói ai được xóa bình luận) | Chỉ tác giả; tầng 2 chỉ `[Authorize]`, không thêm mã quyền (Đ-3.2) | Xóa dữ liệu của mình là quyền của chủ dữ liệu; giữ ma trận 17 mã |
 | 6 | "Trả lời tối đa 3 cấp" | Server tính `depth` từ cha, thêm `ck_comments_root_depth` (Đ-3.4) | Client không được quyết định cấp; CHECK bắt lỗi rẻ nhất ở DB |
 | 7 | GĐ3 do 3 người làm trong 2 ngày (Ngày 13–15) | **Một người** làm cả hai lane, tuần tự, sau GĐ4, ước lượng ~6 ngày làm việc (Mục 9) | Nhân lực thực tế. Thứ tự GĐ4 → GĐ3 giữ nguyên lịch gốc; lịch tổng dời theo |
+| 8 | `comments.status` chỉ `visible`/`deleted` | Thêm `hidden` vào CHECK ngay migration `Gd3Interactions` (Đ-3.5, chốt 2026-09-24) | Thỏa thuận Đ-6.14 với GĐ6 — GĐ6 merge trước GĐ3 |
+| 9 | Đ-3.12: event "chỉ log", GĐ6 thay thân hàm sau | Phát thật qua `IEventPublisher` sau `COMMIT` (chốt 2026-09-24) | GĐ6 đã dựng đường ray (Đ-6.4) trước khi GĐ3 bắt đầu code |
 
 Mỗi dòng trong bảng phải được nhắc lại trong commit tương ứng, mở bằng "Lệch …" theo luật commit Mục 5.3.
 
@@ -1246,3 +1284,57 @@ Thiếu bất kỳ điều nào thì **chưa xong**, dù code đã chạy:
 
 **Một câu để nhớ:** GĐ2 là lần đầu hệ thống có **thứ thuộc về ai đó**; GĐ3 là lần đầu **nhiều người cùng chạm vào một
 thứ** — và đó là lúc "đúng với một người" không còn đủ, phải "đúng khi năm mươi người bấm cùng một giây".
+
+---
+
+## Thực tế thi công (2026-09-24 → 2026-09-25, nhánh `endgame`)
+
+Một người làm cả hai lane, theo thứ tự Mục 9. Mỗi dòng là một commit (tiêu đề và thân bài có đủ chỗ lệch, `Test:`,
+`detect-changes:`).
+
+| Bước | Commit | Kết quả |
+|---|---|---|
+| 0 — dọn khối A | `abbea97` | `CommentStatus.Hidden` (Đ-6.14) · sinh lại `Gd3Interactions` (chưa lên staging) · gỡ EF Design khỏi `SocialApp.Api` (revert `c720f21`, giữ ADR-001) |
+| 1 — cổng mở | `08baa07` | `content-v1` `1.0.2-gd4` → `1.1.0-gd3`, chỉ-thêm; `schema.d.ts` + fixture `myReaction: null` |
+| 2 — B1–B2 | `f8e89ad` | Bảy dòng matrix; ba đỏ có chủ đích, bốn "xanh trong chân không" tới khi có route |
+| 3–5 — C + D | `a7c35b3` | `ReactionStore` (Đ-3.8), `CommentStore` (khóa BÀI → CHA/BÌNH LUẬN), `PostAccess`, `KeysetCursor`, 8 endpoint, event thật, `myReaction` ở `PostHydrator` + đọc/sửa một bài |
+| B3 + B5 | `0403ee1` | 12 đột biến đều bị bắt (bảng ở thân commit); COUNT-04 phải tăng lên 5 phản hồi/vòng mới tái hiện được deadlock khi đảo thứ tự khóa |
+| D7 | `1d080c4` | FEED-13 thêm `myReaction` hai người xem, đổi cảm xúc thấy ngay dù trúng cache |
+| E1–E6 | `c00cf94`, `505d539` | Cây bình luận, thanh cảm xúc + reducer, slot ở `app/(app)/(with-profile)/_interactions/`, Playwright hai tài khoản |
+
+**Con số cuối (local):** Unit 356 → 383 · Integration 627 → 671 · Architecture 26 · Vitest 590 → 625 · matrix 40/40 ·
+`FEED-Q1` 5 → 6 câu SQL (thêm lô `myReaction`, Đ-3.11). Migration áp trên DB dev có dữ liệu GĐ2/GĐ4, `--migrate` lần hai
+thoát 0; câu đối soát Mục 12 trên DB dev sau E2E: 0 dòng.
+
+**Ba điều học được, ghi lại để GĐ sau khỏi vấp:**
+
+1. **Hai lưới của Đ-3.8 che cho nhau.** Bỏ riêng `FOR UPDATE` thì `COUNT-01` vẫn xanh (SQL jsonb nguyên tử giữ đúng số) và chỉ
+   `COUNT-02` đỏ (500 do `23505`); đổi riêng bước 4 sang đọc-rồi-`SaveChanges` thì `COUNT-01` vẫn xanh (khóa tuần tự hóa) và
+   chỉ `REACT-07` đỏ (`updated_at` bị đóng dấu). Muốn `COUNT-01` đỏ phải bỏ CẢ HAI. Bảng đột biến gốc (B3) giả định một đột biến
+   một test — thực tế là một đột biến một LƯỚI.
+2. **Test deadlock cần đủ tranh chấp.** `COUNT-04` một-phản-hồi-mỗi-vòng không tái hiện được deadlock khi đảo thứ tự khóa (2/2 lần
+   xanh); năm phản hồi xếp hàng trên khóa bài cho lần xóa chen giữa thì đỏ 2/2.
+3. **Test "bấm nhanh" không được dựa vào độ trễ giả.** Cả bộ Vitest chạy nặng thì một cú bấm của `userEvent` chậm hơn 150 ms độ
+   trễ giả; request đầu về giữa hai cú bấm và mỗi cú bấm thành một chuỗi riêng (4 request — hợp lệ). Test giữ response đầu bằng
+   một chốt thì tất định. Cùng lý do, E2E local thấy 10 request cho 10 cú bấm (API trả trong vài ms).
+
+**Khối F trên staging (2026-09-25, sau khi `develop` fast-forward tới `204a496` và CD chạy):** F1 — trước merge `content.comments` = 0
+dòng, sau CD bảng lịch sử có `Gd3Interactions` (log CD không in tên migration — xem Mục 12). F2 — Firefox DevTools, ba ý đạt. F3 —
+Playwright hai tài khoản thật passed, ảnh ở `bang-chung/`. F4 — đối soát `(0 rows)`, `USER` có hai quyền. **Còn lại: F5** (k6 +
+đóng băng + báo GĐ6). Danh sách việc lúc còn chờ server, giữ để truy nguồn:
+
+**Chờ server (khối F) — không xóa dòng nào ở Mục 11–12:**
+
+- F1: trước merge chạy `SELECT count(*) FROM content.comments` trên staging (Mục 4 cạm bẫy 2); merge `endgame` → `develop`
+  (người trong đội bấm), CD chạy `--migrate`, kiểm log có `Gd3Interactions`, `/health/ready` = 200.
+- F2–F3: `E2E_BANG_CHUNG=../../docs/giai-doan-3/bang-chung PLAYWRIGHT_BASE_URL=https://mxh.banhgao.net
+  PLAYWRIGHT_API_URL=https://mxh.banhgao.net/api/v1 pnpm exec playwright test e2e/comment-reaction.spec.ts` (tài khoản từ
+  `.env.e2e.local`).
+- F4: câu đối soát Mục 12 + `SELECT` quyền của `USER` trên Postgres staging, dán kết quả.
+- F5: chạy lại k6 lượt lạnh của GĐ4 (Đ-4.13) — `myReaction` thêm một câu vào đường hydrate; ghi con số cạnh mốc GĐ4 trong
+  `docs/giai-doan-4/bao-cao-k6-so-bo.md`. Đóng băng `content-v1` bản `1.1.0-gd3`.
+- Báo người làm GĐ6: `CommentCreated`/`ReactionSet` đã phát thật; provider kiểm duyệt bình luận và nhãn "đã bị ẩn" có sẵn chỗ
+  cắm (`CommentStatus.Hidden`, mapper coi như `deleted`).
+
+**Môi trường máy dev khi thi công:** Node 24 ở `/tmp/node24` (máy là 20); stack dev `docker compose -p socialapp-gd5dev`;
+`post-create.spec.ts` đỏ ở bước `PUT` ảnh lên R2 dev (0 request tới R2 — khóa R2 dev chờ xoay), không liên quan GĐ3.
