@@ -1,12 +1,15 @@
 # VirtualHost gộp Frontend + Backend cùng domain mxh.banhgao.net (định tuyến theo path).
 #   /api, /swagger, /health  -> Backend ASP.NET (container 127.0.0.1:18080)
+#   /hubs/                    -> Backend, WebSocket SignalR (GĐ5)
 #   /  (mọi path còn lại)     -> Frontend Next.js (container 127.0.0.1:3000)  [F1 — BẮT BUỘC bật]
 # Cài đặt:
-#   sudo a2enmod proxy proxy_http ssl headers
+#   sudo a2enmod proxy proxy_http ssl headers setenvif
+#   (apache >= 2.4.47 — kiểm `apache2 -v`: mod_proxy_http tự chuyển WebSocket qua `upgrade=websocket`, KHÔNG cần
+#    proxy_wstunnel. Bản cũ hơn: xem khối /hubs/ bên dưới.)
 #   sudo cp apache-socialapp.conf.example /etc/apache2/sites-available/socialapp.conf
 #   sudo a2ensite socialapp && sudo apache2ctl configtest && sudo systemctl reload apache2
 #
-# ⚠️ Thứ tự ProxyPass: /api, /swagger, /health TRƯỚC catch-all /. Đảo ngược → mọi API thành HTML Next.
+# ⚠️ Thứ tự ProxyPass: /hubs/, /api, /swagger, /health TRƯỚC catch-all /. Đảo ngược → mọi API thành HTML Next.
 
 <VirtualHost *:80>
     ServerName mxh.banhgao.net
@@ -38,6 +41,17 @@
         Require all denied
     </LocationMatch>
 
+    # --- GĐ5: Realtime SignalR (giai-doan-5.md Mục 9.6) — TRƯỚC /api và TRƯỚC catch-all "/". ---
+    #     upgrade=websocket: mod_proxy_http nâng kết nối khi client gửi "Upgrade: websocket" (apache >= 2.4.47).
+    #     timeout=3600 là lưới an toàn; bình thường SignalR ping mỗi 15s nên không chạm timeout nhàn rỗi.
+    #     Apache < 2.4.47: thay hai dòng ProxyPass dưới bằng
+    #       a2enmod proxy_wstunnel rewrite
+    #       RewriteEngine On
+    #       RewriteCond %{HTTP:Upgrade} =websocket [NC]
+    #       RewriteRule ^/hubs/(.*) ws://127.0.0.1:18080/hubs/$1 [P,L]
+    ProxyPass        /hubs/ http://127.0.0.1:18080/hubs/ upgrade=websocket timeout=3600
+    ProxyPassReverse /hubs/ http://127.0.0.1:18080/hubs/
+
     # --- Backend API (ASP.NET Core) — liệt kê TRƯỚC để ưu tiên hơn catch-all "/" ---
     ProxyPass        /api     http://127.0.0.1:18080/api
     ProxyPassReverse /api     http://127.0.0.1:18080/api
@@ -50,9 +64,10 @@
     ProxyPass        /  http://127.0.0.1:3000/
     ProxyPassReverse /  http://127.0.0.1:3000/
 
-    # Realtime SignalR (GĐ5): cần "sudo a2enmod proxy_wstunnel" và thêm, đặt TRƯỚC dòng /api:
-    #   ProxyPass /hubs ws://127.0.0.1:18080/hubs
-
     ErrorLog  ${APACHE_LOG_DIR}/socialapp-error.log
-    CustomLog ${APACHE_LOG_DIR}/socialapp-access.log combined
+    # GĐ5 (ràng buộc Đ-E16): /hubs/ mang vé realtime trên query string (?access_token=) — KHÔNG ghi query của /hubs/
+    # vào access log. Request_URI của SetEnvIf là path, không kèm query; %U cũng là path, không kèm query.
+    SetEnvIfNoCase Request_URI "^/hubs/" socialapp_hubs
+    CustomLog ${APACHE_LOG_DIR}/socialapp-access.log combined env=!socialapp_hubs
+    CustomLog ${APACHE_LOG_DIR}/socialapp-access.log "%h %l %u %t \"%m %U %H\" %>s %b \"%{Referer}i\" \"%{User-agent}i\"" env=socialapp_hubs
 </VirtualHost>
