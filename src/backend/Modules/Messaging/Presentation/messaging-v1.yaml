@@ -580,6 +580,32 @@ components:
               type: string
       required: [title, status, traceId]
 
+    NotFriendsProblem:
+      description: |
+        403 khi hai người không (còn) là bạn — BR-09 (mở hội thoại, gửi tin). Cùng hình dạng `ProblemDetails`, `type` là định danh
+        ổn định để FE tách nó khỏi 403 "không phải thành viên / thiếu quyền" và hiện thanh "chỉ đọc" (luật frontend Mục 4).
+      allOf:
+        - $ref: '#/components/schemas/ProblemDetails'
+        - type: object
+          properties:
+            type:
+              type: string
+              enum: ['urn:socialapp:problem:not-friends']
+          required: [type]
+
+    RealtimeUnavailableProblem:
+      description: |
+        503 của `POST /realtime/tickets` khi Redis không sẵn sàng (Đ-5.9). `type` tách nó khỏi 503 "feed quá tải" và 503 "BFF mất
+        kho phiên" — FE chuyển fallback REST (Đ-5.12), không báo lỗi hệ thống.
+      allOf:
+        - $ref: '#/components/schemas/ProblemDetails'
+        - type: object
+          properties:
+            type:
+              type: string
+              enum: ['urn:socialapp:problem:realtime-unavailable']
+          required: [type]
+
     RealtimeTicket:
       type: object
       properties:

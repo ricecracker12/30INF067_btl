@@ -174,6 +174,22 @@ export interface components {
                 [key: string]: string[];
             } | null;
         };
+        /**
+         * @description 403 khi hai người không (còn) là bạn — BR-09 (mở hội thoại, gửi tin). Cùng hình dạng `ProblemDetails`, `type` là định danh
+         *     ổn định để FE tách nó khỏi 403 "không phải thành viên / thiếu quyền" và hiện thanh "chỉ đọc" (luật frontend Mục 4).
+         */
+        NotFriendsProblem: components["schemas"]["ProblemDetails"] & {
+            /** @enum {string} */
+            type: "urn:socialapp:problem:not-friends";
+        };
+        /**
+         * @description 503 của `POST /realtime/tickets` khi Redis không sẵn sàng (Đ-5.9). `type` tách nó khỏi 503 "feed quá tải" và 503 "BFF mất
+         *     kho phiên" — FE chuyển fallback REST (Đ-5.12), không báo lỗi hệ thống.
+         */
+        RealtimeUnavailableProblem: components["schemas"]["ProblemDetails"] & {
+            /** @enum {string} */
+            type: "urn:socialapp:problem:realtime-unavailable";
+        };
         RealtimeTicket: {
             /** @description base64url của 32 byte ngẫu nhiên. Đặt vào `?access_token=` khi nối `/hubs/*`. Dùng MỘT lần. */
             ticket: string;

@@ -4,12 +4,14 @@
 import type { components as ContentComponents } from "./content/schema"
 import type { components } from "./identity/schema"
 import type { components as ProfileComponents } from "./profile/schema"
+import type { components as MessagingComponents } from "./messaging/schema"
 import type { components as SocialGraphComponents } from "./socialgraph/schema"
 
 type S = components["schemas"]
 type P = ProfileComponents["schemas"]
 type C = ContentComponents["schemas"]
 type G = SocialGraphComponents["schemas"]
+type M = MessagingComponents["schemas"]
 
 // `ProblemDetails` có ở CẢ BỐN schema — chỉ re-export MỘT bản (bản của identity). Bốn bản giống hệt
 // nhau vì cùng sinh từ `SharedKernelProblemDetailsFactory`; re-export nhiều bản là `Duplicate identifier`.
@@ -64,3 +66,22 @@ export type UserCard = G["UserCard"]
 export type FriendCard = G["FriendCard"]
 export type FriendPage = G["FriendPage"]
 export type FriendRequestPage = G["FriendRequestPage"]
+
+// --- Messaging (messaging-v1.yaml) — GĐ5 E1 ---
+// `UserCard` của messaging-v1 cùng hình dạng bản socialgraph-v1 — KHÔNG re-export lần hai (Duplicate identifier); màn chat
+// dùng `ConversationPeer` (= `ConversationResponse["peer"]`).
+export type RealtimeTicket = M["RealtimeTicket"]
+export type CreateConversation = M["CreateConversation"]
+export type ConversationResponse = M["ConversationResponse"]
+export type ConversationPeer = ConversationResponse["peer"]
+export type ConversationPage = M["ConversationPage"]
+export type UnreadCount = M["UnreadCount"]
+export type SendMessageRequest = M["SendMessageRequest"]
+export type MessageResponse = M["MessageResponse"]
+export type MessagePage = M["MessagePage"]
+export type ReceiptKind = M["ReceiptKind"]
+export type ReceiptRequest = M["ReceiptRequest"]
+/** 403 "không còn là bạn" (BR-09) — `type` literal sinh từ hợp đồng. */
+export type NotFriendsProblem = M["NotFriendsProblem"]
+/** 503 "kênh realtime không sẵn sàng" (Đ-5.9) — chuyển fallback REST. */
+export type RealtimeUnavailableProblem = M["RealtimeUnavailableProblem"]

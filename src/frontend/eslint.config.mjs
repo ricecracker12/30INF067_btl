@@ -21,6 +21,19 @@ const KIT = [
   },
 ]
 
+// GĐ5 Đ-5.17 — MỘT kết nối hub cho cả app, ở `lib/realtime/`. Import `@microsoft/signalr` ở chỗ khác là mở kết nối thứ hai (hai vé,
+// hai lịch nối lại, badge và màn chat lệch nhau). Nằm trong mọi danh sách pattern bên dưới; khối `lib/realtime/**` dựng lại danh
+// sách KHÔNG có nó.
+const SIGNALR = {
+  group: ["@microsoft/signalr", "@microsoft/signalr/*"],
+  message: "Đ-5.17: chỉ lib/realtime/** được dùng SignalR — màn dùng useChatConnection()/chatConnection.",
+}
+
+const LAYERS = {
+  group: ["@/features", "@/features/*", "@/app", "@/app/*"],
+  message: "Đ-E13: lib/, components/ và hooks/ không biết nghiệp vụ, không import ngược lên.",
+}
+
 // Q-E3 — `fetch` không phải cửa duy nhất ra khỏi origin: `XMLHttpRequest` cũng đi được, và E3/E4 mở nó
 // ra thật (`lib/upload/r2.ts`). Tách thành hằng để override của `lib/upload/**` dựng lại danh sách này
 // mà KHÔNG có XHR — flat config THAY hẳn options của rule cùng tên, không cộng dồn (luật FE Mục 10).
@@ -101,7 +114,7 @@ const eslintConfig = defineConfig([
         },
       ],
       "react/no-danger": "error",
-      "no-restricted-imports": ["error", { patterns: KIT }],
+      "no-restricted-imports": ["error", { patterns: [...KIT, SIGNALR] }],
       "no-restricted-syntax": [
         "error",
         {
@@ -133,6 +146,7 @@ const eslintConfig = defineConfig([
         {
           patterns: [
             ...KIT,
+            SIGNALR,
             {
               group: ["@/features/*"],
               message:
@@ -152,14 +166,18 @@ const eslintConfig = defineConfig([
         {
           patterns: [
             ...KIT,
-            {
-              group: ["@/features", "@/features/*", "@/app", "@/app/*"],
-              message:
-                "Đ-E13: lib/, components/ và hooks/ không biết nghiệp vụ, không import ngược lên.",
-            },
+            SIGNALR,
+            LAYERS,
           ],
         },
       ],
+    },
+  },
+  // GĐ5 Đ-5.17 — ngoại lệ DUY NHẤT của lệnh cấm SignalR; đứng SAU khối `lib/**` (flat config lấy khối sau).
+  {
+    files: ["lib/realtime/**"],
+    rules: {
+      "no-restricted-imports": ["error", { patterns: [...KIT, LAYERS] }],
     },
   },
   // Q-E3 — ngoại lệ DUY NHẤT của lệnh cấm XHR, và phải đứng SAU khối chung. Danh sách dựng lại từ
