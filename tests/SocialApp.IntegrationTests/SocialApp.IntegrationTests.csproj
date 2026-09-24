@@ -64,6 +64,9 @@
     <Content Include="..\..\src\backend\Modules\Moderation\Presentation\moderation-v1.yaml"
              Link="Contracts\moderation-v1.yaml"
              CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\src\backend\Modules\Notification\Presentation\notification-v1.yaml"
+             Link="Contracts\notification-v1.yaml"
+             CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

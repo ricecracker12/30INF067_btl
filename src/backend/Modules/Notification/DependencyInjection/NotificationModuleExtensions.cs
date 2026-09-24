@@ -43,8 +43,13 @@ public static class NotificationModuleExtensions
         services.AddIntegrationEventHandler<FriendRequestAccepted, FriendRequestAcceptedHandler>();
         services.AddIntegrationEventHandler<ContentHidden, ContentHiddenHandler>();
 
+        // D11 (Mục 8.3): danh sách, số chưa đọc, đánh dấu đã đọc. IUserDirectory, IObjectStorage do host + module chủ đăng ký —
+        // container trần của test schema không resolve service này nên không cần chúng.
+        services.AddScoped<INotificationQueries, NotificationQueries>();
+        services.AddScoped<NotificationService>();
+
         // CHỈ đăng ký validator của module. KHÔNG gọi AddFluentValidationAutoValidation ở đây: cấu hình MVC toàn cục, host
-        // đã gọi một lần. Chưa có validator nào tới D11 — dòng này không tốn gì khi assembly rỗng.
+        // đã gọi một lần.
         services.AddValidatorsFromAssembly(typeof(NotificationModuleExtensions).Assembly, ServiceLifetime.Singleton);
 
         return services;

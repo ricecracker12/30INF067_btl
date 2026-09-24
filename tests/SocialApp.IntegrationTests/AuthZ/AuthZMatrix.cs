@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Npgsql;
 using SocialApp.IntegrationTests.Harness;
 
 namespace SocialApp.IntegrationTests.AuthZ;
@@ -280,6 +281,15 @@ public static class AuthZMatrix
         new("TC-A05-mod-audit", "Moderator đọc nhật ký kiểm toán", "GĐ6",
             Caller.Moderator, HttpMethod.Get, "/api/v1/admin/audit-logs", HttpStatusCode.Forbidden),
 
+        // D11 (Mục 6.3): tầng 3 của đánh dấu đã đọc — 403, KHÔNG 404 (quy ước 3b): "không tồn tại" cũng 403 cùng thân lỗi, ca đó ở
+        // NotificationEndpointTests. Không mã quyền nào, không đặc quyền — không phụ thuộc Redis của matrix.
+        new("NOTIF-IDOR", "A đánh dấu đã đọc thông báo của B", "GĐ6",
+            Caller.User, HttpMethod.Post, "/api/v1/notifications/{id của B}/read", HttpStatusCode.Forbidden,
+            ArrangePath: async a => $"/api/v1/notifications/{await ThongBaoCuaNguoiKhacAsync(a)}/read"),
+
+        new("TC-A01-notifications", "Danh sách thông báo không kèm JWT", "GĐ6",
+            Caller.Anonymous, HttpMethod.Get, "/api/v1/notifications", HttpStatusCode.Unauthorized),
+
         // --- GĐ3 (B2). giai-doan-3.md Mục 6.3. Kỳ vọng viết tay theo Mục 6.1 + hợp đồng content-v1, không lấy từ output. ---
         //
         // Bình luận và cảm xúc THỪA KẾ BR-02 của bài (Đ-3.3): không xem được bài → 404 ở MỌI đường, kể cả ghi — cùng quy ước
@@ -460,6 +470,28 @@ public static class AuthZMatrix
 
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         return document.RootElement.GetProperty("reportId").GetGuid();
+    }
+
+    /// <summary>
+    /// Dòng <c>NOTIF-IDOR</c>: một thông báo CHƯA ĐỌC có thật của B (người lạ, không phải người gọi). Chèn bằng SQL: thông báo sinh từ
+    /// event chạy BẤT ĐỒNG BỘ sau request, và <see cref="AuthZArrange"/> không có bus để chờ (<c>DrainEventsAsync</c>) — thêm vào là sửa
+    /// khung matrix, Mục 6.3 cấm. Đường event → thông báo đã có <c>NotificationHandlerTests</c> đi từ API thật. Trả id thông báo.
+    /// </summary>
+    private static async Task<Guid> ThongBaoCuaNguoiKhacAsync(AuthZArrange a)
+    {
+        var id = Guid.NewGuid();
+        var nguoiNhan = Guid.NewGuid();
+        var nguoiMoi = Guid.NewGuid();
+        await using var conn = new NpgsqlConnection(a.PostgresConnectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand(
+            "insert into notification.notifications (id, recipient_id, type, group_key, target_type, target_id, last_actor_id) " +
+            "values ($1, $2, 'friend_request', 'friend_request:' || $3::text, 'user', $3, $3)", conn);
+        cmd.Parameters.AddWithValue(id);
+        cmd.Parameters.AddWithValue(nguoiNhan);
+        cmd.Parameters.AddWithValue(nguoiMoi);
+        await cmd.ExecuteNonQueryAsync();
+        return id;
     }
 
     /// <summary>Body của <c>POST /reports</c>, chuỗi hợp đồng viết tay. Xem <see cref="RepIdor"/>.</summary>

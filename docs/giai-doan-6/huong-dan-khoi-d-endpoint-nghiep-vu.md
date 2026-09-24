@@ -2004,9 +2004,64 @@ Mục 0.6 áp vào D10; `giai-doan-6.md` sửa B.6 D10 (trạng thái bước 9)
 `AddNotificationModule` UNKNOWN — như D9 (4 lời gọi, chữ ký không đổi); nay thêm ba `EventHandlerRegistration` singleton mà chỉ bus
 của host đọc.
 
+### D11 — 2026-09-25
+
+Làm đúng Mục 15 và checklist D0 cho `notification-v1` (Mục 2): `NotificationApiGroup` (`"notification-v1"`, `"Thông báo"`),
+`AddApplicationPart` + dòng `apiGroups`, `notification-v1.yaml` `1.0.0-gd6` với **đúng** bốn operation, `NotificationContractTests` +
+dòng `Content Include`, `pnpm gen:api` sinh `lib/api/notification/schema.d.ts` (glob tự thấy, không file sinh nào khác đổi).
+`NotificationsController` (`[Authorize]`, không mã quyền, không `[PrivilegedEndpoint]`) · `NotificationService` · `INotificationQueries` +
+`NotificationQueries` (LINQ `AsNoTracking`, `ExecuteUpdateAsync`) · DTO + `ListNotificationsQuery`/`ReadAllRequest` + validator +
+`NotificationCursor` · matrix `NOTIF-IDOR`, `TC-A01-notifications`. `giai-doan-6.md` sửa cùng lượt: Mục 8.3 (version, hình dạng), B.6 D11.
+
+**Lệch so với chính tài liệu này:**
+- **Mọi trường của `NotificationResponse` luôn có mặt, `null` khi không áp dụng** (Mục 8.3 bản đầu ghi `postId?`, `reasonCode?`) — cùng
+  nếp `TargetSnapshot` (D7b), `AuditLogItem` (D8): app không bỏ trường null khi ghi JSON. `type`, `target.type`, `reasonCode` là enum
+  trong hợp đồng; tập `reasonCode` chép `ReasonCode` của `moderation-v1` — cổng hợp đồng không so schema response, giữ khớp bằng tay
+  (như `content-v1` ở D7a).
+- **Dòng matrix `NOTIF-IDOR` dựng thông báo của B bằng `INSERT`**, không qua API: thông báo sinh từ event chạy bất đồng bộ sau request, và
+  `AuthZArrange` không có bus để chờ — thêm vào là sửa khung matrix (Mục 6.3 cấm). Đường event → thông báo có `NotificationHandlerTests`.
+- **Test endpoint dựng thông báo bằng `INotificationStore`** (D9), không bằng event: tất định, và mỗi ca chỉ chứng minh một điều. Hai
+  điều đó đã có lưới riêng (`NotificationStoreTests`, `NotificationHandlerTests`).
+- **`NOTIF-08` so hai số đếm**, không so với một hằng viết tay như `FEED-Q1`: đúng câu "số câu SQL bằng nhau" của Mục 15; trang có
+  người thật (hồ sơ qua API) nên lô `IUserDirectory` thật sự chạy ở cả hai lượt.
+- **`MarkReadAsync` không có vế `is_read = false`**: đã đọc rồi vẫn khớp một dòng → 204 (idempotent, Mục 15). Có vế đó thì bấm lại
+  thông báo đã đọc (hai tab) nhận 403 như thông báo của người khác — M6 dưới đây.
+- **`read-all` luôn 204**, kể cả khi không nhóm nào khớp; `upTo` đổi về UTC trước khi so (Npgsql từ chối offset khác 0).
+- **Thêm ca ngoài bảng:** `NOTIF-06` thêm người không có thông báo (0); `NOTIF-07` thêm vế thông báo của người khác không bị chạm và sự
+  kiện mới vào nhóm đã đọc làm nó chưa đọc lại; `NOTIF-10` đánh dấu hai lần (204, 204) và khẳng định `updatedAt` không đổi;
+  `NOTIF-IDOR` khẳng định thông báo của B vẫn chưa đọc; hình dạng (actor có ảnh → `avatarUrl` ký sẵn, actor không hồ sơ → `null` mà
+  vẫn đếm, `moderation` không actor có lý do, đích `user` không `postId`, chỉ thấy thông báo của mình); phân trang 25 nhóm → 10/10/5;
+  năm biến thể 400.
+
+"Đã đỏ trước" (L-D7): dòng `NOTIF-IDOR` và ca `NOTIF_IDOR_…` đỏ khi bỏ vế `recipient_id` (M1) — xem bảng.
+
+**Test:** Unit 553 → 553, Integration 860 → 876 (+12 `NotificationEndpointTests`, +2 `NotificationContractTests`, +2 matrix `NOTIF-IDOR`,
+`TC-A01-notifications`), Architecture 27 → 27. Vitest 626 → 626 (chỉ thêm `schema.d.ts`). Còn đỏ nền R2 trên máy dev. FE:
+`pnpm lint`, `typecheck`, `test`, `build` xanh.
+
+**Thử cho đỏ — 11/11 đột biến bị bắt**, build hợp lệ ở mọi lượt (`0 Error(s)`), file khôi phục nguyên byte (`md5`):
+
+| Đột biến | Ca đỏ thực tế |
+|---|---|
+| M1 — `read` không kiểm `recipient_id` | matrix `NOTIF-IDOR`; `NOTIF_IDOR_…` |
+| M2 — `read` đóng dấu `updated_at` | `NOTIF_10_…` |
+| M3 — `read-all` bỏ `upTo` | `NOTIF_07_…` |
+| M4 — keyset `<` thành `<=` | `Phan_trang_keyset_khong_trung_khong_sot` |
+| M5 — hydrate tên từng dòng (N+1) | `NOTIF_08_…` |
+| M6 — `read` chỉ khớp dòng chưa đọc (mất idempotent) | `NOTIF_10_…` |
+| M7 — `unread-count` không lọc `is_read` | `NOTIF_06_…`; `NOTIF_10_…` |
+| M8 — controller bỏ khai 403 của `read` | `NotificationContractTests.Contract_must_be_fully_implemented` |
+| M9 — validator bỏ luật `upTo` | `Tham_so_sai_400_dung_truong(…read-all…)` |
+| M10 — danh sách không lọc người nhận | `Hinh_dang_…`; `NOTIF_07_…`; `NOTIF_08_…`; `NOTIF_10_…`; `Phan_trang_…` |
+| M11 — yaml bỏ 403 của `read` | `NotificationContractTests.Runtime_must_not_expose_anything_outside_the_contract` |
+
+**detect-changes:** low, 0 luồng (14 file, 10 symbol — so với index đang giữ D9 + D10; file mới đã `git add -N`). Impact:
+`AddNotificationModule` UNKNOWN — như D9 (4 lời gọi, chữ ký không đổi, thêm hai đăng ký scoped). `AuthZMatrix` UNKNOWN, **chạy sau khi đã
+thêm dòng** (quên chạy trước) — text search: chỉ `AuthZMatrixTests` đọc `Cases`; thêm dòng là đúng điểm mở rộng của khung.
+
 ### Các đầu việc còn lại
 
-D11 → D13. Mỗi đầu việc khi xong điền theo khuôn của hướng dẫn khối A+C:
+D12 → D13, và bước 9 (handler `comment`/`reply`/`reaction`/`message` — đã mở khóa, xem D10). Mỗi đầu việc khi xong điền theo khuôn của hướng dẫn khối A+C:
 
 - chỗ nào đi theo / không theo đề xuất Mục 0.6, và vì sao;
 - lệch so với chính tài liệu này;

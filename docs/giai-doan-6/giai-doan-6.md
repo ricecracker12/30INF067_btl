@@ -1221,6 +1221,12 @@ ReadAllRequest       { upTo: date-time }                             // chỉ đ
   trong lúc người dùng đang ở trang 2 và không bao giờ hiện lại ở trang 2. Chấp nhận (danh sách thông báo, không phải sổ cái),
   và FE khử trùng theo `notificationId` khi nối trang (khuôn `useCursorPages` GĐ4).
 
+*Sửa 2026-09-25 khi thi công D11:* `notification-v1.yaml` `1.0.0-gd6`. Mọi trường của `NotificationResponse` luôn có mặt, `null` khi không
+áp dụng (như `TargetSnapshot` của D7b) — `target.postId`, `reasonCode`, `actor` nullable, không optional. `type` là enum tám loại
+(`NotificationType`), `target.type` enum bốn loại, `reasonCode` enum năm lý do (cùng tập `ReasonCode` của `moderation-v1`, giữ khớp bằng
+tay). `unread-count` trả schema `UnreadCount { total }`. `limit` 1..50, mặc định 20. `read-all` luôn 204 (kể cả khi không nhóm nào khớp);
+`upTo` thiếu → 400 `errors.upTo`. `notificationId` sai dạng → 400 `errors.notificationId`.
+
 ### 8.4 `notification-hub-v1.md`
 
 ```
@@ -2006,6 +2012,11 @@ riêng của bước 9, không gộp vào D10.
 
 Bốn endpoint Mục 8.3; `read` tầng 3 cùng khuôn "không tồn tại = không phải của bạn = 403". **Xong khi:** `NOTIF-06..08`,
 `NOTIF-IDOR`, `TC-A01-notifications` xanh.
+
+*Sửa 2026-09-25 khi thi công D11* (L-D1): nền `notification-v1` (`NotificationApiGroup`, `AddApplicationPart`, `apiGroups`, yaml,
+`NotificationContractTests`, `Content Include`) đi cùng commit này; `NOTIF-10` (đề xuất) viết luôn. Dòng matrix `NOTIF-IDOR` dựng thông
+báo của B bằng một câu `INSERT` — thông báo sinh từ event chạy bất đồng bộ, và khung matrix không có bus để chờ (Mục 6.3 cấm sửa
+khung); đường event → thông báo đã có `NotificationHandlerTests` đi từ API thật.
 
 ### D12 — `GET /search`
 
