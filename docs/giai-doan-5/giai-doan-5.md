@@ -49,6 +49,27 @@ Hướng dẫn thi công từng bước (lệnh nào, file nào, cạm bẫy nà
 > - Lỗi cùng status khác nghĩa phân nhánh theo `type` của Problem Details (GĐ4 Q-E4, luật frontend Mục 4).
 > - Báo cáo k6 sơ bộ GĐ4 (`docs/giai-doan-4/bao-cao-k6-so-bo.md`) là mốc so sánh.
 
+> **Cổng mở (2026-09-24) — rà lại trên `origin/develop@3b5bf64` (sau PR #24 của GĐ6), nhánh `gd5`.** Mười tám quyết định **chốt**, trừ các chỗ
+> sửa dưới đây (mỗi chỗ cũng ghi ngay dưới quyết định tương ứng). Người thi công: một người làm trọn A→F, dừng hai lần cho
+> việc cần quyền server (Mục 9.2).
+>
+> | Chỗ | Tài liệu gốc ghi | Thực tế / chốt lại | Vì sao |
+> |---|---|---|---|
+> | Nền nhánh (đầu file, B.1, Mục 9.1, 9.4) | `loveart1210@e120090`; `IFriendshipReader`, API kết bạn, slot `actions` chưa có | Nền `origin/develop`: GĐ4 đã merge (`0d0a093`), cả ba đã có. `ArrangePath` dựng bạn bè **qua API** — bỏ nhánh `INSERT` thẳng + TODO | GĐ4 đóng 2026-09-23 |
+> | Đ-5.2 bẫy thứ tự uuid | "`Guid.CompareTo` và `<` của Postgres không cùng thứ tự" | Ngược lại: `Guid.CompareTo` **khớp** Postgres; `ToByteArray()` mới lệch (comment `FriendPair`, `7e6e0d5`). `ConversationPair` chép `FriendPair` | Đọc lại code GĐ4 |
+> | Đ-5.15, D7 | Chưa có event bus → `IMessagingEvents` chỉ log | **Bị Đ-6.2 thay:** gọi `IEventPublisher.Publish(new MessageSent(…))` sau `COMMIT`. Record `MessageSent` đã có ở `SharedKernel/Events/MessagingEvents.cs` — không đổi hình dạng (`IntegrationEventShapeTests`) | GĐ6 C0 (`60ac7ee`) đã dựng bus |
+> | D5, D7, Mục 10.7 | "nếu GĐ7 đã có prometheus-net thì thêm counter, chưa thì TODO" | Đã có: thêm `MessageSent()` + histogram `socialapp_message_push_seconds` vào `SharedKernel/Observability/BusinessMetrics.cs`, tạo sẵn chuỗi trong `Initialize()` | GĐ7 C2 (`e4b18ff`, `b99615d`) |
+> | Đ-5.9, Đ-5.10, C2, C3 | Filter thu hồi, tuổi thọ, `IUserIdProvider` gắn `ChatHub` | Cả ba ở `SharedKernel/Realtime/`, filter đăng ký **toàn cục** cho mọi hub | Đ-6.18: `/hubs/notifications` dùng lại nguyên |
+> | Đ-5.9 `iat` | — | Giữ `iat`, Đ-6.8 xác nhận | — |
+> | C5, B.10 | Presence là phần cắt đầu tiên | Vẫn cắt được nhưng **làm**: Đ-6.17 cần `IPresenceReader` để tạo thông báo `message` | Cắt là GĐ6 mất một loại thông báo |
+> | E4 | Chép khuôn `use-post-page.ts` | Dùng `hooks/use-cursor-pages.ts` (GĐ4 Q-E8) | Hook dùng chung đã có |
+> | Mục 9.2 #2 (cổng Contract) | "chọn một, ghi lại" | **Tiền lệ GĐ4:** `messaging-v1.yaml` vào repo **cùng commit** với controller đầu tiên, mỗi path thêm cùng controller của nó. Hình dạng DTO chốt ở Mục 8.1 | `ContractGateCoverageTests` tự nhặt mọi `*-v1.yaml` và cấm `Skip` — yaml đầy đủ bây giờ là cổng đỏ tới D9 |
+> | Mục 9.3 thứ tự | C0 (spike staging) ngay sau cổng mở | Ở dừng 1 chỉ kiểm apache đưa `/hubs` tới Kestrel; WebSocket thật kiểm ở F1 | Deploy staging cần người merge `develop` |
+> | Mục 9.4 `Program.cs` | — | Có thêm `AddInProcessEventBus`, `UseHttpMetrics`/`MapMetrics`, `BusinessMetrics.Initialize()`. Thứ tự migrate: … → SocialGraph → **Messaging** → Moderation → Notification (hai module GĐ6 đã nối — Messaging chen vào **giữa** SocialGraph và Moderation) | GĐ6, GĐ7 |
+> | Đ-5.5, Đ-5.6 (hai lệch PTTK) | "báo chủ dự án trước khi chốt" | **Chủ dự án đồng ý cả hai** (2026-09-24). Mục 13 dòng 1–2 giữ nguyên làm câu trả lời lúc bảo vệ | Mục 9.2 bước 1 |
+> | GĐ6 C6 | — | GĐ6 C6 (hub `/hubs/notifications`) **đang chờ vé realtime của GĐ5 trên `develop`** (`d3f19f9`). Vé + scheme + filter là thứ nên lên `develop` sớm nhất có thể | Mở khóa GĐ6 |
+> | GĐ7 | — | D2 (rà Swagger) chạy lại cho nhóm `messaging-v1`; grep log PII (Đ-7.14) thêm `content` | Việc của chủ dự án khi quay lại GĐ7 |
+
 ---
 
 # Phần A — Thiết kế và quyết định
@@ -167,10 +188,11 @@ Module Messaging **không** import SocialGraph, Profile hay Content (`ModuleBoun
 `UNIQUE (user_a_id, user_b_id)` + `CHECK (user_a_id < user_b_id)` (PTTK ENT-06). Hội thoại tạo bằng `INSERT … ON CONFLICT
 DO NOTHING` rồi `SELECT` — hai người cùng bấm "Nhắn tin" cho nhau cùng lúc vẫn ra **một** hội thoại, không 409, không 500.
 
-**Bẫy đã có tiền lệ ở GĐ4:** `Guid.CompareTo` của .NET và toán tử `<` trên `uuid` của Postgres **không cùng thứ tự**
-(Postgres so từng byte theo thứ tự hiển thị; .NET so theo bố cục nội bộ). Chuẩn hóa cặp bằng `CompareTo` là để lọt những
-cặp mà CHECK của DB từ chối → 500 ngẫu nhiên, chỉ với một số cặp người dùng. SocialGraph đã giải bằng `FriendPair` "theo
-thứ tự uuid Postgres" (commit `7e6e0d5`). Messaging **không import được** kiểu đó → chép quy tắc thành
+**Bẫy đã có tiền lệ ở GĐ4:** so hai uuid **theo mảng byte** (`ToByteArray()`) **không cùng thứ tự** với toán tử `<` trên
+`uuid` của Postgres (ba nhóm đầu little-endian). Chuẩn hóa cặp sai cách là để lọt những cặp mà CHECK của DB từ chối → 500
+ngẫu nhiên, chỉ với một số cặp người dùng. SocialGraph đã giải bằng `FriendPair` "theo thứ tự uuid Postgres" (commit
+`7e6e0d5`) — `Guid.CompareTo` so từng trường như chuỗi hex hiển thị nên **khớp** Postgres. *(Sửa 2026-09-24: bản
+2026-09-22 ghi ngược — nói `CompareTo` lệch.)* Messaging **không import được** kiểu đó → chép quy tắc thành
 `ConversationPair.Of(a, b)` trong `Messaging.Domain`, kèm unit test so với danh sách cặp mà test tích hợp đã kiểm bằng
 Postgres thật. *(Nếu cổng mở muốn gom về một chỗ: chuyển hàm so sánh sang `SharedKernel/Ids/` — nhưng đó là sửa code của
 A, phải báo A trước.)*
@@ -416,6 +438,11 @@ Theo Đ-4.15 / Đ-3.12: `MessageSent { conversationId, messageId, senderId, reci
 GĐ5 chỉ ghi log (không ghi nội dung tin — Đ-5.18). Hiện **chưa có** hạ tầng event nào trong repo (không MediatR, không
 dispatcher) → không dựng khung event chung ở GĐ5: một interface `IMessagingEvents` trong `Messaging.Application` với hiện
 thực ghi log là đủ, GĐ6 thay hiện thực. Dựng khung chung là quyết định cấp dự án, không phải của một giai đoạn.
+
+> **Sửa 2026-09-24 (cổng mở) — bị Đ-6.2 thay thế.** GĐ6 C0 (`60ac7ee`) đã dựng event bus trong tiến trình ở
+> `SharedKernel/Events/` và khai sẵn record `MessageSent(ConversationId, MessageId, SenderId, RecipientId, Seq)`. GĐ5 **không**
+> tạo `IMessagingEvents`: `MessagingEvents` (singleton, khuôn `SocialGraphEvents` của GĐ4) gọi `IEventPublisher.Publish` sau
+> `COMMIT`. `Publish` không chờ handler, không ném, bus tự đếm — không ghi log riêng.
 
 ### Đ-5.16 Client SignalR bắt buộc `skipNegotiation` + chỉ WebSockets — vì vé dùng một lần
 
@@ -800,7 +827,11 @@ Tuổi thọ    : server cắt sau 15 phút (Đ-5.10); client tự kết nối l
 | Sự kiện | Payload | Gửi tới | Khi nào |
 |---|---|---|---|
 | `MessageReceived` | `MessageResponse` | mọi kết nối của **người nhận và người gửi** | sau `COMMIT` của mỗi tin mới (không phát khi `replayed`) |
-| `ReceiptUpdated` | `{ conversationId, userId, deliveredSeq, seenSeq }` | mọi kết nối của **người kia** (và các tab khác của chính người gửi biên nhận) | sau khi mốc thật sự **tăng** (UPDATE không đổi gì thì không phát) |
+| `ReceiptUpdated` | `{ conversationId, userId, deliveredSeq, seenSeq }` | mọi kết nối của **cả hai** thành viên (`Clients.Users(a, b)`) | sau khi mốc thật sự **tăng** (UPDATE không đổi gì thì không phát) |
+
+*(Chốt 2026-09-24 ở cổng mở: gửi `ReceiptUpdated` tới cả hai thành viên thay vì "người kia + các tab khác của người gửi" —
+cùng một lời gọi `Clients.Users` như `MessageResponse`, và tab khác của chính người xem cần biết mốc đã xem của mình để hạ
+badge. Không lộ gì thêm: cả hai đều là thành viên.)*
 
 **Quy tắc thứ tự và độ tin cậy — FE phải lập trình theo đúng các câu này:**
 

@@ -27,9 +27,11 @@ Lộ trình 8 giai đoạn (GĐ0 → GĐ8) ở [`docs/ke-hoach-trien-khai.md`](d
 | **GĐ0 + GĐ0B** — Walking Skeleton, staging, CD | Xong. API chạy thật ở `https://mxh.banhgao.net` |
 | **GĐ1** — Identity & Access ([`docs/giai-doan-1/giai-doan-1.md`](docs/giai-doan-1/giai-doan-1.md)) | **Xong** (2026-09-18) |
 | **GĐ2** — Hồ sơ & Bài viết + ảnh R2 ([`docs/giai-doan-2/giai-doan-2.md`](docs/giai-doan-2/giai-doan-2.md)) | **Xong theo B.11** (2026-09-21). Còn 7 dòng kiểm tận nơi của F4 chờ server staging — xem dưới |
-| GĐ4 (chạy trước GĐ3) | **Được phép mở** — bắt đầu bằng cổng mở hợp đồng SocialGraph + feed |
-| GĐ7 — Vận hành ([`docs/giai-doan-7/giai-doan-7.md`](docs/giai-doan-7/giai-doan-7.md)) | Đang làm song song — khối A + B đã merge (PR #16) |
-| GĐ3, GĐ5, GĐ6, GĐ8 | Chưa mở. Module `SocialGraph`, `Messaging`, `Notification`, `Moderation` mới có khung thư mục |
+| **GĐ4** — Kết bạn, theo dõi, News Feed ([`docs/giai-doan-4/giai-doan-4.md`](docs/giai-doan-4/giai-doan-4.md)) | **Xong** (2026-09-23, PR #21) |
+| **GĐ5** — Nhắn tin 1-1 realtime ([`docs/giai-doan-5/giai-doan-5.md`](docs/giai-doan-5/giai-doan-5.md)) | **Đang làm** trên nhánh `gd5` — cổng mở 2026-09-24 (hợp đồng hub, mẫu apache `/hubs/`) |
+| **GĐ6** — Thông báo, kiểm duyệt, quản trị ([`docs/giai-doan-6/giai-doan-6.md`](docs/giai-doan-6/giai-doan-6.md)) | Đang làm — khối A, C0–C5 đã merge (PR #23, #24); C6 hub thông báo chờ vé realtime của GĐ5 |
+| GĐ7 — Vận hành ([`docs/giai-doan-7/giai-doan-7.md`](docs/giai-doan-7/giai-doan-7.md)) | Tạm dừng ở C5 (2026-09-24) — A, B, C1–C4, D1–D2 xong |
+| GĐ3, GĐ8 | Chưa mở |
 
 Chi tiết GĐ1:
 
