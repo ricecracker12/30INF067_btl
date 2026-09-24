@@ -1,0 +1,371 @@
+# ---------------------------------------------------------------------------------------------
+# HỢP ĐỒNG API — module Moderation, v1 (GĐ6 · FR-019, UC-19)
+#
+# Báo cáo vi phạm, hàng đợi kiểm duyệt, quyết định, khôi phục, nhật ký kiểm toán
+# (docs/giai-doan-6/giai-doan-6.md Mục 8.1). Tên nhóm `moderation-v1` khớp ba chỗ:
+# `ModerationApiGroup.Name`, dòng `apiGroups` ở Program.cs, tên file này.
+#
+# CÓ MÁY CANH: `ModerationContractTests` so file này với /swagger/moderation-v1/swagger.json sinh
+# từ code — lệch tập (path × method), tập status code, hoặc required field của request body là CI
+# đỏ. `ContractGateCoverageTests` canh file này có dòng `Content Include` + lớp so.
+#
+# LỚN DẦN THEO ĐẦU VIỆC CỦA KHỐI D (luật "hợp đồng đi cùng controller", chốt 2026-09-24): mỗi
+# operation vào file này TRONG CÙNG COMMIT với controller hiện thực nó — không có operation nào
+# nằm đây trước code.
+#   D6 (2026-09-24): POST /reports — version 1.0.0-gd6.
+#   D7b: GET /reports, GET /reports/{reportId}. D7c: PATCH /reports/{reportId}, POST /moderation/…/restore.
+#   D8: GET /admin/audit-logs.
+#
+# QUYẾT ĐỊNH ĐỨNG SAU (giai-doan-6.md):
+#   Đ-6.12  Thấy được mới báo được: không thấy → 404 CÙNG thân lỗi với "không tồn tại" (không là
+#           máy dò IDOR). Một báo cáo MỞ mỗi (người báo, đối tượng): gửi trùng → 200 + báo cáo cũ.
+#           Rate limit riêng 10 báo cáo/phút/người.
+#   L-D13   `targetType: comment` hợp lệ trong hợp đồng; trước khi có module bình luận → 404.
+#   B.10 #8 `POST /reports` là endpoint DUY NHẤT của nhóm không đặc quyền: không fail-closed khi
+#           Redis chết, không audit khi bị chặn. Mọi endpoint khác của nhóm (D7, D8) fail-closed
+#           (Đ-6.8) → 503 `urn:socialapp:problem:revocation-unavailable`.
+# ---------------------------------------------------------------------------------------------
+openapi: 3.0.3
+
+info:
+  title: SocialApp — Moderation API
+  version: 1.0.0-gd6
+  description: |
+    Báo cáo vi phạm và kiểm duyệt nội dung của GĐ6 (FR-019, UC-19).
+
+    ### Lỗi
+
+    Mọi lỗi trả **RFC 7807 Problem Details** (`application/problem+json`) kèm `traceId` — bằng đúng
+    giá trị header `X-Correlation-ID` của chính request đó. Ca FE phải phân nhánh cùng một status thì
+    phân nhánh theo **`type`**, không theo `title`.
+
+    ### Rate limit
+
+    100 req/phút theo user (hạn mức chung). `POST /reports` có thêm hạn mức riêng **10 báo cáo/phút/người**
+    (Đ-6.12). Vượt → `429`, không có `Retry-After`.
+  contact:
+    name: Nhóm 4 — 30INF067
+
+servers:
+  - url: http://localhost:5259/api/v1
+    description: Dev — backend chạy local (`dotnet run`)
+  - url: https://mxh.banhgao.net/api/v1
+    description: Staging
+
+tags:
+  - name: reports
+    description: Báo cáo vi phạm (FR-019).
+
+paths:
+
+  /reports:
+    post:
+      tags: [reports]
+      operationId: createReport
+      summary: Báo cáo một bài viết, bình luận hoặc tài khoản
+      description: |
+        Tầng 2: `report.create` (người dùng thường có). Người báo là người gọi — không nhận từ body.
+
+        | Tình huống | Phản hồi |
+        |---|---|
+        | Báo cáo mới | **201** `ReportReceipt` |
+        | Đã có báo cáo **đang mở** của chính người này cho cùng đối tượng (bấm hai lần, hai tab) | **200** — CHÍNH báo cáo đó, cùng `reportId` |
+        | Báo cáo cũ đã được xử lý rồi báo lại | **201** — báo cáo mới |
+        | Đối tượng không tồn tại, đã bị ẩn/xóa, **hoặc người gọi không được xem** | **404** — một thân lỗi cho mọi trường hợp |
+        | Báo cáo nội dung/tài khoản của chính mình | 400 `errors.targetId` |
+        | Quá 10 báo cáo trong một phút (báo trùng vẫn tính) | 429 |
+
+        "Được xem" theo đúng luật đọc của đối tượng: bài `private` của người khác, bài `friends` của người không phải
+        bạn → 404 như bài không tồn tại (Đ-6.12). `targetType: comment` hợp lệ nhưng chưa có module bình luận → 404.
+
+        `detail`: cắt khoảng trắng hai đầu; chỉ có khoảng trắng coi như **vắng mặt**. Bắt buộc khi `reasonCode: other`.
+
+        Phản hồi **không** nhắc lại đối tượng bị báo — không xác nhận thêm điều gì về nó.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateReportRequest'
+            example:
+              targetType: post
+              targetId: 0192f3c9-2b7d-7e10-8c4a-1f3e5d7b9a20
+              reasonCode: spam
+      responses:
+        '201':
+          description: Báo cáo mới, đang chờ xử lý.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportReceipt'
+              example:
+                reportId: 0192f3ca-6e41-7a02-b3d5-8c7e9f1a2b30
+                status: open
+                createdAt: '2026-09-24T08:15:42.123456Z'
+        '200':
+          description: Người gọi đã có báo cáo đang mở cho đối tượng này — trả lại chính báo cáo đó, không tạo thêm.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportReceipt'
+              example:
+                reportId: 0192f3ca-6e41-7a02-b3d5-8c7e9f1a2b30
+                status: open
+                createdAt: '2026-09-24T08:15:42.123456Z'
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/ReportTargetNotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+
+  securitySchemes:
+
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Access token JWT HS256 phát ở `POST /auth/login` (`identity-v1`). Claim `role` mang `roles.code`; tầng 2 tra quyền
+        của vai trò đó. Lane FE: token nằm ở BFF, trình duyệt không cầm (Đ-E14).
+
+  headers:
+
+    XCorrelationId:
+      description: |
+        Correlation ID của request, bằng đúng `traceId` trong Problem Details khi có lỗi.
+        Client gửi header cùng tên thì server dùng lại giá trị đó.
+      schema:
+        type: string
+      example: 9f2c7b1e4a6d4f0b8c3e5a7d9b1f3c5e
+
+  responses:
+
+    ValidationProblem:
+      description: |
+        Dữ liệu đầu vào không hợp lệ. `errors` là map `tên trường → danh sách thông điệp`: `targetType`, `targetId`,
+        `reasonCode` thiếu hoặc ngoài tập giá trị, `detail` thiếu khi `other` hoặc quá 500 ký tự; `targetId` cũng là key của
+        lỗi "báo cáo chính mình".
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://httpstatuses.io/400
+            title: Dữ liệu không hợp lệ
+            status: 400
+            detail: Dữ liệu đầu vào không hợp lệ
+            instance: /api/v1/reports
+            traceId: 5e7a9c1b3d5f7092a4c6e8b0d2f4a6c8
+            errors:
+              detail:
+                - Vui lòng mô tả lý do.
+
+    Unauthorized:
+      description: Thiếu access token, token sai chữ ký, hết hạn, hoặc đã bị thu hồi.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://httpstatuses.io/401
+            title: Chưa xác thực
+            status: 401
+            detail: Yêu cầu access token hợp lệ.
+            instance: /api/v1/reports
+            traceId: a4c6e8b0d2f4a6c8e0b2d4f6a8c0e2b4
+
+    Forbidden:
+      description: |
+        Tầng 2 từ chối — vai trò của người gọi không có mã quyền endpoint đòi (`report.create` với `POST /reports`). Vai trò
+        hệ thống USER, MODERATOR đều có mã này; 403 chỉ gặp ở vai trò tự tạo không được gán nó. Thông điệp không nêu quyền
+        còn thiếu.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://httpstatuses.io/403
+            title: Bị từ chối
+            status: 403
+            detail: Bạn không có quyền thực hiện thao tác này.
+            instance: /api/v1/reports
+            traceId: c6e8b0d2f4a6c8e0b2d4f6a8c0e2b4d6
+
+    ReportTargetNotFound:
+      description: |
+        Đối tượng không tồn tại, đã bị ẩn/xóa, loại chưa hỗ trợ, **hoặc người gọi không được xem nó** — MỘT thân lỗi cho mọi
+        trường hợp (Đ-6.12, dòng `REP-IDOR` của AuthZ matrix). Khác nhau ở đây thì status code tự nó tố cáo bài riêng tư có
+        tồn tại.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://httpstatuses.io/404
+            title: Không tìm thấy tài nguyên
+            status: 404
+            detail: Không tìm thấy nội dung cần báo cáo.
+            instance: /api/v1/reports
+            traceId: d2f4a6c8e0b2d4f6a8c0e2b4d6f8a0c2
+
+    TooManyRequests:
+      description: |
+        Vượt hạn mức — 10 báo cáo/phút/người (`POST /reports`, Đ-6.12) hoặc 100 req/phút/user (chung, ISS-04). Không có
+        `Retry-After`.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://httpstatuses.io/429
+            title: Quá nhiều yêu cầu
+            status: 429
+            detail: Bạn đã gửi quá nhiều yêu cầu. Vui lòng thử lại sau ít phút.
+            instance: /api/v1/reports
+            traceId: e0b2d4f6a8c0e2b4d6f8a0c2e4b6d8f0
+
+    InternalError:
+      description: |
+        Lỗi không mong muốn. **Không bao giờ có `detail`** — `GlobalExceptionHandler` giấu chi tiết nội bộ, chỉ
+        `traceId` đi ra ngoài để đối chiếu với log.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://httpstatuses.io/500
+            title: Đã xảy ra lỗi không mong muốn
+            status: 500
+            instance: /api/v1/reports
+            traceId: b6d8f0a2c4e6b8d0f2a4c6e8b0d2f4a6
+
+    RevocationUnavailable:
+      description: |
+        Fail-closed (Đ-6.8) của các endpoint kiểm duyệt đặc quyền (D7, D8 — **không** áp cho `POST /reports`): server không
+        kiểm được access token có bị thu hồi không. Không phải lỗi của phiên — FE **không** đăng xuất, hiện thông báo tạm
+        thời và cho thử lại. Phân nhánh theo `type`, không theo `title`.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/RevocationUnavailableProblem'
+          example:
+            type: urn:socialapp:problem:revocation-unavailable
+            title: Tạm thời không kiểm tra được phiên đăng nhập
+            status: 503
+            detail: Chức năng quản trị tạm thời không khả dụng. Vui lòng thử lại sau ít phút.
+            instance: /api/v1/reports
+            traceId: f8a0c2e4b6d8f0a2c4e6b8d0f2a4c6e8
+
+  schemas:
+
+    ProblemDetails:
+      type: object
+      description: |
+        RFC 7807 Problem Details — dạng lỗi duy nhất của toàn dự án. Sinh bởi
+        `SocialApp.SharedKernel.Errors.GlobalExceptionHandler`; `traceId` và `type` gắn thống nhất
+        trong `AddSharedKernel`.
+      properties:
+        type:
+          type: string
+          format: uri
+          description: Mặc định `https://httpstatuses.io/{status}`; ca FE phải phân nhánh thì là một URN ổn định.
+        title:
+          type: string
+          description: Nhãn ngắn, ổn định theo loại lỗi. **Không** chứa dữ liệu người dùng.
+        status:
+          type: integer
+          format: int32
+        detail:
+          type: string
+          nullable: true
+          description: Thông điệp cho người đọc. Vắng mặt ở lỗi 500.
+        instance:
+          type: string
+          description: Path của request gây lỗi.
+        traceId:
+          type: string
+          description: Bằng header `X-Correlation-ID` của chính request đó — dùng để tra log.
+        errors:
+          type: object
+          nullable: true
+          description: Chỉ có ở lỗi validation (400). Map `tên trường → danh sách thông điệp`.
+          additionalProperties:
+            type: array
+            items:
+              type: string
+      required: [title, status, traceId]
+
+    RevocationUnavailableProblem:
+      description: 503 fail-closed của endpoint đặc quyền (Đ-6.8). Cùng hình dạng `ProblemDetails`, `type` cố định.
+      allOf:
+        - $ref: '#/components/schemas/ProblemDetails'
+        - type: object
+          properties:
+            type:
+              type: string
+              enum: ['urn:socialapp:problem:revocation-unavailable']
+          required: [type]
+
+    ReportTargetType:
+      type: string
+      description: Loại đối tượng bị báo cáo. `comment` hợp lệ nhưng trả 404 tới khi có module bình luận (L-D13).
+      enum: [post, comment, user]
+
+    ReasonCode:
+      type: string
+      description: |
+        Lý do chuẩn hóa (PTTK ENT-12). FE hiển thị nhãn tiếng Việt: `spam` Spam · `harassment` Quấy rối ·
+        `nudity` Nội dung khỏa thân · `violence` Bạo lực · `other` Khác (bắt buộc mô tả).
+      enum: [spam, harassment, nudity, violence, other]
+
+    CreateReportRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        targetType:
+          $ref: '#/components/schemas/ReportTargetType'
+        targetId:
+          type: string
+          format: uuid
+        reasonCode:
+          $ref: '#/components/schemas/ReasonCode'
+        detail:
+          type: string
+          maxLength: 500
+          description: |
+            Mô tả thêm, tối đa 500 ký tự sau khi cắt khoảng trắng hai đầu. **Bắt buộc** khi `reasonCode: other`. Chỉ
+            người kiểm duyệt đọc — không bao giờ hiện lại cho người khác.
+      required: [targetType, targetId, reasonCode]
+
+    ReportReceipt:
+      type: object
+      description: Biên nhận báo cáo. Cố ý không nhắc lại đối tượng bị báo (Mục 8.1).
+      properties:
+        reportId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [open]
+          description: Luôn `open` — báo cáo trả về luôn là báo cáo đang chờ xử lý.
+        createdAt:
+          type: string
+          format: date-time
+      required: [reportId, status, createdAt]

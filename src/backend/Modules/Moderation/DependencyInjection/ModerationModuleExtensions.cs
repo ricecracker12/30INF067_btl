@@ -2,8 +2,10 @@ using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using SocialApp.Modules.Moderation.Application.Reports;
 using SocialApp.Modules.Moderation.Infrastructure;
 using SocialApp.Modules.Moderation.Infrastructure.Audit;
+using SocialApp.Modules.Moderation.Infrastructure.Persistence;
 using SocialApp.SharedKernel.Audit;
 
 namespace SocialApp.Modules.Moderation.DependencyInjection;
@@ -36,8 +38,13 @@ public static class ModerationModuleExtensions
         services.AddHttpContextAccessor();
         services.AddScoped<IAuditTrail, SqlAuditTrail>();
 
+        // D6 (Đ-6.12): POST /reports. IModerationTargets do AddSharedKernel (composite) + module chủ (provider) đăng ký — container
+        // trần của test schema không resolve service này nên không cần chúng.
+        services.AddScoped<IReportStore, ReportStore>();
+        services.AddScoped<ReportSubmissionService>();
+
         // CHỈ đăng ký validator của module. KHÔNG gọi AddFluentValidationAutoValidation ở đây: cấu hình MVC toàn cục, host
-        // đã gọi một lần. Chưa có validator nào tới D6 — dòng này không tốn gì khi assembly rỗng.
+        // đã gọi một lần.
         services.AddValidatorsFromAssembly(typeof(ModerationModuleExtensions).Assembly, ServiceLifetime.Singleton);
 
         return services;

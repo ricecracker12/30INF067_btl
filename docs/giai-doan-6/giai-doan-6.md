@@ -464,7 +464,7 @@ với `permissions`. FE sinh `RoleCode = string`; không chỗ nào của FE so 
 
 | Luật | Hiện thực | Vì sao |
 |---|---|---|
-| Không thấy được đối tượng → **404**, cùng phản hồi với "không tồn tại" | Bài: `PostVisibility` qua `IModerationTargets.GetSnapshotsAsync` + `IFriendshipReader`. Bình luận: BR-02 của bài chứa nó (`PostAccess` của GĐ3). Người dùng: có hồ sơ | Không thì `POST /reports` thành **máy dò** "bài riêng tư id X có tồn tại không" — IDOR theo chiều đọc (quy ước 3b GĐ1) |
+| Không thấy được đối tượng → **404**, cùng phản hồi với "không tồn tại" | Bài: `PostVisibility` qua `IModerationTargets.GetSnapshotsAsync` + `IFriendshipReader`. Bình luận: BR-02 của bài chứa nó (`PostAccess` của GĐ3). Người dùng: có hồ sơ. Loại chưa có provider (bình luận trước GĐ3): `IModerationTargets.Supports` false → cùng 404 (*thêm 2026-09-24 khi thi công D6*, L-D13) | Không thì `POST /reports` thành **máy dò** "bài riêng tư id X có tồn tại không" — IDOR theo chiều đọc (quy ước 3b GĐ1) |
 | Không tự báo cáo nội dung / tài khoản của mình → 400 | So `authorId` trong snapshot | Vô nghĩa, và làm bẩn hàng đợi |
 | Một báo cáo **mở** cho mỗi `(reporter, target_type, target_id)` | Index duy nhất **một phần** `WHERE status = 'open'` + `INSERT … ON CONFLICT DO NOTHING` rồi `SELECT` | Bấm hai lần, hai tab → một báo cáo. Gửi trùng → **200** + báo cáo cũ (PTTK API-Reports "201/200"); mới → 201 |
 | Báo lại sau khi báo cáo cũ đã xử lý → báo cáo mới | Index một phần không chặn dòng `resolved`/`dismissed` | Nội dung bị khôi phục rồi vi phạm lại vẫn báo được |
@@ -1091,7 +1091,7 @@ Tên nhóm phải khớp ở ba chỗ như mọi module: `[ApiExplorerSettings(G
 
 | Method | Path | Auth | Thành công | Lỗi |
 |---|---|---|---|---|
-| POST | `/reports` | `report.create` | 201 mới / 200 trùng `ReportReceipt` | 400 · 401 · 404 · 429 |
+| POST | `/reports` | `report.create` | 201 mới / 200 trùng `ReportReceipt` | 400 · 401 · 403 · 404 · 429 |
 | GET | `/reports?status=open&cursor=&limit=` | `report.resolve` | 200 `ReportQueuePage` | 400 · 401 · 403 · 503 |
 | GET | `/reports/{reportId}` | `report.resolve` | 200 `ReportDetail` | 400 · 401 · 403 · 404 · 503 |
 | PATCH | `/reports/{reportId}` | `report.resolve` (+ `post.hide` khi `hide`) | 200 `ReportDecisionResult` | 400 · 401 · 403 · 404 · 409 · 503 |
@@ -1118,6 +1118,10 @@ AuditLogPage         { items: [AuditLogItem], nextCursor: string | null }       
   Admin cần thì đọc audit/DB.
 - Snapshot trả `body` cả khi bài `private`/`friends` hay đã `deleted`: Moderator phải thấy nội dung mới quyết được. Đây là **đường
   duy nhất** Moderator đọc được nội dung không công khai — có dòng matrix `TC-A06-queue` canh cửa vào.
+- *Sửa 2026-09-24 khi thi công D6:* `POST /reports` có thêm **403** — tầng 2 `report.create` chặn vai trò tự tạo không được gán
+  mã này (USER, MODERATOR đều có). Bảng bản đầu thiếu mã đó; cổng hợp đồng so tập status với `[ProducesResponseType]`.
+  `detail` chỉ có khoảng trắng coi như vắng mặt (lưu `null`; với `other` thì 400 như thiếu). `targetType: comment` → 404 tới khi có
+  provider bình luận (L-D13).
 - 409 có ba `type`: `urn:socialapp:problem:report-already-decided`, `…:moderation-target-gone`, `…:moderation-not-hidden`.
 - `info.version`: `1.0.0-gd6`.
 
@@ -1353,11 +1357,12 @@ Luật vàng số 8: mọi thứ phải chạy trên ARM64 — không có native
 | Id | Kịch bản | Kỳ vọng |
 |---|---|---|
 | `REP-01` | Báo bài công khai · báo lại lần hai | 201 · 200 cùng `reportId` |
-| `REP-02` | Báo bài `private` của người khác · id không tồn tại | 404 · 404 (cùng thân lỗi) |
+| `REP-02` | Báo bài `private` của người khác · id không tồn tại · `targetType: comment` (L-D13, sửa 2026-09-24 khi thi công D6) | 404 · 404 · 404 (cùng thân lỗi) |
 | `REP-03` | Báo bài của chính mình | 400 |
 | `REP-04` | `other` không `detail` | 400 `errors.detail` |
 | `REP-05` | Báo cáo thứ 11 trong một phút | 429 |
 | `REP-06` | Báo lại sau khi báo cáo cũ đã `dismissed` | 201 báo cáo mới |
+| `REP-07` | Báo bài `friends` của **bạn** · của người lạ *(thêm 2026-09-24 khi thi công D6)* | 201 · 404 cùng thân với "không tồn tại" |
 | `MOD-01` | AC-01: ba người báo cùng một bài → Moderator `hide` | bài `hidden` + `hidden_reason`; **ba** báo cáo `resolved`; **một** dòng audit `report.hide` có đủ ba `reportIds` |
 | `MOD-02` | AC-02: `dismiss` | `dismissed`; bài `published`; có audit |
 | `MOD-03` | AC-03: USER gọi `PATCH /reports/{id}` | 403 + một dòng `access.denied` |
@@ -1895,7 +1900,11 @@ gán được qua API; phát invalidate cả khi tạo vai trò.
 ### D6 — `POST /reports`
 
 Đ-6.12: `CanViewAsync` qua C2; `INSERT … ON CONFLICT (…) WHERE status='open' DO NOTHING` rồi `SELECT`; policy `report-create`.
-**Xong khi:** `REP-01..06`, `REP-C1`, `REP-IDOR` xanh.
+**Xong khi:** `REP-01..07`, `REP-C1`, `REP-IDOR` xanh.
+
+*Sửa 2026-09-24 khi thi công D6* (L-D13, L-D1): `IModerationTargets.Supports(type)` chỉ-thêm — loại chưa có provider (bình luận
+trước GĐ3) trả 404 cùng thân lỗi, không 500 `NotSupportedException`. Nền `moderation-v1` (ApiGroup, yaml, `ModerationContractTests`)
+đi cùng commit này. `POST /reports` ở controller riêng không `[PrivilegedEndpoint]` (B.10 #8).
 
 ### D7 — Hàng đợi, chi tiết, quyết định, khôi phục + đường đọc `hidden` của Content ⭐
 

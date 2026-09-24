@@ -48,6 +48,24 @@ public sealed class ModerationTargetsCompositeTests
         Assert.Equal([1], users.BatchSizes);
     }
 
+    /// <summary>L-D13 (D6): chỉ có provider bài và người dùng — bình luận (trước GĐ3) không được hỗ trợ.</summary>
+    [Fact]
+    public void Supports_theo_provider_da_dang_ky()
+    {
+        using var services = new ServiceCollection()
+            .AddScoped<IModerationTargetProvider>(_ => new Probe(ModerationTargetType.Post))
+            .AddScoped<IModerationTargetProvider>(_ => new Probe(ModerationTargetType.User))
+            .AddModerationTargets()
+            .BuildServiceProvider();
+
+        using var scope = services.CreateScope();
+        var targets = scope.ServiceProvider.GetRequiredService<IModerationTargets>();
+
+        Assert.True(targets.Supports(ModerationTargetType.Post));
+        Assert.True(targets.Supports(ModerationTargetType.User));
+        Assert.False(targets.Supports(ModerationTargetType.Comment));
+    }
+
     private sealed class Probe(ModerationTargetType type) : IModerationTargetProvider
     {
         public List<int> BatchSizes { get; } = [];

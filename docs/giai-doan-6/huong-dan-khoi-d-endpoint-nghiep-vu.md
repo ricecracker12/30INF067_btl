@@ -1603,9 +1603,67 @@ Chưa thử: `NotifyAsync` TRƯỚC `COMMIT` (cạm bẫy 2) — một instance 
 theo vị trí tối đa 6 tham số, thêm tham số thứ 7 có mặc định không đổi lời gọi nào; `ResultHttpExtensions.Problem` LOW (3 nút);
 `AdminErrors` UNKNOWN — chỉ thêm thành viên.
 
+### D6 — 2026-09-24
+
+Làm đúng Mục 8 và checklist D0 cho `moderation-v1` (Mục 2): `ModerationApiGroup` (`"moderation-v1"`, `"Kiểm duyệt"`),
+`AddApplicationPart` + dòng `apiGroups`, `moderation-v1.yaml` `1.0.0-gd6` với **đúng** một operation, `ModerationContractTests` +
+dòng `Content Include`, `pnpm gen:api` sinh `lib/api/moderation/schema.d.ts` (glob tự thấy). L-D13 áp như chốt:
+`IModerationTargets.Supports` (chỉ-thêm, hiện thực duy nhất là composite — không fake nào phải sửa). `ReportSubmissionController`
+(không `[PrivilegedEndpoint]`) · `CreateReportRequest` + validator · `ReportSubmissionService` · `IReportStore` + `ReportStore` (SQL thô
+trên kết nối của `ModerationDbContext`, khuôn `SqlAuditTrail`) · `ModerationErrors` · policy `report-create` ·
+`ReportTargetTypes.Parse` (chiều ngược của `From`). `giai-doan-6.md` sửa cùng lượt: Đ-6.12 (loại chưa hỗ trợ), Mục 8.1 (403, `detail`
+chỉ khoảng trắng), Mục 10.1 (`REP-02` thêm vế bình luận, `REP-07` mới), B.6 D6 — mỗi chỗ ghi "sửa 2026-09-24".
+
+**Lệch so với chính tài liệu này:**
+- **`ReportsController` chưa tạo** (Mục 8 bước 3 ghi "hai controller"): D6 không có action nào cho nó, và một controller rỗng không
+  chứng minh gì. Ra đời ở D7b cùng `GET /reports`, mang `[PrivilegedEndpoint]` ở class.
+- **Hợp đồng có thêm 403** (Mục 8.1 bản đầu ghi 400 · 401 · 404 · 429): tầng 2 `report.create` chặn vai trò tự tạo không được gán mã
+  đó. Có ca `Vai_tro_khong_co_report_create_403`.
+- **`targetType`, `reasonCode` là `string`, không enum** trong DTO: `JsonStringEnumConverter` nhận cả `"Post"` lẫn số `0`; chuỗi thì
+  validator so chính xác với đúng mảng mà CHECK của DB dựng từ đó, và báo lỗi tiếng Việt dưới đúng trường.
+- **`detail` chỉ khoảng trắng coi như vắng mặt** (nới hơn "1–500 khi có"): `spam` lưu `null`, `other` ra cùng câu "Vui lòng mô tả lý
+  do." như khi thiếu. Lưu bản đã trim.
+- **Hai câu 400 cho "của chính mình"**, cùng key `targetId`: "Không thể báo cáo nội dung của chính mình." (bài/bình luận) và "Không
+  thể báo cáo chính mình." (tài khoản).
+- **Store có vòng hai lượt** `INSERT … DO NOTHING` → `SELECT`: khe hẹp khi báo cáo mở vừa bị đóng (D7) giữa hai câu thì chèn lại là
+  đúng. Hết hai lượt vẫn rỗng → ném, không bịa biên nhận.
+- **Dòng matrix `REP-IDOR` mang body mà `ArrangePath` điền id** (đối tượng `BaoCaoBody`, `JsonContent.Create` serialize lúc gửi) —
+  không sửa `AuthZCase`/`AuthZMatrixTests`.
+- **Thêm ca ngoài bảng:** `REP-04` thành Theory 10 biến thể (thiếu/sai từng trường, `"Post"`, `Guid.Empty`, `detail` chỉ khoảng
+  trắng); `REP-04b` (trim khi lưu); `REP-02` thêm bài đã xóa, bài đã ẩn, người không có hồ sơ; `REP-05` thêm vế "người khác vẫn báo
+  được" (theo người, không theo IP); báo tài khoản 201; 401 không token; unit thứ tự kiểm của service (6 ca).
+
+**Test:** Unit 412 → 438 (+19 `CreateReportRequestValidatorTests`, +6 `ReportSubmissionServiceTests`, +1 `Supports`), Integration
+629 → 653 (+21 `ReportSubmissionTests`, +2 `ModerationContractTests`, +1 matrix `REP-IDOR`), Architecture 24 → 24. Vitest 544 → 544.
+`REP-C1` chạy 20 lượt liền, xanh 20/20. Còn đỏ nền R2 trên máy dev. FE: `pnpm lint`, `typecheck`, `test`, `build` xanh.
+
+**Thử cho đỏ — 10/10 đột biến bị bắt; 1 lượt kiểm lưới xanh đúng thiết kế**, build hợp lệ ở mọi lượt (`0 Error(s)`), file khôi phục
+nguyên byte (`md5sum -c`):
+
+| Đột biến | Ca đỏ thực tế |
+|---|---|
+| M1 — bỏ `CanViewAsync` | `REP-IDOR` (matrix); `REP_02_…`; `REP_07_…` |
+| M2 — `ON CONFLICT` bỏ vế `WHERE` (`42P10`) | `REP_01_…`, `REP_C1_…` và mọi ca có lượt chèn thành công (7 ca) |
+| M3 — bỏ kiểm "của chính mình" | `REP_03_…` |
+| M4 — bỏ `[EnableRateLimiting]` | `REP_05_…` |
+| M5 — policy `report-create` một vùng chung cho mọi người | `REP_05_…` (vế người khác) |
+| M6 — bỏ `[RequirePermission(report.create)]` | `Vai_tro_khong_co_report_create_403` |
+| M7 — validator bỏ luật `other` cần `detail` | `REP_04_body_sai_400_dung_truong` (DB CHECK → 500) |
+| M8 — luôn 200, bỏ nhánh 201 | `REP_01_…`, `REP_06_…`, `REP_C1_…` (7 ca) |
+| M9 — không trim `detail` khi lưu | `REP_04b_…` |
+| M11 — so tác giả TRƯỚC "thấy được" | `Khong_thay_duoc_thi_404_truoc_khi_so_tac_gia` (unit) |
+
+Kiểm lưới (xanh là ĐÚNG): M10 — bỏ `Supports` ở service → composite trả ảnh chụp rỗng cho loại không có provider → vẫn 404 cùng thân,
+không 500. `Supports` giữ vì nó dừng trước mọi I/O và vì `CanViewAsync`/`HideAsync` của composite không phải hợp đồng để dựa vào.
+
+**detect-changes:** low, 0 luồng (28 file, đã `git add` để tính file mới). Impact trước khi sửa: `IModerationTargets` MEDIUM (32 nút, 14
+trực tiếp — hiện thực duy nhất là composite, grep `: IModerationTargets` chỉ ra `ModerationTargets`, không fake nào); `ModerationTargets`,
+`AddSharedKernel`, `AddModerationModule` UNKNOWN — text search: `AddSharedKernel` 2 lời gọi (Program.cs, `ResultTests`), chữ ký không
+đổi, chỉ thêm policy; `AddModerationModule` 6 lời gọi, chữ ký không đổi, chỉ thêm hai đăng ký scoped mà container trần không resolve.
+
 ### Các đầu việc còn lại
 
-D6 → D13. Mỗi đầu việc khi xong điền theo khuôn của hướng dẫn khối A+C:
+D7a → D13. Mỗi đầu việc khi xong điền theo khuôn của hướng dẫn khối A+C:
 
 - chỗ nào đi theo / không theo đề xuất Mục 0.6, và vì sao;
 - lệch so với chính tài liệu này;

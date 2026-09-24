@@ -66,6 +66,13 @@ public enum RestoreOutcome
 /// </summary>
 public interface IModerationTargets
 {
+    /// <summary>
+    /// Có module nào đăng ký provider cho <paramref name="type"/> không (L-D13, GĐ6 D6 — chỉ-thêm). Bình luận trước khi GĐ3 merge
+    /// → false: <c>POST /reports</c> trả 404 cùng thân lỗi với "không tồn tại", D7 chặn bằng bảng <c>decision × targetType</c>.
+    /// Thêm provider bình luận là hàm này tự đúng — không sửa người gọi.
+    /// </summary>
+    bool Supports(ModerationTargetType type);
+
     /// <summary>Đọc, batch, KHÔNG theo BR-02 (Moderator thấy mọi thứ). Đối tượng không tồn tại → vắng mặt trong kết quả.</summary>
     Task<IReadOnlyDictionary<ModerationTarget, TargetSnapshot>> GetSnapshotsAsync(
         IReadOnlyCollection<ModerationTarget> targets, CancellationToken ct = default);

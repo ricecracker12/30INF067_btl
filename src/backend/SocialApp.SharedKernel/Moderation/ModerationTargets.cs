@@ -7,8 +7,9 @@ namespace SocialApp.SharedKernel.Moderation;
 /// theo loại. Sống ở SharedKernel chứ không ở host — không logic nào trong Program.cs, và host không phải biết kiểu <c>internal</c>
 /// của module. Thêm loại mới (bình luận, sau khi GĐ3 merge) = MỘT dòng đăng ký provider trong module chủ.
 ///
-/// Loại chưa có provider (bình luận trước GĐ3): ảnh chụp vắng mặt, <c>CanView</c> false (D6 → 404), ẩn/khôi phục ném
-/// <see cref="NotSupportedException"/> — D7 chặn trước bằng bảng hợp lệ <c>decision × targetType</c>.
+/// Loại chưa có provider (bình luận trước GĐ3): <c>Supports</c> false (D6 hỏi trước → 404, L-D13), ảnh chụp vắng mặt,
+/// <c>CanView</c> false, ẩn/khôi phục ném <see cref="NotSupportedException"/> — D7 chặn trước bằng bảng hợp lệ
+/// <c>decision × targetType</c>.
 /// </summary>
 internal sealed class ModerationTargets : IModerationTargets
 {
@@ -24,6 +25,8 @@ internal sealed class ModerationTargets : IModerationTargets
                 throw new InvalidOperationException($"Hai IModerationTargetProvider cùng đăng ký cho loại {provider.Type}.");
         }
     }
+
+    public bool Supports(ModerationTargetType type) => _providers.ContainsKey(type);
 
     public async Task<IReadOnlyDictionary<ModerationTarget, TargetSnapshot>> GetSnapshotsAsync(
         IReadOnlyCollection<ModerationTarget> targets, CancellationToken ct = default)

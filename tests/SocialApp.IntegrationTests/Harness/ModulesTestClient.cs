@@ -442,6 +442,20 @@ public sealed class ModulesTestClient
     }
 
     /// <summary>
+    /// <c>POST /reports</c> với tư cách <paramref name="actorId"/> (GĐ6 D6). Body ẩn danh để test gửi được trường vắng mặt, giá trị
+    /// ngoài tập (<c>"Post"</c>, <c>"abuse"</c>) — những thứ DTO đã gõ kiểu không phát ra nổi.
+    /// </summary>
+    public Task<HttpResponseMessage> CreateReportAsync(Guid actorId, object body, string role = "USER")
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/reports")
+        {
+            Content = JsonContent.Create(body),
+        };
+        request.Headers.Authorization = Bearer(actorId, role);
+        return Http.SendAsync(request);
+    }
+
+    /// <summary>
     /// Sửa dữ liệu trực tiếp — dùng để dựng cảnh SQL của D1 (bốn trạng thái quan hệ) khi endpoint ghi chưa có.
     /// Tham số vị trí <c>$1, $2…</c>. Trả số dòng bị ảnh hưởng. Chép khuôn <c>AuthTestClient.ExecuteSqlAsync</c>.
     /// </summary>

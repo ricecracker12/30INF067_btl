@@ -27,4 +27,16 @@ public static class ReportTargetTypes
         // Thêm thành viên enum mà quên nhánh → ném, không ghi một chuỗi lạ mà CHECK sẽ chặn muộn hơn với lỗi khó đọc.
         _ => throw new ArgumentOutOfRangeException(nameof(type), type, "Loại đối tượng kiểm duyệt chưa có chuỗi DB."),
     };
+
+    /// <summary>
+    /// Chiều ngược của <see cref="From"/> — chuỗi của hợp đồng/cột về enum. Chỉ nhận đúng ba chuỗi chữ thường; người gọi (D6) đã qua
+    /// validator nên nhánh ném là lỗi lập trình, không phải lỗi người dùng.
+    /// </summary>
+    public static ModerationTargetType Parse(string value) => value switch
+    {
+        Post => ModerationTargetType.Post,
+        Comment => ModerationTargetType.Comment,
+        User => ModerationTargetType.User,
+        _ => throw new ArgumentOutOfRangeException(nameof(value), value, "Chuỗi loại đối tượng kiểm duyệt không hợp lệ."),
+    };
 }

@@ -193,7 +193,39 @@ public static class AuthZMatrix
         new("TC-A05-roles", "User sửa quyền một vai trò", "GĐ6",
             Caller.User, HttpMethod.Put, "/api/v1/admin/roles/1/permissions", HttpStatusCode.Forbidden,
             Body: new { permissions = new[] { "post.create" }, confirm = true }),
+
+        // D6 (Đ-6.12): IDOR theo chiều ĐỌC — "thấy được mới báo được". 404, KHÔNG 403 (quy ước 3b, như READ-01): 403 tự nó tố
+        // cáo bài riêng tư có tồn tại. POST /reports không đặc quyền (B.10 #8) nên không phụ thuộc Redis của matrix.
+        RepIdor(),
     ];
+
+    /// <summary>
+    /// Dòng <c>REP-IDOR</c>: id bài của B nằm trong BODY, mà body của <see cref="AuthZCase"/> dựng trước khi <c>ArrangePath</c> chạy.
+    /// Body là một đối tượng mà <c>ArrangePath</c> điền id vào; <c>JsonContent.Create</c> serialize lúc gửi, SAU arrange — không
+    /// phải sửa <see cref="AuthZCase"/> hay <see cref="AuthZMatrixTests"/>.
+    /// </summary>
+    private static AuthZCase RepIdor()
+    {
+        var body = new BaoCaoBody();
+        return new("REP-IDOR", "A báo cáo bài private của B", "GĐ6",
+            Caller.User, HttpMethod.Post, "/api/v1/reports", HttpStatusCode.NotFound,
+            ArrangePath: async a =>
+            {
+                body.TargetId = await TaoBaiCuaNguoiKhacAsync(a, PrivacyRiengTu);
+                return "/api/v1/reports";
+            },
+            Body: body);
+    }
+
+    /// <summary>Body của <c>POST /reports</c>, chuỗi hợp đồng viết tay. Xem <see cref="RepIdor"/>.</summary>
+    private sealed class BaoCaoBody
+    {
+        public string TargetType { get; } = "post";
+
+        public Guid TargetId { get; set; }
+
+        public string ReasonCode { get; } = "spam";
+    }
 
     /// <summary>
     /// Giá trị <c>privacy</c> viết bằng chuỗi hợp đồng, KHÔNG đọc <c>PostPrivacy</c> của module Content — cùng nếp với

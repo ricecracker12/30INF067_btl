@@ -18,6 +18,7 @@ using SocialApp.Modules.Content.Presentation;
 using SocialApp.Modules.Identity.DependencyInjection;
 using SocialApp.Modules.Identity.Presentation;
 using SocialApp.Modules.Moderation.DependencyInjection;
+using SocialApp.Modules.Moderation.Presentation;
 using SocialApp.Modules.Notification.DependencyInjection;
 using SocialApp.Modules.Profile.DependencyInjection;
 using SocialApp.Modules.Profile.Presentation;
@@ -60,6 +61,7 @@ builder.Services
     .AddApplicationPart(typeof(ProfileApiGroup).Assembly)
     .AddApplicationPart(typeof(ContentApiGroup).Assembly)
     .AddApplicationPart(typeof(SocialGraphApiGroup).Assembly)
+    .AddApplicationPart(typeof(ModerationApiGroup).Assembly)
     .AddJsonOptions(o =>
     {
         // CamelCase là BẮT BUỘC, không phải trang trí (Q-D4 → Q-D2, chốt 2026-09-19): hợp đồng ghi
@@ -95,6 +97,8 @@ var apiGroups = new[]
     (Name: ProfileApiGroup.Name, Title: ProfileApiGroup.Title),
     (Name: ContentApiGroup.Name, Title: ContentApiGroup.Title),
     (Name: SocialGraphApiGroup.Name, Title: SocialGraphApiGroup.Title),
+    // GĐ6 D6 (Đ-6.1): nhóm của Moderation — ra đời cùng POST /reports (L-D1).
+    (Name: ModerationApiGroup.Name, Title: ModerationApiGroup.Title),
 };
 
 builder.Services.AddEndpointsApiExplorer();
