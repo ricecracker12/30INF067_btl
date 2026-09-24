@@ -15,7 +15,7 @@
 #   D6 (2026-09-24): POST /reports — version 1.0.0-gd6.
 #   D7b (2026-09-25): GET /reports, GET /reports/{reportId} — version 1.1.0-gd6.
 #   D7c (2026-09-25): PATCH /reports/{reportId}, POST /moderation/targets/…/restore — version 1.2.0-gd6.
-#   D8: GET /admin/audit-logs.
+#   D8 (2026-09-25): GET /admin/audit-logs — version 1.3.0-gd6.
 #
 # QUYẾT ĐỊNH ĐỨNG SAU (giai-doan-6.md):
 #   Đ-6.12  Thấy được mới báo được: không thấy → 404 CÙNG thân lỗi với "không tồn tại" (không là
@@ -26,6 +26,8 @@
 #           THẬT (kể cả bài riêng tư/ẩn/xóa) — đường duy nhất Moderator đọc nội dung không công khai — và KHÔNG trả người báo.
 #   Đ-6.13  Quyết định: MỘT transaction ẩn đối tượng + đóng MỌI báo cáo mở của nó + một dòng audit. `hide` cần thêm
 #           `post.hide` ngoài `report.resolve` (tầng 2 kép, L-D12). Đã quyết → 409 `report-already-decided`.
+#   Đ-6.15  Nhật ký kiểm toán append-only; `GET /admin/audit-logs` là người đọc duy nhất, chỉ ADMIN (`audit.read`).
+#   L-D14   Lọc `action` được đứng một mình (không 400).
 #   L-D15   Lịch sử quyết định mang `outcome: resolved | dismissed` (chính `reports.status`), không `decision`.
 #   B.10 #8 `POST /reports` là endpoint DUY NHẤT của nhóm không đặc quyền: không fail-closed khi
 #           Redis chết, không audit khi bị chặn. Mọi endpoint khác của nhóm (D7, D8) fail-closed
@@ -35,7 +37,7 @@ openapi: 3.0.3
 
 info:
   title: SocialApp — Moderation API
-  version: 1.2.0-gd6
+  version: 1.3.0-gd6
   description: |
     Báo cáo vi phạm và kiểm duyệt nội dung của GĐ6 (FR-019, UC-19).
 
@@ -72,6 +74,8 @@ tags:
     description: Báo cáo vi phạm (FR-019), hàng đợi và quyết định kiểm duyệt (UC-19).
   - name: moderation
     description: Thao tác trên đối tượng kiểm duyệt không qua báo cáo — khôi phục (FR-020).
+  - name: audit
+    description: Nhật ký kiểm toán cho Admin (ENT-13, PTTK Mục 5.7).
 
 paths:
 
@@ -403,6 +407,102 @@ paths:
         '503':
           $ref: '#/components/responses/RevocationUnavailable'
 
+  /admin/audit-logs:
+    get:
+      tags: [audit]
+      operationId: listAuditLogs
+      summary: Nhật ký kiểm toán — ai làm gì, trên cái gì, lúc nào, từ đâu; mới nhất trước
+      description: |
+        Tầng 2: `audit.read` (chỉ ADMIN). Endpoint đặc quyền: fail-closed khi không kiểm được thu hồi (503), bị từ chối thì
+        chính lần đó ghi `access.denied`. Nhật ký là **append-only** — không có đường sửa hay xóa.
+
+        Sắp theo `id` giảm dần, phân trang keyset. Bộ lọc tùy chọn, cộng dồn: `actorId`, `action`, `targetType` (+ `targetId`).
+        `targetId` phải đi kèm `targetType`. `action` lọc được một mình.
+
+        `metadata` là JSON như lúc ghi — mã, id, ghi chú của người thao tác; **không bao giờ** chứa nội dung bài, bình luận
+        hay mô tả của người báo (Đ-6.15).
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: actorId
+          in: query
+          required: false
+          description: Người thao tác. Sai dạng UUID → 400 `errors.actorId`.
+          schema:
+            type: string
+            format: uuid
+        - name: action
+          in: query
+          required: false
+          description: Một mã `AuditAction`. Mã lạ → 400 `errors.action`.
+          schema:
+            $ref: '#/components/schemas/AuditAction'
+        - name: targetType
+          in: query
+          required: false
+          description: Loại đối tượng (`post`, `comment`, `user`, `role`, `report`, `endpoint`…), tối đa 20 ký tự.
+          schema:
+            type: string
+            maxLength: 20
+        - name: targetId
+          in: query
+          required: false
+          description: Chỉ đi kèm `targetType` — thiếu `targetType` → 400 `errors.targetId`.
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/Cursor'
+        - name: limit
+          in: query
+          required: false
+          description: Số dòng mỗi trang, `1..100`. Ngoài khoảng → 400 `errors.limit`.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        '200':
+          description: Một trang nhật ký.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditLogPage'
+              example:
+                items:
+                  - id: 1042
+                    actorId: 0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10
+                    actor:
+                      userId: 0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10
+                      displayName: Kiểm duyệt viên
+                      avatarUrl: null
+                    action: report.hide
+                    targetType: post
+                    targetId: 0192f3c9-2b7d-7e10-8c4a-1f3e5d7b9a20
+                    metadata:
+                      reportIds: [0192f3ca-6e41-7a02-b3d5-8c7e9f1a2b30]
+                      reasonCode: spam
+                      note: null
+                    ip: 203.0.113.7
+                    createdAt: '2026-09-25T08:15:42.123456Z'
+                nextCursor: MTA0Mg
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/RevocationUnavailable'
+
 components:
 
   securitySchemes:
@@ -482,6 +582,7 @@ components:
         lỗi "báo cáo chính mình". Hàng đợi và chi tiết: `status` khác `open`, `cursor` rác, `limit` ngoài `1..50`,
         `reportId` sai dạng UUID. Quyết định: `decision` ngoài tập hoặc sai cặp với loại đối tượng, `reasonCode` ngoài tập,
         `note` quá 500 ký tự hoặc thiếu khi `resolve`. Khôi phục: `targetType` khác `post`/`comment`, `targetId` sai dạng.
+        Nhật ký: `actorId`/`targetId` sai dạng, `action` lạ, `targetId` thiếu `targetType`, `limit` ngoài `1..100`, `cursor` rác.
       content:
         application/problem+json:
           schema:
@@ -515,7 +616,7 @@ components:
       description: |
         Tầng 2 từ chối — vai trò của người gọi không có mã quyền endpoint đòi. `POST /reports` đòi `report.create` (USER,
         MODERATOR đều có; 403 chỉ gặp ở vai trò tự tạo không được gán nó). Hàng đợi, chi tiết, quyết định đòi `report.resolve`
-        (USER không có); `decision: hide` và khôi phục đòi thêm/đòi `post.hide`. Lần từ chối ở các endpoint kiểm duyệt ghi nhật
+        (USER không có); `decision: hide` và khôi phục đòi thêm/đòi `post.hide`; nhật ký đòi `audit.read` (chỉ ADMIN). Lần từ chối ở các endpoint kiểm duyệt ghi nhật
         ký kiểm toán `access.denied`. Thông điệp không nêu quyền còn thiếu.
       content:
         application/problem+json:
@@ -1017,3 +1118,75 @@ components:
           type: string
           enum: [published]
       required: [targetType, targetId, targetStatus]
+
+    AuditAction:
+      type: string
+      description: |
+        Mã hành động (Đ-6.15). Kiểm duyệt: `report.hide`, `report.dismiss`, `report.resolve`, `content.restore`. Tài khoản:
+        `user.lock`, `user.unlock`, `role.assign`. Vai trò: `role.create`, `role.rename`, `role.permissions`, `role.delete`.
+        Truy cập: `access.denied`.
+      enum:
+        - report.hide
+        - report.dismiss
+        - report.resolve
+        - content.restore
+        - user.lock
+        - user.unlock
+        - role.assign
+        - role.create
+        - role.rename
+        - role.permissions
+        - role.delete
+        - access.denied
+
+    AuditLogItem:
+      type: object
+      description: Một dòng nhật ký. Mọi trường luôn có mặt; không áp dụng thì `null`.
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: Tăng dần theo thời gian ghi — khóa sắp xếp.
+        actorId:
+          type: string
+          format: uuid
+        actor:
+          allOf:
+            - $ref: '#/components/schemas/UserCard'
+          nullable: true
+          description: '`null` khi người thao tác chưa có hồ sơ.'
+        action:
+          $ref: '#/components/schemas/AuditAction'
+        targetType:
+          type: string
+          nullable: true
+        targetId:
+          type: string
+          format: uuid
+          nullable: true
+        metadata:
+          type: object
+          nullable: true
+          additionalProperties: true
+          description: JSON như lúc ghi — mã, id, ghi chú của người thao tác. Không chứa nội dung người dùng.
+        ip:
+          type: string
+          nullable: true
+          description: IP người thao tác; `null` khi không có request (job nền).
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, actorId, actor, action, targetType, targetId, metadata, ip, createdAt]
+
+    AuditLogPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditLogItem'
+        nextCursor:
+          type: string
+          nullable: true
+          description: Opaque. `null` khi hết dữ liệu.
+      required: [items, nextCursor]

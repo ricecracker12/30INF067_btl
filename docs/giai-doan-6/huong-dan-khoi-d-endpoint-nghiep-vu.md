@@ -1856,9 +1856,58 @@ tối thiểu. Impact trước khi sửa: `BusinessMetrics` MEDIUM (18 nút — 
 `ModerationErrors` MEDIUM (5 nút — chỉ thêm thành viên), `ReportsController`, `AddModerationModule` UNKNOWN — text search: controller
 chỉ nối qua routing MVC, thêm một action và một tham số constructor (DI resolve); `AddModerationModule` 7 lời gọi, chữ ký không đổi.
 
+### D8 — 2026-09-25
+
+Làm đúng Mục 12; L-D14 áp như chốt. `AuditLogsController` (Moderation, `[Route("api/v1/admin/audit-logs")]`, `[PrivilegedEndpoint]`,
+`[RequirePermission(audit.read)]`, nhóm `moderation-v1`) · `ListAuditLogsQuery` + validator · `AuditLogCursor` · `IAuditLogQueries` +
+`AuditLogQueries` (LINQ `AsNoTracking`, keyset `id < @before ORDER BY id DESC`) · `AuditLogReadService` (hydrate người thao tác một lô,
+ký avatar) · `moderation-v1.yaml` `1.3.0-gd6` (operation + `AuditAction`, `AuditLogItem`, `AuditLogPage`) · `pnpm gen:api` → chỉ
+`lib/api/moderation/schema.d.ts` đổi · matrix `TC-A05-mod-audit`. `giai-doan-6.md` sửa: B.6 D8 (L-D14), Mục 8.1 (`AuditLogItem`).
+
+**Lệch so với chính tài liệu này:**
+- **`AuditLogItem` mọi trường luôn có mặt, `null` khi không có** (như `TargetSnapshot` của D7b); `actor` dùng lại `UserCard` của D7b;
+  `action` là enum `AuditAction` (12 mã) trong hợp đồng.
+- **`targetType` một mình lọc được** (index bắt đầu bằng `target_type`); chỉ `targetId` thiếu `targetType` mới 400. `targetType` không
+  bị giới hạn tập giá trị (các module ghi `post`, `user`, `role`, `report`, `endpoint`…) — chỉ ≤ 20 ký tự như cột.
+- **Cursor là `id` mã hóa base64url**, một khóa (identity không hòa).
+- **Dòng dựng bằng `INSERT` thẳng** (bảng cho INSERT): 120 lần thao tác thật qua API chậm mà không chứng minh thêm gì cho đường đọc.
+  Mỗi ca dựng người/đối tượng MỚI; ca không lọc khẳng định "chứa đủ", ca lọc theo id khẳng định "đúng bằng". Nhịp dựng: người
+  `i % 3`, hành động `i % 4`, đối tượng `i / 3 % 3` — lượt đầu dùng cùng `i % 3` cho người lẫn đối tượng nên mọi dòng về bài đều của A và
+  ca hydrate không tìm được dòng của B (lỗi dữ liệu test, không phải code — sửa trước khi đo).
+- **Thêm ca ngoài bảng:** hình dạng dòng + số câu SQL trang 3 dòng = trang 60 dòng (hydrate một lô); `AUD-04b` bảy biến thể; MODERATOR
+  và USER 403 **và** lần từ chối đó đọc lại được qua chính endpoint (`access.denied`, route template); unit cursor + validator.
+
+**Test:** Unit 528 → 548 (+20 `AuditLogQueryValidatorTests`), Integration 829 → 843 (+13 `AuditLogQueryTests`: `AUD-04` ×3,
+`AUD-04b` ×7, hình dạng + một lô, 403 ×2; +1 matrix `TC-A05-mod-audit`), Architecture 27 → 27. Vitest 626 → 626 (chỉ
+`schema.d.ts` đổi). Số trước lấy sau lần merge GĐ3 (`02f1d63`). Còn đỏ nền R2 trên máy dev. FE: `pnpm lint`, `typecheck`,
+`test`, `build` xanh.
+
+**Thử cho đỏ — 11/11 đột biến bị bắt**, build hợp lệ ở mọi lượt (`0 Error(s)`), file khôi phục nguyên byte (`md5`):
+
+| Đột biến | Ca đỏ thực tế |
+|---|---|
+| M1 — bỏ `[RequirePermission(audit.read)]` | matrix `TC-A05-mod-audit`; `Khong_phai_admin_403_…` ×2 |
+| M2 — bỏ `[PrivilegedEndpoint]` | `Privileged_controllers_carry_the_attribute`; `Khong_phai_admin_403_…` ×2 (không còn dòng `access.denied`) |
+| M3 — keyset `<` thành `<=` | `AUD_04_khong_loc_…`; `AUD_04_loc_theo_nguoi_…` |
+| M4 — sắp `id` tăng | ba ca `AUD_04_…` |
+| M5 — bỏ lọc `actorId` | `AUD_04_loc_theo_nguoi_…`; `AUD_04_loc_theo_doi_tuong_…`; `Khong_phai_admin_…(USER)` |
+| M6 — bỏ lọc `targetId` | `AUD_04_loc_theo_doi_tuong_…` |
+| M7 — validator bỏ luật `targetId` cần `targetType` | `AUD_04b_…(targetId)`; `Validator` (unit) |
+| M8 — validator bỏ luật `action` | `AUD_04b_…` ×2; `Validator` ×2 (unit) |
+| M9 — hydrate tên từng dòng (N+1) | `Hinh_dang_dong_va_actor_hydrate_mot_lo` |
+| M10 — cursor neo vào dòng thừa | `AUD_04_khong_loc_…`; `AUD_04_loc_theo_nguoi_…` |
+| M11 — yaml bỏ 503 | `ModerationContractTests.Runtime_must_not_expose_anything_outside_the_contract` |
+
+Chưa thử: bỏ `AsNoTracking` (cạm bẫy 1) — đường đọc không `SaveChanges`, nên từ ngoài không phân biệt được; lưới thật là trigger
+append-only (A1).
+
+**detect-changes:** low, 0 luồng (12 file, 18 symbol; file mới đã `git add -N`). Index báo luồng bị cắt ở bước dựng process — "0 luồng" là
+số tối thiểu. Impact trước khi sửa: `AddModerationModule` UNKNOWN — text search: 7 lời gọi, chữ ký không đổi, chỉ thêm
+hai đăng ký scoped; `ModerationUserCard` chỉ dùng lại, không sửa.
+
 ### Các đầu việc còn lại
 
-D8 → D13. Mỗi đầu việc khi xong điền theo khuôn của hướng dẫn khối A+C:
+D9 → D13. Mỗi đầu việc khi xong điền theo khuôn của hướng dẫn khối A+C:
 
 - chỗ nào đi theo / không theo đề xuất Mục 0.6, và vì sao;
 - lệch so với chính tài liệu này;

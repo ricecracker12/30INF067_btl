@@ -1119,6 +1119,8 @@ ReportDetail         { reportId, target: TargetSnapshot, openReports: [ { report
 DecideReportRequest  { decision: "hide"|"dismiss"|"resolve", reasonCode?: …, note?: string (≤ 500; bắt buộc khi resolve) }
 ReportDecisionResult { decision, closedReportIds: [uuid], targetStatus }
 AuditLogItem         { id: integer, actorId, actor: UserCard | null, action, targetType?, targetId?, metadata?, ip?, createdAt }
+                       // sửa 2026-09-25 khi thi công D8: mọi trường luôn có mặt, null khi không có (như TargetSnapshot);
+                       // action là enum AuditAction (12 mã của Đ-6.15); metadata là object JSON nguyên
 AuditLogPage         { items: [AuditLogItem], nextCursor: string | null }              // id DESC
 ```
 
@@ -1949,6 +1951,10 @@ cho mọi người qua BR-02), mapper gắn `moderation` cho tác giả, `Update
 
 Keyset `id DESC`; lọc theo `actorId`/`targetType+targetId` (hai index), `action` chỉ đi kèm một trong hai hoặc khoảng id; hydrate
 `actor`. **Xong khi:** `AUD-04`, `TC-A05-mod-audit` xanh.
+
+*Sửa 2026-09-25 khi thi công D8* (L-D14): `action` lọc được **một mình** — câu "chỉ đi kèm" là ghi chú hiệu năng của Mục 4 (không index
+theo `action`), không phải luật validation; truy vấn đi PK lùi + lọc, `LIMIT` dừng sớm. `targetId` thiếu `targetType` → 400.
+`limit` mặc định 50, tối đa 100. Controller ở Moderation, nhóm `moderation-v1` (`1.3.0-gd6`).
 
 ### D9 — Store thông báo + upsert gộp
 

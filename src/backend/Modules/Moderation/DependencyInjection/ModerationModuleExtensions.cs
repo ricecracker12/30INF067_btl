@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using SocialApp.Modules.Moderation.Application;
+using SocialApp.Modules.Moderation.Application.Audit;
 using SocialApp.Modules.Moderation.Application.Reports;
 using SocialApp.Modules.Moderation.Application.Targets;
 using SocialApp.Modules.Moderation.Infrastructure;
@@ -53,6 +54,10 @@ public static class ModerationModuleExtensions
         services.AddScoped<IModerationDecisionStore, ModerationDecisionStore>();
         services.AddScoped<DecideReportService>();
         services.AddScoped<RestoreTargetService>();
+
+        // D8 (Đ-6.15): GET /admin/audit-logs — người đọc duy nhất của bảng append-only.
+        services.AddScoped<IAuditLogQueries, AuditLogQueries>();
+        services.AddScoped<AuditLogReadService>();
 
         // CHỈ đăng ký validator của module. KHÔNG gọi AddFluentValidationAutoValidation ở đây: cấu hình MVC toàn cục, host
         // đã gọi một lần.

@@ -275,6 +275,11 @@ public static class AuthZMatrix
             ArrangePath: async a => $"/api/v1/reports/{await BaoCaoMoAsync(a)}",
             Body: new { decision = "dismiss" }),
 
+        // D8 (Đ-6.15): audit.read chỉ ADMIN có — MODERATOR (có report.resolve, post.hide) vẫn 403. Lịch sử của Moderator là history
+        // của GET /reports/{id} (D7b), không phải nhật ký toàn hệ thống.
+        new("TC-A05-mod-audit", "Moderator đọc nhật ký kiểm toán", "GĐ6",
+            Caller.Moderator, HttpMethod.Get, "/api/v1/admin/audit-logs", HttpStatusCode.Forbidden),
+
         // --- GĐ3 (B2). giai-doan-3.md Mục 6.3. Kỳ vọng viết tay theo Mục 6.1 + hợp đồng content-v1, không lấy từ output. ---
         //
         // Bình luận và cảm xúc THỪA KẾ BR-02 của bài (Đ-3.3): không xem được bài → 404 ở MỌI đường, kể cả ghi — cùng quy ước

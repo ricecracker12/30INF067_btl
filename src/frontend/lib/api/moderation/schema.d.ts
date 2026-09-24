@@ -127,6 +127,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/audit-logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Nhật ký kiểm toán — ai làm gì, trên cái gì, lúc nào, từ đâu; mới nhất trước
+         * @description Tầng 2: `audit.read` (chỉ ADMIN). Endpoint đặc quyền: fail-closed khi không kiểm được thu hồi (503), bị từ chối thì
+         *     chính lần đó ghi `access.denied`. Nhật ký là **append-only** — không có đường sửa hay xóa.
+         *
+         *     Sắp theo `id` giảm dần, phân trang keyset. Bộ lọc tùy chọn, cộng dồn: `actorId`, `action`, `targetType` (+ `targetId`).
+         *     `targetId` phải đi kèm `targetType`. `action` lọc được một mình.
+         *
+         *     `metadata` là JSON như lúc ghi — mã, id, ghi chú của người thao tác; **không bao giờ** chứa nội dung bài, bình luận
+         *     hay mô tả của người báo (Đ-6.15).
+         */
+        get: operations["listAuditLogs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -364,6 +391,42 @@ export interface components {
             /** @enum {string} */
             targetStatus: "published";
         };
+        /**
+         * @description Mã hành động (Đ-6.15). Kiểm duyệt: `report.hide`, `report.dismiss`, `report.resolve`, `content.restore`. Tài khoản:
+         *     `user.lock`, `user.unlock`, `role.assign`. Vai trò: `role.create`, `role.rename`, `role.permissions`, `role.delete`.
+         *     Truy cập: `access.denied`.
+         * @enum {string}
+         */
+        AuditAction: "report.hide" | "report.dismiss" | "report.resolve" | "content.restore" | "user.lock" | "user.unlock" | "role.assign" | "role.create" | "role.rename" | "role.permissions" | "role.delete" | "access.denied";
+        /** @description Một dòng nhật ký. Mọi trường luôn có mặt; không áp dụng thì `null`. */
+        AuditLogItem: {
+            /**
+             * Format: int64
+             * @description Tăng dần theo thời gian ghi — khóa sắp xếp.
+             */
+            id: number;
+            /** Format: uuid */
+            actorId: string;
+            /** @description `null` khi người thao tác chưa có hồ sơ. */
+            actor: components["schemas"]["UserCard"] | null;
+            action: components["schemas"]["AuditAction"];
+            targetType: string | null;
+            /** Format: uuid */
+            targetId: string | null;
+            /** @description JSON như lúc ghi — mã, id, ghi chú của người thao tác. Không chứa nội dung người dùng. */
+            metadata: {
+                [key: string]: unknown;
+            } | null;
+            /** @description IP người thao tác; `null` khi không có request (job nền). */
+            ip: string | null;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        AuditLogPage: {
+            items: components["schemas"]["AuditLogItem"][];
+            /** @description Opaque. `null` khi hết dữ liệu. */
+            nextCursor: string | null;
+        };
     };
     responses: {
         /**
@@ -372,6 +435,7 @@ export interface components {
          *     lỗi "báo cáo chính mình". Hàng đợi và chi tiết: `status` khác `open`, `cursor` rác, `limit` ngoài `1..50`,
          *     `reportId` sai dạng UUID. Quyết định: `decision` ngoài tập hoặc sai cặp với loại đối tượng, `reasonCode` ngoài tập,
          *     `note` quá 500 ký tự hoặc thiếu khi `resolve`. Khôi phục: `targetType` khác `post`/`comment`, `targetId` sai dạng.
+         *     Nhật ký: `actorId`/`targetId` sai dạng, `action` lạ, `targetId` thiếu `targetType`, `limit` ngoài `1..100`, `cursor` rác.
          */
         ValidationProblem: {
             headers: {
@@ -418,7 +482,7 @@ export interface components {
         /**
          * @description Tầng 2 từ chối — vai trò của người gọi không có mã quyền endpoint đòi. `POST /reports` đòi `report.create` (USER,
          *     MODERATOR đều có; 403 chỉ gặp ở vai trò tự tạo không được gán nó). Hàng đợi, chi tiết, quyết định đòi `report.resolve`
-         *     (USER không có); `decision: hide` và khôi phục đòi thêm/đòi `post.hide`. Lần từ chối ở các endpoint kiểm duyệt ghi nhật
+         *     (USER không có); `decision: hide` và khôi phục đòi thêm/đòi `post.hide`; nhật ký đòi `audit.read` (chỉ ADMIN). Lần từ chối ở các endpoint kiểm duyệt ghi nhật
          *     ký kiểm toán `access.denied`. Thông điệp không nêu quyền còn thiếu.
          */
         Forbidden: {
@@ -907,6 +971,74 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["ModerationTargetNotFound"];
             409: components["responses"]["TargetNotHidden"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["RevocationUnavailable"];
+        };
+    };
+    listAuditLogs: {
+        parameters: {
+            query?: {
+                /** @description Người thao tác. Sai dạng UUID → 400 `errors.actorId`. */
+                actorId?: string;
+                /** @description Một mã `AuditAction`. Mã lạ → 400 `errors.action`. */
+                action?: components["schemas"]["AuditAction"];
+                /** @description Loại đối tượng (`post`, `comment`, `user`, `role`, `report`, `endpoint`…), tối đa 20 ký tự. */
+                targetType?: string;
+                /** @description Chỉ đi kèm `targetType` — thiếu `targetType` → 400 `errors.targetId`. */
+                targetId?: string;
+                /** @description `nextCursor` của trang trước, opaque. Sai dạng → 400 `errors.cursor`. */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Số dòng mỗi trang, `1..100`. Ngoài khoảng → 400 `errors.limit`. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Một trang nhật ký. */
+            200: {
+                headers: {
+                    "X-Correlation-ID": components["headers"]["XCorrelationId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "id": 1042,
+                     *           "actorId": "0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10",
+                     *           "actor": {
+                     *             "userId": "0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10",
+                     *             "displayName": "Kiểm duyệt viên",
+                     *             "avatarUrl": null
+                     *           },
+                     *           "action": "report.hide",
+                     *           "targetType": "post",
+                     *           "targetId": "0192f3c9-2b7d-7e10-8c4a-1f3e5d7b9a20",
+                     *           "metadata": {
+                     *             "reportIds": [
+                     *               "0192f3ca-6e41-7a02-b3d5-8c7e9f1a2b30"
+                     *             ],
+                     *             "reasonCode": "spam",
+                     *             "note": null
+                     *           },
+                     *           "ip": "203.0.113.7",
+                     *           "createdAt": "2026-09-25T08:15:42.123456Z"
+                     *         }
+                     *       ],
+                     *       "nextCursor": "MTA0Mg"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["AuditLogPage"];
+                };
+            };
+            400: components["responses"]["ValidationProblem"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalError"];
             503: components["responses"]["RevocationUnavailable"];
