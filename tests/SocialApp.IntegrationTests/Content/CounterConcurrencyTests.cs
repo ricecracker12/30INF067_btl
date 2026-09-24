@@ -131,25 +131,28 @@ public sealed class CounterConcurrencyTests(PostgresFixture postgres, ModulesApi
     }
 
     /// <summary>
-    /// COUNT-04 — tạo phản hồi và xóa CHA song song, 20 vòng. Chứng minh thứ tự khóa BÀI → BÌNH LUẬN (Đ-3.8): viết ngược ở một hàm
-    /// là deadlock <c>40P01</c> → 500. Phản hồi thắng cuộc đua thì 201, thua thì 400 <c>parentId</c> — cả hai đều hợp lệ.
+    /// COUNT-04 — năm phản hồi và một lần xóa CHA song song, 20 vòng. Chứng minh thứ tự khóa BÀI → BÌNH LUẬN (Đ-3.8): viết ngược ở
+    /// một hàm là deadlock <c>40P01</c> → 500. Phản hồi thắng cuộc đua thì 201, thua thì 400 <c>parentId</c> — cả hai đều hợp lệ.
+    ///
+    /// Năm chứ không một: bản một-phản-hồi-mỗi-vòng KHÔNG tái hiện được deadlock khi đảo thứ tự khóa trong <c>SoftDeleteAsync</c> (hai
+    /// lần chạy đều xanh — cửa sổ quá hẹp). Năm phản hồi xếp hàng trên khóa bài cho lần xóa chen vào giữa: đột biến đỏ 2/2 lần.
     /// </summary>
     [Fact]
     public async Task COUNT_04_tao_phan_hoi_va_xoa_cha_song_song_khong_deadlock()
     {
         var (client, author, postId) = await ArrangeAsync();
-        var replier = (await UsersAsync(client, 1))[0];
+        // Năm người trả lời CÙNG LÚC với lần xóa, mỗi vòng — một người một phản hồi/vòng để không ai chạm hạn mức 100 req/phút.
+        var repliers = await UsersAsync(client, 5);
 
         for (var round = 0; round < 20; round++)
         {
             var parent = await client.CreateCommentOkAsync(author, postId, $"Cha vòng {round}");
 
-            var responses = await Task.WhenAll(
-                client.CreateCommentAsync(replier, postId, new { body = "Trả lời", parentId = parent.CommentId }),
-                client.DeleteCommentAsync(author, parent.CommentId));
+            var replies = repliers.Select(r => client.CreateCommentAsync(r, postId, new { body = "Trả lời", parentId = parent.CommentId }));
+            var responses = await Task.WhenAll(replies.Append(client.DeleteCommentAsync(author, parent.CommentId)));
 
-            Assert.Contains(responses[0].StatusCode, new[] { HttpStatusCode.Created, HttpStatusCode.BadRequest });
-            Assert.Equal(HttpStatusCode.NoContent, responses[1].StatusCode);
+            Assert.All(responses[..^1], r => Assert.Contains(r.StatusCode, new[] { HttpStatusCode.Created, HttpStatusCode.BadRequest }));
+            Assert.Equal(HttpStatusCode.NoContent, responses[^1].StatusCode);
         }
 
         await AssertNoDriftAsync(client, postId);
