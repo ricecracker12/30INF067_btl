@@ -1964,9 +1964,49 @@ máy dev.
 text search: 4 lời gọi (Program.cs, `PostgresFixture`, `ModulesApiFactory`, `NotificationDbContextSchemaTests`), chữ ký không đổi, chỉ
 thêm một đăng ký scoped mà container trần của test schema không resolve.
 
+### D10 — 2026-09-25
+
+Làm đúng Mục 14 cho ba handler "làm ngay": `FriendRequestSentHandler`, `FriendRequestAcceptedHandler`, `ContentHiddenHandler` ở
+`Notification/Application/Handlers/`, đăng ký bằng `AddIntegrationEventHandler` trong `AddNotificationModule`. Không chỗ lệch nào của
+Mục 0.6 áp vào D10; `giai-doan-6.md` sửa B.6 D10 (trạng thái bước 9).
+
+**Lệch so với chính tài liệu này:**
+- **Mỗi handler có hàm tĩnh `For(event)`** trả `NotificationUpsert` — phép dịch tách khỏi I/O để unit test khẳng định đúng VAI từng id
+  (hai `Guid` đổi chỗ vẫn compile). Handler không bắt ngoại lệ; unit `Loi_cua_store_thoat_ra_khoi_handler` canh.
+- **`ContentHiddenHandler` không so tự báo mình:** không có actor để so — Moderator ẩn bài của chính mình vẫn nhận thông báo.
+- **Bước 9 đã mở khóa:** GĐ3 (`02f1d63`) và GĐ5 đã merge vào `loveart1210` — `CommentCreated`, `ReactionSet` (Content) và `MessageSent`
+  (Messaging) đều đã được phát. Ba handler đó KHÔNG làm trong D10: Mục 14 bước 3 đặt chúng ở commit riêng
+  `feat(gd6-d): D10 — thông báo bình luận/cảm xúc từ event của GĐ3`, mỗi handler một ca đi từ API thật, và `MessageSentHandler` còn
+  phải kiểm `IPresenceReader` (có trên nhánh: `SharedKernel/Realtime/Presence.cs`). `NOTIF-02` (tự thả cảm xúc bài mình) viết lúc đó.
+- **Thêm ca ngoài bảng:** `NOTIF-01` khẳng định cả `group_key`, đích (`user` = người kia), người mời không nhận gì, người chấp nhận
+  không nhận thêm; `NOTIF-01b` thêm vế B đọc trước khi A hủy → mời lại làm nhóm sáng lại, cùng id dòng; `NOTIF-09` hide với lý do
+  của CHÍNH quyết định (khác lý do báo cáo) và soi id Moderator lẫn người báo trên dạng chữ của cả dòng (gồm `group_key`) ở cả hai
+  bảng; unit: bốn phép dịch (kể cả ẩn tài khoản — đích `user`, không `postId`) + lỗi store thoát ra.
+
+"Đã đỏ trước" (L-D7): `NOTIF-01`, `-01b`, `-09` đỏ khi bỏ đăng ký handler (M1, M2 dưới đây) — đúng trạng thái trước D10.
+
+**Test:** Unit 548 → 553 (+5 `NotificationHandlerTests`), Integration 857 → 860 (+3 `NotificationHandlerTests`: `NOTIF-01`, `-01b`,
+`-09`), Architecture 27 → 27. `EVT-02` xanh, không sửa. Vitest không chạy (không chạm FE). Còn đỏ nền R2 trên máy dev.
+
+**Thử cho đỏ — 7/7 đột biến bị bắt**, build hợp lệ ở mọi lượt (`0 Error(s)`), file khôi phục nguyên byte (`md5`):
+
+| Đột biến | Ca đỏ thực tế |
+|---|---|
+| M1 — bỏ đăng ký `FriendRequestSentHandler` | `NOTIF_01_…`; `NOTIF_01b_…` |
+| M2 — đăng ký `ContentHiddenHandler` bằng `AddScoped<IIntegrationEventHandler<…>>` (cạm bẫy C0) | `NOTIF_09_…` |
+| M3 — chấp nhận: người nhận là người bấm | `NOTIF_01_…`; `Chap_nhan_…` (unit) |
+| M4 — lời mời: khóa gộp theo người được mời | `NOTIF_01_…`; `Loi_moi_ket_ban_…` (unit) |
+| M5 — ẩn: đích luôn `post` | `Tai_khoan_bi_an_dich_la_user_khong_co_bai` (unit) |
+| M6 — ẩn: lý do cố định `other` | `NOTIF_09_…`; `Noi_dung_bi_an_…`, `Tai_khoan_bi_an_…` (unit) |
+| M7 — handler nuốt lỗi của store | `Loi_cua_store_thoat_ra_khoi_handler` (unit) |
+
+**detect-changes:** low, 0 luồng (6 file, 1 symbol — so với index đang giữ D9; file mới đã `git add -N`). Impact trước khi sửa:
+`AddNotificationModule` UNKNOWN — như D9 (4 lời gọi, chữ ký không đổi); nay thêm ba `EventHandlerRegistration` singleton mà chỉ bus
+của host đọc.
+
 ### Các đầu việc còn lại
 
-D10 → D13. Mỗi đầu việc khi xong điền theo khuôn của hướng dẫn khối A+C:
+D11 → D13. Mỗi đầu việc khi xong điền theo khuôn của hướng dẫn khối A+C:
 
 - chỗ nào đi theo / không theo đề xuất Mục 0.6, và vì sao;
 - lệch so với chính tài liệu này;

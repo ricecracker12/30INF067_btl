@@ -3,8 +3,10 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using SocialApp.Modules.Notification.Application;
+using SocialApp.Modules.Notification.Application.Handlers;
 using SocialApp.Modules.Notification.Infrastructure;
 using SocialApp.Modules.Notification.Infrastructure.Persistence;
+using SocialApp.SharedKernel.Events;
 
 namespace SocialApp.Modules.Notification.DependencyInjection;
 
@@ -33,6 +35,13 @@ public static class NotificationModuleExtensions
 
         // D9 (Đ-6.16): upsert gộp — chỗ duy nhất ghi thông báo. Scoped vì giữ NotificationDbContext; handler D10 chạy mỗi lượt một scope.
         services.AddScoped<INotificationStore, NotificationStore>();
+
+        // D10 (Đ-6.17): ba loại "làm ngay". CHỈ qua AddIntegrationEventHandler (C0) — AddScoped<IIntegrationEventHandler<…>> compile được
+        // nhưng bus không bao giờ gọi. Bus đọc danh sách đăng ký lúc dựng; container trần của test schema không dựng bus nên không sao.
+        // comment/reply/reaction (GĐ3) và message (GĐ5) thêm ở bước 9 — commit riêng, mỗi handler một ca đi từ API thật.
+        services.AddIntegrationEventHandler<FriendRequestSent, FriendRequestSentHandler>();
+        services.AddIntegrationEventHandler<FriendRequestAccepted, FriendRequestAcceptedHandler>();
+        services.AddIntegrationEventHandler<ContentHidden, ContentHiddenHandler>();
 
         // CHỈ đăng ký validator của module. KHÔNG gọi AddFluentValidationAutoValidation ở đây: cấu hình MVC toàn cục, host
         // đã gọi một lần. Chưa có validator nào tới D11 — dòng này không tốn gì khi assembly rỗng.

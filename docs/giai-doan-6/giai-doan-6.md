@@ -1998,6 +1998,10 @@ transaction của test giữ chỗ chặn (Mục 10.2).
 **Xong khi:** `NOTIF-01`, `NOTIF-02`, `NOTIF-09`, `EVT-02` xanh; mỗi handler mới có một test tích hợp đi từ **API thật của module
 phát** (không `Publish` tay) tới dòng `notifications`.
 
+*Sửa 2026-09-25 khi thi công D10:* ba handler "ngay" xong (`NOTIF-01`, `-01b`, `-09`; `EVT-02` vẫn xanh). GĐ3 và GĐ5 đã merge vào
+nhánh GĐ6 trước D10 — `CommentCreatedHandler`, `ReactionSetHandler`, `MessageSentHandler` (+ `NOTIF-02`) hết bị chặn, làm ở commit
+riêng của bước 9, không gộp vào D10.
+
 ### D11 — Endpoint thông báo
 
 Bốn endpoint Mục 8.3; `read` tầng 3 cùng khuôn "không tồn tại = không phải của bạn = 403". **Xong khi:** `NOTIF-06..08`,
