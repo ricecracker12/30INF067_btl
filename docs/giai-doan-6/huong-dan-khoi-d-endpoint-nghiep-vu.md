@@ -980,6 +980,9 @@ xanh; `socialapp_reports_decided_total` có ba nhãn từ lúc khởi động.
 
    `updated_at` gán **trong SQL** từ `TimeProvider` (A2: `NotificationDbContext` không tự đóng dấu). Id mới là `Uuid7.New()`.
 
+   *Sửa 2026-09-25 khi thi công D9:* câu (1) tách hai — `SELECT id, is_read … FOR UPDATE` rồi `UPDATE … WHERE id = @id`. Xem
+   "Thực tế thi công" D9.
+
 3. **Unit/integration** (`Notification/NotificationStoreTests`), gọi store trực tiếp (handler là D10):
 
    | Id | Kịch bản | Kỳ vọng |
@@ -1309,7 +1312,8 @@ tự merge. Mô tả PR mang danh sách tự rà B.10 (tám mục) và bảng đ
 | `UpdateAsync` bỏ 409 | `HID-04` |
 | Upsert tăng `actor_count` mỗi lượt | `NOTIF-04` |
 | Upsert không reset đợt | `NOTIF-05` |
-| Upsert không chạy lại sau `DO NOTHING` | `NOTIF-C1` |
+| Upsert không chạy lại sau `DO NOTHING` | `NOTIF-C1b` (*sửa 2026-09-25, D9:* `NOTIF-C1` xanh với đột biến này — lượt đua không bảo đảm) |
+| Upsert đọc `is_read` không `FOR UPDATE` *(thêm 2026-09-25, D9)* | `NOTIF-C3b` |
 | `read` không kiểm `recipient_id` | `NOTIF-IDOR` |
 | `read` đóng dấu `updated_at` | `NOTIF-10` |
 | `read-all` bỏ `upTo` | `NOTIF-07` |
@@ -1911,9 +1915,58 @@ append-only (A1).
 số tối thiểu. Impact trước khi sửa: `AddModerationModule` UNKNOWN — text search: 7 lời gọi, chữ ký không đổi, chỉ thêm
 hai đăng ký scoped; `ModerationUserCard` chỉ dùng lại, không sửa.
 
+### D9 — 2026-09-25
+
+Làm đúng Mục 13; L-D6 áp như chốt. `INotificationStore` + `NotificationUpsert` + `UpsertResult` (Application) · `NotificationStore`
+(Infrastructure, SQL thô trong một transaction của `NotificationDbContext`) · đăng ký scoped trong `AddNotificationModule`.
+`giai-doan-6.md` sửa cùng lượt: Đ-6.16 (khối SQL thật thay câu `RETURNING <is_read cũ>` không chạy được), B.6 D9, Mục 10.2 (`NOTIF-C1b`,
+`NOTIF-C3b`) — mỗi chỗ ghi "sửa 2026-09-25".
+
+**Lệch so với chính tài liệu này:**
+- **Câu (1) tách hai:** `SELECT id, is_read … FOR UPDATE` rồi `UPDATE … WHERE id = @id`, không `UPDATE … FROM (SELECT … FOR UPDATE) old`
+  như bản vẽ Mục 13. Ở câu gộp, bảng đích có thể được quét bằng snapshot cũ trước khi truy vấn con chờ khóa, và đúng hay sai lúc đua
+  phụ thuộc cách Postgres kiểm lại dòng (EvalPlanQual) theo thứ tự join planner chọn. Khóa trước rồi ghi thì câu `UPDATE` chạy trên
+  dòng mình đang giữ. Thêm một vòng đi về trong transaction — chấp nhận được.
+- **`reason_code` cập nhật ở nhánh nhóm cũ** (Mục 13 không nói): khôi phục rồi ẩn lại với lý do khác → hiện lý do mới.
+- **Store canh cặp loại/người:** `moderation` ⇔ `ActorId` null, và `ReasonCode` chỉ cho `moderation` — sai → `ArgumentException` trước
+  mọi I/O. Một handler viết nhầm không ghi được id Moderator vào `last_actor_id` (B.10 #7). Cùng chỗ với luật "không tự báo mình".
+- **Hàm phụ SQL nằm trong lớp lồng `GroupTransaction`** giữ transaction ở trường: bản đầu truyền `NpgsqlTransaction` qua tham số hàm
+  `private static` và `WriteContractTests.WriteContracts_are_only_the_two_named` đỏ — phương thức nhận `DbTransaction` là dấu hiệu của
+  hợp đồng ghi xuyên module (Đ-6.3). Đây là đường ghi trong module, không phải hợp đồng thứ ba, nên đổi hình dạng code, không đổi luật.
+- **`NOTIF-C1` không bảo đảm có lượt đua:** 20 lượt `Task.Run` thường chạy gần tuần tự — lượt đầu `COMMIT` trước khi lượt sau tới bước
+  1. Đo được: bỏ hẳn bước chạy lại sau `DO NOTHING` (M4) hoặc bỏ `FOR UPDATE` (M5), cả `NOTIF-C1` lẫn `NOTIF-C3` vẫn xanh. Thêm hai ca
+  **ép** lượt đua: test giữ một transaction chưa commit (chèn sẵn nhóm — `NOTIF-C1b`; khóa sẵn dòng đã đọc — `NOTIF-C3b`), hỏi
+  `pg_stat_activity` tới khi đủ 5 lượt upsert đang chờ khóa, rồi mới commit. `NOTIF-C1`, `NOTIF-C3` giữ lại làm ca "lịch chạy thật".
+- **Thêm ca ngoài bảng:** `NOTIF-02-store` thêm vế nhóm đã có của người khác; `NOTIF-03` khẳng định đích, `created_at` đứng yên,
+  `updated_at` theo sự kiện cuối; `NOTIF-04` khẳng định `updated_at` vẫn nhảy; `NOTIF-05b` thêm vế người của đợt trước quay lại
+  trong đợt mới được đếm; `NOTIF-09-store` thêm lần ẩn thứ hai (lý do mới, vẫn đếm 1); khóa gộp là cặp (người nhận, `group_key`); ba
+  biến thể sai cặp loại/người.
+
+**Test:** Unit 548 → 548, Integration 844 → 857 (+13 `NotificationStoreTests`), Architecture 27 → 27. Vitest không chạy (không chạm
+FE). Năm ca `NOTIF_C*` chạy 20 lượt liền: 20/20 xanh (cả trước và sau khi dời hàm phụ vào `GroupTransaction`). Còn đỏ nền R2 trên
+máy dev.
+
+**Thử cho đỏ — 8/8 đột biến bị bắt**, build hợp lệ ở mọi lượt (`0 Error(s)`), file khôi phục nguyên byte (`md5`). Lượt đầu M4, M5
+**xanh** — đó là lý do có `NOTIF-C1b`, `NOTIF-C3b` (xem trên); bảng dưới là lượt sau khi thêm hai ca đó:
+
+| Đột biến | Ca đỏ thực tế |
+|---|---|
+| M1 — tăng `actor_count` mỗi lượt (bỏ vế "chèn được người") | `NOTIF_04_…`; `NOTIF_C2_…` |
+| M2 — đợt mới không đếm lại từ 1 (`CASE` bỏ) | `NOTIF_05_…`; `NOTIF_05b_…` |
+| M3 — đợt mới không xóa người của đợt cũ | `NOTIF_05_…`; `NOTIF_05b_…`; `NOTIF_C3_…`; `NOTIF_C3b_…` |
+| M4 — không chạy lại bước 1 sau `DO NOTHING` | `NOTIF_C1b_…` |
+| M5 — bước 1 không `FOR UPDATE` | `NOTIF_C3b_…` |
+| M6 — bước 1 không đặt `updated_at` | `NOTIF_03_…`; `NOTIF_04_…`; `NOTIF_09_store_…` |
+| M7 — bỏ `Skipped` khi tự báo mình | `NOTIF_02_store_…` |
+| M8 — bỏ kiểm cặp loại/người | `Sai_cap_loai_va_nguoi_nem_truoc_khi_ghi` |
+
+**detect-changes:** low, 0 luồng (6 file, 17 symbol; file mới đã `git add`). Impact trước khi sửa: `AddNotificationModule` UNKNOWN —
+text search: 4 lời gọi (Program.cs, `PostgresFixture`, `ModulesApiFactory`, `NotificationDbContextSchemaTests`), chữ ký không đổi, chỉ
+thêm một đăng ký scoped mà container trần của test schema không resolve.
+
 ### Các đầu việc còn lại
 
-D9 → D13. Mỗi đầu việc khi xong điền theo khuôn của hướng dẫn khối A+C:
+D10 → D13. Mỗi đầu việc khi xong điền theo khuôn của hướng dẫn khối A+C:
 
 - chỗ nào đi theo / không theo đề xuất Mục 0.6, và vì sao;
 - lệch so với chính tài liệu này;

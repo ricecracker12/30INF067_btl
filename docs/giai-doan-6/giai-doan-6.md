@@ -597,6 +597,24 @@ Event tới (vd ReactionSet: Bình thả tim bài P của An)
   → sau COMMIT: đẩy NotificationUpserted qua hub (Đ-6.18)
 ```
 
+*Sửa 2026-09-25 khi thi công D9* (L-D6 của `huong-dan-khoi-d-endpoint-nghiep-vu.md`): khối trên **không chạy được** — `RETURNING`
+của Postgres chỉ thấy giá trị mới, `<is_read cũ>` không lấy được từ câu đó. Hiện thực (`NotificationStore`) là khuôn hai bước trong
+một transaction:
+
+```
+(1) SELECT id, is_read … WHERE recipient_id = @r AND group_key = @k FOR UPDATE      -- khóa + đọc is_read CŨ
+    có dòng → UPDATE … SET last_actor_id, reason_code, updated_at = @now, is_read = false,
+                         actor_count = CASE WHEN is_read THEN 1 ELSE actor_count END WHERE id = @id
+              is_read cũ = true → DELETE notification_actors của nhóm (đợt mới)
+(2) không dòng → INSERT … (actor_count = 1) ON CONFLICT (recipient_id, group_key) DO NOTHING RETURNING id
+    rỗng (người khác vừa chèn, đã COMMIT) → chạy lại (1) MỘT lần
+(3) actor khác null → INSERT notification_actors ON CONFLICT DO NOTHING; chèn được VÀ nhóm cũ cùng đợt → actor_count + 1
+```
+
+Bước (1) là hai câu (`SELECT … FOR UPDATE` rồi `UPDATE … WHERE id`), không phải `UPDATE … FROM (SELECT … FOR UPDATE)`: ở câu gộp,
+đúng hay sai lúc đua phụ thuộc cách Postgres kiểm lại dòng theo thứ tự join mà planner chọn. `reason_code` lấy của sự kiện mới nhất
+(khôi phục rồi ẩn lại với lý do khác → hiện lý do mới).
+
 - **Đếm người khác nhau, không đếm lượt:** Bình thả tim, gỡ, thả lại → vẫn "Bình đã bày tỏ cảm xúc", không phải "Bình và 2
   người khác". Bảng `notification_actors` (PK cặp) là thứ làm được điều đó mà không phải phình một mảng không giới hạn.
 - **Đợt:** đã đọc rồi mới có người thả tiếp → nhóm sáng lại và đếm lại từ người mới, đúng cách người dùng hiểu "có gì mới".
@@ -1434,6 +1452,8 @@ Luật vàng số 8: mọi thứ phải chạy trên ARM64 — không có native
 | `MOD-C1` | Hai Moderator quyết cùng một báo cáo | một 200, một 409; **một** dòng audit quyết định |
 | `REP-C1` | 10 báo cáo giống hệt từ một người, song song | 1 dòng; 1 × 201, 9 × 200; không 500 |
 | `NOTIF-C1` | 20 người khác nhau thả cảm xúc một bài song song | 1 dòng, `actorCount = 20`, 20 dòng `notification_actors` |
+| `NOTIF-C1b` | Test giữ nhóm chèn dở (chưa `COMMIT`), 5 lượt upsert chờ ở index unique, rồi `COMMIT` | cả 5 chạy lại bước 1 và được đếm: `actorCount = 6` (*thêm 2026-09-25, D9:* `NOTIF-C1` xanh cả khi bỏ bước chạy lại) |
+| `NOTIF-C3b` | Nhóm đã đọc, test khóa sẵn dòng, 5 lượt upsert chờ, rồi nhả | đúng một lượt mở đợt mới: `actorCount = 5`, đủ 5 người (*thêm 2026-09-25, D9*) |
 
 ### 10.3 Unit test
 
@@ -1964,6 +1984,11 @@ theo `action`), không phải luật validation; truy vấn đi PK lùi + lọc,
 
 `INotificationStore.UpsertAsync(recipient, groupKey, …, actorId)` đúng khối SQL Đ-6.16 trong một transaction. **Xong khi:**
 `NOTIF-03..05`, `NOTIF-C1` (20 lần) xanh.
+
+*Sửa 2026-09-25 khi thi công D9* (L-D6): khuôn hai bước thay câu `ON CONFLICT DO UPDATE … RETURNING <is_read cũ>` (xem Đ-6.16).
+Store tự canh hai luật cho mọi handler: tự báo mình → `Skipped`; `moderation` ⇔ không có người (sai cặp → `ArgumentException` trước
+mọi I/O). `NOTIF-C1` để lịch chạy tự quyết nên không bảo đảm có lượt đua — thêm `NOTIF-C1b`, `NOTIF-C3b` **ép** lượt đua bằng một
+transaction của test giữ chỗ chặn (Mục 10.2).
 
 ### D10 — Handler event
 

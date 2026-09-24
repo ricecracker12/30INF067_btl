@@ -2,7 +2,9 @@ using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using SocialApp.Modules.Notification.Application;
 using SocialApp.Modules.Notification.Infrastructure;
+using SocialApp.Modules.Notification.Infrastructure.Persistence;
 
 namespace SocialApp.Modules.Notification.DependencyInjection;
 
@@ -28,6 +30,9 @@ public static class NotificationModuleExtensions
 
         // Một đồng hồ cho cả process — các module khác cũng TryAdd dòng này.
         services.TryAddSingleton(TimeProvider.System);
+
+        // D9 (Đ-6.16): upsert gộp — chỗ duy nhất ghi thông báo. Scoped vì giữ NotificationDbContext; handler D10 chạy mỗi lượt một scope.
+        services.AddScoped<INotificationStore, NotificationStore>();
 
         // CHỈ đăng ký validator của module. KHÔNG gọi AddFluentValidationAutoValidation ở đây: cấu hình MVC toàn cục, host
         // đã gọi một lần. Chưa có validator nào tới D11 — dòng này không tốn gì khi assembly rỗng.
