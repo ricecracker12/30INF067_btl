@@ -1090,8 +1090,8 @@ Theo Mục 3.5 báo cáo:
 - [x] Lỗi REST là RFC 7807; lỗi hub là mã trong bảng Mục 8.2 — không câu nào chứa id, nội dung tin hay tên kiểu
 - [x] Chạy thử trên staging bằng **hai tài khoản thật là bạn của nhau** (F1, F2, F3 — 2026-09-24)
 - [x] Swagger nhóm `messaging-v1` cập nhật; `chat-hub-v1.md` khớp code (cổng Mục 8.3 xanh)
-- [ ] Không lộ secret/PII: vé không nằm trong log (Serilog + apache), nội dung tin không nằm trong log — Serilog: xanh (`HubLogTests`,
-      `LOG-01`, C6). **apache: chờ server** (`grep access_token= access.log` trên VM)
+- [x] Không lộ secret/PII: vé không nằm trong log (Serilog + apache), nội dung tin không nằm trong log — Serilog: xanh (`HubLogTests`,
+      `LOG-01`, C6). apache: `grep access_token= /var/log/apache2/*access*.log` trên VM **rỗng** (chủ dự án chạy, 2026-09-24)
 - [x] `README.md` Mục 1 cập nhật trạng thái GĐ5 (luật vàng 7); lệch quyết định đã ghi ngược vào tài liệu này
 
 ## 12. Checklist nghiệm thu cuối GĐ5
@@ -1103,7 +1103,8 @@ Theo Mục 3.5 báo cáo:
 
 **Realtime (C)**
 - [x] Kết nối hub trên staging qua Cloudflare + apache, 1 lần xin vé mỗi lần kết nối (F1; `chat.spec.ts` khẳng định 1 vé + 1 WebSocket)
-- [ ] Access log apache và log API **không** chứa `access_token=` — log API: xanh (`HubLogTests`). **apache: chờ server**
+- [x] Access log apache và log API **không** chứa `access_token=` — log API: xanh (`HubLogTests`). apache: `grep` trên VM **rỗng**
+      sau các lượt F1–F4 (2026-09-24)
 - [x] Để yên tab chat 10 phút: 0 lần kết nối lại (keep-alive qua được timeout của apache và Cloudflare) — `e2e/chat-idle.spec.ts`
       trên staging: phút 10 vẫn 1 WebSocket, 1 vé
 - [x] Kết nối tự cắt sau 15 phút và tự nối lại không ai nhận ra — cùng spec: server cắt đúng phút 15,0, nối lại ngay bằng vé thứ 2,
@@ -1866,8 +1867,9 @@ histogram server chờ người có quyền VM, không chặn cổng.
 
 **F4 — thêm `e2e/chat-idle.spec.ts`** (`CHAT_IDLE=1`, ~17 phút): hai dòng Mục 12 trước ghi "phải kiểm trên VM" hóa ra kiểm được từ
 ngoài — phút 10 vẫn 1 WebSocket + 1 vé; phút 15,0 server cắt (tuổi thọ = access token), client nối lại ngay bằng vé thứ 2, không
-banner, tin B gửi sau đó tới trong 3 s (BFF làm mới access token của A đúng lúc). `MSG-C1`/`MSG-C2` 20/20 lượt. Còn **một** việc chờ
-server: `grep access_token= /var/log/apache2/*access*.log` trên VM phải rỗng (dòng Mục 11 + dòng Mục 12 tương ứng để `[ ]`).
+banner, tin B gửi sau đó tới trong 3 s (BFF làm mới access token của A đúng lúc). `MSG-C1`/`MSG-C2` 20/20 lượt. Việc chờ server
+cuối cùng — `grep access_token= /var/log/apache2/*access*.log` trên VM — chủ dự án đã chạy: **rỗng**, dòng Mục 11 + Mục 12 đã tick.
+**Mục 11 và Mục 12 tick đủ — GĐ5 đóng hoàn toàn.**
 
 **F5 — đóng băng** `messaging-v1.yaml` và `chat-hub-v1.md` (dấu ĐÓNG BĂNG trong đầu file, khuôn GĐ4). README Mục 1: GĐ5 xong, GĐ6 C6
 mở khóa. Bàn giao GĐ6 như bảng "GĐ5 để lại gì cho GĐ6–GĐ8" — không đổi.
