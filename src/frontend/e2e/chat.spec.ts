@@ -1,25 +1,17 @@
-import { existsSync, readFileSync } from "node:fs"
+import { mkdirSync } from "node:fs"
+import { join } from "node:path"
 
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test"
 
 import { API, giuHanMucAuth } from "./dev-api"
-import { dangNhapApi, dangNhapUi, donRacSauTest, taoTaiKhoanCoHoSo, type TaiKhoan } from "./post-helpers"
-
-/**
- * F2 (staging): hai tài khoản THẬT, đã là bạn, lấy từ biến môi trường hoặc file `.env.e2e.local` (gitignore — không commit).
- * Không có thì spec tạo tài khoản mới qua Mailpit dev như mọi spec khác.
- */
-function taiKhoanCoSan(): Record<string, string> | null {
-  const keys = ["E2E_A_EMAIL", "E2E_A_PASSWORD", "E2E_B_EMAIL", "E2E_B_PASSWORD"]
-  const fromFile: Record<string, string> = {}
-  if (existsSync(".env.e2e.local"))
-    for (const line of readFileSync(".env.e2e.local", "utf8").split(/\r?\n/)) {
-      const i = line.indexOf("=")
-      if (i > 0) fromFile[line.slice(0, i).trim()] = line.slice(i + 1).trim()
-    }
-  const values = Object.fromEntries(keys.map((k) => [k, process.env[k] ?? fromFile[k] ?? ""]))
-  return keys.every((k) => values[k]) ? values : null
-}
+import {
+  dangNhapApi,
+  dangNhapUi,
+  donRacSauTest,
+  taiKhoanCoSan,
+  taoTaiKhoanCoHoSo,
+  type TaiKhoan,
+} from "./post-helpers"
 
 async function laBanBe(request: APIRequestContext, a: TaiKhoan, b: TaiKhoan) {
   const r = await request.get(`${API}/relationships/${b.userId}`, { headers: a.auth })
@@ -40,6 +32,17 @@ async function ketBanApi(request: APIRequestContext, a: TaiKhoan, b: TaiKhoan) {
   expect(sent.status(), await sent.text()).toBe(201)
   const accepted = await request.post(`${API}/friends/requests/${a.userId}/accept`, { headers: b.auth })
   expect(accepted.status(), await accepted.text()).toBe(200)
+}
+
+/**
+ * F2 bằng chứng: đặt `E2E_BANG_CHUNG=<thư mục>` (vd `../../docs/giai-doan-5/bang-chung`) thì chụp ảnh ở từng mốc của lát cắt.
+ * Không đặt thì không chụp — lượt thường không đẻ file.
+ */
+const BANG_CHUNG = process.env.E2E_BANG_CHUNG
+async function chup(page: Page, ten: string) {
+  if (!BANG_CHUNG) return
+  mkdirSync(BANG_CHUNG, { recursive: true })
+  await page.screenshot({ path: join(BANG_CHUNG, `f2-${ten}.png`) })
 }
 
 const tinNhan = (page: Page, text: string) => page.getByTestId("chat-message").filter({ hasText: text })
@@ -91,6 +94,9 @@ test("hai tài khoản: nhắn realtime → Đã xem → mất mạng + Thử l�
     pb.on("request", (r) => {
       if (r.url().includes("/bff/api/realtime/tickets")) veCuaB += 1
     })
+    // Đ-5.16 thay ảnh tab Network: URL WebSocket mang VÉ (43 ký tự base64url), không bao giờ mang JWT (`eyJ…`).
+    const wsCuaB: string[] = []
+    pb.on("websocket", (ws) => wsCuaB.push(ws.url()))
     await pb.goto(conversationUrl)
     await expect(pb.getByLabel("Nội dung tin nhắn")).toBeVisible()
 
@@ -100,6 +106,12 @@ test("hai tài khoản: nhắn realtime → Đã xem → mất mạng + Thử l�
     await expect(tinNhan(pb, T1)).toHaveCount(1, { timeout: 5_000 })
     await expect(pa.getByTestId("chat-delivery")).toHaveText(/Đã xem/, { timeout: 10_000 })
     expect(veCuaB).toBe(1)
+    expect(wsCuaB).toHaveLength(1)
+    const ve = new URL(wsCuaB[0]).searchParams.get("access_token") ?? ""
+    expect(ve).toMatch(/^[A-Za-z0-9_-]{43}$/)
+    expect(wsCuaB[0]).not.toMatch(/eyJ/)
+    await chup(pa, "1-a-da-xem")
+    await chup(pb, "1-b-nhan-tin")
 
     // 3. AC-03: A mất mạng giữa lúc gửi → Thất bại + Thử lại; có mạng lại, Thử lại → B thấy ĐÚNG MỘT tin.
     const T2 = `Gửi lúc mất mạng ${tag}`
@@ -129,6 +141,7 @@ test("hai tài khoản: nhắn realtime → Đã xem → mất mạng + Thử l�
     await expect(tinNhan(pa, `Tin chưa đọc 1 ${tag}`)).toHaveCount(1)
     await gui(pa, `Tin chưa đọc 2 ${tag}`)
     await expect(badge).toHaveText(String(chuaDocTruoc + 2), { timeout: 10_000 })
+    await chup(pb, "2-b-badge-chua-doc")
     await pb.goto("/messages")
     await expect(pb.getByTestId("conversation-unread").first()).toHaveText("2")
     await pb.getByTestId("conversation-row").first().click()
@@ -145,11 +158,131 @@ test("hai tài khoản: nhắn realtime → Đã xem → mất mạng + Thử l�
     await expect(tinNhan(pa, T1)).toHaveCount(1)
     await pb.reload()
     await expect(pb.getByTestId("chat-read-only")).toBeVisible()
+    await chup(pa, "3-a-chi-doc")
 
     // Tài khoản có sẵn: kết bạn LẠI để lần chạy sau (và F3 đo p95) vẫn có hai người là bạn.
     if (coSan) await ketBanApi(request, A, B)
   } finally {
     await ctxA.close()
+    await ctxB.close()
+  }
+})
+
+// Mục 12 "Chặn WebSocket → vẫn gửi và nhận qua fallback, trễ ≤ ~3s" (Đ-5.12). B bị chặn MỌI WebSocket `/hubs/*` (như DevTools chặn
+// URL); A nối bình thường. B hỏng 3 lần liền (0 / 2 / 5 s) → fallback: gửi bằng REST, hỏi lại mỗi 3 giây.
+test("chặn WebSocket của B → B vẫn nhận (hỏi lại 3s) và gửi được qua REST", async ({ browser, request }) => {
+  test.setTimeout(120_000)
+  const tag = Math.random().toString(36).slice(2, 8)
+  const coSan = taiKhoanCoSan()
+  let A: TaiKhoan
+  let B: TaiKhoan
+  if (coSan) {
+    await giuHanMucAuth(4)
+    A = await dangNhapApi(request, coSan.E2E_A_EMAIL, coSan.E2E_A_PASSWORD)
+    B = await dangNhapApi(request, coSan.E2E_B_EMAIL, coSan.E2E_B_PASSWORD)
+    if (!(await laBanBe(request, A, B))) await ketBanApi(request, A, B)
+  } else {
+    await giuHanMucAuth(8)
+    A = await taoTaiKhoanCoHoSo(request, "chatfb-a", `An ${tag}`)
+    B = await taoTaiKhoanCoHoSo(request, "chatfb-b", `Bình ${tag}`)
+    await ketBanApi(request, A, B)
+  }
+  const opened = await request.post(`${API}/conversations`, { headers: A.auth, data: { userId: B.userId } })
+  expect([200, 201]).toContain(opened.status())
+  const conversationUrl = `/messages/${((await opened.json()) as { conversationId: string }).conversationId}`
+
+  const ctxA = await browser.newContext()
+  const ctxB = await browser.newContext()
+  try {
+    let wsBiChan = 0
+    await ctxB.routeWebSocket(/\/hubs\//, (ws) => {
+      wsBiChan += 1
+      void ws.close()
+    })
+    const pa = await ctxA.newPage()
+    const pb = await ctxB.newPage()
+    await dangNhapUi(pa, A)
+    await dangNhapUi(pb, B)
+    await pa.goto(conversationUrl)
+    await pb.goto(conversationUrl)
+    await expect(pa.getByLabel("Nội dung tin nhắn")).toBeEnabled()
+    await expect(pb.getByTestId("chat-banner")).toBeVisible({ timeout: 15_000 })
+    await expect.poll(() => wsBiChan, { timeout: 15_000 }).toBeGreaterThanOrEqual(3)
+
+    // A (hub) → B (hỏi lại 3 s): hạn 5 s = một chu kỳ hỏi lại + đường truyền.
+    const T1 = `Tới B lúc chặn WS ${tag}`
+    await gui(pa, T1)
+    await expect(tinNhan(pa, T1)).toHaveCount(1)
+    const t0 = Date.now()
+    await expect(tinNhan(pb, T1)).toHaveCount(1, { timeout: 5_000 })
+    const treNhan = Date.now() - t0
+    await chup(pb, "4-b-fallback-nhan")
+
+    // B (REST) → A (hub đẩy như mọi tin khác).
+    const T2 = `B gửi bằng REST ${tag}`
+    await gui(pb, T2)
+    await expect(tinNhan(pa, T2)).toHaveCount(1, { timeout: 5_000 })
+    await expect(tinNhan(pb, T2)).toHaveCount(1)
+    await expect(pb.getByRole("button", { name: "Thử lại" })).toHaveCount(0)
+    console.log(`fallback: B nhận sau ${treNhan} ms (${wsBiChan} WebSocket bị chặn)`)
+  } finally {
+    await ctxA.close()
+    await ctxB.close()
+  }
+})
+
+// Mục 12 AC-02 đúng nguyên văn: B KHÔNG đăng nhập ở đâu cả (đã đăng xuất), A gửi 3 tin, B đăng nhập lại → badge +3 nạp qua REST
+// lúc vào trang (không phải đếm từ sự kiện realtime như ca đầu), mở hội thoại thấy đủ, badge về mức cũ.
+test("B đang đăng xuất, A gửi 3 tin → B đăng nhập lại thấy badge +3, mở ra đủ tin, badge về lại", async ({
+  browser,
+  request,
+}) => {
+  test.setTimeout(90_000)
+  const tag = Math.random().toString(36).slice(2, 8)
+  const coSan = taiKhoanCoSan()
+  let A: TaiKhoan
+  let B: TaiKhoan
+  if (coSan) {
+    await giuHanMucAuth(3)
+    A = await dangNhapApi(request, coSan.E2E_A_EMAIL, coSan.E2E_A_PASSWORD)
+    B = await dangNhapApi(request, coSan.E2E_B_EMAIL, coSan.E2E_B_PASSWORD)
+    if (!(await laBanBe(request, A, B))) await ketBanApi(request, A, B)
+  } else {
+    await giuHanMucAuth(7)
+    A = await taoTaiKhoanCoHoSo(request, "chatoff-a", `An ${tag}`)
+    B = await taoTaiKhoanCoHoSo(request, "chatoff-b", `Bình ${tag}`)
+    await ketBanApi(request, A, B)
+  }
+  const opened = await request.post(`${API}/conversations`, { headers: A.auth, data: { userId: B.userId } })
+  expect([200, 201]).toContain(opened.status())
+  const conversationId = ((await opened.json()) as { conversationId: string }).conversationId
+
+  const chuaDocTruoc = (
+    (await (await request.get(`${API}/conversations/unread-count`, { headers: B.auth })).json()) as { total: number }
+  ).total
+  for (let i = 1; i <= 3; i++) {
+    const sent = await request.post(`${API}/conversations/${conversationId}/messages`, {
+      headers: A.auth,
+      data: { content: `Lúc B vắng ${i} ${tag}`, clientMsgId: crypto.randomUUID() },
+    })
+    expect(sent.status(), await sent.text()).toBe(201)
+  }
+
+  const ctxB = await browser.newContext()
+  try {
+    const pb = await ctxB.newPage()
+    await dangNhapUi(pb, B)
+    const badge = pb.getByTestId("unread-badge")
+    await expect(badge).toHaveText(String(chuaDocTruoc + 3), { timeout: 10_000 })
+    // Ảnh chụp ở /friends, KHÔNG ở /me: trang /me hiện email của tài khoản — bằng chứng vào repo không được mang PII.
+    await pb.goto("/friends")
+    await expect(badge).toHaveText(String(chuaDocTruoc + 3))
+    await chup(pb, "5-b-dang-nhap-lai-badge")
+    await pb.goto(`/messages/${conversationId}`)
+    for (let i = 1; i <= 3; i++) await expect(tinNhan(pb, `Lúc B vắng ${i} ${tag}`)).toHaveCount(1)
+    if (chuaDocTruoc === 0) await expect(badge).toHaveCount(0, { timeout: 10_000 })
+    else await expect(badge).toHaveText(String(chuaDocTruoc), { timeout: 10_000 })
+  } finally {
     await ctxB.close()
   }
 })

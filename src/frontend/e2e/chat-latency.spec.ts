@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { expect, test, type APIRequestContext, type Browser, type Page } from "@playwright/test"
 
 import { API, giuHanMucAuth } from "./dev-api"
-import { dangNhapApi, dangNhapUi, taoTaiKhoanCoHoSo, type TaiKhoan } from "./post-helpers"
+import { dangNhapApi, dangNhapUi, taiKhoanCoSan, taoTaiKhoanCoHoSo, type TaiKhoan } from "./post-helpers"
 
 // GĐ5 E8/F3 — đo p95 gửi→nhận (NFR-PERF-03, GOAL-02) bằng CHÍNH màn chat thật (giai-doan-5.md Mục 10.7). KHÔNG chạy trong bộ E2E
 // thường: bật bằng `CHAT_LATENCY=1`.
@@ -12,8 +12,8 @@ import { dangNhapApi, dangNhapUi, taoTaiKhoanCoHoSo, type TaiKhoan } from "./pos
 // - Hai BrowserContext trong MỘT tiến trình Chrome trên MỘT máy → cùng một đồng hồ, t0/t1 so được với nhau.
 // - Màn mở với `?latency=1`: tab gửi ghi t0 theo clientMsgId lúc bấm gửi, tab nhận ghi t1 sau khi tin được VẼ (`features/chat/latency*`).
 // - Nhịp 1 tin/giây (đo độ trễ, không đo thông lượng), N tin A→B rồi N tin B→A. Mặc định N = 200 (`CHAT_LATENCY_N`).
-// - Tài khoản: trên staging đặt `E2E_A_EMAIL`, `E2E_A_PASSWORD`, `E2E_B_EMAIL`, `E2E_B_PASSWORD` (hai người ĐÃ là bạn) và
-//   `PLAYWRIGHT_BASE_URL`, `PLAYWRIGHT_API_URL`. Không đặt thì tạo tài khoản mới qua Mailpit dev và tự kết bạn.
+// - Tài khoản: trên staging đặt `E2E_A_EMAIL`, `E2E_A_PASSWORD`, `E2E_B_EMAIL`, `E2E_B_PASSWORD` (hai người ĐÃ là bạn — biến môi
+//   trường hoặc `.env.e2e.local`) và `PLAYWRIGHT_BASE_URL`, `PLAYWRIGHT_API_URL`. Không đặt thì tạo tài khoản mới qua Mailpit dev và tự kết bạn.
 // - Kết quả: `test-results/chat-latency.json` + in p50/p95/p99. Báo cáo viết tay ở `docs/giai-doan-5/bao-cao-p95-chat.md`.
 
 test.skip(process.env.CHAT_LATENCY !== "1", "Chỉ chạy khi CHAT_LATENCY=1 (đo p95, không phải kiểm chức năng)")
@@ -29,12 +29,12 @@ function percentile(sorted: number[], p: number) {
 }
 
 async function taiKhoan(request: APIRequestContext): Promise<[TaiKhoan, TaiKhoan]> {
-  const env = process.env
-  if (env.E2E_A_EMAIL && env.E2E_A_PASSWORD && env.E2E_B_EMAIL && env.E2E_B_PASSWORD) {
+  const coSan = taiKhoanCoSan()
+  if (coSan) {
     await giuHanMucAuth(4)
     return [
-      await dangNhapApi(request, env.E2E_A_EMAIL, env.E2E_A_PASSWORD),
-      await dangNhapApi(request, env.E2E_B_EMAIL, env.E2E_B_PASSWORD),
+      await dangNhapApi(request, coSan.E2E_A_EMAIL, coSan.E2E_A_PASSWORD),
+      await dangNhapApi(request, coSan.E2E_B_EMAIL, coSan.E2E_B_PASSWORD),
     ]
   }
   await giuHanMucAuth(8)
