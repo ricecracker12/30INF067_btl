@@ -1819,3 +1819,25 @@ Sau (1)–(4): F1 kiểm staging (1 vé/kết nối, `access.log` không có `ac
 `e2e/chat.spec.ts` trỏ staging + ảnh bằng chứng vào `bang-chung/`, F3 `chat-latency.spec.ts` N = 200 → `bao-cao-p95-chat.md`,
 F4 tick Mục 11–12, F5 đóng băng hợp đồng + bàn giao GĐ6 (vé/scheme/filter/presence/`MessageSent` đã sẵn — GĐ6 C6 mở khóa ngay khi
 `gd5` vào `develop`).
+
+## Khối F — trên staging (2026-09-24, bản `develop@9d199a7` đã deploy)
+
+**F1 — đạt phần kiểm được từ ngoài** (script WebSocket thuần `f1-staging.mjs` + Playwright chẩn đoán, không in token/vé):
+- `/health/ready` 200, Swagger `messaging-v1` 200, `GET /hubs/chat` không vé → **401 từ API** (không phải HTML Next) — apache đã chuyển
+  `/hubs/` đúng chỗ.
+- Hai tài khoản staging đăng nhập được, là bạn; `POST /conversations` 201 `canSend=true`; vé 201 `expiresIn=30`.
+- WebSocket thật qua Cloudflare → apache → Kestrel bắt tay được; A gửi → ACK `seq=1` sau 249 ms, **B nhận `MessageReceived` sau 242 ms**
+  (một mẫu, máy đo ở VN); biên nhận `seen` OK.
+- Dùng lại vé cũ → bị từ chối; JWT đặt vào `?access_token=` → bị từ chối.
+- Trình duyệt Chrome thật trên staging: **1** lần xin vé, WebSocket `101`, nhận `ReceiptUpdated` — CSP `connect-src 'self'` đã phủ `wss://`
+  cùng origin, không phải nới.
+- **Còn phải kiểm trên VM (người có quyền):** `access.log` không chứa `access_token=`; để yên tab 10 phút không nối lại; kết nối tự cắt
+  sau 15 phút.
+
+**F2 — lộ một lỗi thật của app, đã sửa ở `98b5f50` (chưa deploy):** tin gửi trong khe "trang đầu đã nạp, hub chưa kết nối" bị bỏ lỡ tới
+tin kế tiếp. Local không lộ vì hub nối nhanh. Lỗi đi kèm tìm ra khi sửa: `fillFrom` nuốt yêu cầu lấp khi đang bận. Cần deploy
+`a9233f4..98b5f50` rồi chạy lại `e2e/chat.spec.ts` trên staging.
+
+**F3 — HOÃN: staging chập chờn lúc đo.** Lần đo đầu dừng ở bước đăng nhập với Cloudflare **520**. Đo tiếp từ máy dev: kết nối tới Cloudflare
+< 0,1 s nhưng thời gian chờ origin trả byte đầu (`/api/v1/ping`, không chạm DB) dao động **0,4–13,6 s**; không có deploy nào đang chạy
+(deploy cuối xong 03:08 UTC). Nút thắt ở VM, không ở mạng máy đo. Đo p95 lúc này là đo VM quá tải, không phải chat — chờ VM ổn định.
