@@ -35,6 +35,12 @@ export type ErrorContext =
   | "friend-respond"
   | "follow"
   | "feed"
+  // GĐ5 (E1): năm ngữ cảnh — 403 mang nghĩa khác nhau trên từng endpoint của Messaging (nếp Q-E4).
+  | "conversation-open"
+  | "conversation-read"
+  | "message-send"
+  | "receipt"
+  | "realtime-ticket"
 
 const COMMON = {
   400: "Dữ liệu không hợp lệ.",
@@ -138,6 +144,33 @@ const BY_CONTEXT: Record<ErrorContext, Partial<Record<number, string>>> = {
   // `GET /feed`: câu 503 "quá tải" KHÔNG nằm ở đây mà ở `BY_TYPE` (Q-E4, chốt 2026-09-23) — 503 không mang
   // `feed-overloaded` (trang HTML của apache, proxy hỏng) là lỗi hệ thống thật, đi nhánh `>= 500` như mọi màn.
   feed: {},
+
+  // --- GĐ5 (E1) ---
+
+  // `POST /conversations`. 403 `not-friends` đi qua BY_TYPE; 403 còn lại = thiếu quyền `message.send`. 404 chép `detail`.
+  "conversation-open": {
+    403: "Tài khoản của bạn chưa được phép nhắn tin.",
+    404: "Không tìm thấy người dùng.",
+  },
+
+  // `GET /conversations/{id}`, `…/messages`, danh sách, badge. 403 = không phải thành viên HOẶC không tồn tại — MỘT câu cho cả
+  // hai, không tiết lộ hội thoại có thật hay không (Mục 6.1).
+  "conversation-read": {
+    403: "Không tìm thấy cuộc trò chuyện, hoặc bạn không có quyền xem.",
+  },
+
+  // `POST …/messages` (fallback REST) — 403 `not-friends` đi qua BY_TYPE. 409 là bug client (dùng lại clientMsgId cho nội dung
+  // khác, Đ-5.5): người dùng không làm gì được ngoài gửi lại như tin mới.
+  "message-send": {
+    403: "Bạn không thể gửi tin vào cuộc trò chuyện này.",
+    409: "Tin nhắn bị trùng mã. Hãy gửi lại như một tin mới.",
+  },
+
+  // `POST …/receipts` — lỗi biên nhận không hiện cho người dùng (màn nuốt, lần xem sau gửi lại mốc lớn hơn). Để trống.
+  receipt: {},
+
+  // `POST /realtime/tickets` — 503 đi qua BY_TYPE (fallback). 429: xin vé quá nhanh (20/phút) — vẫn chat được qua fallback.
+  "realtime-ticket": {},
 }
 
 /**
@@ -151,6 +184,10 @@ const BY_TYPE: Record<ProblemType, string> = {
   // BFF mất Redis phiên: không phải "bạn bị đăng xuất" — phiên vẫn còn, chỉ tạm không đọc được.
   [PROBLEM_TYPES.bffSessionUnavailable]:
     "Dịch vụ đăng nhập tạm thời gián đoạn. Vui lòng thử lại sau ít phút.",
+  // GĐ5 — câu chép NGUYÊN VĂN `detail` của messaging-v1.yaml (Đ-E5: một lỗi không hiện hai cách nói).
+  [PROBLEM_TYPES.notFriends]: "Hai bạn không còn là bạn bè. Hội thoại chỉ đọc.",
+  [PROBLEM_TYPES.realtimeUnavailable]:
+    "Kênh thời gian thực tạm thời không sẵn sàng. Tin nhắn vẫn gửi được.",
 }
 
 /** Thông điệp cấp form cho một lỗi bất kỳ ném ra từ `request()`. */
@@ -237,6 +274,12 @@ export type FieldErrorKey =
   // GĐ4 — socialgraph-v1: tự gửi lời mời / tự theo dõi → `errors.userId`; `direction` lạ → `errors.direction`.
   | "userId"
   | "direction"
+  // GĐ5 — messaging-v1: nội dung tin, mã tin phía client, tham số lịch sử và biên nhận.
+  | "content"
+  | "clientMsgId"
+  | "afterSeq"
+  | "kind"
+  | "upToSeq"
 
 /**
  * 400 của một endpoint đọc ĐÚNG CÂU SERVER dưới key của `errors` trước, RỒI MỚI lùi về bảng

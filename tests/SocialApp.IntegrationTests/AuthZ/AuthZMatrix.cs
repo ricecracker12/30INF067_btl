@@ -15,6 +15,13 @@ namespace SocialApp.IntegrationTests.AuthZ;
 /// </summary>
 public static class AuthZMatrix
 {
+    /// <summary>
+    /// B2 (GĐ5): người lạ D của TC-A07 — id cố định vì <c>Body</c> của dòng là hằng; hồ sơ dựng lại ở ArrangePath (PUT upsert).
+    /// Khai TRƯỚC <see cref="Cases"/>: trường static khởi tạo theo thứ tự khai báo — khai sau thì Body của TC-A07 mang
+    /// <c>Guid.Empty</c> và dòng nhận 400 thay vì 403 (đã gặp khi thi công B2).
+    /// </summary>
+    private static readonly Guid NguoiLaD = Guid.Parse("0192f3c1-0000-7000-8000-0000000000dd");
+
     public static readonly AuthZCase[] Cases =
     [
         // --- GĐ1 (B3). GĐ2 trở đi CHỈ thêm dòng, không sửa file nào khác. ---
@@ -165,6 +172,58 @@ public static class AuthZMatrix
             Caller.Anonymous, HttpMethod.Post, "/api/v1/friends/requests", HttpStatusCode.Unauthorized,
             Body: new { userId = Guid.NewGuid() }),
 
+        // --- GĐ5 (B2). giai-doan-5.md Mục 6.3. Kỳ vọng viết tay theo Mục 6.1 + hợp đồng messaging-v1. Bạn bè và hội thoại
+        // dựng qua API thật (GĐ4 D2/D3 đã có — bàn giao GĐ4), không INSERT thẳng. Người gọi C có hồ sơ để 403 chỉ còn MỘT lý do.
+
+        // BR-06: người thứ ba đọc/ghi hội thoại của A và B — 403 (không 404, TC-A04 PTTK), cùng phản hồi với "không tồn tại".
+        new("TC-A04", "C đọc hội thoại của A và B", "GĐ5",
+            Caller.User, HttpMethod.Get, "/api/v1/conversations/{id A-B}", HttpStatusCode.Forbidden,
+            ArrangePath: async a => $"/api/v1/conversations/{await HoiThoaiCuaNguoiKhacAsync(a)}"),
+
+        new("TC-A04-messages", "C đọc lịch sử hội thoại A-B", "GĐ5",
+            Caller.User, HttpMethod.Get, "/api/v1/conversations/{id A-B}/messages", HttpStatusCode.Forbidden,
+            ArrangePath: async a => $"/api/v1/conversations/{await HoiThoaiCuaNguoiKhacAsync(a)}/messages"),
+
+        new("TC-A04-send", "C gửi tin vào hội thoại A-B", "GĐ5",
+            Caller.User, HttpMethod.Post, "/api/v1/conversations/{id A-B}/messages", HttpStatusCode.Forbidden,
+            ArrangePath: async a => $"/api/v1/conversations/{await HoiThoaiCuaNguoiKhacAsync(a)}/messages",
+            Body: new { content = "Chen ngang.", clientMsgId = Guid.Parse("0192f3c1-0000-7000-8000-00000000a04c") }),
+
+        new("TC-A04-receipt", "C đánh dấu đã xem hội thoại A-B", "GĐ5",
+            Caller.User, HttpMethod.Post, "/api/v1/conversations/{id A-B}/receipts", HttpStatusCode.Forbidden,
+            ArrangePath: async a => $"/api/v1/conversations/{await HoiThoaiCuaNguoiKhacAsync(a)}/receipts",
+            Body: new { kind = "seen", upToSeq = 1 }),
+
+        // BR-09: mở hội thoại với người KHÔNG phải bạn (có hồ sơ — để 403 không lẫn với 404).
+        new("TC-A07", "A mở hội thoại với người lạ D", "GĐ5",
+            Caller.User, HttpMethod.Post, "/api/v1/conversations", HttpStatusCode.Forbidden,
+            ArrangePath: async a =>
+            {
+                await TaoHoSoAsync(a.Client, a.CallerUserId);
+                await TaoHoSoAsync(a.Client, NguoiLaD);
+                return "/api/v1/conversations";
+            },
+            Body: new { userId = NguoiLaD }),
+
+        // AC-04: A là THÀNH VIÊN nhưng đã bị hủy kết bạn với B → gửi bị chặn (kiểm lúc gửi, mỗi lần — Đ-5.3).
+        new("TC-A07-send", "A gửi tin trong hội thoại với B sau khi hủy kết bạn", "GĐ5",
+            Caller.User, HttpMethod.Post, "/api/v1/conversations/{id A-B}/messages", HttpStatusCode.Forbidden,
+            ArrangePath: async a => $"/api/v1/conversations/{await HoiThoaiCuaNguoiGoiAsync(a, huyKetBan: true)}/messages",
+            Body: new { content = "Sau khi hủy kết bạn.", clientMsgId = Guid.Parse("0192f3c1-0000-7000-8000-00000000a07c") }),
+
+        // Đối chứng BẮT BUỘC (nếp RBAC-02b, READ-06b): matrix chỉ có dòng "bị chặn" thì xanh cả khi AreFriendsAsync luôn false
+        // hoặc ConversationAccess từ chối mọi người.
+        new("TC-A07b", "Đối chứng: A gửi tin cho B đang là bạn", "GĐ5",
+            Caller.User, HttpMethod.Post, "/api/v1/conversations/{id A-B}/messages", HttpStatusCode.Created,
+            ArrangePath: async a => $"/api/v1/conversations/{await HoiThoaiCuaNguoiGoiAsync(a, huyKetBan: false)}/messages",
+            Body: new { content = "Chào bạn.", clientMsgId = Guid.Parse("0192f3c1-0000-7000-8000-00000000a07b") }),
+
+        new("TC-A01-conversations", "Danh sách hội thoại không kèm JWT", "GĐ5",
+            Caller.Anonymous, HttpMethod.Get, "/api/v1/conversations", HttpStatusCode.Unauthorized),
+
+        new("TC-A01-ticket", "Xin vé realtime không kèm JWT", "GĐ5",
+            Caller.Anonymous, HttpMethod.Post, "/api/v1/realtime/tickets", HttpStatusCode.Unauthorized),
+
         // --- GĐ6 (B2, đi cùng commit D làm dòng xanh — L-D7). Mục 6.3. Kỳ vọng viết tay theo Mục 6.1 + admin-v1.yaml. ---
         //
         // Endpoint [PrivilegedEndpoint] fail-closed khi Redis chết → matrix chạy với Redis thật từ D2 (L-D17). Thiếu Redis thì
@@ -198,6 +257,62 @@ public static class AuthZMatrix
         // cáo bài riêng tư có tồn tại. POST /reports không đặc quyền (B.10 #8) nên không phụ thuộc Redis của matrix.
         RepIdor(),
     ];
+
+    /// <summary>
+    /// B2 (GĐ5): A và B là bạn, có hội thoại với một tin; người gọi C có hồ sơ nhưng KHÔNG liên quan. Trả id hội thoại A-B.
+    /// </summary>
+    private static async Task<Guid> HoiThoaiCuaNguoiKhacAsync(AuthZArrange a)
+    {
+        await TaoHoSoAsync(a.Client, a.CallerUserId);
+        return await HoiThoaiCoTinAsync(a.Client, Guid.NewGuid(), Guid.NewGuid());
+    }
+
+    /// <summary>
+    /// B2 (GĐ5): NGƯỜI GỌI (A) và B là bạn, có hội thoại. <paramref name="huyKetBan"/>: B hủy kết bạn SAU khi mở hội thoại —
+    /// A vẫn là thành viên, chỉ còn BR-09 chặn (TC-A07-send). Không hủy thì là đối chứng TC-A07b.
+    /// </summary>
+    private static async Task<Guid> HoiThoaiCuaNguoiGoiAsync(AuthZArrange a, bool huyKetBan)
+    {
+        var b = Guid.NewGuid();
+        var id = await HoiThoaiCoTinAsync(a.Client, a.CallerUserId, b);
+        if (huyKetBan)
+        {
+            using var unfriend = new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/friends/{a.CallerUserId:D}");
+            unfriend.Headers.Authorization = Bearer(b);
+            using var response = await a.Client.SendAsync(unfriend);
+            await NemNeuKhongPhaiAsync(response, HttpStatusCode.NoContent, $"DELETE /friends/{a.CallerUserId:D} bởi {b:D}");
+        }
+
+        return id;
+    }
+
+    /// <summary>Hai người có hồ sơ, là bạn (API thật), mở hội thoại và <paramref name="nguoiA"/> gửi một tin. Trả id hội thoại.</summary>
+    private static async Task<Guid> HoiThoaiCoTinAsync(HttpClient client, Guid nguoiA, Guid nguoiB)
+    {
+        await TaoHoSoAsync(client, nguoiA);
+        await TaoHoSoAsync(client, nguoiB);
+        await GuiLoiMoiAsync(client, nguoiA, nguoiB);
+        await ChapNhanAsync(client, nguoiB, nguoiA);
+
+        using var open = new HttpRequestMessage(HttpMethod.Post, "/api/v1/conversations")
+        {
+            Content = JsonContent.Create(new { userId = nguoiB }),
+        };
+        open.Headers.Authorization = Bearer(nguoiA);
+        using var opened = await client.SendAsync(open);
+        await NemNeuKhongPhaiAsync(opened, HttpStatusCode.Created, $"POST /conversations {nguoiA:D} → {nguoiB:D}");
+        using var document = JsonDocument.Parse(await opened.Content.ReadAsStringAsync());
+        var id = document.RootElement.GetProperty("conversationId").GetGuid();
+
+        using var send = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/conversations/{id:D}/messages")
+        {
+            Content = JsonContent.Create(new { content = "Tin đầu tiên.", clientMsgId = Guid.NewGuid() }),
+        };
+        send.Headers.Authorization = Bearer(nguoiA);
+        using var sent = await client.SendAsync(send);
+        await NemNeuKhongPhaiAsync(sent, HttpStatusCode.Created, $"POST /conversations/{id:D}/messages");
+        return id;
+    }
 
     /// <summary>
     /// Dòng <c>REP-IDOR</c>: id bài của B nằm trong BODY, mà body của <see cref="AuthZCase"/> dựng trước khi <c>ArrangePath</c> chạy.

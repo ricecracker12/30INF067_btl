@@ -12,6 +12,7 @@ using SocialApp.SharedKernel.Errors;
 using SocialApp.SharedKernel.Events;
 using SocialApp.SharedKernel.Http;
 using SocialApp.SharedKernel.Moderation;
+using SocialApp.SharedKernel.Realtime;
 
 namespace SocialApp.SharedKernel.DependencyInjection;
 
@@ -89,6 +90,18 @@ public static class SharedKernelExtensions
                     _ => new FixedWindowRateLimiterOptions
                     {
                         PermitLimit = 10,
+                        Window = TimeSpan.FromMinutes(1),
+                        QueueLimit = 0,
+                    }));
+
+            // GĐ5 Đ-5.9: xin vé realtime 20/phút theo user — mạng chập chờn làm client tự nối lại liên tục; không giới hạn là
+            // một vòng lặp đốt Redis. Endpoint vé [Authorize] nên luôn có user; phân vùng dùng chung RateLimitPartitionKey.
+            options.AddPolicy(RealtimeTicketDefaults.RateLimitPolicy, ctx =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    RateLimitPartitionKey(ctx),
+                    _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = RealtimeTicketDefaults.RateLimitPerMinute,
                         Window = TimeSpan.FromMinutes(1),
                         QueueLimit = 0,
                     }));

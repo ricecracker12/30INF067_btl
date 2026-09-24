@@ -1,5 +1,10 @@
 import { BFF_PROBLEM_TYPES } from "./bff-contract"
-import type { FeedOverloadedProblem, ProblemDetails } from "./types"
+import type {
+  FeedOverloadedProblem,
+  NotFriendsProblem,
+  ProblemDetails,
+  RealtimeUnavailableProblem,
+} from "./types"
 
 /**
  * Mọi thứ không phải 2xx. Đọc được cả khi body không phải Problem Details — apache trả trang
@@ -53,6 +58,11 @@ export const PROBLEM_TYPES = {
   feedOverloaded:
     "urn:socialapp:problem:feed-overloaded" satisfies FeedOverloadedProblem["type"],
   bffSessionUnavailable: BFF_PROBLEM_TYPES.sessionUnavailable,
+  // GĐ5: 403 "không còn là bạn" (thanh chỉ đọc) khác 403 "không phải thành viên"; 503 vé realtime khác 503 feed/BFF.
+  notFriends:
+    "urn:socialapp:problem:not-friends" satisfies NotFriendsProblem["type"],
+  realtimeUnavailable:
+    "urn:socialapp:problem:realtime-unavailable" satisfies RealtimeUnavailableProblem["type"],
 } as const
 
 export type ProblemType = (typeof PROBLEM_TYPES)[keyof typeof PROBLEM_TYPES]

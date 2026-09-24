@@ -4,8 +4,10 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Npgsql;
 using SocialApp.Modules.Content.DependencyInjection;
 using SocialApp.Modules.Identity.DependencyInjection;
+using SocialApp.Modules.Messaging.DependencyInjection;
 using SocialApp.Modules.Moderation.DependencyInjection;
 using SocialApp.Modules.Notification.DependencyInjection;
 using SocialApp.Modules.Profile.DependencyInjection;
@@ -38,6 +40,7 @@ public sealed class ModulesApiFactory : WebApplicationFactory<Program>
     private Task<string>? _database;
     private string _redis = ApiFactory.UnreachableRedis;   // mặc định GIỮ NGUYÊN: mọi lớp cũ vẫn chạy không Redis
     private Action<IServiceCollection>? _testServices;
+    private readonly Dictionary<string, string> _settings = new(StringComparer.Ordinal);
 
     /// <summary>
     /// C5: lưu trữ đối tượng giả. Test dựng sẵn object bằng <c>Storage.Put(...)</c> rồi gọi API thật. MỘT instance cho cả
@@ -70,12 +73,18 @@ public sealed class ModulesApiFactory : WebApplicationFactory<Program>
     /// </summary>
     public void UseTestServices(Action<IServiceCollection> configure) => _testServices = configure;
 
+    /// <summary>
+    /// C4 (GĐ5): đặt một khóa cấu hình của host (vd <c>Realtime:Backplane:Enabled</c>). Gọi trước CreateClient đầu tiên — cùng luật
+    /// với <see cref="UseRedis"/>.
+    /// </summary>
+    public void UseSetting(string key, string value) => _settings[key] = value;
+
     public string ConnectionString => _database is { IsCompletedSuccessfully: true } db
         ? db.Result
         : throw new InvalidOperationException("Gọi UseFreshDatabaseAsync trước CreateClient.");
 
     /// <summary>
-    /// Thứ tự Identity → Profile → Content → SocialGraph → Moderation → Notification CỐ Ý ghi ra dù không có FK chéo schema
+    /// Thứ tự Identity → Profile → Content → SocialGraph → Messaging → Moderation → Notification CỐ Ý ghi ra dù không có FK chéo schema
     /// (Đ-2.2) — cùng thứ tự với <c>PostgresFixture.SeededContentDatabaseAsync</c> và với hook <c>--migrate</c> của Program.cs,
     /// để log đọc được theo một thứ tự không đổi. Seeder vai trò/quyền nằm trong <c>MigrateIdentityModuleAsync</c>: quên dòng đó là mọi test có
     /// <c>[RequirePermission]</c> đỏ với triệu chứng trông hệt "handler hỏng".
@@ -88,6 +97,7 @@ public sealed class ModulesApiFactory : WebApplicationFactory<Program>
             .AddProfileModule(cs)
             .AddContentModule(cs)
             .AddSocialGraphModule(cs)
+            .AddMessagingModule(cs)
             .AddModerationModule(cs)
             .AddNotificationModule(cs)
             .BuildServiceProvider();
@@ -96,9 +106,26 @@ public sealed class ModulesApiFactory : WebApplicationFactory<Program>
         await services.MigrateProfileModuleAsync();
         await services.MigrateContentModuleAsync();
         await services.MigrateSocialGraphModuleAsync();
+        await services.MigrateMessagingModuleAsync();
         await services.MigrateModerationModuleAsync();
         await services.MigrateNotificationModuleAsync();
         return cs;
+    }
+
+    /// <summary>
+    /// Trả pool kết nối của database này về Postgres khi lớp test xong (GĐ5, 2026-09-24). Mỗi lớp dùng factory có database riêng,
+    /// và pool Npgsql giữ kết nối rảnh tới 300 giây — trong khi cả collection chung MỘT container <c>max_connections = 100</c>.
+    /// Thêm ba lớp test hub của GĐ5 là đủ đẩy các lớp chạy sau sang <c>53300 too many clients already</c> (đo: 5 ca AuthZ đỏ).
+    /// Cùng lý do với <c>ClearPool</c> của <c>ModerationDbContextSchemaTests</c>, nhưng ở MỘT chỗ cho mọi lớp dùng factory.
+    /// </summary>
+    public override async ValueTask DisposeAsync()
+    {
+        await base.DisposeAsync();
+        if (_database is { IsCompletedSuccessfully: true } database)
+        {
+            await using var conn = new NpgsqlConnection(database.Result);
+            NpgsqlConnection.ClearPool(conn);
+        }
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -107,6 +134,8 @@ public sealed class ModulesApiFactory : WebApplicationFactory<Program>
         builder.UseSetting("ConnectionStrings:Postgres", ConnectionString);
         builder.UseSetting("ConnectionStrings:Redis", _redis);
         TestJwt.Configure(builder);
+        foreach (var (key, value) in _settings)
+            builder.UseSetting(key, value);
 
         builder.ConfigureTestServices(services =>
         {

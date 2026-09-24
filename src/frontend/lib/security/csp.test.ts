@@ -104,9 +104,15 @@ describe("buildCsp — host R2 (Đ-E17)", () => {
     expect(khong).not.toMatch(/\s;|;\s*$/)
   })
 
-  it("dev cũng nới đúng hai chỉ thị đó — connect-src của dev GIỐNG HỆT production", () => {
+  // Sửa 2026-09-24 (Đ-E18, GĐ5): trước đó dev GIỐNG HỆT production; nay dev thêm ĐÚNG hai nguồn hub chat, không gì khác.
+  it("dev cũng nới R2 như production — connect-src dev = production + hai nguồn hub dev (Đ-E18)", () => {
     const dev = buildCsp("abc123", { dev: true, r2Host: R2 })
-    expect(directive(dev, "connect-src")).toEqual(["'self'", R2])
+    expect(directive(dev, "connect-src")).toEqual([
+      "'self'",
+      R2,
+      "http://localhost:5259",
+      "ws://localhost:5259",
+    ])
     expect(directive(dev, "img-src")).toContain(R2)
   })
 })
@@ -160,5 +166,22 @@ describe("checkR2Host — kiểm dạng (Đ-E17 bước 3)", () => {
         problem: null,
       })
     }
+  })
+})
+
+describe("buildCsp — hub chat (Đ-E18, GĐ5)", () => {
+  it("dev: connect-src mở API dev cho WebSocket hub (http + ws của localhost:5259)", () => {
+    const csp = buildCsp("abc123", { dev: true, r2Host: null })
+    expect(directive(csp, "connect-src")).toEqual([
+      "'self'",
+      "http://localhost:5259",
+      "ws://localhost:5259",
+    ])
+  })
+
+  it("production: connect-src KHÔNG có localhost — hub đi /hubs/chat cùng origin, 'self' đã phủ wss", () => {
+    const csp = buildCsp("abc123", { dev: false, r2Host: null })
+    expect(directive(csp, "connect-src")).toEqual(["'self'"])
+    expect(csp).not.toContain("localhost")
   })
 })

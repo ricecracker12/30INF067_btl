@@ -6,7 +6,7 @@
 **Nguồn sự thật, theo thứ tự ưu tiên khi mâu thuẫn:**
 
 1. Hợp đồng API — `src/backend/Modules/<Module>/Presentation/<nhóm>.yaml`
-2. Mười sáu quyết định `Đ-E1`–`Đ-E16` trong [`docs/giai-doan-1/huong-dan-khoi-e-frontend.md`](../../docs/giai-doan-1/huong-dan-khoi-e-frontend.md)
+2. Mười tám quyết định `Đ-E1`–`Đ-E18` trong [`docs/giai-doan-1/huong-dan-khoi-e-frontend.md`](../../docs/giai-doan-1/huong-dan-khoi-e-frontend.md)
 3. `src/frontend/AGENTS.md` (luật Next.js của template + mục "UI kit")
 4. File này
 
@@ -24,7 +24,7 @@ quyết định mới, có ngày tháng, ghi vào tài liệu gốc trong cùng 
 - Đọc mục tương ứng trong hướng dẫn khối E trước khi làm một việc `E*` — mỗi mục có sẵn phần
   "cạm bẫy đã biết".
 
-## 1. Mười lăm điều không bao giờ làm
+## 1. Mười sáu điều không bao giờ làm
 
 | # | Cấm | Vì |
 |---|---|---|
@@ -43,6 +43,7 @@ quyết định mới, có ngày tháng, ghi vào tài liệu gốc trong cùng 
 | 13 | Script inline tự viết không mang nonce, `dangerouslySetInnerHTML` chứa script, thêm `'unsafe-inline'` / `'strict-dynamic'` / domain lạ vào CSP | Đ-E15 — CSP chặn; nới CSP là quyết định mới |
 | 14 | `useRef(new Thing())` — controller, subscription, timer, observer khởi tạo ở tham số của `useRef` | StrictMode mount lại trả về **đúng cái vừa bị hủy**; ESLint chặn. Tạo trong effect, ref chỉ là hộp đựng |
 | 15 | `<Button render={<Link …/>}>` cho điều hướng | Base UI dán ngữ nghĩa nút lên `<a>` và báo lỗi `nativeButton` — chỉ `console.error` ở bản dev, không test nào bắt (lọt từ GĐ2 tới GĐ4). Dùng `<Link className={buttonVariants(…)}>`; ESLint chặn (thêm 2026-09-23) |
+| 16 | Import `@microsoft/signalr` ngoài `lib/realtime/**` | Đ-5.17 (GĐ5) — MỘT kết nối hub cho cả app; chỗ khác mở là kết nối thứ hai, hai vé, hai lịch nối lại, badge và màn chat lệch nhau. Màn dùng `useChatConnection()`; ESLint chặn (thêm 2026-09-24) |
 
 ## 2. Đặt file ở đâu (Đ-E13)
 

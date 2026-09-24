@@ -575,6 +575,20 @@ chốt; nới Đ-E15 — thi công ở GĐ2 khối E đầu việc `E7`)*
 - **Chưa làm ở Đ-E17:** ca E2E `PUT` thật lên R2 trên `/compose` — màn đó thuộc `E4`, chưa tồn tại lúc chốt quyết định
   này. Địa chỉ nhận: `E8` (Playwright), cùng lượt với các ca của lát cắt GĐ2.
 
+**Đ-E18 — Hub chat ở dev nối thẳng API; CSP dev (và CHỈ dev) mở `localhost:5259`.** *(chốt 2026-09-24 ở cổng mở GĐ5 — đề
+xuất ở `docs/giai-doan-5/giai-doan-5.md` Mục 9.5)*
+
+- **Vấn đề.** Ở dev FE chạy `:3000`, API `:5259`. `/hubs/chat` trên `:3000` rơi vào Next → 404; luật FE Mục 4 cấm `rewrites`
+  (chuyển nguyên header, kể cả `Set-Cookie`); `connect-src 'self'` chặn nối thẳng `ws://localhost:5259`.
+- **Chốt.** `lib/realtime/hub-url.ts`: `NODE_ENV === "development"` → `http://localhost:5259/hubs/chat`, còn lại `/hubs/chat`
+  tương đối cùng origin (đúng Đ-E16). `buildCsp`: **chỉ khi `dev`**, `connect-src` thêm `http://localhost:5259 ws://localhost:5259`
+  — cùng tiền lệ `'unsafe-eval'` chỉ bật ở dev. Test Vitest khẳng định CSP production không có hai nguồn này
+  (`csp.test.ts`, "hub chat (Đ-E18, GĐ5)").
+- **Lệch một ca cũ của Đ-E17:** ca "connect-src của dev GIỐNG HỆT production" sửa thành "dev = production + hai nguồn hub dev".
+- **Loại bỏ:** Caddy local đứng trước cả FE lẫn API — giống staging hơn nhưng thêm container và đổi `APP_ORIGIN`, cookie
+  `__Host-`, `PLAYWRIGHT_BASE_URL` của mọi người dev; đắt hơn cái nó bảo vệ.
+- **Vé vẫn xin qua BFF** (`/bff/api/realtime/tickets`, cùng origin) — chỉ WebSocket đi thẳng API dev. WebSocket không qua CORS.
+
 ---
 
 ## 2. E1 — Scaffold Next.js 16 + shadcn/ui preset `b50KEhMiu`

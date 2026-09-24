@@ -27,7 +27,7 @@ public sealed class MetricsEndpointTests(ApiFactory factory)
     }
 
     /// <summary>
-    /// C2: bảy chuỗi nghiệp vụ phải có mặt NGAY sau khởi động, không đợi sự kiện đầu tiên (BusinessMetrics.Initialize).
+    /// C2 (GĐ7) + GĐ5: chín chuỗi đếm nghiệp vụ và histogram đẩy tin phải có mặt NGAY sau khởi động, không đợi sự kiện đầu tiên (BusinessMetrics.Initialize).
     /// Chỉ kiểm có mặt, không kiểm giá trị 0: test khác cùng process có thể đã tăng chúng. <c>result="failed"</c> không
     /// test nào kích được, nên thiếu Initialize là dòng đó vắng dù chạy chung hay chạy riêng.
     /// </summary>
@@ -45,6 +45,10 @@ public sealed class MetricsEndpointTests(ApiFactory factory)
             "socialapp_media_cleanup_runs_total{result=\"ran\"} ",
             "socialapp_media_cleanup_runs_total{result=\"lock\"} ",
             "socialapp_media_cleanup_runs_total{result=\"failed\"} ",
+            // GĐ5 (D5, D7): hai kênh gửi tin + histogram đẩy tin.
+            "socialapp_messages_sent_total{channel=\"hub\"} ",
+            "socialapp_messages_sent_total{channel=\"rest\"} ",
+            "socialapp_message_push_seconds_count ",
             "socialapp_revocation_failures_total ",   // GĐ6 D3 (Đ-6.6)
         ];
         Assert.All(chuoi, c => Assert.Contains(dong, l => l.StartsWith(c, StringComparison.Ordinal)));

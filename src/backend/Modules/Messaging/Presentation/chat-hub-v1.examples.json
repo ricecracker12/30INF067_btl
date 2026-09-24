@@ -1,0 +1,49 @@
+{
+  "methods": {
+    "SendMessage": {
+      "args": {
+        "conversationId": "0192f3c1-9b2d-7e40-8a11-3c5d7e9f1a20",
+        "content": "Chào bạn, tối nay đi cà phê không?",
+        "clientMsgId": "6f1d2c3b-4a5e-4f60-9b7a-8c9d0e1f2a3b"
+      },
+      "result": {
+        "message": {
+          "messageId": "0192f3c2-0a1b-7c2d-9e3f-4a5b6c7d8e9f",
+          "conversationId": "0192f3c1-9b2d-7e40-8a11-3c5d7e9f1a20",
+          "senderId": "0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10",
+          "seq": 57,
+          "content": "Chào bạn, tối nay đi cà phê không?",
+          "clientMsgId": "6f1d2c3b-4a5e-4f60-9b7a-8c9d0e1f2a3b",
+          "createdAt": "2026-09-24T10:15:30.123+00:00"
+        },
+        "replayed": false
+      }
+    },
+    "SendReceipt": {
+      "args": {
+        "conversationId": "0192f3c1-9b2d-7e40-8a11-3c5d7e9f1a20",
+        "kind": "seen",
+        "upToSeq": 57
+      },
+      "result": null
+    }
+  },
+  "events": {
+    "MessageReceived": {
+      "messageId": "0192f3c2-0a1b-7c2d-9e3f-4a5b6c7d8e9f",
+      "conversationId": "0192f3c1-9b2d-7e40-8a11-3c5d7e9f1a20",
+      "senderId": "0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10",
+      "seq": 57,
+      "content": "Chào bạn, tối nay đi cà phê không?",
+      "clientMsgId": "6f1d2c3b-4a5e-4f60-9b7a-8c9d0e1f2a3b",
+      "createdAt": "2026-09-24T10:15:30.123+00:00"
+    },
+    "ReceiptUpdated": {
+      "conversationId": "0192f3c1-9b2d-7e40-8a11-3c5d7e9f1a20",
+      "userId": "0192f3c1-7f3e-7b20-8e19-5a4c3b2a1f09",
+      "deliveredSeq": 57,
+      "seenSeq": 57
+    }
+  },
+  "errors": ["forbidden", "not-friends", "validation", "conflict", "rate-limited", "unavailable"]
+}

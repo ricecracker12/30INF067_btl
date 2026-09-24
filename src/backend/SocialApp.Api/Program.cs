@@ -17,6 +17,8 @@ using SocialApp.Modules.Content.DependencyInjection;
 using SocialApp.Modules.Content.Presentation;
 using SocialApp.Modules.Identity.DependencyInjection;
 using SocialApp.Modules.Identity.Presentation;
+using SocialApp.Modules.Messaging.DependencyInjection;
+using SocialApp.Modules.Messaging.Presentation;
 using SocialApp.Modules.Moderation.DependencyInjection;
 using SocialApp.Modules.Moderation.Presentation;
 using SocialApp.Modules.Notification.DependencyInjection;
@@ -30,6 +32,7 @@ using SocialApp.SharedKernel.Configuration;
 using SocialApp.SharedKernel.DependencyInjection;
 using SocialApp.SharedKernel.Http;
 using SocialApp.SharedKernel.Observability;
+using SocialApp.SharedKernel.Realtime;
 using SocialApp.SharedKernel.Redis;
 using SocialApp.SharedKernel.Storage;
 
@@ -61,6 +64,7 @@ builder.Services
     .AddApplicationPart(typeof(ProfileApiGroup).Assembly)
     .AddApplicationPart(typeof(ContentApiGroup).Assembly)
     .AddApplicationPart(typeof(SocialGraphApiGroup).Assembly)
+    .AddApplicationPart(typeof(MessagingApiGroup).Assembly)
     .AddApplicationPart(typeof(ModerationApiGroup).Assembly)
     .AddJsonOptions(o =>
     {
@@ -97,6 +101,7 @@ var apiGroups = new[]
     (Name: ProfileApiGroup.Name, Title: ProfileApiGroup.Title),
     (Name: ContentApiGroup.Name, Title: ContentApiGroup.Title),
     (Name: SocialGraphApiGroup.Name, Title: SocialGraphApiGroup.Title),
+    (Name: MessagingApiGroup.Name, Title: MessagingApiGroup.Title),
     // GĐ6 D6 (Đ-6.1): nhóm của Moderation — ra đời cùng POST /reports (L-D1).
     (Name: ModerationApiGroup.Name, Title: ModerationApiGroup.Title),
 };
@@ -209,6 +214,9 @@ builder.Services.AddContentModule(postgres);
 
 // --- Module SocialGraph: DbContext riêng, schema "socialgraph" (ADR-001, Đ-4.1) ---
 builder.Services.AddSocialGraphModule(postgres);
+
+// --- Module Messaging: DbContext riêng, schema "messaging" (ADR-001, Đ-5.1) ---
+builder.Services.AddMessagingModule(postgres);
 
 // --- Module Moderation: DbContext riêng, schema "moderation" (ADR-001, Đ-6.1) ---
 builder.Services.AddModerationModule(postgres);
@@ -345,6 +353,13 @@ builder.Services.AddSingleton(Microsoft.Extensions.Options.Options.Create(jwt));
 builder.Services.AddSharedKernelRedis(redis);
 builder.Services.AddSharedKernelTokenRevocation();
 
+// Realtime (GĐ5 Đ-5.8–Đ-5.10): SignalR + vé dùng một lần + IUserIdProvider đọc "sub" + filter thu hồi/tuổi thọ TOÀN CỤC cho mọi
+// hub (/hubs/chat của GĐ5, /hubs/notifications của GĐ6 dùng lại — Đ-6.18). Dùng chung kết nối Redis ở trên.
+builder.Services.AddSharedKernelRealtime(new RealtimeBackplane(
+    builder.Configuration.GetValue<bool>("Realtime:Backplane:Enabled"),
+    redis,
+    $"socialapp-{builder.Environment.EnvironmentName.ToLowerInvariant()}"));
+
 // MỘT chỗ đăng ký lưu trữ đối tượng cho cả app (Đ-2.14): Profile (avatar), Content (ảnh bài), GĐ5 (media tin nhắn) dùng chung
 // IObjectStorage; không module nào gọi AWS SDK. r2 đã qua RequireR2Options ở trên — ngoài Development chắc chắn đủ.
 builder.Services.AddSharedKernelR2(r2, builder.Environment.EnvironmentName);
@@ -409,7 +424,10 @@ builder.Services
                 }
             },
         };
-    });
+    })
+    // Scheme thứ hai, CHỈ cho hub (Đ-5.9): đọc ?access_token=<vé> ở /hubs/*. Không đổi default scheme — REST vẫn là bearer, và
+    // JwtBearer KHÔNG đọc query (không có OnMessageReceived): JWT trên URL là thứ Đ-E16 sinh ra để tránh.
+    .AddRealtimeTicket();
 
 // --- Tầng 2 (RBAC, Mục 6.2): [RequirePermission] + fallback policy default deny ---
 builder.Services.AddSharedKernelAuthorization();
@@ -425,17 +443,19 @@ var app = builder.Build();
 // `set -e` ở CD dừng lại TRƯỚC `up -d` thay vì bật api trên dữ liệu nền hỏng.
 if (isMigrate)
 {
-    // Thứ tự Identity → Profile → Content → SocialGraph → (Messaging) → Moderation → Notification là CỐ ĐỊNH (Mục 5 GĐ4,
+    // Thứ tự Identity → Profile → Content → SocialGraph → Messaging → Moderation → Notification là CỐ ĐỊNH (Mục 5 GĐ4,
     // Mục 9.4 GĐ6): không có FK chéo schema nên DB không đòi thứ tự, nhưng log deploy phải đọc được theo một thứ tự không đổi.
     await app.Services.MigrateIdentityModuleAsync();
     await app.Services.MigrateProfileModuleAsync();
     await app.Services.MigrateContentModuleAsync();
     await app.Services.MigrateSocialGraphModuleAsync();
+    await app.Services.MigrateMessagingModuleAsync();
     await app.Services.MigrateModerationModuleAsync();
     await app.Services.MigrateNotificationModuleAsync();
     Console.WriteLine(
         $"[migrate] Đã áp dụng migration cho schema \"{IdentityModuleExtensions.Schema}\", \"{ProfileModuleExtensions.Schema}\", "
-      + $"\"{ContentModuleExtensions.Schema}\", \"{SocialGraphModuleExtensions.Schema}\", \"{ModerationModuleExtensions.Schema}\", "
+      + $"\"{ContentModuleExtensions.Schema}\", \"{SocialGraphModuleExtensions.Schema}\", \"{MessagingModuleExtensions.Schema}\", "
+      + $"\"{ModerationModuleExtensions.Schema}\", "
       + $"\"{NotificationModuleExtensions.Schema}\"; "
       + $"nạp dữ liệu nền và kiểm tra vai trò hệ thống cho schema \"{IdentityModuleExtensions.Schema}\". Thoát 0.");
     return;
@@ -486,9 +506,12 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check 
 // thiếu thì fallback policy trả 401 và target DOWN. KHÔNG ra Internet (Đ-7.7): apache không ProxyPass /metrics nên đường
 // công khai rơi về Next → 404; Kuma có monitor lộn ngược canh chuyện này (hướng dẫn khối C, C6).
 app.MapMetrics().AllowAnonymous();
-BusinessMetrics.Initialize();   // chuỗi nghiệp vụ (GĐ7 C2) + event bus (GĐ6) có mặt từ lúc khởi động với giá trị 0, không đợi sự kiện đầu tiên
+BusinessMetrics.Initialize();   // chuỗi nghiệp vụ (GĐ7 C2, GĐ5, GĐ6) + histogram đẩy tin + event bus có mặt từ lúc khởi động với giá trị 0, không đợi sự kiện đầu tiên
 
 app.MapControllers();
+
+// Hub nhắn tin (GĐ5). Sau UseAuthentication/UseAuthorization — hub khai [Authorize(AuthenticationSchemes = RealtimeTicket)].
+app.MapHub<ChatHub>(ChatHub.Path);
 
 app.Run();
 

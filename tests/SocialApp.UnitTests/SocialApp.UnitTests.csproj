@@ -31,6 +31,8 @@
     <ProjectReference Include="..\..\src\backend\Modules\SocialGraph\SocialApp.Modules.SocialGraph.csproj" />
     <!-- A2 GĐ6: GroupKey / NotificationTypes là hàm thuần trong Domain của Notification. -->
     <ProjectReference Include="..\..\src\backend\Modules\Notification\SocialApp.Modules.Notification.csproj" />
+    <!-- A1 GĐ5: ConversationPair / MessageContentPolicy / ReceiptMarks là hàm thuần trong Domain của Messaging. -->
+    <ProjectReference Include="..\..\src\backend\Modules\Messaging\SocialApp.Modules.Messaging.csproj" />
     <!-- D6 GĐ6: validator + thứ tự kiểm của ReportSubmissionService (chống dò IDOR) — kiểm bằng fake, không tốn lượt HTTP. -->
     <ProjectReference Include="..\..\src\backend\Modules\Moderation\SocialApp.Modules.Moderation.csproj" />
   </ItemGroup>

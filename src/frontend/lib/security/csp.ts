@@ -53,6 +53,9 @@ export function checkR2Host(
   return { host: value, problem: null }
 }
 
+/** Đ-E18: nguồn hub chat ở dev — cùng origin với nhánh dev của `chatHubUrl()` (`lib/realtime/hub-url.ts`). Module server, không vào bundle trình duyệt. */
+const DEV_REALTIME = ["http://localhost:5259", "ws://localhost:5259"]
+
 export function buildCsp(
   nonce: string,
   { dev, r2Host }: { dev: boolean; r2Host: string | null }
@@ -83,7 +86,9 @@ export function buildCsp(
     ["font-src", "'self'"],
     // Trình duyệt chỉ nói chuyện với BFF cùng origin (Đ-E14) — TRỪ lượt `PUT` thẳng lên R2 (Đ-2.5, Đ-E17):
     // upload đi vòng qua Next server là nhân đôi băng thông VPS cho mỗi ảnh, đúng thứ Đ-2.5 tránh.
-    ["connect-src", "'self'", ...r2(r2Host)],
+    // Đ-E18 (GĐ5): CHỈ dev — hub chat nối thẳng API dev (FE :3000, API :5259; luật FE cấm `rewrites`). Staging/production
+    // nối `/hubs/chat` cùng origin: `'self'` đã phủ `wss://` cùng origin (CSP Level 3), không thêm gì.
+    ["connect-src", "'self'", ...r2(r2Host), ...(dev ? DEV_REALTIME : [])],
     ["object-src", "'none'"],
     // Chặn chèn <base href> để đổi đích của mọi đường dẫn tương đối.
     ["base-uri", "'self'"],
