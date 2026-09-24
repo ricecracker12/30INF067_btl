@@ -1336,5 +1336,33 @@ Playwright hai tài khoản thật passed, ảnh ở `bang-chung/`. F4 — đố
 - Báo người làm GĐ6: `CommentCreated`/`ReactionSet` đã phát thật; provider kiểm duyệt bình luận và nhãn "đã bị ẩn" có sẵn chỗ
   cắm (`CommentStatus.Hidden`, mapper coi như `deleted`).
 
+**F5 — k6 lượt lạnh: TẠM DỪNG 2026-09-25, chưa kết luận.**
+
+Chuẩn bị (xong): stack perf `socialapp-perf` dựng từ `26ef2d3` (có GĐ3), migrate đủ, `seed.sql` 1M bài / 10k hồ sơ (25 s, số
+liệu khớp GĐ4), `users.csv` + `.env` perf (gitignore), smoke 5 VU đạt. Thêm `tests/load/feed/seed-reactions.sql`: 1.000.000 cảm xúc
+trên ~198.000 bài (mỗi người 20 bài mới nhất của 5 bạn, chọn bạn theo băm), dựng lại `reaction_counts` khớp bảng gốc — đã chạy
+thử hai lần trong transaction + ROLLBACK (31 s, đối soát 0 dòng), **chưa chạy thật**.
+
+Lượt A — code GĐ3, `content.reactions` rỗng, cache trang đầu tắt, Redis `FLUSHALL`, 1.000 VU (2/5/1 phút), cùng `feed.js`:
+
+| Lượt | Request | Lỗi | p50 | p90 | p95 | p99 | max | Kết nối DB đỉnh |
+|---|---|---|---|---|---|---|---|---|
+| GĐ4 lượt (2) — mốc (máy 12 CPU / 7,6 GB) | — | 0 % | — | — | 37,6 ms | — | — | 68 |
+| **GĐ3 lượt A** (máy 16 CPU / 16,6 GB) | 248.042 | 0 % | 8,2 ms | 116,1 ms | **189,4 ms** | 357,7 ms | 925,7 ms | **81** (trần pool 80 + 1 của lệnh theo dõi) |
+
+Vẫn đạt GOAL-01 (≤ 500 ms) nhưng p95 gấp ~5 lần mốc GĐ4 và pool chạm trần. **Chưa quy cho GĐ3:** câu `myReaction` tra bảng rỗng
+khó gây mức này; giữa mốc GĐ4 và nay còn GĐ5, GĐ6 và máy đo khác. Việc còn dở, theo thứ tự:
+
+1. **Lượt đối chứng:** build API từ `df4538f` (develop ngay trước GĐ3) — worktree tạm `../mxh-baseline` đã tạo, đã chép
+   `.env` + `users.csv` — rồi chạy cùng kịch bản trên cùng DB. Dừng vì Docker Desktop mất DNS lúc build (`lookup
+   registry-1.docker.io: no such host`); sửa mạng/khởi động lại Docker Desktop rồi chạy lại. Đối chứng ≈ 190 ms → GĐ3 vô can;
+   ≈ 40 ms → xem lại câu `myReaction`.
+2. Trả API về bản GĐ3 (`up -d --build --force-recreate --no-deps api` từ `mxh-gd5`), chạy `seed-reactions.sql` thật, **lượt B**.
+3. Ghi kết quả vào `docs/giai-doan-4/bao-cao-k6-so-bo.md`, commit `seed-reactions.sql`, đóng băng `content-v1` bản `1.1.0-gd3`,
+   báo GĐ6; `git worktree remove ../mxh-baseline --force`; `down -v` stack perf.
+
+Trạng thái máy lúc dừng: stack perf đang chạy (API bản GĐ3 — build đối chứng hỏng trước khi thay container), stack dev
+`socialapp-gd5dev` đã tắt.
+
 **Môi trường máy dev khi thi công:** Node 24 ở `/tmp/node24` (máy là 20); stack dev `docker compose -p socialapp-gd5dev`;
 `post-create.spec.ts` đỏ ở bước `PUT` ảnh lên R2 dev (0 request tới R2 — khóa R2 dev chờ xoay), không liên quan GĐ3.
