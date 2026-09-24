@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using SocialApp.Modules.Messaging.Application.Conversations;
 using SocialApp.Modules.Messaging.Infrastructure;
+using SocialApp.Modules.Messaging.Infrastructure.Persistence;
 
 namespace SocialApp.Modules.Messaging.DependencyInjection;
 
@@ -24,6 +26,10 @@ public static class MessagingModuleExtensions
 
         // Đồng hồ của service (created_at, last_message_at). TryAdd: các module khác cũng gọi — một đồng hồ cho cả process.
         services.TryAddSingleton(TimeProvider.System);
+
+        // A5. Scoped vì giữ MessagingDbContext (scoped). ConversationAccess là tầng 3 DUY NHẤT của BR-06 (Mục 6.2).
+        services.AddScoped<IConversationStore, ConversationStore>();
+        services.AddScoped<ConversationAccess>();
 
         return services;
     }

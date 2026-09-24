@@ -1657,3 +1657,24 @@ Thiếu bất kỳ điều nào thì **chưa xong**, dù code đã chạy:
 **Một câu để nhớ:** các giai đoạn trước hỏi *"người này có được làm việc này không"* một lần cho mỗi request; GĐ5 là lần
 đầu hệ thống phải tiếp tục hỏi câu đó **trong suốt một kết nối sống hàng giờ** — và phải trả lời đúng cả khi hai tin tới cùng
 một mili-giây.
+
+---
+
+# Thực tế thi công
+
+Ghi theo thứ tự làm, mỗi dòng trỏ commit. Chỗ lệch Phần A/B mở bằng "Lệch".
+
+## Khối A — Nền dữ liệu (2026-09-24)
+
+| Việc | Commit | Kết quả / chỗ lệch |
+|---|---|---|
+| Cổng mở | `03fc4fa`, `c39e04c` | Bảng "Cổng mở (2026-09-24)" ở đầu tài liệu; hợp đồng hub; mẫu apache `/hubs/`. Mốc test đúng trên `develop@3b5bf64`: Unit 336, Architecture 23 (+1 Skip của GĐ6), Integration 544 |
+| A1 | `dc88856` | Domain thuần + `ConversationPair`. `MessageContentPolicy` đếm **code point** (khớp `char_length`) — emoji là 1 ký tự |
+| A2–A3 | `a5e6920` | Migration `InitialMessaging` khớp DDL Mục 4. **Cạm bẫy đã gặp:** test schema không `ClearPool` → cả bộ chạm `max_connections` 100 (52 ca đỏ `53300`) — chép khuôn `IAsyncLifetime` của `ModerationDbContextSchemaTests` |
+| A4 | `94da7d3` | `MessagingPermissions` + test đối chiếu `PermissionCodes` |
+| A5 | *(commit này)* | Store + `ConversationAccess` + cursor. **Lệch B.4:** câu gửi tin Đ-5.4 viết luôn ở A5 (một interface store), không đợi D5. **Lệch Đ-5.4 bước 2:** tầng 3 (thành viên) kiểm **trước** transaction qua `ConversationAccess` — thành viên cố định nên kết quả như nhau, và giữ được "một chỗ duy nhất kiểm BR-06". EXPLAIN (với `enable_seqscan = off` vì bảng test nhỏ): lịch sử `Index Scan Backward using uq_messages_conv_seq`, không Sort; danh sách dùng cả `idx_conversations_a_recent` lẫn `_b_recent` |
+
+**Đột biến đã thử ở A5:** bỏ `for update` → `MSG-C1`/`MSG-C2` **vẫn xanh** — chính câu `UPDATE seq_counter = seq_counter + 1`
+đã khóa dòng nên `seq` không lỗ/không trùng, và UNIQUE `client_msg_id` + nhánh bắt `23505` đỡ lượt gửi trùng. Bỏ **cả** `for
+update` lẫn nhánh bắt `23505` → `MSG-C2` đỏ `23505 uq_messages_conv_client_id` (3/3 lượt). Tức `FOR UPDATE` là lớp phòng thủ
+thứ nhất, UNIQUE là lớp thứ hai; test chứng minh được lớp thứ hai, lớp thứ nhất không quan sát được từ ngoài.
