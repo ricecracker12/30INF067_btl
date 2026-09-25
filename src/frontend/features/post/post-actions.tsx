@@ -33,9 +33,20 @@ type Props = {
   onDeleted: () => void
   /** Lỗi của lượt xóa — hiện ở chỗ gọi, cùng chỗ với lỗi của lượt sửa. */
   onError: (message: string) => void
+  /**
+   * `false` khi bài bị kiểm duyệt ẩn (GĐ6 Đ-6.14): sửa rồi "tự gỡ ẩn" là lách kiểm duyệt — server trả 409 `post-hidden`, nên nút
+   * Sửa không có trong DOM. Xóa vẫn giữ: người dùng luôn xóa được nội dung của mình.
+   */
+  canEditBody?: boolean
 }
 
-export function PostActions({ post, onEdit, onDeleted, onError }: Props) {
+export function PostActions({
+  post,
+  onEdit,
+  onDeleted,
+  onError,
+  canEditBody = true,
+}: Props) {
   const [pending, setPending] = useState(false)
   const [open, setOpen] = useState(false)
 
@@ -58,9 +69,11 @@ export function PostActions({ post, onEdit, onDeleted, onError }: Props) {
 
   return (
     <div className="flex shrink-0 gap-2">
-      <Button variant="outline" size="sm" onClick={onEdit} disabled={pending}>
-        Sửa
-      </Button>
+      {canEditBody && (
+        <Button variant="outline" size="sm" onClick={onEdit} disabled={pending}>
+          Sửa
+        </Button>
+      )}
 
       {/* `AlertDialog` của kit, KHÔNG `window.confirm`: hộp thoại của trình duyệt không nhận được style
           của app, không dịch được, và chặn cả luồng JS. */}

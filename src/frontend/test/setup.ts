@@ -3,6 +3,7 @@ import "@testing-library/jest-dom/vitest"
 import { cleanup } from "@testing-library/react"
 import { afterAll, afterEach, beforeAll } from "vitest"
 
+import { meStore } from "@/lib/auth/me-store"
 import { server } from "@/mocks/node"
 import { mockControls } from "@/mocks/session"
 import { fakeApi } from "@/mocks/upstream"
@@ -26,6 +27,8 @@ afterEach(() => {
   server.events.removeAllListeners()
   mockControls.reset()
   fakeApi.reset()
+  // GĐ6: `/me` (quyền hiệu lực) là store module — ca trước để lại quyền ADMIN thì ca sau thấy liên kết "Quản trị" vô cớ.
+  meStore.reset()
 })
 afterAll(() => {
   server.close()

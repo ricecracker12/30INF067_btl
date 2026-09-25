@@ -9,6 +9,7 @@ import { PublicProfile } from "@/features/profile/public-profile"
 import { useProfile } from "@/features/profile/use-profile"
 
 import { postListFooter } from "../../_interactions/post-interactions"
+import { ReportSlot } from "../../_interactions/report-slot"
 
 // Hồ sơ một người + bài của họ + nút quan hệ (GĐ2 Q-E6, GĐ4 E5). Chỉ ráp (Đ-E13) — tầng DUY NHẤT được biết cả
 // `features/profile` (ai đang đăng nhập), `features/friend` và `features/post`.
@@ -42,6 +43,8 @@ export default function UserPage({
                     displayName={nguoiKia.displayName}
                   />
                   <StartChatButton userId={userId} />
+                  {/* GĐ6 E5: báo cáo tài khoản — slot `actions` của GĐ4, không chạm `features/profile`. */}
+                  <ReportSlot targetType="user" targetId={userId} />
                 </div>
               )
         }

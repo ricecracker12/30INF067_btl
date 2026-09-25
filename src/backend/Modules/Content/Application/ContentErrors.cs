@@ -10,9 +10,9 @@ namespace SocialApp.Modules.Content.Application;
 /// Thông điệp chép ĐÚNG câu trong <c>example</c> của <c>content-v1.yaml</c>, hoặc lấy thẳng từ hằng số của Domain
 /// (<see cref="PostContentPolicy"/>, <see cref="MediaHeadPolicy"/>) — không gõ lại câu ở tầng này.
 ///
-/// Không có lỗi 403 nào trong danh sách này: mọi 403 của Content (thiếu quyền, chưa có hồ sơ, key sai tiền tố, không phải bài
-/// của mình, bài đã xóa mềm) dùng <see cref="Error.Forbidden"/> của SharedKernel — hợp đồng đã chốt "cùng một phản hồi, không
-/// nêu lý do nào" (content-v1.yaml, 403 của POST /posts).
+/// 403 của Content (thiếu quyền, key sai tiền tố, không phải bài của mình, bài đã xóa mềm) dùng <see cref="Error.Forbidden"/> của
+/// SharedKernel — "cùng một phản hồi, không nêu lý do nào". Ngoại lệ DUY NHẤT: <see cref="ProfileRequired"/> của <c>POST /posts</c>
+/// (GĐ6, sửa 2026-09-25) — xem lý do ở chính nó.
 /// </summary>
 public static class ContentErrors
 {
@@ -95,6 +95,24 @@ public static class ContentErrors
 
     /// <summary><c>type</c> của 409 bài bị ẩn — khai ở <c>PostHiddenProblem</c> trong <c>content-v1.yaml</c> (Mục 17.1).</summary>
     public const string PostHiddenType = "urn:socialapp:problem:post-hidden";
+
+    /// <summary>
+    /// 403 của <c>POST /posts</c> khi người gọi CHƯA CÓ HỒ SƠ (Đ-2.4) — <c>type</c> riêng (<see cref="ProfileRequiredType"/>), sửa
+    /// 2026-09-25 (nợ phát hiện ở GĐ6 E2E-05). Trước đó mọi 403 của endpoint này trùng một phản hồi, và FE nói "hãy hoàn tất hồ sơ"
+    /// cả khi vai trò vừa bị Admin gỡ <c>post.create</c> — người dùng không có cách nào hiểu đúng.
+    ///
+    /// Không lộ gì: người gọi luôn biết mình có hồ sơ hay chưa (<c>GET /users/{mình}/profile</c> trả 404), và nhánh này chạy TRƯỚC
+    /// kiểm tiền tố <c>mediaKey</c> — người chưa có hồ sơ nhận nó bất kể key của ai, nên nó không nói gì về dữ liệu người khác. 403
+    /// thiếu quyền (tầng 2) và 403 key sai tiền tố (Đ-2.7) vẫn trùng một phản hồi như cũ.
+    /// </summary>
+    public static readonly Error ProfileRequired = new(
+        "post.profile_required",
+        "Bạn cần tạo hồ sơ trước khi đăng bài.",
+        403,
+        Type: ProfileRequiredType);
+
+    /// <summary><c>type</c> của 403 chưa có hồ sơ — khai ở <c>ProfileRequiredProblem</c> trong <c>content-v1.yaml</c>.</summary>
+    public const string ProfileRequiredType = "urn:socialapp:problem:profile-required";
 
     // ---- GĐ3: bình luận + cảm xúc ----
 

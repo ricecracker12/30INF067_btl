@@ -1245,8 +1245,8 @@ nhận hai lần hay sai thứ tự đều vô hại. Nối lại → nạp lạ
 | File | Thêm | Không đổi |
 |---|---|---|
 | `profile-v1.yaml` | `GET /search?q=&type=user&limit=` → 200 `{ items: [{ userId, displayName, avatarUrl? }] }` · 400 `errors.q` · 401 (*sửa 2026-09-25, D12:* `1.1.0-gd6`; `avatarUrl` luôn có mặt, `null` khi không ảnh — không optional; 400 thêm `errors.type`, `errors.limit`) | Mọi schema GĐ2 |
-| `identity-v1.yaml` | `MeResponse.permissions: string[]` (required) · `POST /auth/login` thêm 403 type `…:account-disabled` · `RoleCode` nới từ enum thành chuỗi có pattern (*sửa 2026-09-24, D1 — L-D16*) | Mọi trường đã có; 403 `email-not-verified` giữ nguyên type riêng |
-| `content-v1.yaml` | `PostResponse.moderation?: { status: "hidden", reasonCode, hiddenAt }` · `PATCH /posts/{id}` thêm 409 `…:post-hidden` (*sửa 2026-09-25, D7a:* `1.1.0-gd6`; `moderation` nullable, không required, đặt cuối; `reasonCode` là enum năm giá trị như `ReasonCode` của `moderation-v1`; 409 khai bằng `PostHiddenProblem`) | Mọi trường GĐ2/GĐ3/GĐ4 |
+| `identity-v1.yaml` | `MeResponse.permissions: string[]` (required) · `POST /auth/login` thêm 403 type `…:account-disabled` · `RoleCode` nới từ enum thành chuỗi có pattern (*sửa 2026-09-24, D1 — L-D16*) · *thêm 2026-09-25 sau khối E:* schema `AccountDisabledProblem` cho 403 đó (`1.2.0-gd6`) — trước đó `type` chỉ nằm trong mô tả | Mọi trường đã có; 403 `email-not-verified` giữ nguyên type riêng |
+| `content-v1.yaml` | `PostResponse.moderation?: { status: "hidden", reasonCode, hiddenAt }` · `PATCH /posts/{id}` thêm 409 `…:post-hidden` (*sửa 2026-09-25, D7a:* `1.1.0-gd6`; `moderation` nullable, không required, đặt cuối; `reasonCode` là enum năm giá trị như `ReasonCode` của `moderation-v1`; 409 khai bằng `PostHiddenProblem`) · *thêm 2026-09-25 sau khối E:* 403 "chưa có hồ sơ" của `POST /posts` mang `type` `…:profile-required` (`ProfileRequiredProblem`, `1.3.0-gd6`) — tách khỏi 403 thiếu `post.create` | Mọi trường GĐ2/GĐ3/GĐ4; 403 thiếu quyền / khóa của người khác giữ nguyên phản hồi |
 
 Mỗi lần mở: `info.version` → `…-gd6`, `pnpm gen:api`, commit `schema.d.ts` **cùng commit**, cổng `API contract` + codegen xanh.
 Thêm trường `required` vào **response** là chỉ-thêm với client (client cũ bỏ qua trường lạ); vào **request** thì không.
@@ -2099,6 +2099,16 @@ sửa yaml → đỏ; đổi tên trường trong `notification-hub-v1.examples.
 Luật đặt file (luật frontend Mục 2, Đ-E13): năm feature của Đ-6.20; `lib/auth/permissions.ts`; không `features/` nào import chéo;
 ghép ở `app/`. Viết `docs/giai-doan-6/huong-dan-khoi-e-f-frontend-va-cong-dong.md` khi bắt đầu khối, chốt câu hỏi `Q-E*` ở đầu
 (nếp GĐ2/GĐ4).
+
+*Lệch B.8 (người thi công chốt, 2026-09-25 khi thi công khối E — chi tiết và lý do ở Mục 0.1 của hướng dẫn khối E+F):*
+**E1** mười ngữ cảnh lỗi, không phải bảy — thêm `moderation-read`, `moderation-restore`, `admin-read` (L1). **E2** liên kết "Quản trị"
+tính cả `user.unlock` (cùng any-of của `GET /admin/users`, L5). **E3** "Đánh dấu tất cả" gửi `upTo` = `updatedAt` của nhóm mới nhất
+đang hiển thị — đúng `notification-v1`, không phải "lúc mở" (L2); E3 chỉ hỏi lại 30 giây, nối hub `/hubs/notifications` phía FE là PR
+nhỏ sau (luật FE #16 phải sửa có ngày trước, L3). **E5** không có "menu …" — nút Báo cáo ở slot footer của bài, hàng cảm xúc của bình
+luận, slot `actions` của hồ sơ (L4). **E7** không có `role.manage` thì danh sách vai trò lùi về USER/MODERATOR (L6); cảnh báo vàng dùng
+token mới `--warning` (L8). **E10** mỗi màn GĐ6 tạo `AbortController` lúc mount có đúng một ca `<StrictMode>` (luật FE Mục 9), không chỉ
+chuông và ô tìm (L10); E2E-01 bước "người báo mở lại link" khẳng định màn 404 của bài giữ câu GĐ2 "Không tìm thấy bài viết." —
+một câu cho ba nghĩa của 404, câu "Nội dung này không còn nữa" là của 404 **báo cáo** (L7).
 
 ### E1 — Codegen, client, ngữ cảnh lỗi, quyền
 

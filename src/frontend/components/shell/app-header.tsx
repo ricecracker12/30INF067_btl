@@ -15,15 +15,16 @@ type Props = {
 export function AppHeader({ actions, nav }: Props) {
   return (
     <header className="border-b border-border bg-background">
-      <div className="mx-auto flex h-14 w-full max-w-2xl items-center justify-between gap-4 px-6">
-        <div className="flex min-w-0 items-center gap-4">
+      {/* Xuống dòng khi chật (GĐ6: thêm "Kiểm duyệt", "Quản trị", ô tìm, chuông) — chiều cao tối thiểu giữ 14 như cũ. */}
+      <div className="mx-auto flex min-h-14 w-full max-w-2xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-6 py-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-4">
           <Link href="/" className="font-medium">
             SocialApp
           </Link>
           {nav && (
             <nav
               aria-label="Điều hướng chính"
-              className="flex items-center gap-3 text-sm text-muted-foreground"
+              className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground"
             >
               {nav}
             </nav>

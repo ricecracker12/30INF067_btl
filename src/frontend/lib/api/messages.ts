@@ -47,6 +47,18 @@ export type ErrorContext =
   | "comment-create"
   | "comment-delete"
   | "reaction"
+  // GĐ6 (E1, lệch B.8: mười ngữ cảnh, B.8 ghi bảy — thêm ba ngữ cảnh ĐỌC `moderation-read`, `moderation-restore`,
+  // `admin-read`, cùng lý do `relationship` của GĐ4 Q-E3: mượn ngữ cảnh ghi cho lời gọi đọc là mời câu 409 vào màn đọc).
+  | "report-create"
+  | "moderation-read"
+  | "report-decide"
+  | "moderation-restore"
+  | "admin-read"
+  | "admin-lock"
+  | "admin-role"
+  | "role-edit"
+  | "search"
+  | "notification-read"
 
 const COMMON = {
   400: "Dữ liệu không hợp lệ.",
@@ -103,8 +115,11 @@ const BY_CONTEXT: Record<ErrorContext, Partial<Record<number, string>>> = {
     403: "Tài khoản của bạn chưa được phép đăng bài.",
   },
 
+  // 403 KHÔNG mang `type` = thiếu quyền `post.create` (vai trò bị Admin gỡ quyền — GĐ6 E2E-05), hoặc `mediaKey` của người khác
+  // (FE không bao giờ gửi — composer chỉ gửi key vừa presign). CÙNG câu với `upload`: cùng một nghĩa, không hai cách nói. 403
+  // "chưa có hồ sơ" có `type` riêng → BY_TYPE (sửa 2026-09-25; trước đó câu ở đây là "hãy hoàn tất hồ sơ" cho MỌI 403).
   "post-create": {
-    403: "Bạn cần hoàn tất hồ sơ trước khi đăng bài.",
+    403: "Tài khoản của bạn chưa được phép đăng bài.",
     // 409: `mediaKey` đã gắn vào một bài khác (BR-03). Ảnh đó không dùng lại được.
     409: "Ảnh này đã được dùng trong một bài khác. Hãy chọn lại ảnh.",
   },
@@ -201,6 +216,65 @@ const BY_CONTEXT: Record<ErrorContext, Partial<Record<number, string>>> = {
   reaction: {
     404: "Nội dung này không còn tồn tại.",
   },
+
+  // --- GĐ6 (E1) --- Mọi 409 và 503 fail-closed của khối này đi qua BY_TYPE (Đ-6.21) — ở đây chỉ còn 403/404/429.
+
+  // `POST /reports`. 404 = không tồn tại HOẶC không thấy được — MỘT câu (Đ-6.12, Mục 7.1). 403 = vai trò thiếu `report.create`.
+  "report-create": {
+    403: "Tài khoản của bạn chưa được phép báo cáo nội dung.",
+    404: "Nội dung này không còn nữa.",
+    429: "Bạn đã gửi quá nhiều báo cáo. Thử lại sau ít phút.",
+  },
+
+  // `GET /reports`, `GET /reports/{id}`. 403 thường là vừa bị hạ quyền — màn nạp lại `/me` để guard nói rõ (Mục 7.3).
+  "moderation-read": {
+    403: "Bạn không còn quyền xem hàng đợi kiểm duyệt.",
+    404: "Không tìm thấy báo cáo.",
+  },
+
+  // `PATCH /reports/{id}`. 403 ở đây có thể là thiếu `post.hide` khi còn `report.resolve` (Đ-6.13, vai trò REVIEWER).
+  "report-decide": {
+    403: "Bạn không có quyền đưa ra quyết định này.",
+    404: "Không tìm thấy báo cáo.",
+  },
+
+  // `POST /moderation/targets/{type}/{id}/restore` — câu 404 chép `detail` của moderation-v1.
+  "moderation-restore": {
+    403: "Bạn không có quyền khôi phục nội dung.",
+    404: "Không tìm thấy nội dung.",
+  },
+
+  // Mọi `GET` của khu quản trị (tài khoản, vai trò, danh mục quyền, nhật ký). 404 chỉ có ở `GET /admin/users/{id}`.
+  "admin-read": {
+    403: "Bạn không còn quyền xem mục này.",
+    404: "Không tìm thấy tài khoản.",
+  },
+
+  // `POST /admin/users/{id}/lock|unlock`. 400 tự khóa đi `fieldMessage(…, "userId", …)` — câu của server.
+  "admin-lock": {
+    403: "Bạn không có quyền khóa hoặc mở khóa tài khoản.",
+    404: "Không tìm thấy tài khoản.",
+  },
+
+  // `PUT /admin/users/{id}/role`. 403 có thể là chạm ADMIN mà thiếu `role.manage` (L-D18) — không nêu tên quyền.
+  "admin-role": {
+    403: "Bạn không có quyền đổi vai trò này.",
+    404: "Không tìm thấy tài khoản.",
+  },
+
+  // `/admin/roles*` ghi. 404 chép `detail` của admin-v1.
+  "role-edit": {
+    403: "Bạn không có quyền quản lý vai trò.",
+    404: "Không tìm thấy vai trò.",
+  },
+
+  // `GET /search` — chỉ 400 `errors.q` (màn đọc bằng `fieldMessage`), không mã riêng.
+  search: {},
+
+  // `GET /notifications`, `POST …/read`, `POST …/read-all`. 403 = không phải của bạn HOẶC không tồn tại — một câu.
+  "notification-read": {
+    403: "Không tìm thấy thông báo này.",
+  },
 }
 
 /**
@@ -218,6 +292,28 @@ const BY_TYPE: Record<ProblemType, string> = {
   [PROBLEM_TYPES.notFriends]: "Hai bạn không còn là bạn bè. Hội thoại chỉ đọc.",
   [PROBLEM_TYPES.realtimeUnavailable]:
     "Kênh thời gian thực tạm thời không sẵn sàng. Tin nhắn vẫn gửi được.",
+  // GĐ6 — câu chép NGUYÊN VĂN `detail` của hợp đồng/`Error` của server, trừ `report-already-decided`: màn kiểm duyệt nói
+  // "VỪA được người khác xử lý" (B.8 E6) vì người đọc câu này là Moderator thứ hai, không phải người vừa bấm lần hai.
+  [PROBLEM_TYPES.accountDisabled]:
+    "Tài khoản đã bị khóa. Liên hệ quản trị viên.",
+  [PROBLEM_TYPES.revocationUnavailable]:
+    "Chức năng quản trị tạm thời không khả dụng. Vui lòng thử lại sau ít phút.",
+  [PROBLEM_TYPES.lastAdmin]:
+    "Hệ thống phải còn ít nhất một quản trị viên đang hoạt động.",
+  [PROBLEM_TYPES.confirmationRequired]:
+    "Thay đổi quyền của vai trò hệ thống cần được xác nhận.",
+  [PROBLEM_TYPES.roleInUse]: "Vai trò đang có người dùng, không xóa được.",
+  [PROBLEM_TYPES.systemRole]:
+    "Không thể thay đổi vai trò hệ thống theo cách này.",
+  [PROBLEM_TYPES.roleCodeTaken]: "Mã vai trò đã tồn tại.",
+  [PROBLEM_TYPES.reportAlreadyDecided]:
+    "Báo cáo này vừa được người khác xử lý.",
+  [PROBLEM_TYPES.moderationTargetGone]:
+    "Nội dung bị báo cáo không còn tồn tại.",
+  [PROBLEM_TYPES.moderationNotHidden]: "Nội dung này hiện không bị ẩn.",
+  [PROBLEM_TYPES.postHidden]:
+    "Bài viết đã bị ẩn do vi phạm tiêu chuẩn cộng đồng nên không sửa được.",
+  [PROBLEM_TYPES.profileRequired]: "Bạn cần tạo hồ sơ trước khi đăng bài.",
 }
 
 /** Thông điệp cấp form cho một lỗi bất kỳ ném ra từ `request()`. */
@@ -313,6 +409,20 @@ export type FieldErrorKey =
   // GĐ3 — content-v1: cha của phản hồi (Đ-3.4) và loại cảm xúc.
   | "parentId"
   | "type"
+  // GĐ6 — moderation-v1, admin-v1, notification-v1, profile-v1 (`/search`).
+  | "q"
+  | "targetType"
+  | "targetId"
+  | "reasonCode"
+  | "detail"
+  | "decision"
+  | "note"
+  | "reason"
+  | "roleCode"
+  | "code"
+  | "permissions"
+  | "upTo"
+  | "notificationId"
 
 /**
  * 400 của một endpoint đọc ĐÚNG CÂU SERVER dưới key của `errors` trước, RỒI MỚI lùi về bảng

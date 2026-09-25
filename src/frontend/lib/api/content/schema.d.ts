@@ -49,7 +49,7 @@ export interface paths {
          * @description Đường dài nhất của giai đoạn (SEQ-01 bước 6–7). Thứ tự kiểm là **một phần của hợp đồng** vì nó quyết định mã lỗi:
          *
          *     1. Tầng 2: quyền `post.create`.
-         *     2. Tầng 3 (Đ-2.4): người gọi **đã có hồ sơ** — chưa → **403**.
+         *     2. Tầng 3 (Đ-2.4): người gọi **đã có hồ sơ** — chưa → **403** `type urn:socialapp:problem:profile-required` (*thêm 2026-09-25*).
          *     3. Tầng 3 (Đ-2.7): **mọi** `mediaKey` thuộc `posts/{actorId}/` — khác → **403** (`TC-A03-media`).
          *     4. BR-01: `body` ≤ 5000 ký tự; ≤ 10 ảnh; `body` rỗng thì phải có ít nhất 1 ảnh — sai → **400** với
          *        `errors.body` hoặc `errors.mediaKeys`.
@@ -332,7 +332,7 @@ export interface components {
         ProblemDetails: {
             /**
              * Format: uri
-             * @description Mặc định `https://httpstatuses.io/{status}`. Lỗi có `type` riêng khai bằng schema riêng (`FeedOverloadedProblem`, `PostHiddenProblem`).
+             * @description Mặc định `https://httpstatuses.io/{status}`. Lỗi có `type` riêng khai bằng schema riêng (`FeedOverloadedProblem`, `PostHiddenProblem`, `ProfileRequiredProblem`).
              */
             type?: string;
             /** @description Nhãn ngắn, ổn định theo loại lỗi. **Không** chứa dữ liệu người dùng. */
@@ -520,6 +520,11 @@ export interface components {
         PostHiddenProblem: components["schemas"]["ProblemDetails"] & {
             /** @enum {string} */
             type: "urn:socialapp:problem:post-hidden";
+        };
+        /** @description 403 của `POST /posts` khi người gọi chưa có hồ sơ (Đ-2.4). Cùng hình dạng `ProblemDetails`, `type` cố định. *Thêm 2026-09-25.* */
+        ProfileRequiredProblem: components["schemas"]["ProblemDetails"] & {
+            /** @enum {string} */
+            type: "urn:socialapp:problem:profile-required";
         };
         /**
          * @description `network` — có ít nhất một kết nối (bạn hoặc đang theo dõi), kể cả khi feed rỗng. `suggested` — chưa có kết nối
@@ -962,23 +967,23 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
-            /** @description Thiếu quyền `post.create`, chưa có hồ sơ (Đ-2.4), hoặc một `mediaKey` không thuộc tiền tố của người gọi (Đ-2.7) — cùng một phản hồi, không nêu lý do nào. */
+            /**
+             * @description Hai nghĩa, phân biệt bằng `type` (FE **không** so `title` hay `detail`):
+             *
+             *     | `type` | Nghĩa |
+             *     |---|---|
+             *     | `urn:socialapp:problem:profile-required` | Người gọi chưa có hồ sơ (Đ-2.4) — FE đưa đi tạo hồ sơ. *Thêm 2026-09-25.* |
+             *     | `https://httpstatuses.io/403` | Thiếu quyền `post.create`, hoặc một `mediaKey` không thuộc tiền tố của người gọi (Đ-2.7) — cùng một phản hồi, không nêu lý do nào |
+             *
+             *     Tách "chưa có hồ sơ" không lộ gì: người gọi luôn biết mình có hồ sơ hay chưa, và nhánh này chạy trước kiểm tiền tố —
+             *     người chưa có hồ sơ nhận nó bất kể `mediaKey` của ai.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    /**
-                     * @example {
-                     *       "type": "https://httpstatuses.io/403",
-                     *       "title": "Bị từ chối",
-                     *       "status": 403,
-                     *       "detail": "Bạn không có quyền thực hiện thao tác này.",
-                     *       "instance": "/api/v1/posts",
-                     *       "traceId": "c6e8b0d2f4a6c8e0b2d4f6a8c0e2b4d6"
-                     *     }
-                     */
-                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/problem+json": components["schemas"]["ProfileRequiredProblem"] | components["schemas"]["ProblemDetails"];
                 };
             };
             /** @description Một object trong `mediaKeys` đã được gắn vào bài khác (`storage_key` UNIQUE) — kể cả khi commit lại cùng lô (POST-08). */
