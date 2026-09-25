@@ -6,11 +6,13 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using SocialApp.Modules.Identity.Application;
+using SocialApp.Modules.Identity.Application.Admin.Users;
 using SocialApp.Modules.Identity.Application.Email;
 using SocialApp.Modules.Identity.Application.Login;
 using SocialApp.Modules.Identity.Application.Me;
 using SocialApp.Modules.Identity.Application.Session;
 using SocialApp.Modules.Identity.Application.Registration;
+using SocialApp.Modules.Identity.Application.Roles;
 using SocialApp.Modules.Identity.Application.Security;
 using SocialApp.Modules.Identity.Infrastructure;
 using SocialApp.Modules.Identity.Infrastructure.Authorization;
@@ -67,6 +69,19 @@ public static class IdentityModuleExtensions
         services.AddScoped<LoginService>();
         services.AddScoped<MeQuery>();
         services.AddScoped<SessionService>();
+
+        // GĐ6 D2: màn quản trị tài khoản (nhóm admin-v1). AdminUserReadService cần IUserDirectory — Profile đăng ký nó ở host.
+        services.AddScoped<IAdminUserQueries, AdminUserQueries>();
+        services.AddScoped<AdminUserReadService>();
+
+        // GĐ6 D3: khóa / mở khóa. Store cần IAuditTrail — Moderation đăng ký nó ở host (Đ-6.3).
+        services.AddScoped<IAccountAdministrationStore, AccountAdministrationStore>();
+        services.AddScoped<UserRevoker>();
+        services.AddScoped<AccountAdministrationService>();
+
+        // GĐ6 D5: CRUD vai trò. RoleAdministrationService cần IPermissionChangeNotifier (SharedKernel, C3) — host đăng ký.
+        services.AddScoped<IRoleStore, RoleStore>();
+        services.AddScoped<RoleAdministrationService>();
         return services;
     }
 

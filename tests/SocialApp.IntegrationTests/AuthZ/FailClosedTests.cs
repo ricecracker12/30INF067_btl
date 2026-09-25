@@ -65,4 +65,22 @@ public sealed class FailClosedTests(PostgresFixture postgres, ModulesApiFactory 
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
+
+    /// <summary>
+    /// FC-01 trên endpoint THẬT (D2): <c>GET /admin/users</c> — Admin, người qua mọi mã quyền, vẫn 503 khi Redis chết. Bản probe ở
+    /// trên giữ nguyên: nó canh cơ chế, bản này canh rằng controller <c>admin-v1</c> thật sự mang <c>[PrivilegedEndpoint]</c> tới lúc
+    /// chạy (reflection của <c>PrivilegedEndpointTests</c> chỉ thấy attribute, không thấy pipeline).
+    /// </summary>
+    [Fact]
+    public async Task FC_01_admin_users_Redis_chet_Admin_cung_503_revocation_unavailable()
+    {
+        using var http = factory.CreateClient();
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/admin/users");
+        request.Headers.Authorization = ModulesTestClient.Bearer(Guid.NewGuid(), "ADMIN");
+        using var response = await http.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        using var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal("urn:socialapp:problem:revocation-unavailable", problem.RootElement.GetProperty("type").GetString());
+    }
 }

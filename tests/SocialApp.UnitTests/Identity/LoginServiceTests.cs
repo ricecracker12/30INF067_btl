@@ -35,8 +35,10 @@ public sealed class LoginServiceTests
     private Task<SocialApp.SharedKernel.Results.Result<LoginSuccess>> LoginAsync(string password = CorrectPassword) =>
         Service().LoginAsync(new LoginRequest { Email = "  an@example.com ", Password = password }, Ip, CancellationToken.None);
 
-    private static LoginCandidate Candidate(DateTimeOffset? verifiedAt = default, DateTimeOffset? lockedUntil = null, bool verified = true) =>
-        new(Guid.NewGuid(), "hash-that", "USER", verified ? verifiedAt ?? Now.AddDays(-1) : null, lockedUntil);
+    private static LoginCandidate Candidate(
+        DateTimeOffset? verifiedAt = default, DateTimeOffset? lockedUntil = null, bool verified = true,
+        string status = UserStatus.Active) =>
+        new(Guid.NewGuid(), "hash-that", "USER", verified ? verifiedAt ?? Now.AddDays(-1) : null, lockedUntil, status);
 
     [Fact]
     public async Task Email_khong_ton_tai_van_goi_VerifyAgainstDummy_dung_mot_lan()
@@ -113,6 +115,44 @@ public sealed class LoginServiceTests
         Assert.Equal(0, _users.ResetCalls);
         Assert.Empty(_refreshTokens.Created);
         Assert.Empty(_issuer.Calls);
+    }
+
+    /// <summary>Bước 4b (GĐ6, Đ-6.5): bị Admin khóa + mật khẩu đúng → 403 riêng, không reset, không phát token.</summary>
+    [Fact]
+    public async Task Bi_Admin_khoa_dung_mat_khau_403_account_disabled_khong_phat_token()
+    {
+        _users.Candidate = Candidate(status: UserStatus.Disabled);
+
+        var result = await LoginAsync();
+
+        Assert.Equal(IdentityErrors.AccountDisabled, result.Error);
+        Assert.Equal(IdentityErrors.AccountDisabledType, result.Error!.Value.Type);
+        Assert.Equal(0, _users.ResetCalls);
+        Assert.Empty(_refreshTokens.Created);
+        Assert.Empty(_issuer.Calls);
+    }
+
+    /// <summary>Bước 4 đứng trước 4b: không biết mật khẩu thì không biết tài khoản bị khóa — vẫn 401 và vẫn tăng bộ đếm.</summary>
+    [Fact]
+    public async Task Bi_Admin_khoa_sai_mat_khau_401_nhu_moi_tai_khoan_va_tang_bo_dem()
+    {
+        _users.Candidate = Candidate(status: UserStatus.Disabled);
+
+        var result = await LoginAsync("sai-mat-khau");
+
+        Assert.Equal(IdentityErrors.InvalidCredentials, result.Error);
+        Assert.Equal(1, _users.FailedCalls);
+    }
+
+    /// <summary>4b đứng trước 5: tài khoản vừa bị khóa vừa chưa xác minh thì câu "đã bị khóa" thắng — Admin khóa là mạnh hơn.</summary>
+    [Fact]
+    public async Task Bi_Admin_khoa_va_chua_xac_minh_thi_bao_bi_khoa()
+    {
+        _users.Candidate = Candidate(verified: false, status: UserStatus.Disabled);
+
+        var result = await LoginAsync();
+
+        Assert.Equal(IdentityErrors.AccountDisabled, result.Error);
     }
 
     [Fact]

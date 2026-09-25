@@ -186,11 +186,14 @@ public sealed class ModulesTestClient
         return new { mediaKey = key, contentType, sizeBytes };
     }
 
-    /// <summary><c>GET /posts/{postId}</c> với tư cách <paramref name="userId"/> (D6).</summary>
-    public Task<HttpResponseMessage> GetPostAsync(Guid userId, object postId)
+    /// <summary>
+    /// <c>GET /posts/{postId}</c> với tư cách <paramref name="userId"/> (D6). <paramref name="role"/> mở ra ở GĐ6 D7a: Moderator
+    /// và Admin đọc bài bị ẩn vẫn 404 (<c>HID-03</c>).
+    /// </summary>
+    public Task<HttpResponseMessage> GetPostAsync(Guid userId, object postId, string role = "USER")
     {
         var request = new HttpRequestMessage(HttpMethod.Get, $"/api/v1/posts/{postId}");
-        request.Headers.Authorization = Bearer(userId);
+        request.Headers.Authorization = Bearer(userId, role);
         return Http.SendAsync(request);
     }
 
@@ -441,6 +444,20 @@ public sealed class ModulesTestClient
         using var response = await GetFeedAsync(actorId, query);
         Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
         return (await response.Content.ReadFromJsonAsync<FeedPage>(Json))!;
+    }
+
+    /// <summary>
+    /// <c>POST /reports</c> với tư cách <paramref name="actorId"/> (GĐ6 D6). Body ẩn danh để test gửi được trường vắng mặt, giá trị
+    /// ngoài tập (<c>"Post"</c>, <c>"abuse"</c>) — những thứ DTO đã gõ kiểu không phát ra nổi.
+    /// </summary>
+    public Task<HttpResponseMessage> CreateReportAsync(Guid actorId, object body, string role = "USER")
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/reports")
+        {
+            Content = JsonContent.Create(body),
+        };
+        request.Headers.Authorization = Bearer(actorId, role);
+        return Http.SendAsync(request);
     }
 
     /// <summary>

@@ -12,6 +12,19 @@ export const me = {
   emailVerifiedAt: "2026-09-08T03:14:07Z",
   status: "active",
   createdAt: "2026-09-08T03:10:22Z",
+  permissions: [
+    "post.read.public",
+    "post.read.friends",
+    "post.create",
+    "post.update",
+    "post.delete",
+    "comment.create",
+    "reaction.set",
+    "friend.request",
+    "friend.respond",
+    "message.send",
+    "report.create",
+  ],
 } satisfies T.MeResponse
 
 export const registerResponse = {

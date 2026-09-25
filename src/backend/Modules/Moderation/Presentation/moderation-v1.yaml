@@ -1,0 +1,1195 @@
+# ---------------------------------------------------------------------------------------------
+# HỢP ĐỒNG API — module Moderation, v1 (GĐ6 · FR-019, UC-19)
+#
+# Báo cáo vi phạm, hàng đợi kiểm duyệt, quyết định, khôi phục, nhật ký kiểm toán
+# (docs/giai-doan-6/giai-doan-6.md Mục 8.1). Tên nhóm `moderation-v1` khớp ba chỗ:
+# `ModerationApiGroup.Name`, dòng `apiGroups` ở Program.cs, tên file này.
+#
+# CÓ MÁY CANH: `ModerationContractTests` so file này với /swagger/moderation-v1/swagger.json sinh
+# từ code — lệch tập (path × method), tập status code, hoặc required field của request body là CI
+# đỏ. `ContractGateCoverageTests` canh file này có dòng `Content Include` + lớp so.
+#
+# LỚN DẦN THEO ĐẦU VIỆC CỦA KHỐI D (luật "hợp đồng đi cùng controller", chốt 2026-09-24): mỗi
+# operation vào file này TRONG CÙNG COMMIT với controller hiện thực nó — không có operation nào
+# nằm đây trước code.
+#   D6 (2026-09-24): POST /reports — version 1.0.0-gd6.
+#   D7b (2026-09-25): GET /reports, GET /reports/{reportId} — version 1.1.0-gd6.
+#   D7c (2026-09-25): PATCH /reports/{reportId}, POST /moderation/targets/…/restore — version 1.2.0-gd6.
+#   D8 (2026-09-25): GET /admin/audit-logs — version 1.3.0-gd6.
+#
+# QUYẾT ĐỊNH ĐỨNG SAU (giai-doan-6.md):
+#   Đ-6.12  Thấy được mới báo được: không thấy → 404 CÙNG thân lỗi với "không tồn tại" (không là
+#           máy dò IDOR). Một báo cáo MỞ mỗi (người báo, đối tượng): gửi trùng → 200 + báo cáo cũ.
+#           Rate limit riêng 10 báo cáo/phút/người.
+#   L-D13   `targetType: comment` hợp lệ trong hợp đồng từ D6; trước khi có provider bình luận → 404. Từ bước 9
+#           (2026-09-25) bình luận báo, ẩn, khôi phục được — chỉ đổi mô tả, không đổi operation hay schema.
+#   Đ-6.13  Hàng đợi gom theo ĐỐI TƯỢNG (một dòng mỗi bài/người bị báo), cũ nhất trước. Chi tiết trả ảnh chụp nội dung
+#           THẬT (kể cả bài riêng tư/ẩn/xóa) — đường duy nhất Moderator đọc nội dung không công khai — và KHÔNG trả người báo.
+#   Đ-6.13  Quyết định: MỘT transaction ẩn đối tượng + đóng MỌI báo cáo mở của nó + một dòng audit. `hide` cần thêm
+#           `post.hide` ngoài `report.resolve` (tầng 2 kép, L-D12). Đã quyết → 409 `report-already-decided`.
+#   Đ-6.15  Nhật ký kiểm toán append-only; `GET /admin/audit-logs` là người đọc duy nhất, chỉ ADMIN (`audit.read`).
+#   L-D14   Lọc `action` được đứng một mình (không 400).
+#   L-D15   Lịch sử quyết định mang `outcome: resolved | dismissed` (chính `reports.status`), không `decision`.
+#   B.10 #8 `POST /reports` là endpoint DUY NHẤT của nhóm không đặc quyền: không fail-closed khi
+#           Redis chết, không audit khi bị chặn. Mọi endpoint khác của nhóm (D7, D8) fail-closed
+#           (Đ-6.8) → 503 `urn:socialapp:problem:revocation-unavailable`.
+# ---------------------------------------------------------------------------------------------
+openapi: 3.0.3
+
+info:
+  title: SocialApp — Moderation API
+  version: 1.3.0-gd6
+  description: |
+    Báo cáo vi phạm và kiểm duyệt nội dung của GĐ6 (FR-019, UC-19).
+
+    ### Luồng kiểm duyệt (Moderator)
+
+    1. `GET /reports` — hàng đợi, **mỗi đối tượng một dòng**, báo cáo mở cũ nhất trước, kèm số báo cáo theo lý do.
+    2. `GET /reports/{reportId}` với `reportId` của dòng — nội dung thật của đối tượng, mọi báo cáo đang mở của nó (không có
+       người báo) và các quyết định đã có.
+    3. `PATCH /reports/{reportId}` `{ decision, reasonCode?, note? }` — một quyết định đóng MỌI báo cáo mở của đối tượng.
+       200 → bỏ các `closedReportIds` khỏi hàng đợi. 409 `report-already-decided` → người khác vừa quyết: nạp lại hàng đợi.
+    4. `POST /moderation/targets/{targetType}/{targetId}/restore` — gỡ ẩn khi quyết nhầm. Không mở lại báo cáo.
+
+    ### Lỗi
+
+    Mọi lỗi trả **RFC 7807 Problem Details** (`application/problem+json`) kèm `traceId` — bằng đúng
+    giá trị header `X-Correlation-ID` của chính request đó. Ca FE phải phân nhánh cùng một status thì
+    phân nhánh theo **`type`**, không theo `title`.
+
+    ### Rate limit
+
+    100 req/phút theo user (hạn mức chung). `POST /reports` có thêm hạn mức riêng **10 báo cáo/phút/người**
+    (Đ-6.12). Vượt → `429`, không có `Retry-After`.
+  contact:
+    name: Nhóm 4 — 30INF067
+
+servers:
+  - url: http://localhost:5259/api/v1
+    description: Dev — backend chạy local (`dotnet run`)
+  - url: https://mxh.banhgao.net/api/v1
+    description: Staging
+
+tags:
+  - name: reports
+    description: Báo cáo vi phạm (FR-019), hàng đợi và quyết định kiểm duyệt (UC-19).
+  - name: moderation
+    description: Thao tác trên đối tượng kiểm duyệt không qua báo cáo — khôi phục (FR-020).
+  - name: audit
+    description: Nhật ký kiểm toán cho Admin (ENT-13, PTTK Mục 5.7).
+
+paths:
+
+  /reports:
+    get:
+      tags: [reports]
+      operationId: listReports
+      summary: Hàng đợi kiểm duyệt — mỗi đối tượng bị báo một dòng, cũ nhất trước
+      description: |
+        Tầng 2: `report.resolve` (MODERATOR, ADMIN có). Endpoint đặc quyền: fail-closed khi không kiểm được thu hồi
+        (503 `revocation-unavailable`), bị từ chối thì ghi nhật ký kiểm toán `access.denied`.
+
+        Báo cáo **đang mở** gom theo đối tượng (Đ-6.13): ba người báo cùng một bài là **một** dòng `reportCount: 3`.
+        Sắp theo `firstReportedAt` tăng dần (báo cáo mở cũ nhất của đối tượng), hòa thì theo `target.id`. `reportId` là
+        báo cáo mở cũ nhất của đối tượng — mở chi tiết bằng id này; nó không đổi giữa các lần tải.
+
+        Hết dữ liệu khi và chỉ khi `nextCursor` là `null`. Cursor opaque — không tự dựng.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          required: false
+          description: Chỉ `open` (mặc định). Giá trị khác → 400 `errors.status`.
+          schema:
+            type: string
+            enum: [open]
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Một trang hàng đợi.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportQueuePage'
+              example:
+                items:
+                  - reportId: 0192f3ca-6e41-7a02-b3d5-8c7e9f1a2b30
+                    target:
+                      type: post
+                      id: 0192f3c9-2b7d-7e10-8c4a-1f3e5d7b9a20
+                    reportCount: 3
+                    reasons:
+                      spam: 2
+                      violence: 1
+                    firstReportedAt: '2026-09-24T08:15:42.123456Z'
+                nextCursor: null
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/RevocationUnavailable'
+
+    post:
+      tags: [reports]
+      operationId: createReport
+      summary: Báo cáo một bài viết, bình luận hoặc tài khoản
+      description: |
+        Tầng 2: `report.create` (người dùng thường có). Người báo là người gọi — không nhận từ body.
+
+        | Tình huống | Phản hồi |
+        |---|---|
+        | Báo cáo mới | **201** `ReportReceipt` |
+        | Đã có báo cáo **đang mở** của chính người này cho cùng đối tượng (bấm hai lần, hai tab) | **200** — CHÍNH báo cáo đó, cùng `reportId` |
+        | Báo cáo cũ đã được xử lý rồi báo lại | **201** — báo cáo mới |
+        | Đối tượng không tồn tại, đã bị ẩn/xóa, **hoặc người gọi không được xem** | **404** — một thân lỗi cho mọi trường hợp |
+        | Báo cáo nội dung/tài khoản của chính mình | 400 `errors.targetId` |
+        | Quá 10 báo cáo trong một phút (báo trùng vẫn tính) | 429 |
+
+        "Được xem" theo đúng luật đọc của đối tượng: bài `private` của người khác, bài `friends` của người không phải
+        bạn → 404 như bài không tồn tại (Đ-6.12). `targetType: comment` hợp lệ nhưng chưa có module bình luận → 404.
+
+        `detail`: cắt khoảng trắng hai đầu; chỉ có khoảng trắng coi như **vắng mặt**. Bắt buộc khi `reasonCode: other`.
+
+        Phản hồi **không** nhắc lại đối tượng bị báo — không xác nhận thêm điều gì về nó.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateReportRequest'
+            example:
+              targetType: post
+              targetId: 0192f3c9-2b7d-7e10-8c4a-1f3e5d7b9a20
+              reasonCode: spam
+      responses:
+        '201':
+          description: Báo cáo mới, đang chờ xử lý.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportReceipt'
+              example:
+                reportId: 0192f3ca-6e41-7a02-b3d5-8c7e9f1a2b30
+                status: open
+                createdAt: '2026-09-24T08:15:42.123456Z'
+        '200':
+          description: Người gọi đã có báo cáo đang mở cho đối tượng này — trả lại chính báo cáo đó, không tạo thêm.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportReceipt'
+              example:
+                reportId: 0192f3ca-6e41-7a02-b3d5-8c7e9f1a2b30
+                status: open
+                createdAt: '2026-09-24T08:15:42.123456Z'
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/ReportTargetNotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /reports/{reportId}:
+    get:
+      tags: [reports]
+      operationId: getReport
+      summary: Chi tiết báo cáo — nội dung thật của đối tượng, báo cáo đang mở, lịch sử quyết định
+      description: |
+        Tầng 2: `report.resolve`. Endpoint đặc quyền như `GET /reports`.
+
+        - `target` là ảnh chụp **tại lúc đọc**, kể cả bài `private`/`friends`, đã bị ẩn hay đã xóa mềm — Moderator phải thấy
+          nội dung mới quyết được. Đây là đường **duy nhất** Moderator đọc nội dung không công khai (`GET /posts/{id}` trả
+          404 cho họ với bài bị ẩn). Đối tượng không còn trong bảng nào → `status: deleted`, `author`, `body`, `createdAt` là
+          `null`.
+        - `openReports`: mọi báo cáo **đang mở** của cùng đối tượng, cũ nhất trước — quyết định (D7c) đóng tất cả cùng lúc.
+        - `history`: mỗi quyết định đã có một dòng, cũ nhất trước.
+        - **Không có người báo** ở bất kỳ trường nào — quyết theo nội dung, không theo người báo.
+
+        Báo cáo đã đóng vẫn mở được (xem lại lịch sử). Báo cáo không tồn tại → 404.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ReportId'
+      responses:
+        '200':
+          description: Chi tiết báo cáo.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportDetail'
+              example:
+                reportId: 0192f3ca-6e41-7a02-b3d5-8c7e9f1a2b30
+                target:
+                  type: post
+                  id: 0192f3c9-2b7d-7e10-8c4a-1f3e5d7b9a20
+                  status: published
+                  author:
+                    userId: 0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10
+                    displayName: Bình Minh
+                    avatarUrl: null
+                  body: Nội dung bài bị báo cáo.
+                  media: []
+                  postId: 0192f3c9-2b7d-7e10-8c4a-1f3e5d7b9a20
+                  createdAt: '2026-09-24T07:00:00.000000Z'
+                  editedAt: null
+                openReports:
+                  - reportId: 0192f3ca-6e41-7a02-b3d5-8c7e9f1a2b30
+                    reasonCode: spam
+                    detail: null
+                    createdAt: '2026-09-24T08:15:42.123456Z'
+                history: []
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/ReportNotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/RevocationUnavailable'
+
+    patch:
+      tags: [reports]
+      operationId: decideReport
+      summary: Quyết định một báo cáo — ẩn, bỏ qua hoặc đã xử lý; đóng MỌI báo cáo mở của cùng đối tượng
+      description: |
+        Tầng 2: `report.resolve`. `decision: hide` cần **thêm** `post.hide` (Đ-6.9) — thiếu thì 403 và một dòng nhật ký
+        `access.denied`, kể cả khi báo cáo không tồn tại. Endpoint đặc quyền như `GET /reports`.
+
+        | `decision` | Áp cho | Làm gì |
+        |---|---|---|
+        | `hide` | bài, bình luận | Ẩn đối tượng (tác giả thấy biểu ngữ kèm lý do, người khác 404) + thông báo tác giả |
+        | `dismiss` | mọi loại | Không vi phạm — chỉ đóng báo cáo |
+        | `resolve` | tài khoản | Đã xử lý ngoài luồng (vd Admin đã khóa) — **bắt buộc** `note` |
+
+        Sai cặp `decision` × loại đối tượng → 400 `errors.decision`.
+
+        Ẩn đối tượng, đóng **mọi** báo cáo đang mở của nó và ghi nhật ký kiểm toán là **một** transaction: lỗi giữa chừng
+        thì không gì thay đổi. `reasonCode` vắng → lý do của báo cáo được mở; có → dùng đúng giá trị đó cho `hidden_reason`
+        và thông báo. Báo cáo thứ hai cho bài **đã** ẩn: `hide` vẫn 200, đóng báo cáo, không thông báo lại.
+
+        | Tình huống | Phản hồi |
+        |---|---|
+        | Báo cáo đã được quyết (người khác vừa quyết, hoặc bấm lần hai) | 409 `report-already-decided` — không đổi gì |
+        | `hide` mà đối tượng đã bị xóa/không còn | 409 `moderation-target-gone` — báo cáo vẫn mở, `dismiss` nó |
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ReportId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DecideReportRequest'
+            example:
+              decision: hide
+              reasonCode: spam
+              note: Quảng cáo lặp lại nhiều lần.
+      responses:
+        '200':
+          description: Đã quyết. `closedReportIds` là mọi báo cáo vừa đóng.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportDecisionResult'
+              example:
+                decision: hide
+                closedReportIds:
+                  - 0192f3ca-6e41-7a02-b3d5-8c7e9f1a2b30
+                  - 0192f3cb-1a22-7c10-9d4e-5f6a7b8c9d01
+                targetStatus: hidden
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/ReportNotFound'
+        '409':
+          $ref: '#/components/responses/ReportDecisionConflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/RevocationUnavailable'
+
+  /moderation/targets/{targetType}/{targetId}/restore:
+    post:
+      tags: [moderation]
+      operationId: restoreTarget
+      summary: Khôi phục bài/bình luận bị ẩn
+      description: |
+        Tầng 2: `post.hide`. Endpoint đặc quyền. `hidden → published` và một dòng nhật ký `content.restore` trong **một**
+        transaction. **Không** mở lại báo cáo đã đóng, **không** thông báo ai.
+
+        `targetType: user` → 400 `errors.targetType` (tài khoản không "ẩn" được). Đối tượng không tồn tại → 404; đang không bị
+        ẩn → 409 `moderation-not-hidden`. Body tùy chọn.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TargetType'
+        - $ref: '#/components/parameters/TargetId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RestoreTargetRequest'
+            example:
+              note: Ẩn nhầm — bài không vi phạm.
+      responses:
+        '200':
+          description: Đã khôi phục.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModerationTargetChange'
+              example:
+                targetType: post
+                targetId: 0192f3c9-2b7d-7e10-8c4a-1f3e5d7b9a20
+                targetStatus: published
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/ModerationTargetNotFound'
+        '409':
+          $ref: '#/components/responses/TargetNotHidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/RevocationUnavailable'
+
+  /admin/audit-logs:
+    get:
+      tags: [audit]
+      operationId: listAuditLogs
+      summary: Nhật ký kiểm toán — ai làm gì, trên cái gì, lúc nào, từ đâu; mới nhất trước
+      description: |
+        Tầng 2: `audit.read` (chỉ ADMIN). Endpoint đặc quyền: fail-closed khi không kiểm được thu hồi (503), bị từ chối thì
+        chính lần đó ghi `access.denied`. Nhật ký là **append-only** — không có đường sửa hay xóa.
+
+        Sắp theo `id` giảm dần, phân trang keyset. Bộ lọc tùy chọn, cộng dồn: `actorId`, `action`, `targetType` (+ `targetId`).
+        `targetId` phải đi kèm `targetType`. `action` lọc được một mình.
+
+        `metadata` là JSON như lúc ghi — mã, id, ghi chú của người thao tác; **không bao giờ** chứa nội dung bài, bình luận
+        hay mô tả của người báo (Đ-6.15).
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: actorId
+          in: query
+          required: false
+          description: Người thao tác. Sai dạng UUID → 400 `errors.actorId`.
+          schema:
+            type: string
+            format: uuid
+        - name: action
+          in: query
+          required: false
+          description: Một mã `AuditAction`. Mã lạ → 400 `errors.action`.
+          schema:
+            $ref: '#/components/schemas/AuditAction'
+        - name: targetType
+          in: query
+          required: false
+          description: Loại đối tượng (`post`, `comment`, `user`, `role`, `report`, `endpoint`…), tối đa 20 ký tự.
+          schema:
+            type: string
+            maxLength: 20
+        - name: targetId
+          in: query
+          required: false
+          description: Chỉ đi kèm `targetType` — thiếu `targetType` → 400 `errors.targetId`.
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/Cursor'
+        - name: limit
+          in: query
+          required: false
+          description: Số dòng mỗi trang, `1..100`. Ngoài khoảng → 400 `errors.limit`.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        '200':
+          description: Một trang nhật ký.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditLogPage'
+              example:
+                items:
+                  - id: 1042
+                    actorId: 0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10
+                    actor:
+                      userId: 0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10
+                      displayName: Kiểm duyệt viên
+                      avatarUrl: null
+                    action: report.hide
+                    targetType: post
+                    targetId: 0192f3c9-2b7d-7e10-8c4a-1f3e5d7b9a20
+                    metadata:
+                      reportIds: [0192f3ca-6e41-7a02-b3d5-8c7e9f1a2b30]
+                      reasonCode: spam
+                      note: null
+                    ip: 203.0.113.7
+                    createdAt: '2026-09-25T08:15:42.123456Z'
+                nextCursor: MTA0Mg
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/RevocationUnavailable'
+
+components:
+
+  securitySchemes:
+
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Access token JWT HS256 phát ở `POST /auth/login` (`identity-v1`). Claim `role` mang `roles.code`; tầng 2 tra quyền
+        của vai trò đó. Lane FE: token nằm ở BFF, trình duyệt không cầm (Đ-E14).
+
+  parameters:
+
+    ReportId:
+      name: reportId
+      in: path
+      required: true
+      description: UUID v7 của báo cáo. Sai dạng → 400 `errors.reportId`.
+      schema:
+        type: string
+        format: uuid
+
+    TargetType:
+      name: targetType
+      in: path
+      required: true
+      description: '`post` hoặc `comment`. `user` hay giá trị khác → 400 `errors.targetType`.'
+      schema:
+        type: string
+
+    TargetId:
+      name: targetId
+      in: path
+      required: true
+      description: UUID của đối tượng. Sai dạng → 400 `errors.targetId`.
+      schema:
+        type: string
+        format: uuid
+
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: '`nextCursor` của trang trước, opaque. Sai dạng → 400 `errors.cursor`.'
+      schema:
+        type: string
+
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Số dòng mỗi trang, `1..50`. Ngoài khoảng → 400 `errors.limit`.
+      schema:
+        type: integer
+        format: int32
+        minimum: 1
+        maximum: 50
+        default: 20
+
+  headers:
+
+    XCorrelationId:
+      description: |
+        Correlation ID của request, bằng đúng `traceId` trong Problem Details khi có lỗi.
+        Client gửi header cùng tên thì server dùng lại giá trị đó.
+      schema:
+        type: string
+      example: 9f2c7b1e4a6d4f0b8c3e5a7d9b1f3c5e
+
+  responses:
+
+    ValidationProblem:
+      description: |
+        Dữ liệu đầu vào không hợp lệ. `errors` là map `tên trường → danh sách thông điệp`: `targetType`, `targetId`,
+        `reasonCode` thiếu hoặc ngoài tập giá trị, `detail` thiếu khi `other` hoặc quá 500 ký tự; `targetId` cũng là key của
+        lỗi "báo cáo chính mình". Hàng đợi và chi tiết: `status` khác `open`, `cursor` rác, `limit` ngoài `1..50`,
+        `reportId` sai dạng UUID. Quyết định: `decision` ngoài tập hoặc sai cặp với loại đối tượng, `reasonCode` ngoài tập,
+        `note` quá 500 ký tự hoặc thiếu khi `resolve`. Khôi phục: `targetType` khác `post`/`comment`, `targetId` sai dạng.
+        Nhật ký: `actorId`/`targetId` sai dạng, `action` lạ, `targetId` thiếu `targetType`, `limit` ngoài `1..100`, `cursor` rác.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://httpstatuses.io/400
+            title: Dữ liệu không hợp lệ
+            status: 400
+            detail: Dữ liệu đầu vào không hợp lệ
+            instance: /api/v1/reports
+            traceId: 5e7a9c1b3d5f7092a4c6e8b0d2f4a6c8
+            errors:
+              detail:
+                - Vui lòng mô tả lý do.
+
+    Unauthorized:
+      description: Thiếu access token, token sai chữ ký, hết hạn, hoặc đã bị thu hồi.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://httpstatuses.io/401
+            title: Chưa xác thực
+            status: 401
+            detail: Yêu cầu access token hợp lệ.
+            instance: /api/v1/reports
+            traceId: a4c6e8b0d2f4a6c8e0b2d4f6a8c0e2b4
+
+    Forbidden:
+      description: |
+        Tầng 2 từ chối — vai trò của người gọi không có mã quyền endpoint đòi. `POST /reports` đòi `report.create` (USER,
+        MODERATOR đều có; 403 chỉ gặp ở vai trò tự tạo không được gán nó). Hàng đợi, chi tiết, quyết định đòi `report.resolve`
+        (USER không có); `decision: hide` và khôi phục đòi thêm/đòi `post.hide`; nhật ký đòi `audit.read` (chỉ ADMIN). Lần từ chối ở các endpoint kiểm duyệt ghi nhật
+        ký kiểm toán `access.denied`. Thông điệp không nêu quyền còn thiếu.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://httpstatuses.io/403
+            title: Bị từ chối
+            status: 403
+            detail: Bạn không có quyền thực hiện thao tác này.
+            instance: /api/v1/reports
+            traceId: c6e8b0d2f4a6c8e0b2d4f6a8c0e2b4d6
+
+    ReportTargetNotFound:
+      description: |
+        Đối tượng không tồn tại, đã bị ẩn/xóa, loại chưa hỗ trợ, **hoặc người gọi không được xem nó** — MỘT thân lỗi cho mọi
+        trường hợp (Đ-6.12, dòng `REP-IDOR` của AuthZ matrix). Khác nhau ở đây thì status code tự nó tố cáo bài riêng tư có
+        tồn tại.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://httpstatuses.io/404
+            title: Không tìm thấy tài nguyên
+            status: 404
+            detail: Không tìm thấy nội dung cần báo cáo.
+            instance: /api/v1/reports
+            traceId: d2f4a6c8e0b2d4f6a8c0e2b4d6f8a0c2
+
+    ReportNotFound:
+      description: Báo cáo không tồn tại. Chỉ người có `report.resolve` tới được đây — người khác dừng ở 403.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://httpstatuses.io/404
+            title: Không tìm thấy tài nguyên
+            status: 404
+            detail: Không tìm thấy báo cáo.
+            instance: /api/v1/reports/0192f3ca-6e41-7a02-b3d5-8c7e9f1a2b30
+            traceId: d2f4a6c8e0b2d4f6a8c0e2b4d6f8a0c2
+
+    ReportDecisionConflict:
+      description: |
+        Không quyết được — không có gì bị đổi. Phân nhánh theo `type`: `report-already-decided` (báo cáo không còn mở — nạp lại
+        hàng đợi) · `moderation-target-gone` (`hide` mà đối tượng đã bị xóa — báo cáo vẫn mở, hãy `dismiss`).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ReportDecisionConflictProblem'
+          example:
+            type: urn:socialapp:problem:report-already-decided
+            title: Xung đột dữ liệu
+            status: 409
+            detail: Báo cáo này đã được xử lý.
+            instance: /api/v1/reports/0192f3ca-6e41-7a02-b3d5-8c7e9f1a2b30
+            traceId: 1a3c5e7b9d1f3a5c7e9b1d3f5a7c9e1b
+
+    ModerationTargetNotFound:
+      description: Đối tượng không tồn tại. Chỉ người có `post.hide` tới được đây — người khác dừng ở 403.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://httpstatuses.io/404
+            title: Không tìm thấy tài nguyên
+            status: 404
+            detail: Không tìm thấy nội dung.
+            instance: /api/v1/moderation/targets/post/0192f3c9-2b7d-7e10-8c4a-1f3e5d7b9a20/restore
+            traceId: 2b4d6f8a0c2e4b6d8f0a2c4e6b8d0f2a
+
+    TargetNotHidden:
+      description: Đối tượng đang không bị ẩn — không có gì để khôi phục, không đổi gì.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/TargetNotHiddenProblem'
+          example:
+            type: urn:socialapp:problem:moderation-not-hidden
+            title: Xung đột dữ liệu
+            status: 409
+            detail: Nội dung này hiện không bị ẩn.
+            instance: /api/v1/moderation/targets/post/0192f3c9-2b7d-7e10-8c4a-1f3e5d7b9a20/restore
+            traceId: 3c5e7a9b1d3f5a7c9e1b3d5f7a9c1e3b
+
+    TooManyRequests:
+      description: |
+        Vượt hạn mức — 10 báo cáo/phút/người (`POST /reports`, Đ-6.12) hoặc 100 req/phút/user (chung, ISS-04). Không có
+        `Retry-After`.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://httpstatuses.io/429
+            title: Quá nhiều yêu cầu
+            status: 429
+            detail: Bạn đã gửi quá nhiều yêu cầu. Vui lòng thử lại sau ít phút.
+            instance: /api/v1/reports
+            traceId: e0b2d4f6a8c0e2b4d6f8a0c2e4b6d8f0
+
+    InternalError:
+      description: |
+        Lỗi không mong muốn. **Không bao giờ có `detail`** — `GlobalExceptionHandler` giấu chi tiết nội bộ, chỉ
+        `traceId` đi ra ngoài để đối chiếu với log.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://httpstatuses.io/500
+            title: Đã xảy ra lỗi không mong muốn
+            status: 500
+            instance: /api/v1/reports
+            traceId: b6d8f0a2c4e6b8d0f2a4c6e8b0d2f4a6
+
+    RevocationUnavailable:
+      description: |
+        Fail-closed (Đ-6.8) của các endpoint kiểm duyệt đặc quyền (D7, D8 — **không** áp cho `POST /reports`): server không
+        kiểm được access token có bị thu hồi không. Không phải lỗi của phiên — FE **không** đăng xuất, hiện thông báo tạm
+        thời và cho thử lại. Phân nhánh theo `type`, không theo `title`.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/RevocationUnavailableProblem'
+          example:
+            type: urn:socialapp:problem:revocation-unavailable
+            title: Tạm thời không kiểm tra được phiên đăng nhập
+            status: 503
+            detail: Chức năng quản trị tạm thời không khả dụng. Vui lòng thử lại sau ít phút.
+            instance: /api/v1/reports
+            traceId: f8a0c2e4b6d8f0a2c4e6b8d0f2a4c6e8
+
+  schemas:
+
+    ProblemDetails:
+      type: object
+      description: |
+        RFC 7807 Problem Details — dạng lỗi duy nhất của toàn dự án. Sinh bởi
+        `SocialApp.SharedKernel.Errors.GlobalExceptionHandler`; `traceId` và `type` gắn thống nhất
+        trong `AddSharedKernel`.
+      properties:
+        type:
+          type: string
+          format: uri
+          description: Mặc định `https://httpstatuses.io/{status}`; ca FE phải phân nhánh thì là một URN ổn định.
+        title:
+          type: string
+          description: Nhãn ngắn, ổn định theo loại lỗi. **Không** chứa dữ liệu người dùng.
+        status:
+          type: integer
+          format: int32
+        detail:
+          type: string
+          nullable: true
+          description: Thông điệp cho người đọc. Vắng mặt ở lỗi 500.
+        instance:
+          type: string
+          description: Path của request gây lỗi.
+        traceId:
+          type: string
+          description: Bằng header `X-Correlation-ID` của chính request đó — dùng để tra log.
+        errors:
+          type: object
+          nullable: true
+          description: Chỉ có ở lỗi validation (400). Map `tên trường → danh sách thông điệp`.
+          additionalProperties:
+            type: array
+            items:
+              type: string
+      required: [title, status, traceId]
+
+    RevocationUnavailableProblem:
+      description: 503 fail-closed của endpoint đặc quyền (Đ-6.8). Cùng hình dạng `ProblemDetails`, `type` cố định.
+      allOf:
+        - $ref: '#/components/schemas/ProblemDetails'
+        - type: object
+          properties:
+            type:
+              type: string
+              enum: ['urn:socialapp:problem:revocation-unavailable']
+          required: [type]
+
+    ReportTargetType:
+      type: string
+      description: |
+        Loại đối tượng bị báo cáo. Bình luận theo luật "thấy được" của bài chứa nó (BR-02); bình luận bị ẩn giữ chỗ trong cây như
+        bình luận đã xóa. Ảnh chụp bình luận đang hiện có `status: published`.
+      enum: [post, comment, user]
+
+    ReasonCode:
+      type: string
+      description: |
+        Lý do chuẩn hóa (PTTK ENT-12). FE hiển thị nhãn tiếng Việt: `spam` Spam · `harassment` Quấy rối ·
+        `nudity` Nội dung khỏa thân · `violence` Bạo lực · `other` Khác (bắt buộc mô tả).
+      enum: [spam, harassment, nudity, violence, other]
+
+    CreateReportRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        targetType:
+          $ref: '#/components/schemas/ReportTargetType'
+        targetId:
+          type: string
+          format: uuid
+        reasonCode:
+          $ref: '#/components/schemas/ReasonCode'
+        detail:
+          type: string
+          maxLength: 500
+          description: |
+            Mô tả thêm, tối đa 500 ký tự sau khi cắt khoảng trắng hai đầu. **Bắt buộc** khi `reasonCode: other`. Chỉ
+            người kiểm duyệt đọc — không bao giờ hiện lại cho người khác.
+      required: [targetType, targetId, reasonCode]
+
+    ReportReceipt:
+      type: object
+      description: Biên nhận báo cáo. Cố ý không nhắc lại đối tượng bị báo (Mục 8.1).
+      properties:
+        reportId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [open]
+          description: Luôn `open` — báo cáo trả về luôn là báo cáo đang chờ xử lý.
+        createdAt:
+          type: string
+          format: date-time
+      required: [reportId, status, createdAt]
+
+    ReportTargetRef:
+      type: object
+      description: Đối tượng bị báo, dạng tham chiếu.
+      properties:
+        type:
+          $ref: '#/components/schemas/ReportTargetType'
+        id:
+          type: string
+          format: uuid
+      required: [type, id]
+
+    ReportQueueItem:
+      type: object
+      description: Một dòng hàng đợi = một ĐỐI TƯỢNG bị báo (không phải một báo cáo). Không có người báo, không có nội dung.
+      properties:
+        reportId:
+          type: string
+          format: uuid
+          description: Báo cáo mở cũ nhất của đối tượng — dùng để mở `GET /reports/{reportId}`.
+        target:
+          $ref: '#/components/schemas/ReportTargetRef'
+        reportCount:
+          type: integer
+          format: int32
+          minimum: 1
+          description: Số báo cáo đang mở của đối tượng.
+        reasons:
+          type: object
+          description: Số báo cáo đang mở theo lý do. Chỉ có lý do đếm được ít nhất một; key là `ReasonCode`.
+          additionalProperties:
+            type: integer
+            format: int32
+        firstReportedAt:
+          type: string
+          format: date-time
+          description: Thời điểm báo cáo mở cũ nhất — khóa sắp xếp, cũ nhất trước.
+      required: [reportId, target, reportCount, reasons, firstReportedAt]
+
+    ReportQueuePage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReportQueueItem'
+        nextCursor:
+          type: string
+          nullable: true
+          description: Opaque. `null` khi hết dữ liệu — không phải chuỗi rỗng.
+      required: [items, nextCursor]
+
+    UserCard:
+      type: object
+      description: Thẻ người dùng (tên hiển thị + ảnh đại diện) — hydrate từ hồ sơ.
+      properties:
+        userId:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+        avatarUrl:
+          type: string
+          format: uri
+          nullable: true
+          description: Presigned GET 15 phút, `null` khi chưa có ảnh đại diện.
+      required: [userId, displayName, avatarUrl]
+
+    TargetMedia:
+      type: object
+      description: Một ảnh của đối tượng. Không có key lưu trữ.
+      properties:
+        url:
+          type: string
+          format: uri
+          description: Presigned GET 15 phút.
+      required: [url]
+
+    TargetSnapshot:
+      type: object
+      description: |
+        Ảnh chụp đối tượng tại lúc đọc, **không** theo luật hiển thị của người dùng: bài riêng tư, bị ẩn, đã xóa mềm vẫn có
+        `body`. Mọi trường luôn có mặt; trường không áp dụng là `null`.
+      properties:
+        type:
+          $ref: '#/components/schemas/ReportTargetType'
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [published, hidden, deleted, active, disabled]
+          description: |
+            Bài: `published` · `hidden` · `deleted`. Người dùng: `active` · `disabled`. Đối tượng không còn trong bảng nào →
+            `deleted`.
+        author:
+          allOf:
+            - $ref: '#/components/schemas/UserCard'
+          nullable: true
+          description: Tác giả bài; với người dùng là chính người đó. `null` khi không có hồ sơ hoặc đối tượng đã biến mất.
+        body:
+          type: string
+          nullable: true
+          description: Nội dung bài / tiểu sử người dùng.
+        media:
+          type: array
+          description: Ảnh bài theo thứ tự hiển thị / ảnh đại diện của người dùng.
+          items:
+            $ref: '#/components/schemas/TargetMedia'
+        postId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Bài chứa đối tượng — với bài là chính nó; với người dùng là `null`.
+        createdAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: '`null` chỉ khi đối tượng không còn trong bảng nào.'
+        editedAt:
+          type: string
+          format: date-time
+          nullable: true
+      required: [type, id, status, author, body, media, postId, createdAt, editedAt]
+
+    OpenReport:
+      type: object
+      description: Một báo cáo đang mở. **Không** có người báo.
+      properties:
+        reportId:
+          type: string
+          format: uuid
+        reasonCode:
+          $ref: '#/components/schemas/ReasonCode'
+        detail:
+          type: string
+          nullable: true
+          description: Mô tả người báo tự gõ (bắt buộc với `other`).
+        createdAt:
+          type: string
+          format: date-time
+      required: [reportId, reasonCode, detail, createdAt]
+
+    ReportHistoryEntry:
+      type: object
+      description: |
+        Một quyết định đã có trên đối tượng. `outcome` là trạng thái các báo cáo sau quyết định (L-D15): `resolved` (đã ẩn
+        nội dung hoặc đã xử lý) hoặc `dismissed` (không vi phạm). Nội dung có đang bị ẩn không: đọc `target.status`.
+      properties:
+        outcome:
+          type: string
+          enum: [resolved, dismissed]
+        resolverId:
+          type: string
+          format: uuid
+          description: Moderator/Admin đã quyết.
+        resolvedAt:
+          type: string
+          format: date-time
+        note:
+          type: string
+          nullable: true
+          description: Ghi chú của người quyết.
+      required: [outcome, resolverId, resolvedAt, note]
+
+    ReportDetail:
+      type: object
+      description: Chi tiết một báo cáo. **Không** có người báo ở bất kỳ độ sâu nào.
+      properties:
+        reportId:
+          type: string
+          format: uuid
+        target:
+          $ref: '#/components/schemas/TargetSnapshot'
+        openReports:
+          type: array
+          description: Mọi báo cáo đang mở của cùng đối tượng, cũ nhất trước.
+          items:
+            $ref: '#/components/schemas/OpenReport'
+        history:
+          type: array
+          description: Các quyết định đã có trên đối tượng, cũ nhất trước.
+          items:
+            $ref: '#/components/schemas/ReportHistoryEntry'
+      required: [reportId, target, openReports, history]
+
+    ReportDecisionConflictProblem:
+      description: 409 của `PATCH /reports/{reportId}` (Đ-6.13). Cùng hình dạng `ProblemDetails`, `type` là một trong hai URN.
+      allOf:
+        - $ref: '#/components/schemas/ProblemDetails'
+        - type: object
+          properties:
+            type:
+              type: string
+              enum:
+                - 'urn:socialapp:problem:report-already-decided'
+                - 'urn:socialapp:problem:moderation-target-gone'
+          required: [type]
+
+    TargetNotHiddenProblem:
+      description: 409 của khôi phục. Cùng hình dạng `ProblemDetails`, `type` cố định.
+      allOf:
+        - $ref: '#/components/schemas/ProblemDetails'
+        - type: object
+          properties:
+            type:
+              type: string
+              enum: ['urn:socialapp:problem:moderation-not-hidden']
+          required: [type]
+
+    ReportDecision:
+      type: string
+      description: '`hide` (bài, bình luận) · `dismiss` (mọi loại) · `resolve` (tài khoản, bắt buộc `note`).'
+      enum: [hide, dismiss, resolve]
+
+    DecideReportRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        decision:
+          $ref: '#/components/schemas/ReportDecision'
+        reasonCode:
+          $ref: '#/components/schemas/ReasonCode'
+        note:
+          type: string
+          maxLength: 500
+          description: |
+            Ghi chú của người quyết, tối đa 500 ký tự sau khi cắt khoảng trắng; chỉ khoảng trắng coi như vắng. **Bắt buộc** khi
+            `resolve`. Hiện ở lịch sử quyết định cho Moderator khác, không bao giờ cho tác giả hay người báo.
+      required: [decision]
+
+    ReportDecisionResult:
+      type: object
+      properties:
+        decision:
+          $ref: '#/components/schemas/ReportDecision'
+        closedReportIds:
+          type: array
+          description: Mọi báo cáo vừa đóng — báo cáo được mở và mọi báo cáo đang mở khác của cùng đối tượng.
+          items:
+            type: string
+            format: uuid
+        targetStatus:
+          type: string
+          enum: [published, hidden, deleted, active, disabled]
+          description: Trạng thái đối tượng sau quyết định — `hide` → `hidden`, còn lại giữ nguyên.
+      required: [decision, closedReportIds, targetStatus]
+
+    RestoreTargetRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        note:
+          type: string
+          maxLength: 500
+          description: Ghi chú của người khôi phục (nhật ký kiểm toán).
+
+    ModerationTargetChange:
+      type: object
+      properties:
+        targetType:
+          $ref: '#/components/schemas/ReportTargetType'
+        targetId:
+          type: string
+          format: uuid
+        targetStatus:
+          type: string
+          enum: [published]
+      required: [targetType, targetId, targetStatus]
+
+    AuditAction:
+      type: string
+      description: |
+        Mã hành động (Đ-6.15). Kiểm duyệt: `report.hide`, `report.dismiss`, `report.resolve`, `content.restore`. Tài khoản:
+        `user.lock`, `user.unlock`, `role.assign`. Vai trò: `role.create`, `role.rename`, `role.permissions`, `role.delete`.
+        Truy cập: `access.denied`.
+      enum:
+        - report.hide
+        - report.dismiss
+        - report.resolve
+        - content.restore
+        - user.lock
+        - user.unlock
+        - role.assign
+        - role.create
+        - role.rename
+        - role.permissions
+        - role.delete
+        - access.denied
+
+    AuditLogItem:
+      type: object
+      description: Một dòng nhật ký. Mọi trường luôn có mặt; không áp dụng thì `null`.
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: Tăng dần theo thời gian ghi — khóa sắp xếp.
+        actorId:
+          type: string
+          format: uuid
+        actor:
+          allOf:
+            - $ref: '#/components/schemas/UserCard'
+          nullable: true
+          description: '`null` khi người thao tác chưa có hồ sơ.'
+        action:
+          $ref: '#/components/schemas/AuditAction'
+        targetType:
+          type: string
+          nullable: true
+        targetId:
+          type: string
+          format: uuid
+          nullable: true
+        metadata:
+          type: object
+          nullable: true
+          additionalProperties: true
+          description: JSON như lúc ghi — mã, id, ghi chú của người thao tác. Không chứa nội dung người dùng.
+        ip:
+          type: string
+          nullable: true
+          description: IP người thao tác; `null` khi không có request (job nền).
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, actorId, actor, action, targetType, targetId, metadata, ip, createdAt]
+
+    AuditLogPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditLogItem'
+        nextCursor:
+          type: string
+          nullable: true
+          description: Opaque. `null` khi hết dữ liệu.
+      required: [items, nextCursor]

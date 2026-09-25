@@ -179,7 +179,7 @@ SharedKernel/Events/
   IEventPublisher.Publish(IIntegrationEvent)          -- producer gọi SAU COMMIT, không await handler
   IIntegrationEventHandler<TEvent>.HandleAsync(e, ct) -- consumer đăng ký trong Add<X>Module bằng AddIntegrationEventHandler
   InProcessEventBus                          -- Channel<T> có giới hạn + BackgroundService tiêu thụ, mỗi handler một scope DI
-  EventBusMetrics                            -- Meter("SocialApp.Events"): published_total, dropped_total, tag event
+  (metric, ở Observability/BusinessMetrics)   -- prometheus-net: events_published_total, events_dropped_total, nhãn event
   ContentEvents.cs / SocialGraphEvents.cs / MessagingEvents.cs / ModerationEvents.cs   -- các record event (Đ-6.17)
 ```
 
@@ -208,6 +208,15 @@ bus chứ không "chỉ đăng ký trong test harness" — số event dở dang 
 sản phẩm không thấy. Handler đăng ký **chỉ** qua `AddIntegrationEventHandler<TEvent, THandler>()` (bus cần biết kiểu handler
 trước khi mở scope riêng cho nó). Metric dùng `System.Diagnostics.Metrics` có sẵn trong .NET 8, GĐ7 C2 kiểm tên ở `/metrics`.
 Luật 3 có cổng CI: `IntegrationEventShapeTests` (`EVT-07`).
+
+*Sửa 2026-09-24 (trước khối D):* câu "Metric dùng `System.Diagnostics.Metrics`" ở trên **sai trên thực tế**. GĐ7 C2 thử bốn cách
+và kết luận counter tạo theo cách đó không lên `/metrics` (`giai-doan-7.md` Mục 5.2), nên họ khai counter bằng prometheus-net ở
+`SharedKernel/Observability/BusinessMetrics.cs`. Đã đo lại với event bus: publish + drain xong, `/metrics` không có dòng
+`socialapp_events_*` dưới bất kỳ tên nào. Tức là metric `dropped` mà R6-10 dựa vào đã vô hình từ C0. Hai counter chuyển về
+`BusinessMetrics` (`EventPublished`, `EventDropped`, nhãn `event` = tên kiểu record). `Initialize()` tạo sẵn chuỗi cho mọi kiểu
+event của SharedKernel. `EventBusMetrics` và `IMeterFactory` bị gỡ khỏi bus. Canh bằng `MetricsEndpointTests` (hai ca, đã đỏ với
+bản cũ). **Chỉ số mới của GĐ6** (`socialapp_revocation_failures_total` ở D3, `socialapp_reports_decided_total` ở D7) cũng khai ở
+`BusinessMetrics`, không dùng `Meter`.
 
 ### Đ-6.3 Ghi xuyên module trong một transaction bằng cách **truyền `DbTransaction`** — hai hợp đồng ghi có tên, lệch Đ-2.3 luật 1 có chủ đích
 
@@ -292,6 +301,10 @@ tài khoản khác.
 401 như refresh hỏng. Đây là **lưới thứ hai**: khóa tài khoản đã thu hồi mọi refresh family (Đ-6.6), nhưng nếu một ngày ai đó
 quên bước đó thì refresh vẫn không cấp được token cho tài khoản bị khóa.
 
+*Sửa 2026-09-24 khi thi công D1* (L-D2 của `huong-dan-khoi-d-endpoint-nghiep-vu.md`): điều kiện **không** nằm trong join đọc vai
+trò — join đó chạy sau khi token kế nhiệm đã chèn. `RotateAsync` kiểm `status = 'active'` **trước mỗi chỗ phát token**: nhánh ân hạn
+3a (phát token anh em) và trước bước 5 (xoay). Không đạt → `Invalid` (401), không xoay, không chèn dòng nào.
+
 **Mở khóa** (`unlock`) đưa `status` về `active` **và** xóa `locked_until`, `failed_login_count` — Admin mở khóa thì người dùng
 vào được ngay, không phải đợi hết 15 phút của FR-003.
 
@@ -314,7 +327,9 @@ Không test tự động nào bắt được thứ tự này → nằm trong dan
 lỗi (thu hồi mất âm thầm — `ITokenRevocationStore.RevokeUserAsync` cố ý ném để người gọi thấy). Chốt:
 
 - Thử lại 3 lần trong ~1 giây; vẫn hỏng → log **Error** + metric `socialapp_revocation_failures_total`.
-- Phản hồi 200 mang `revocation: "applied" | "deferred"`. `deferred` → UI Admin hiện: *"Đã lưu. Phiên đang mở của người
+- Phản hồi 200 mang `revocation: "applied" | "deferred"` (và `"not-needed"` khi thao tác không đổi gì hoặc là mở khóa — *sửa
+  2026-09-24 khi thi công D3*, L-D10 của `huong-dan-khoi-d-endpoint-nghiep-vu.md`: khóa tài khoản đã khóa → 200, không audit,
+  không đụng Redis). `deferred` → UI Admin hiện: *"Đã lưu. Phiên đang mở của người
   này có thể giữ quyền cũ tối đa 15 phút."* — đúng cửa sổ phơi nhiễm mà fail-open của GĐ1 đã chấp nhận.
 - Với **khóa**, refresh family đã bị thu hồi **trong DB** nên cửa sổ đó chỉ còn là access token đang sống, và lưới refresh
   của Đ-6.5 chặn việc gia hạn.
@@ -338,8 +353,9 @@ COMMIT
 ```
 
 - **Đếm sau khi ghi** chứ không trước: không phải tự suy "thao tác này có làm giảm số Admin không" — cho DB trả lời.
-- Khóa tư vấn chỉ lấy khi thao tác **có thể** chạm tập Admin (người bị đổi đang là ADMIN, hoặc vai trò đích là ADMIN) — gán
-  vai trò giữa USER và MODERATOR không xếp hàng sau ai.
+- ~~Khóa tư vấn chỉ lấy khi thao tác **có thể** chạm tập Admin~~ — *sửa 2026-09-24 khi thi công D3* (L-D8): **luôn** lấy khóa
+  tư vấn cho mọi thao tác ghi của `admin-v1` lên `users` (khóa, mở khóa, gán vai trò), TRƯỚC mọi khóa dòng. Quyết định "có lấy
+  không" dựa trên lần đọc vai trò trước khi khóa dòng là một lỗ đua; thao tác quản trị tần suất thấp nên xếp hàng không ai thấy.
 - Một hàm duy nhất `AdminInvariant.EnsureRemainsAsync(db, ct)` ở `Identity.Infrastructure` — GĐ8 gọi lại cho đường tự xóa.
 - **Không tự khóa chính mình:** `lock` với `target == actor` → 400 *"Không thể tự khóa tài khoản của mình."* (khóa xong thì
   không còn phiên để mở lại). Tự hạ vai trò thì được, miễn còn Admin khác — bất biến lo phần còn lại.
@@ -376,11 +392,21 @@ Thiết kế GĐ1 đã hứa (PTTK 6.7.2 "nâng cấp là thay dữ liệu, khô
 | Đổi tên | `PATCH /admin/roles/{roleId}` | `role.manage` | **Chỉ** nhận `displayName`; body có `code` → 400 (không phải lờ đi — GĐ1 Mục 3.1) |
 | Sửa tập quyền | `PUT /admin/roles/{roleId}/permissions` | `role.manage` | Thay **cả tập** (idempotent); ADMIN → 409; USER/MODERATOR → cần `confirm: true` và **không được về 0 quyền** |
 | Xóa | `DELETE /admin/roles/{roleId}` | `role.manage` | Ba vai trò hệ thống → 409; còn người mang → 409 (dịch từ FK `RESTRICT`, không để 500) |
-| Liệt kê quyền | `GET /admin/permissions` | `role.manage` | 18 mã + `description` |
+| Liệt kê quyền | `GET /admin/permissions` | `role.manage` | 18 mã + `description` + `assignable` (*thêm 2026-09-24, L-D19*) |
 
 **Mã quyền thứ 18 `role.manage` — lệch ma trận PTTK (17 mã).** "Gán vai trò cho người" (`role.assign`) và "định nghĩa vai trò
 là gì" là hai quyền khác bậc: một vai trò "Nhân sự" gán được người vào MODERATOR không có nghĩa được sửa MODERATOR có những
-quyền gì. Chỉ ADMIN có (short-circuit — không dòng `role_permissions` nào). Seeder tự chèn dòng `permissions` thứ 18 vì đọc
+quyền gì. Chỉ ADMIN có (short-circuit — không dòng `role_permissions` nào).
+
+*Thêm 2026-09-24 khi thi công D4* (L-D18 của `huong-dan-khoi-d-endpoint-nghiep-vu.md`, người thi công chốt): chỉ `role.assign` thì
+vai trò "Nhân sự" tự gán được mình (hay bất kỳ ai) lên ADMIN — tức `role.assign` tương đương toàn quyền, và `role.manage` "chỉ ADMIN
+có" mất nghĩa. `PUT /admin/users/{id}/role` **chạm ADMIN** (vai trò đích là ADMIN, hoặc người bị đổi đang là ADMIN) cần **thêm**
+`role.manage` — tầng 2 kép trong service, cùng khuôn `post.hide` của Đ-6.13 (tra trước `BEGIN`; vế "đang là ADMIN" kiểm sau khi khóa
+dòng). Thiếu → 403 + một dòng `access.denied` (`metadata.permission = role.manage`). Gán giữa các vai trò khác vẫn chỉ cần `role.assign`.
+
+*Thêm 2026-09-24 khi thi công D5* (L-D19): "chỉ ADMIN có" giữ bằng API — `POST /admin/roles` và `PUT …/permissions` **không** nhận
+`role.manage` (400 `errors.permissions`); `GET /admin/permissions` trả `assignable: false` cho đúng mã đó. Muốn trao toàn quyền thì
+gán vai trò ADMIN (có bất biến và audit riêng). Seeder tự chèn dòng `permissions` thứ 18 vì đọc
 `PermissionCodes.All` (`DO NOTHING`); **không** thêm vào bộ bootstrap của USER/MODERATOR. *(Sửa 2026-09-23, A3: seeder chèn kèm
 mô tả — xem Mục 4 phần Identity.)*
 
@@ -426,6 +452,10 @@ có `report.resolve` cũng phải thấy hàng đợi. Chốt:
 - FE nạp lại `/me` khi cửa sổ lấy lại focus và khi vào một route cần quyền. Đó là cách "Admin nâng quyền X" hiện ra trên màn
   của X mà X không phải tải lại trang — **bằng chứng UI** mà kế hoạch gốc đòi (mốc 1).
 
+*Sửa 2026-09-24 khi thi công D1* (L-D16): `RoleCode` của `identity-v1.yaml` là enum `[USER, MODERATOR, ADMIN]` từ GĐ1 — `/me.role`
+của vai trò tự tạo sẽ nằm ngoài hợp đồng. Nới thành chuỗi có pattern `^[A-Z][A-Z0-9_]{2,29}$` (cùng luật mã của Đ-6.9), cùng commit
+với `permissions`. FE sinh `RoleCode = string`; không chỗ nào của FE so tên vai trò.
+
 ### Nhóm III — Kiểm duyệt
 
 ### Đ-6.12 Báo cáo: phải **thấy được** đối tượng mới báo được; mỗi người một báo cáo mở cho mỗi đối tượng; gửi trùng trả lại báo cáo cũ
@@ -434,7 +464,7 @@ có `report.resolve` cũng phải thấy hàng đợi. Chốt:
 
 | Luật | Hiện thực | Vì sao |
 |---|---|---|
-| Không thấy được đối tượng → **404**, cùng phản hồi với "không tồn tại" | Bài: `PostVisibility` qua `IModerationTargets.GetSnapshotsAsync` + `IFriendshipReader`. Bình luận: BR-02 của bài chứa nó (`PostAccess` của GĐ3). Người dùng: có hồ sơ | Không thì `POST /reports` thành **máy dò** "bài riêng tư id X có tồn tại không" — IDOR theo chiều đọc (quy ước 3b GĐ1) |
+| Không thấy được đối tượng → **404**, cùng phản hồi với "không tồn tại" | Bài: `PostVisibility` qua `IModerationTargets.GetSnapshotsAsync` + `IFriendshipReader`. Bình luận: BR-02 của bài chứa nó (`PostAccess` của GĐ3). Người dùng: có hồ sơ. Loại chưa có provider (bình luận trước GĐ3): `IModerationTargets.Supports` false → cùng 404 (*thêm 2026-09-24 khi thi công D6*, L-D13) | Không thì `POST /reports` thành **máy dò** "bài riêng tư id X có tồn tại không" — IDOR theo chiều đọc (quy ước 3b GĐ1) |
 | Không tự báo cáo nội dung / tài khoản của mình → 400 | So `authorId` trong snapshot | Vô nghĩa, và làm bẩn hàng đợi |
 | Một báo cáo **mở** cho mỗi `(reporter, target_type, target_id)` | Index duy nhất **một phần** `WHERE status = 'open'` + `INSERT … ON CONFLICT DO NOTHING` rồi `SELECT` | Bấm hai lần, hai tab → một báo cáo. Gửi trùng → **200** + báo cáo cũ (PTTK API-Reports "201/200"); mới → 201 |
 | Báo lại sau khi báo cáo cũ đã xử lý → báo cáo mới | Index một phần không chặn dòng `resolved`/`dismissed` | Nội dung bị khôi phục rồi vi phạm lại vẫn báo được |
@@ -492,8 +522,10 @@ giả xem bài bị ẩn của mình) là việc của GĐ6"*.
 
 - `PostResponse` thêm `moderation?: PostModeration` — **chỉ-thêm** vào `content-v1`, `null`/vắng với mọi bài `published`. Cùng
   một mapper, nhánh `hidden` chỉ đi được khi `actorId == authorId` (luật "mapper là chỗ duy nhất" của GĐ3 Mục 8.1).
-- Tác giả **không** sửa được bài bị ẩn (`PATCH` → 409 `content.post-hidden`): sửa nội dung rồi "tự gỡ ẩn" là lách kiểm duyệt.
-  Xóa thì được — người dùng luôn có quyền xóa nội dung của mình.
+- Tác giả **không** sửa được bài bị ẩn (`PATCH` → 409 `urn:socialapp:problem:post-hidden`): sửa nội dung rồi "tự gỡ ẩn" là lách
+  kiểm duyệt. Xóa thì được — người dùng luôn có quyền xóa nội dung của mình. Kiểm **sau** tầng 3: người khác vẫn nhận 403 như
+  GĐ2, không biết bài bị ẩn (*sửa 2026-09-25 khi thi công D7a:* bản đầu ghi `content.post-hidden` — đó là tên gọi tắt, `type`
+  thật là URN ở Mục 17.1 của hướng dẫn khối D).
 - Moderator không đọc bài qua `GET /posts/{id}`: nhìn thấy nội dung vi phạm là việc của **luồng kiểm duyệt**, có ngữ cảnh báo
   cáo, không phải một đường vòng quanh BR-02.
 
@@ -524,7 +556,7 @@ sang staging xóa sạch nhật ký.
 | Nhóm | `action` | `target_type` | `metadata` (không bao giờ có nội dung bài/bình luận/tin nhắn) |
 |---|---|---|---|
 | Kiểm duyệt | `report.hide` · `report.dismiss` · `report.resolve` · `content.restore` | `post` · `comment` · `user` | `reportIds[]`, `reasonCode`, `note` (≤ 500, của Moderator) |
-| Tài khoản | `user.lock` · `user.unlock` · `role.assign` | `user` | `fromRole`, `toRole`, `revocation: applied\|deferred` |
+| Tài khoản | `user.lock` · `user.unlock` · `role.assign` | `user` | `user.lock`: `reason` · `role.assign`: `fromRole`, `toRole` — **không** `revocation` (*sửa 2026-09-24 khi thi công D3*, L-D9: audit ghi trong transaction, thu hồi chạy sau `COMMIT` nên lúc ghi chưa biết kết quả; `deferred` để lại dấu bằng log Error + metric) |
 | Vai trò | `role.create` · `role.rename` · `role.permissions` · `role.delete` | `role` | `code`, `added[]`, `removed[]`, `confirmed` |
 | Truy cập | `access.denied` | `endpoint` | `method`, `routeTemplate` (không query string, không id trên đường) |
 
@@ -564,6 +596,24 @@ Event tới (vd ReactionSet: Bình thả tim bài P của An)
     COMMIT
   → sau COMMIT: đẩy NotificationUpserted qua hub (Đ-6.18)
 ```
+
+*Sửa 2026-09-25 khi thi công D9* (L-D6 của `huong-dan-khoi-d-endpoint-nghiep-vu.md`): khối trên **không chạy được** — `RETURNING`
+của Postgres chỉ thấy giá trị mới, `<is_read cũ>` không lấy được từ câu đó. Hiện thực (`NotificationStore`) là khuôn hai bước trong
+một transaction:
+
+```
+(1) SELECT id, is_read … WHERE recipient_id = @r AND group_key = @k FOR UPDATE      -- khóa + đọc is_read CŨ
+    có dòng → UPDATE … SET last_actor_id, reason_code, updated_at = @now, is_read = false,
+                         actor_count = CASE WHEN is_read THEN 1 ELSE actor_count END WHERE id = @id
+              is_read cũ = true → DELETE notification_actors của nhóm (đợt mới)
+(2) không dòng → INSERT … (actor_count = 1) ON CONFLICT (recipient_id, group_key) DO NOTHING RETURNING id
+    rỗng (người khác vừa chèn, đã COMMIT) → chạy lại (1) MỘT lần
+(3) actor khác null → INSERT notification_actors ON CONFLICT DO NOTHING; chèn được VÀ nhóm cũ cùng đợt → actor_count + 1
+```
+
+Bước (1) là hai câu (`SELECT … FOR UPDATE` rồi `UPDATE … WHERE id`), không phải `UPDATE … FROM (SELECT … FOR UPDATE)`: ở câu gộp,
+đúng hay sai lúc đua phụ thuộc cách Postgres kiểm lại dòng theo thứ tự join mà planner chọn. `reason_code` lấy của sự kiện mới nhất
+(khôi phục rồi ẩn lại với lý do khác → hiện lý do mới).
 
 - **Đếm người khác nhau, không đếm lượt:** Bình thả tim, gỡ, thả lại → vẫn "Bình đã bày tỏ cảm xúc", không phải "Bình và 2
   người khác". Bảng `notification_actors` (PK cặp) là thứ làm được điều đó mà không phải phình một mảng không giới hạn.
@@ -881,7 +931,7 @@ không FK sang `users` (Đ-2.2); `reason_code` là CHECK không bảng tham chi�
 | `GET /admin/users`, `GET /admin/users/{id}` | `user.lock` **hoặc** `user.unlock` **hoặc** `role.assign` (policy "any-of" — dưới bảng) + ◆ | — | 403 + audit · 404 |
 | `POST /admin/users/{id}/lock` | `user.lock` + ◆ | không tự khóa · bất biến Admin | 403 + audit · 400 · 404 · **409** |
 | `POST /admin/users/{id}/unlock` | `user.unlock` + ◆ | — | 403 + audit · 404 |
-| `PUT /admin/users/{id}/role` | `role.assign` + ◆ | vai trò đích tồn tại · bất biến Admin | 403 + audit · 400 · 404 · **409** |
+| `PUT /admin/users/{id}/role` | `role.assign` + ◆ · chạm ADMIN (đích là ADMIN **hoặc** người bị đổi đang là ADMIN) cần **thêm** `role.manage` — tầng 2 kép, *thêm 2026-09-24 khi thi công D4 (L-D18)* | vai trò đích tồn tại · bất biến Admin | 403 + audit · 400 · 404 · **409** |
 | `/admin/roles*`, `GET /admin/permissions` | `role.manage` + ◆ | vai trò hệ thống · xác nhận · không về 0 quyền | 403 + audit · 400 · 404 · **409** |
 | Bắt tay `/hubs/notifications` | scheme `RealtimeTicket` (GĐ5) | vé hợp lệ · chưa bị thu hồi | 401 |
 
@@ -913,6 +963,10 @@ module nào tự viết `role == "ADMIN"` (luật GĐ1 Mục 3.2: đặt nhầm 
 
 Khung có sẵn (GĐ1 `B2`/`B3`, `CallerUserId` từ GĐ4). Thêm một khối `// --- GĐ6 ---`, **không** sửa `AuthZMatrixTests`,
 `AuthZCase`, `AuthZApiFactory`.
+
+*Sửa 2026-09-24 khi thi công D2* (L-D17 của `huong-dan-khoi-d-endpoint-nghiep-vu.md`): matrix chạy với **Redis thật** —
+`AuthZApiFactory.UseRedis` + `RedisFixture` trong `AuthZMatrixTests`. Endpoint `[PrivilegedEndpoint]` fail-closed (Đ-6.8), nên với
+Redis cổng 1 của khung cũ mọi dòng `TC-A05*`/`TC-A06*` ra 503 trước tầng 2. `AuthZCase` không đổi; dòng cũ không đổi kết quả.
 
 | Id | Kịch bản | Người gọi | Gọi gì | Kỳ vọng |
 |---|---|---|---|---|
@@ -972,7 +1026,7 @@ AC-02 (bỏ qua) cùng đường, `decision: dismiss`, không bước 6–7. AC-
 ```
 10:00:00  M (MODERATOR) đăng nhập → access (role=MODERATOR, iat 10:00:00) + refresh family F1 — trong Redis phiên BFF
 10:07:30  Admin: PUT /admin/users/M/role { roleCode: USER }
-            BEGIN · advisory lock (M đang không phải ADMIN, vai trò đích không phải ADMIN → KHÔNG lấy khóa bất biến)
+            BEGIN · advisory lock (luôn lấy — L-D8, sửa 2026-09-24 khi thi công D3; bản đầu: "M không phải ADMIN → không lấy")
                   · UPDATE users SET role_id = USER · IAuditTrail(tx, role.assign {fromRole, toRole}) · COMMIT
             SET revoked:user:M = 10:07:30 EX 930                              ← SAU COMMIT (Đ-6.6)
             ← 200 { …, revocation: "applied" }
@@ -991,7 +1045,7 @@ liên kết "Kiểm duyệt" hiện ra, không tải lại trang. **E2E-06 (Mụ
 
 ```
 POST /admin/users/X/lock { reason }
-  BEGIN · advisory lock nếu X là ADMIN · UPDATE users SET status='disabled'
+  BEGIN · advisory lock (luôn lấy — L-D8, sửa 2026-09-24) · SELECT … FOR UPDATE · UPDATE users SET status='disabled'
         · UPDATE refresh_tokens SET revoked_at = now WHERE user_id = X AND revoked_at IS NULL     -- mọi family, mọi thiết bị
         · kiểm bất biến Admin · IAuditTrail(tx, user.lock) · COMMIT
   SET revoked:user:X · (kết nối hub của X chết ở lời gọi kế tiếp hoặc sau ≤ 15 phút — filter + tuổi thọ của GĐ5 Đ-5.10)
@@ -1057,7 +1111,7 @@ Tên nhóm phải khớp ở ba chỗ như mọi module: `[ApiExplorerSettings(G
 
 | Method | Path | Auth | Thành công | Lỗi |
 |---|---|---|---|---|
-| POST | `/reports` | `report.create` | 201 mới / 200 trùng `ReportReceipt` | 400 · 401 · 404 · 429 |
+| POST | `/reports` | `report.create` | 201 mới / 200 trùng `ReportReceipt` | 400 · 401 · 403 · 404 · 429 |
 | GET | `/reports?status=open&cursor=&limit=` | `report.resolve` | 200 `ReportQueuePage` | 400 · 401 · 403 · 503 |
 | GET | `/reports/{reportId}` | `report.resolve` | 200 `ReportDetail` | 400 · 401 · 403 · 404 · 503 |
 | PATCH | `/reports/{reportId}` | `report.resolve` (+ `post.hide` khi `hide`) | 200 `ReportDecisionResult` | 400 · 401 · 403 · 404 · 409 · 503 |
@@ -1071,12 +1125,20 @@ ReportReceipt        { reportId, status: "open", createdAt }                    
 ReportQueueItem      { reportId, target: { type, id }, reportCount, reasons: { [reasonCode]: integer }, firstReportedAt }
 ReportQueuePage      { items: [ReportQueueItem], nextCursor: string | null }           // firstReportedAt ASC — cũ nhất trước
 TargetSnapshot       { type, id, status: "published"|"hidden"|"deleted"|"active"|"disabled",
-                       author: UserCard | null, body?: string, media?: [ { url } ], postId?: uuid, createdAt, editedAt? }
-ReportDetail         { reportId, target: TargetSnapshot, openReports: [ { reportId, reasonCode, detail?, createdAt } ],
-                       history: [ { decision, resolverId, resolvedAt, note? } ] }      // reporterId KHÔNG trả — Moderator không cần biết ai báo
+                       author: UserCard | null, body: string | null, media: [ { url } ], postId: uuid | null,
+                       createdAt: date-time | null, editedAt: date-time | null }
+                       // sửa 2026-09-25 khi thi công D7b: mọi trường luôn có mặt (app không bỏ trường null), createdAt null khi đối
+                       // tượng không còn trong bảng nào (status "deleted"); UserCard = { userId, displayName, avatarUrl | null }
+ReportDetail         { reportId, target: TargetSnapshot, openReports: [ { reportId, reasonCode, detail: string | null, createdAt } ],
+                       history: [ { outcome: "resolved"|"dismissed", resolverId, resolvedAt, note: string | null } ] }
+                       // reporterId KHÔNG trả — Moderator không cần biết ai báo
+                       // sửa 2026-09-25 khi thi công D7b (L-D15): history mang outcome (chính reports.status), không decision —
+                       // bảng không phân biệt hide với resolve; "đã ẩn chưa" đọc ở target.status và trong audit
 DecideReportRequest  { decision: "hide"|"dismiss"|"resolve", reasonCode?: …, note?: string (≤ 500; bắt buộc khi resolve) }
 ReportDecisionResult { decision, closedReportIds: [uuid], targetStatus }
 AuditLogItem         { id: integer, actorId, actor: UserCard | null, action, targetType?, targetId?, metadata?, ip?, createdAt }
+                       // sửa 2026-09-25 khi thi công D8: mọi trường luôn có mặt, null khi không có (như TargetSnapshot);
+                       // action là enum AuditAction (12 mã của Đ-6.15); metadata là object JSON nguyên
 AuditLogPage         { items: [AuditLogItem], nextCursor: string | null }              // id DESC
 ```
 
@@ -1084,8 +1146,17 @@ AuditLogPage         { items: [AuditLogItem], nextCursor: string | null }       
   Admin cần thì đọc audit/DB.
 - Snapshot trả `body` cả khi bài `private`/`friends` hay đã `deleted`: Moderator phải thấy nội dung mới quyết được. Đây là **đường
   duy nhất** Moderator đọc được nội dung không công khai — có dòng matrix `TC-A06-queue` canh cửa vào.
+- *Sửa 2026-09-24 khi thi công D6:* `POST /reports` có thêm **403** — tầng 2 `report.create` chặn vai trò tự tạo không được gán
+  mã này (USER, MODERATOR đều có). Bảng bản đầu thiếu mã đó; cổng hợp đồng so tập status với `[ProducesResponseType]`.
+  `detail` chỉ có khoảng trắng coi như vắng mặt (lưu `null`; với `other` thì 400 như thiếu). `targetType: comment` → 404 tới khi có
+  provider bình luận (L-D13).
 - 409 có ba `type`: `urn:socialapp:problem:report-already-decided`, `…:moderation-target-gone`, `…:moderation-not-hidden`.
-- `info.version`: `1.0.0-gd6`.
+- `info.version`: `1.0.0-gd6` (D6) → `1.1.0-gd6` (D7b) → `1.2.0-gd6` (D7c).
+- *Sửa 2026-09-25 khi thi công D7c:* khôi phục trả 200 `ModerationTargetChange { targetType, targetId, targetStatus: "published" }`
+  (bảng bản đầu chỉ ghi "200"), body `{ note? }` **tùy chọn**. Route không ràng buộc `:guid` — id sai dạng 400 `errors.targetId`, như
+  mọi route của khối D. `targetType` khác `post`/`comment` → 400 `errors.targetType`; bình luận trước GĐ3 → 404 (L-D13).
+  `DecideReportRequest.reasonCode` vắng → lý do của báo cáo được mở. Tầng 2 kép `post.hide` bị từ chối ghi `access.denied` với target
+  là **báo cáo** (`report` + id) và `metadata.permission` — khuôn L-D18 của D4.
 
 ### 8.2 `admin-v1.yaml` (nhóm thứ hai của Identity)
 
@@ -1095,7 +1166,7 @@ AuditLogPage         { items: [AuditLogItem], nextCursor: string | null }       
 | GET | `/admin/users/{userId}` | như trên | 200 `AdminUser` | 400 · 401 · 403 · 404 · 503 |
 | POST | `/admin/users/{userId}/lock` | `user.lock` | 200 `AdminUserChange` | 400 tự khóa · 401 · 403 · 404 · 409 last-admin · 503 |
 | POST | `/admin/users/{userId}/unlock` | `user.unlock` | 200 `AdminUserChange` | 400 · 401 · 403 · 404 · 503 |
-| PUT | `/admin/users/{userId}/role` | `role.assign` | 200 `AdminUserChange` | 400 · 401 · 403 · 404 · 409 last-admin · 503 |
+| PUT | `/admin/users/{userId}/role` | `role.assign` (+ `role.manage` khi chạm ADMIN — L-D18) | 200 `AdminUserChange` | 400 · 401 · 403 · 404 · 409 last-admin · 503 |
 | GET | `/admin/roles` | `role.manage` | 200 `[RoleSummary]` | 401 · 403 · 503 |
 | POST | `/admin/roles` | `role.manage` | 201 `RoleSummary` | 400 · 401 · 403 · 409 code trùng · 503 |
 | PATCH | `/admin/roles/{roleId}` | `role.manage` | 200 `RoleSummary` | 400 · 401 · 403 · 404 · 503 |
@@ -1105,7 +1176,9 @@ AuditLogPage         { items: [AuditLogItem], nextCursor: string | null }       
 
 ```
 AdminUser        { userId, email, displayName: string | null, roleCode, roleDisplayName,
-                   status: "active"|"disabled", emailVerified: boolean, lockedUntil?: date-time, createdAt }
+                   status: UserStatus, emailVerified: boolean, lockedUntil: date-time | null, createdAt }
+                   // sửa 2026-09-24 khi thi công D2: status = bốn giá trị như identity-v1; lọc ?status= chỉ active|disabled.
+                   // lockedUntil luôn có mặt, null khi không khóa tạm hoặc mốc đã qua
 AdminUserPage    { items: [AdminUser], nextCursor }                  // created_at DESC, user_id DESC · q = tiền tố email (citext)
 LockRequest      { reason: string (1–500) }                          // vào metadata audit, không lưu ở users
 AssignRoleRequest{ roleCode: string }
@@ -1115,7 +1188,7 @@ RoleSummary      { roleId, code, displayName, isSystem: boolean, editable: boole
 CreateRoleRequest{ code, displayName (1–50), permissions: [string] }
 RenameRoleRequest{ displayName }                                     // additionalProperties: false → có `code` là 400
 SetRolePermissionsRequest { permissions: [string], confirm?: boolean }
-PermissionInfo   { code, description }
+PermissionInfo   { code, description, assignable: boolean }            // assignable = false với role.manage (L-D19, thêm 2026-09-24)
 ConfirmationRequiredProblem  (409, type …:confirmation-required) { added: [string], removed: [string], affectedUsers: integer }
 ```
 
@@ -1148,6 +1221,12 @@ ReadAllRequest       { upTo: date-time }                             // chỉ đ
   trong lúc người dùng đang ở trang 2 và không bao giờ hiện lại ở trang 2. Chấp nhận (danh sách thông báo, không phải sổ cái),
   và FE khử trùng theo `notificationId` khi nối trang (khuôn `useCursorPages` GĐ4).
 
+*Sửa 2026-09-25 khi thi công D11:* `notification-v1.yaml` `1.0.0-gd6`. Mọi trường của `NotificationResponse` luôn có mặt, `null` khi không
+áp dụng (như `TargetSnapshot` của D7b) — `target.postId`, `reasonCode`, `actor` nullable, không optional. `type` là enum tám loại
+(`NotificationType`), `target.type` enum bốn loại, `reasonCode` enum năm lý do (cùng tập `ReasonCode` của `moderation-v1`, giữ khớp bằng
+tay). `unread-count` trả schema `UnreadCount { total }`. `limit` 1..50, mặc định 20. `read-all` luôn 204 (kể cả khi không nhóm nào khớp);
+`upTo` thiếu → 400 `errors.upTo`. `notificationId` sai dạng → 400 `errors.notificationId`.
+
 ### 8.4 `notification-hub-v1.md`
 
 ```
@@ -1165,9 +1244,9 @@ nhận hai lần hay sai thứ tự đều vô hại. Nối lại → nạp lạ
 
 | File | Thêm | Không đổi |
 |---|---|---|
-| `profile-v1.yaml` | `GET /search?q=&type=user&limit=` → 200 `{ items: [{ userId, displayName, avatarUrl? }] }` · 400 `errors.q` · 401 | Mọi schema GĐ2 |
-| `identity-v1.yaml` | `MeResponse.permissions: string[]` (required) · `POST /auth/login` thêm 403 type `…:account-disabled` | Mọi trường đã có; 403 `email-not-verified` giữ nguyên type riêng |
-| `content-v1.yaml` | `PostResponse.moderation?: { status: "hidden", reasonCode, hiddenAt }` · `PATCH /posts/{id}` thêm 409 `…:post-hidden` | Mọi trường GĐ2/GĐ3/GĐ4 |
+| `profile-v1.yaml` | `GET /search?q=&type=user&limit=` → 200 `{ items: [{ userId, displayName, avatarUrl? }] }` · 400 `errors.q` · 401 (*sửa 2026-09-25, D12:* `1.1.0-gd6`; `avatarUrl` luôn có mặt, `null` khi không ảnh — không optional; 400 thêm `errors.type`, `errors.limit`) | Mọi schema GĐ2 |
+| `identity-v1.yaml` | `MeResponse.permissions: string[]` (required) · `POST /auth/login` thêm 403 type `…:account-disabled` · `RoleCode` nới từ enum thành chuỗi có pattern (*sửa 2026-09-24, D1 — L-D16*) | Mọi trường đã có; 403 `email-not-verified` giữ nguyên type riêng |
+| `content-v1.yaml` | `PostResponse.moderation?: { status: "hidden", reasonCode, hiddenAt }` · `PATCH /posts/{id}` thêm 409 `…:post-hidden` (*sửa 2026-09-25, D7a:* `1.1.0-gd6`; `moderation` nullable, không required, đặt cuối; `reasonCode` là enum năm giá trị như `ReasonCode` của `moderation-v1`; 409 khai bằng `PostHiddenProblem`) | Mọi trường GĐ2/GĐ3/GĐ4 |
 
 Mỗi lần mở: `info.version` → `…-gd6`, `pnpm gen:api`, commit `schema.d.ts` **cùng commit**, cổng `API contract` + codegen xanh.
 Thêm trường `required` vào **response** là chỉ-thêm với client (client cũ bỏ qua trường lạ); vào **request** thì không.
@@ -1206,6 +1285,15 @@ Làm một mình thì không có buổi họp, nhưng **sản phẩm của cổn
 4. **Ba hợp đồng cũ (`profile-v1`, `identity-v1`, `content-v1`) KHÔNG sửa ở cổng mở** — bài học GĐ4 Mục 9.2: các file này đã
    có cổng hợp đồng chạy, thêm operation/status chưa hiện thực là `Contract_must_be_fully_implemented` đỏ. Phần thêm của chúng
    đi **cùng commit với controller** (D1, D7, D12). Ghi lại ở đây để không ai "sửa trước cho FE có kiểu".
+
+*Lệch Mục 9.2 bước 3 (nhóm chốt 2026-09-24):* ba file hợp đồng mới **không** viết trước ở cổng mở. Mỗi file ra đời cùng commit
+với controller đầu tiên của nhóm đó, và **lớn dần theo từng đầu việc D**: operation nào có trong yaml thì đã có controller hiện
+thực nó. Nói cách khác, áp luật của bước 4 cho cả hợp đồng mới. Lý do: bước 3 dựa trên câu "nhánh không vào `develop` cho tới cổng
+đóng", mà câu đó không còn đúng. PR #24 đã đưa C0, A, C vào `develop` giữa giai đoạn, và PR khối D cũng sẽ vào `develop` trước
+cổng đóng. Viết đủ ba yaml trước thì `Contract_must_be_fully_implemented` đỏ trên PR khối D cho tới đầu việc D cuối cùng. Được:
+cổng `API contract` xanh ở mọi commit. Mất: lane E không dựng trước trên hợp đồng được. Điều đó không ảnh hưởng, vì Mục 9.3 đã xếp
+E (bước 10) sau D. `notification-hub-v1.md` vẫn đi cùng C6. Các quyết định Mục 8 (đường, mã lỗi, hình dạng) **không đổi**. Đây là
+bản thiết kế mà từng đầu việc D chép vào yaml.
 
 ### 9.3 Thứ tự thi công và ước lượng
 
@@ -1308,11 +1396,12 @@ Luật vàng số 8: mọi thứ phải chạy trên ARM64 — không có native
 | Id | Kịch bản | Kỳ vọng |
 |---|---|---|
 | `REP-01` | Báo bài công khai · báo lại lần hai | 201 · 200 cùng `reportId` |
-| `REP-02` | Báo bài `private` của người khác · id không tồn tại | 404 · 404 (cùng thân lỗi) |
+| `REP-02` | Báo bài `private` của người khác · id không tồn tại · `targetType: comment` (L-D13, sửa 2026-09-24 khi thi công D6) | 404 · 404 · 404 (cùng thân lỗi) |
 | `REP-03` | Báo bài của chính mình | 400 |
 | `REP-04` | `other` không `detail` | 400 `errors.detail` |
 | `REP-05` | Báo cáo thứ 11 trong một phút | 429 |
 | `REP-06` | Báo lại sau khi báo cáo cũ đã `dismissed` | 201 báo cáo mới |
+| `REP-07` | Báo bài `friends` của **bạn** · của người lạ *(thêm 2026-09-24 khi thi công D6)* | 201 · 404 cùng thân với "không tồn tại" |
 | `MOD-01` | AC-01: ba người báo cùng một bài → Moderator `hide` | bài `hidden` + `hidden_reason`; **ba** báo cáo `resolved`; **một** dòng audit `report.hide` có đủ ba `reportIds` |
 | `MOD-02` | AC-02: `dismiss` | `dismissed`; bài `published`; có audit |
 | `MOD-03` | AC-03: USER gọi `PATCH /reports/{id}` | 403 + một dòng `access.denied` |
@@ -1321,7 +1410,7 @@ Luật vàng số 8: mọi thứ phải chạy trên ARM64 — không có native
 | `MOD-06` | Khôi phục bài bị ẩn · khôi phục bài đang `published` | 200 + audit `content.restore` · 409 |
 | `TX-01` ⭐ | `IAuditTrail` ném lỗi giữa bước 4 (Đ-6.13) | Bài **vẫn** `published`; báo cáo **vẫn** `open`; không dòng audit |
 | `TX-02` | `HideAsync` ném lỗi | Không gì thay đổi |
-| `HID-01..06` | Tác giả / bạn bè / Moderator đọc bài `hidden`; tác giả `PATCH`; tác giả `DELETE`; feed + trang cá nhân | 200 + `moderation` · 404 · 404 · 409 · 204 · không có |
+| `HID-01..06` | Tác giả / bạn bè / Moderator đọc bài `hidden`; tác giả `PATCH`; tác giả `DELETE`; feed + trang cá nhân | 200 + `moderation` · 404 · 404 · 409 · 204 · không có (*sửa 2026-09-25, D7a:* `HID-03` chạy cả Admin và người lạ; `HID-04` thêm vế người khác `PATCH` vẫn 403) |
 | `AUD-01` | Mọi dòng audit có `actor_id`, `action`, `ip` | Không dòng nào chứa chuỗi đánh dấu `SECRET-xyz` đã đặt trong thân bài bị ẩn |
 | `AUD-02` | `UPDATE` / `DELETE` dòng audit bằng SQL · `DELETE` với `SET LOCAL socialapp.audit_purge = 'on'` | exception · exception · được |
 | `AUD-03` | 5 lần bị từ chối cùng endpoint trong 1 phút | đúng **1** dòng `access.denied` |
@@ -1369,6 +1458,8 @@ Luật vàng số 8: mọi thứ phải chạy trên ARM64 — không có native
 | `MOD-C1` | Hai Moderator quyết cùng một báo cáo | một 200, một 409; **một** dòng audit quyết định |
 | `REP-C1` | 10 báo cáo giống hệt từ một người, song song | 1 dòng; 1 × 201, 9 × 200; không 500 |
 | `NOTIF-C1` | 20 người khác nhau thả cảm xúc một bài song song | 1 dòng, `actorCount = 20`, 20 dòng `notification_actors` |
+| `NOTIF-C1b` | Test giữ nhóm chèn dở (chưa `COMMIT`), 5 lượt upsert chờ ở index unique, rồi `COMMIT` | cả 5 chạy lại bước 1 và được đếm: `actorCount = 6` (*thêm 2026-09-25, D9:* `NOTIF-C1` xanh cả khi bỏ bước chạy lại) |
+| `NOTIF-C3b` | Nhóm đã đọc, test khóa sẵn dòng, 5 lượt upsert chờ, rồi nhả | đúng một lượt mở đợt mới: `actorCount = 5`, đủ 5 người (*thêm 2026-09-25, D9*) |
 
 ### 10.3 Unit test
 
@@ -1584,6 +1675,7 @@ Kiểm ngày 2026-09-23 trên `loveart1210` (`ac509e4`). GĐ6 **không** dựng 
 **Làm gì:** `SharedKernel/Events/` đúng Đ-6.2; sáu record của Đ-6.17 (kể cả của A, B); `AddInProcessEventBus()` trong
 `AddSharedKernel`; `DrainAsync` cho test; metric `socialapp_events_published_total`, `…_dropped_total` trên
 `Meter("SocialApp.Events")` của `System.Diagnostics.Metrics` (GĐ7 C2 kiểm tên ở `/metrics`); `SocialGraphEvents` gọi `Publish`.
+*Sửa 2026-09-24:* metric chuyển sang prometheus-net ở `BusinessMetrics` — `Meter` không lên `/metrics` (Đ-6.2, ghi chú cùng ngày).
 
 **Làm như nào:** `Channel.CreateBounded(options { Capacity = 10_000, DropWrite }, itemDropped)` — `TryWrite` với `DropWrite` luôn
 trả `true`, chỉ callback `itemDropped` biết có rơi; một `BackgroundService` đọc, với mỗi **handler** mở **một scope DI riêng**
@@ -1696,6 +1788,10 @@ của `ModerationDbContext` — repo không đăng ký `NpgsqlDataSource` nào, 
 hợp đồng); bản đầy đủ qua `PATCH /reports` là của D7. Đột biến B5 "hiện thực ghi trên kết nối riêng dù có `tx`" đã chạy ở C1 →
 `TX-01` đỏ (còn 1 dòng audit sau rollback).
 
+*Sửa 2026-09-25 (tìm ra khi thi công D7c, sửa ở `fix(gd6-c)`):* `tx == null` mở `new NpgsqlConnection` với **chính** chuỗi kết nối của
+`ModerationDbContext` — kết nối riêng từ **cùng** pool (Npgsql gom pool theo chuỗi), không phải kết nối scoped. Kết nối scoped có thể
+đang giữ transaction của người gọi, và khi đó dòng `access.denied` mất theo rollback — trái dòng 242 phía trên ("tự mở kết nối riêng").
+
 ### C2 — `IModerationTargets` + hiện thực (Đ-6.3, Đ-6.12, Đ-6.14)
 
 **Làm gì:** interface ở `SharedKernel/Moderation/`; `ContentModerationTargets` (bài; bình luận **sau khi A merge**) ở Content;
@@ -1720,6 +1816,10 @@ status='published' RETURNING …`; không trả gì → `SELECT status` để ph
   `DbTransaction` phải hiện thực một interface đó) + canh gác "tìm thấy đúng ba interface". Viết một vế thì đỏ ngay với hai provider hợp lệ.
 - `TX-02`, `HID-*` là bản hạ tầng (`ModerationTargetsTests`); `TX-02` gồm đủ ba bảng của Đ-6.13 (báo cáo + ẩn + audit) trong một
   transaction của Moderation.
+
+*Sửa 2026-09-25, bước 9 (C2b):* provider bình luận `CommentModerationTargets` — báo cáo, ẩn, khôi phục bình luận chạy qua đúng các
+endpoint D6–D7c, không sửa Moderation. Chốt: ẩn trừ `comment_count` như xóa (không đụng `reply_count` — xóa cũng không); không cột
+`hidden_reason` cho bình luận (lý do ở thông báo + audit); ảnh chụp đọc `visible` là `published`. Khóa bài trước, bình luận sau (Đ-3.8).
 
 ### C3 — Invalidate cache quyền (Đ-6.10)
 
@@ -1775,6 +1875,11 @@ hướng dẫn khối A+C Mục 13: không tự dựng vé, không sửa thư m�
 giây (Đ-6.18 — đường lùi vĩnh viễn, không phải tạm). Làm C6 khi vé của GĐ5 có trên `develop`; nếu tới cổng đóng vẫn chưa có thì
 dòng hub ở Mục 12 ghi "chờ GĐ5 — đang chạy chế độ hỏi lại" (R6-01, thứ tự cắt B.10 #3).
 
+*Sửa 2026-09-25 — ĐÃ LÀM:* GĐ5 đã merge, bốn điều kiện đủ. Hub `/hubs/notifications` trên vé của GĐ5, không sửa `SharedKernel/Realtime/`.
+Đẩy bằng bộ trang trí `PushingNotificationStore` quanh `INotificationStore` (sau `COMMIT`, đọc lại nhóm + số chưa đọc), không sửa D9 hay
+handler; đẩy hỏng chỉ log. Payload một object `{ notification, unreadTotal }` như Mục 8.4. Chi tiết ở "Thực tế thi công" C6 của
+`huong-dan-khoi-a-c-nen-du-lieu-va-ha-tang.md`.
+
 **Kết quả khối C:** mọi thứ Mục 6 đòi hỏi ở tầng hạ tầng đã có test; D chỉ còn nghiệp vụ.
 
 ---
@@ -1782,6 +1887,13 @@ dòng hub ở Mục 12 ghi "chờ GĐ5 — đang chạy chế độ hỏi lại"
 ## B.6 Khối D — Endpoint và nghiệp vụ
 
 > **Mục tiêu khối:** hợp đồng Mục 8 thành hệ thống chạy thật, khớp từng mã lỗi — và ba mốc không lùi được thành test xanh.
+
+**Hai luật chung cho mọi đầu việc D (chốt 2026-09-24):**
+- **Hợp đồng đi cùng controller.** Đầu việc nào thêm endpoint thì thêm operation vào `moderation-v1` / `notification-v1` /
+  `admin-v1` (hoặc mở lại chỉ-thêm `identity-v1` / `content-v1` / `profile-v1`) **trong cùng commit**. File yaml mới ra đời ở
+  đầu việc đầu tiên của nhóm đó. Chạy `pnpm gen:api` và commit `schema.d.ts` cùng lúc (Mục 9.2, lệch bước 3).
+- **Chỉ số mới khai ở `BusinessMetrics`** (prometheus-net), không dùng `Meter`. Chuỗi có nhãn thì tạo sẵn trong `Initialize()`
+  (Đ-6.2, sửa 2026-09-24).
 
 ### D0 — Nền chung
 
@@ -1794,10 +1906,17 @@ dòng hub ở Mục 12 ghi "chờ GĐ5 — đang chạy chế độ hỏi lại"
 Đ-6.5, Đ-6.11; mở `identity-v1.yaml` chỉ-thêm **trong cùng commit**. **Xong khi:** `ADM-01` (phần login/refresh), `ME-01` xanh; cổng
 hợp đồng Identity xanh; codegen FE xanh.
 
+*Sửa 2026-09-24 khi thi công D1* (L-D2, L-D3, L-D16 của `huong-dan-khoi-d-endpoint-nghiep-vu.md`): kiểm `status` ở refresh đứng trước
+mỗi chỗ phát token, không trong join vai trò; fixture `MeResponse` của `mocks/` và test kiểu `RoleCode` của FE sửa cùng commit;
+`RoleCode` nới thành chuỗi có pattern.
+
 ### D2 — `GET /admin/users`, `GET /admin/users/{id}`
 
 Keyset `(created_at, user_id)`; `q` tiền tố email (citext `LIKE q || '%'` có escape); hydrate `displayName` một lô `IUserDirectory`.
 **Xong khi:** `ADM-07`, `TC-A05`, `TC-A05b` xanh.
+
+*Sửa 2026-09-24 khi thi công D2* (L-D17): matrix cần Redis thật để hai dòng `TC-A05*` chạm tới tầng 2 (Mục 6.3). Hình dạng
+`AdminUser` chỉnh ở Mục 8.2.
 
 ### D3 — Khóa / mở khóa + bất biến Admin + thu hồi ⭐
 
@@ -1807,6 +1926,10 @@ Keyset `(created_at, user_id)`; `q` tiền tố email (citext `LIKE q || '%'` c�
 users` → `UPDATE refresh_tokens` → bất biến → `IAuditTrail.AppendAsync(tx)` → `COMMIT` → `RevokeUserAsync` (thử lại 3 lần) →
 `revocation`.
 
+*Sửa 2026-09-24 khi thi công D3* (L-D7, L-D8, L-D9, L-D10 của `huong-dan-khoi-d-endpoint-nghiep-vu.md`): "đỏ trước" làm ở local, ghi
+trong thân commit — không commit đỏ; khóa tư vấn **luôn** lấy; audit không có `revocation`; khóa lại tài khoản đã khóa → 200
+`not-needed`. `ADM-C1` (hạ vai trò đồng thời) thuộc D4 — D3 chỉ có `ADM-C2`.
+
 **Xong khi:** `ADM-01..04`, `ADM-06`, `ADM-C1/C2` (20 lần), `TC-A05-mod-lock` xanh.
 
 **Tự rà trước commit:** `RevokeUserAsync` nằm **sau** `CommitAsync`; không có nhánh nào `return` giữa hai bước mà bỏ quên thu hồi.
@@ -1815,6 +1938,9 @@ users` → `UPDATE refresh_tokens` → bất biến → `IAuditTrail.AppendAsync
 
 Cùng khuôn D3, không đụng refresh family. **Xong khi:** `ADM-05`, `ROLE-01` (phần gán) xanh.
 
+*Sửa 2026-09-24 khi thi công D4* (L-D18): chạm ADMIN cần thêm `role.manage` — Đ-6.9, Mục 6.1, Mục 8.2. `ADM-C1` (hai Admin hạ nhau
+đồng thời, 20 lượt) đi cùng D4.
+
 ### D5 — CRUD vai trò + `GET /admin/permissions`
 
 **Làm gì:** năm endpoint Đ-6.9; `RolePermissionDiff`; 409 `confirmation-required` có `added/removed/affectedUsers`; bắt `23503`
@@ -1822,10 +1948,17 @@ Cùng khuôn D3, không đụng refresh family. **Xong khi:** `ADM-05`, `ROLE-01
 
 **Xong khi:** `ROLE-01..07`, `PERM-01`, `TC-A05-roles` xanh.
 
+*Sửa 2026-09-24 khi thi công D5* (L-D11, L-D19): `Error.Extensions` mang `added`/`removed`/`affectedUsers` của 409; `role.manage` không
+gán được qua API; phát invalidate cả khi tạo vai trò.
+
 ### D6 — `POST /reports`
 
 Đ-6.12: `CanViewAsync` qua C2; `INSERT … ON CONFLICT (…) WHERE status='open' DO NOTHING` rồi `SELECT`; policy `report-create`.
-**Xong khi:** `REP-01..06`, `REP-C1`, `REP-IDOR` xanh.
+**Xong khi:** `REP-01..07`, `REP-C1`, `REP-IDOR` xanh.
+
+*Sửa 2026-09-24 khi thi công D6* (L-D13, L-D1): `IModerationTargets.Supports(type)` chỉ-thêm — loại chưa có provider (bình luận
+trước GĐ3) trả 404 cùng thân lỗi, không 500 `NotSupportedException`. Nền `moderation-v1` (ApiGroup, yaml, `ModerationContractTests`)
+đi cùng commit này. `POST /reports` ở controller riêng không `[PrivilegedEndpoint]` (B.10 #8).
 
 ### D7 — Hàng đợi, chi tiết, quyết định, khôi phục + đường đọc `hidden` của Content ⭐
 
@@ -1838,15 +1971,39 @@ theo `(min(created_at), target_id)`), `GET /reports/{id}` (snapshot C2 + lịch 
 
 **Xong khi:** `MOD-01..06`, `MOD-C1`, `TX-01/02`, `HID-01..06`, matrix `TC-A06*` xanh.
 
+*Sửa 2026-09-25 khi thi công D7a* (L-D4, L-D5 của `huong-dan-khoi-d-endpoint-nghiep-vu.md`): D7 tách ba commit — D7a là phần
+Content (một commit nhỏ, để rebase với A theo Mục 9.4), D7b hàng đợi + chi tiết, D7c quyết định + khôi phục + event + metric. Phần
+Content sửa **ba** chỗ, không chỉ "nhánh tác giả": `GetAsync` trả 404 cho người không phải tác giả (trước D7a, bài `hidden` trả 200
+cho mọi người qua BR-02), mapper gắn `moderation` cho tác giả, `UpdateAsync` trả 409 (trước D7a, `PATCH` sửa được bài `hidden`).
+`HID-01..06` xanh ở D7a, trước khi có endpoint nào ẩn được bài — bài ẩn bằng `IModerationTargets.HideAsync` trong test.
+
+*Sửa 2026-09-25 khi thi công D7b* (L-D15): hai `GET` của `moderation-v1` (`1.1.0-gd6`) ở `ReportsController` mang
+`[PrivilegedEndpoint]`; đường đọc tách interface riêng `IReportQueries` (khuôn `IAdminUserQueries` của D2), không dồn vào
+`IReportStore`. `history[].outcome` thay `decision` (Mục 8.1). Matrix thêm `TC-A06-queue`; `AUD-03` chạy cả trên controller thật.
+
+*Sửa 2026-09-25 khi thi công D7c* (L-D12): kiểm `post.hide` **trước** mọi I/O, không trong transaction sau `FOR UPDATE` như bước 2 của
+Đ-6.13. Transaction (khóa báo cáo → ẩn → đóng mọi báo cáo mở → audit) ở `ModerationDecisionStore`; event và metric sau `COMMIT`.
+`MOD-07` đếm `ContentHidden` bằng handler ghi lại, không bằng metric `published{event}` (metric là số của cả process). Matrix thêm
+`TC-A06`, `TC-A06b`.
+
 ### D8 — `GET /admin/audit-logs`
 
 Keyset `id DESC`; lọc theo `actorId`/`targetType+targetId` (hai index), `action` chỉ đi kèm một trong hai hoặc khoảng id; hydrate
 `actor`. **Xong khi:** `AUD-04`, `TC-A05-mod-audit` xanh.
 
+*Sửa 2026-09-25 khi thi công D8* (L-D14): `action` lọc được **một mình** — câu "chỉ đi kèm" là ghi chú hiệu năng của Mục 4 (không index
+theo `action`), không phải luật validation; truy vấn đi PK lùi + lọc, `LIMIT` dừng sớm. `targetId` thiếu `targetType` → 400.
+`limit` mặc định 50, tối đa 100. Controller ở Moderation, nhóm `moderation-v1` (`1.3.0-gd6`).
+
 ### D9 — Store thông báo + upsert gộp
 
 `INotificationStore.UpsertAsync(recipient, groupKey, …, actorId)` đúng khối SQL Đ-6.16 trong một transaction. **Xong khi:**
 `NOTIF-03..05`, `NOTIF-C1` (20 lần) xanh.
+
+*Sửa 2026-09-25 khi thi công D9* (L-D6): khuôn hai bước thay câu `ON CONFLICT DO UPDATE … RETURNING <is_read cũ>` (xem Đ-6.16).
+Store tự canh hai luật cho mọi handler: tự báo mình → `Skipped`; `moderation` ⇔ không có người (sai cặp → `ArgumentException` trước
+mọi I/O). `NOTIF-C1` để lịch chạy tự quyết nên không bảo đảm có lượt đua — thêm `NOTIF-C1b`, `NOTIF-C3b` **ép** lượt đua bằng một
+transaction của test giữ chỗ chặn (Mục 10.2).
 
 ### D10 — Handler event
 
@@ -1856,25 +2013,53 @@ Keyset `id DESC`; lọc theo `actorId`/`targetType+targetId` (hai index), `actio
 **Xong khi:** `NOTIF-01`, `NOTIF-02`, `NOTIF-09`, `EVT-02` xanh; mỗi handler mới có một test tích hợp đi từ **API thật của module
 phát** (không `Publish` tay) tới dòng `notifications`.
 
+*Sửa 2026-09-25 khi thi công D10:* ba handler "ngay" xong (`NOTIF-01`, `-01b`, `-09`; `EVT-02` vẫn xanh). GĐ3 và GĐ5 đã merge vào
+nhánh GĐ6 trước D10 — `CommentCreatedHandler`, `ReactionSetHandler`, `MessageSentHandler` (+ `NOTIF-02`) hết bị chặn, làm ở commit
+riêng của bước 9, không gộp vào D10.
+
+*Sửa 2026-09-25, bước 9:* ba handler còn lại xong trong MỘT commit (hai giai đoạn đã cùng có trên nhánh): `comment`/`reply`/`reaction` qua
+API `content-v1`, `message` qua `messaging-v1` + presence của GĐ5; `NOTIF-02` xanh. Trả lời bình luận của chính tác giả bài → chỉ
+`reply`, không kèm `comment` (Đ-6.17 không nói — người thi công chốt). `tag` vẫn cắt.
+
 ### D11 — Endpoint thông báo
 
 Bốn endpoint Mục 8.3; `read` tầng 3 cùng khuôn "không tồn tại = không phải của bạn = 403". **Xong khi:** `NOTIF-06..08`,
 `NOTIF-IDOR`, `TC-A01-notifications` xanh.
 
+*Sửa 2026-09-25 khi thi công D11* (L-D1): nền `notification-v1` (`NotificationApiGroup`, `AddApplicationPart`, `apiGroups`, yaml,
+`NotificationContractTests`, `Content Include`) đi cùng commit này; `NOTIF-10` (đề xuất) viết luôn. Dòng matrix `NOTIF-IDOR` dựng thông
+báo của B bằng một câu `INSERT` — thông báo sinh từ event chạy bất đồng bộ, và khung matrix không có bus để chờ (Mục 6.3 cấm sửa
+khung); đường event → thông báo đã có `NotificationHandlerTests` đi từ API thật.
+
 ### D12 — `GET /search`
 
 Đ-6.19; mở `profile-v1.yaml` chỉ-thêm **trong cùng commit**. **Xong khi:** `SRCH-01..08`, `TC-A01-search` xanh.
+
+*Sửa 2026-09-25 khi thi công D12:* escape dùng `LikePattern.Escape` có sẵn ở SharedKernel (D2 dựng, đã có unit test) — không thêm
+`SearchTerm.EscapeLike`. Chuẩn hóa tham số viết thẳng `profile.search_norm($1)` trong `WHERE`, không qua CTE `WITH q AS (…)`: một cột
+của CTE ở vế phải `LIKE` là điều kiện join, không phải hằng lúc chạy — planner chỉ dùng index GIN khi có đường tham số hóa; hàm
+IMMUTABLE trên tham số thì chắc chắn là hằng. `explain.sql` sửa theo đúng câu của D12, chạy lại trên 20.000 hồ sơ: ba câu vẫn
+`BitmapOr` của hai `Bitmap Index Scan on idx_profiles_display_name_search`.
 
 ### D13 — Rà RFC 7807 và `type`
 
 Đối chiếu từng mã trong sáu file hợp đồng với thứ code trả; mọi 409/503 có `type` riêng; không thông điệp nào chứa id, email,
 nội dung. **Xong khi:** ba lớp cổng hợp đồng mới + ba cũ xanh hai chiều.
 
+*Sửa 2026-09-25 khi thi công D13:* rà xong, không lệch — không commit `fix`. Mười một `type` mỗi cái một hằng, khai đủ trong yaml của
+mọi endpoint trả nó; 45/45 ca cổng hợp đồng + Problem Details xanh. `PROBLEM_TYPES` phía FE chưa có `type` nào của GĐ6 — việc của E1.
+Chi tiết ở "Thực tế thi công" D13 của `huong-dan-khoi-d-endpoint-nghiep-vu.md`.
+
 ---
 
 ## B.7 Khối B — Test và cổng CI
 
 > **Mục tiêu khối:** biến mọi luật của Phần A thành thứ **chặn merge**, giữ tinh thần GĐ1: khung không sửa, chỉ thêm dòng.
+
+*Sửa 2026-09-24 (L-D7 của `huong-dan-khoi-d-endpoint-nghiep-vu.md`, chốt trước khối D):* khối B **không còn commit riêng**. Dòng
+matrix (B2), ca đồng thời (B3), ca transaction (B5) đi cùng commit D làm chúng xanh; B1 đi cùng D đầu tiên dùng helper; B4 đi cùng
+endpoint đầu tiên của mỗi nhóm (L-D1). "Viết cho đỏ trước" làm ở local — bằng chứng là bảng đột biến trong thân commit và mô tả PR,
+không phải một commit đỏ trên nhánh (PR vào `develop` giữa giai đoạn thì commit đỏ là CI đỏ).
 
 ### B1 — Harness
 

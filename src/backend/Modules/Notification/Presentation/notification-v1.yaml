@@ -1,0 +1,520 @@
+# ---------------------------------------------------------------------------------------------
+# HỢP ĐỒNG API — module Notification, v1 (GĐ6 · FR-018, UC-17)
+#
+# Danh sách thông báo đã gộp, số chưa đọc, đánh dấu đã đọc (docs/giai-doan-6/giai-doan-6.md Mục 8.3).
+# Tên nhóm `notification-v1` khớp ba chỗ: `NotificationApiGroup.Name`, dòng `apiGroups` ở Program.cs,
+# tên file này. Hub thông báo (C6) KHÔNG ở đây — hợp đồng hub là `notification-hub-v1.md` riêng.
+#
+# CÓ MÁY CANH: `NotificationContractTests` so file này với /swagger/notification-v1/swagger.json sinh
+# từ code — lệch tập (path × method), tập status code, hoặc required field của request body là CI
+# đỏ. `ContractGateCoverageTests` canh file này có dòng `Content Include` + lớp so.
+#
+# LỚN DẦN THEO ĐẦU VIỆC CỦA KHỐI D (luật "hợp đồng đi cùng controller", chốt 2026-09-24):
+#   D11 (2026-09-25): bốn operation — version 1.0.0-gd6.
+#
+# QUYẾT ĐỊNH ĐỨNG SAU (giai-doan-6.md):
+#   Đ-6.16  Một dòng mỗi NHÓM (người nhận, group_key); `actorCount` đếm người KHÁC NHAU trong ĐỢT
+#           hiện tại (đợt = từ lần đọc nhóm gần nhất). Không lưu tên hay nội dung: `actor` hydrate
+#           lúc đọc. Không rút lại thông báo khi người kia gỡ cảm xúc / xóa bình luận.
+#   Đ-6.17  Tám loại; `moderation` KHÔNG có actor (không lộ ai kiểm duyệt), có `reasonCode`.
+#   Đ-6.18  Trước khi có hub: FE hỏi `unread-count` mỗi 30 giây + khi tab lấy lại focus. Hợp đồng
+#           dữ liệu KHÔNG đổi khi có hub — hub chỉ là thêm một nguồn đẩy.
+#   Mục 6.1 Không mã quyền nào (cùng lý do `/me`); không endpoint nào đặc quyền — không 503.
+#           Tầng 3: chỉ thông báo của chính mình. Không tồn tại = không phải của bạn = 403.
+# ---------------------------------------------------------------------------------------------
+openapi: 3.0.3
+
+info:
+  title: SocialApp — Notification API
+  version: 1.0.0-gd6
+  description: |
+    Thông báo của GĐ6 (FR-018, UC-17): ai đó bình luận, bày tỏ cảm xúc, mời kết bạn, chấp nhận lời mời, nhắn tin khi bạn
+    offline, hay nội dung của bạn bị ẩn.
+
+    ### Luồng chuông (FE)
+
+    1. `GET /notifications/unread-count` mỗi 30 giây và khi tab lấy lại focus → badge (hiện "9+" từ 10).
+    2. Mở chuông → `GET /notifications` (trang đầu). Nối trang bằng `nextCursor`, **khử trùng theo `notificationId`**: một
+       nhóm có sự kiện mới nhảy lên đầu nên có thể xuất hiện lại ở trang trước.
+    3. Bấm một thông báo → `POST /notifications/{notificationId}/read` (optimistic, rollback khi lỗi) → điều hướng theo
+       `target`. Đích đã mất/bị ẩn thì màn đích trả 404 — FE hiện *"Nội dung này không còn nữa."*
+    4. "Đánh dấu tất cả đã đọc" → `POST /notifications/read-all { upTo }` với `upTo` = `updatedAt` của thông báo mới nhất
+       đang hiển thị — thông báo tới sau đó vẫn chưa đọc.
+
+    ### Câu hiển thị
+
+    Server **không** trả câu. FE ghép từ `type` + `actor` + `actorCount`, ví dụ `comment` với `actorCount = 4`:
+    *"An và 3 người khác đã bình luận về bài viết của bạn."* `actor` là người gây ra sự kiện MỚI NHẤT; `null` với
+    `moderation`, và khi người đó không còn hồ sơ.
+
+    ### Lỗi
+
+    Mọi lỗi trả **RFC 7807 Problem Details** (`application/problem+json`) kèm `traceId` — bằng đúng
+    giá trị header `X-Correlation-ID` của chính request đó.
+
+    ### Rate limit
+
+    100 req/phút theo user (hạn mức chung). Vượt → `429`, không có `Retry-After`.
+  contact:
+    name: Nhóm 4 — 30INF067
+
+servers:
+  - url: http://localhost:5259/api/v1
+    description: Dev — backend chạy local (`dotnet run`)
+  - url: https://mxh.banhgao.net/api/v1
+    description: Staging
+
+tags:
+  - name: notifications
+    description: Thông báo đã gộp của người đang đăng nhập (FR-018).
+
+paths:
+
+  /notifications:
+    get:
+      tags: [notifications]
+      operationId: listNotifications
+      summary: Thông báo của tôi — nhóm vừa có sự kiện mới lên đầu
+      description: |
+        Sắp theo `updatedAt` giảm dần (rồi `notificationId` giảm dần), phân trang keyset. `updatedAt` là lúc sự kiện mới nhất dồn
+        vào nhóm — đánh dấu đã đọc **không** đổi nó, nên đọc một thông báo không làm nó nhảy lên đầu.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Một trang thông báo.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationPage'
+              example:
+                items:
+                  - notificationId: 0192f3d0-4a1b-7c2d-8e3f-9a0b1c2d3e4f
+                    type: comment
+                    actor:
+                      userId: 0192f3c1-8a4e-7c31-9f2a-6b5d4e3c2a10
+                      displayName: Nguyễn Văn An
+                      avatarUrl: null
+                    actorCount: 4
+                    target:
+                      type: post
+                      id: 0192f3c9-2b7d-7e10-8c4a-1f3e5d7b9a20
+                      postId: 0192f3c9-2b7d-7e10-8c4a-1f3e5d7b9a20
+                    reasonCode: null
+                    isRead: false
+                    createdAt: '2026-09-25T07:02:11.482913Z'
+                    updatedAt: '2026-09-25T08:15:42.123456Z'
+                  - notificationId: 0192f3cf-11aa-7b22-9c33-4d44e55f6a77
+                    type: moderation
+                    actor: null
+                    actorCount: 1
+                    target:
+                      type: post
+                      id: 0192f3c2-5e6f-7a80-9b1c-2d3e4f5a6b7c
+                      postId: 0192f3c2-5e6f-7a80-9b1c-2d3e4f5a6b7c
+                    reasonCode: spam
+                    isRead: true
+                    createdAt: '2026-09-24T21:40:03.000001Z'
+                    updatedAt: '2026-09-24T21:40:03.000001Z'
+                nextCursor: MjAyNi0wOS0yNFQyMTo0MDowMy4wMDAwMDEwKzAwOjAwfDAxOTJmM2NmLTExYWEtN2IyMi05YzMzLTRkNDRlNTVmNmE3Nw
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /notifications/unread-count:
+    get:
+      tags: [notifications]
+      operationId: countUnreadNotifications
+      summary: Số nhóm thông báo chưa đọc — badge của chuông
+      description: Đếm **nhóm** chưa đọc, không đếm sự kiện — mười người bình luận một bài vẫn là 1.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Số nhóm chưa đọc.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnreadCount'
+              example:
+                total: 3
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /notifications/{notificationId}/read:
+    post:
+      tags: [notifications]
+      operationId: markNotificationRead
+      summary: Đánh dấu một thông báo đã đọc
+      description: |
+        Idempotent — thông báo đã đọc rồi vẫn trả 204. Không đổi `updatedAt`, không đổi thứ tự danh sách.
+
+        Thông báo không tồn tại **hoặc** không phải của người gọi → 403, **cùng** thân lỗi (dòng `NOTIF-IDOR` của AuthZ
+        matrix): khác status ở đây thì status code tự nó tố cáo id nào có thật.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/NotificationId'
+      responses:
+        '204':
+          description: Đã đánh dấu (hoặc đã đọc từ trước).
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /notifications/read-all:
+    post:
+      tags: [notifications]
+      operationId: markAllNotificationsRead
+      summary: Đánh dấu đã đọc mọi thông báo tới trước một mốc
+      description: |
+        Chỉ đánh dấu nhóm có `updatedAt ≤ upTo`. `upTo` bắt buộc — không có nó thì thông báo tới **sau** lúc người dùng mở
+        chuông bị nuốt mất. FE gửi `updatedAt` của thông báo mới nhất đang hiển thị.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReadAllRequest'
+            example:
+              upTo: '2026-09-25T08:15:42.123456Z'
+      responses:
+        '204':
+          description: Đã đánh dấu.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/XCorrelationId'
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+
+  securitySchemes:
+
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Access token JWT HS256 phát ở `POST /auth/login` (`identity-v1`). Người nhận thông báo luôn là chủ token — không
+        endpoint nào nhận id người dùng. Lane FE: token nằm ở BFF, trình duyệt không cầm (Đ-E14).
+
+  parameters:
+
+    NotificationId:
+      name: notificationId
+      in: path
+      required: true
+      description: UUID của thông báo. Sai dạng → 400 `errors.notificationId`.
+      schema:
+        type: string
+        format: uuid
+
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: '`nextCursor` của trang trước, opaque. Sai dạng → 400 `errors.cursor`.'
+      schema:
+        type: string
+
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Số thông báo mỗi trang, `1..50`. Ngoài khoảng → 400 `errors.limit`.
+      schema:
+        type: integer
+        format: int32
+        minimum: 1
+        maximum: 50
+        default: 20
+
+  headers:
+
+    XCorrelationId:
+      description: |
+        Correlation ID của request, bằng đúng `traceId` trong Problem Details khi có lỗi.
+        Client gửi header cùng tên thì server dùng lại giá trị đó.
+      schema:
+        type: string
+      example: 9f2c7b1e4a6d4f0b8c3e5a7d9b1f3c5e
+
+  responses:
+
+    ValidationProblem:
+      description: |
+        Dữ liệu đầu vào không hợp lệ. `errors` là map `tên trường → danh sách thông điệp`: `cursor` rác, `limit` ngoài `1..50`,
+        `notificationId` sai dạng UUID, `upTo` thiếu hoặc sai dạng.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://httpstatuses.io/400
+            title: Dữ liệu không hợp lệ
+            status: 400
+            detail: Dữ liệu đầu vào không hợp lệ
+            instance: /api/v1/notifications/read-all
+            traceId: 5e7a9c1b3d5f7092a4c6e8b0d2f4a6c8
+            errors:
+              upTo:
+                - Mốc thời gian là bắt buộc.
+
+    Unauthorized:
+      description: Thiếu access token, token sai chữ ký, hết hạn, hoặc đã bị thu hồi.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://httpstatuses.io/401
+            title: Chưa xác thực
+            status: 401
+            detail: Yêu cầu access token hợp lệ.
+            instance: /api/v1/notifications
+            traceId: a4c6e8b0d2f4a6c8e0b2d4f6a8c0e2b4
+
+    Forbidden:
+      description: |
+        Tầng 3 — thông báo không phải của người gọi, **hoặc không tồn tại**: một thân lỗi cho cả hai (quy ước 3b). Thông điệp
+        không nêu lý do.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://httpstatuses.io/403
+            title: Bị từ chối
+            status: 403
+            detail: Bạn không có quyền thực hiện thao tác này.
+            instance: /api/v1/notifications/0192f3d0-4a1b-7c2d-8e3f-9a0b1c2d3e4f/read
+            traceId: c6e8b0d2f4a6c8e0b2d4f6a8c0e2b4d6
+
+    TooManyRequests:
+      description: Vượt hạn mức 100 req/phút/user (chung, ISS-04). Không có `Retry-After`.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://httpstatuses.io/429
+            title: Quá nhiều yêu cầu
+            status: 429
+            detail: Bạn đã gửi quá nhiều yêu cầu. Vui lòng thử lại sau ít phút.
+            instance: /api/v1/notifications/unread-count
+            traceId: e0b2d4f6a8c0e2b4d6f8a0c2e4b6d8f0
+
+    InternalError:
+      description: |
+        Lỗi không mong muốn. **Không bao giờ có `detail`** — `GlobalExceptionHandler` giấu chi tiết nội bộ, chỉ
+        `traceId` đi ra ngoài để đối chiếu với log.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://httpstatuses.io/500
+            title: Đã xảy ra lỗi không mong muốn
+            status: 500
+            instance: /api/v1/notifications
+            traceId: b6d8f0a2c4e6b8d0f2a4c6e8b0d2f4a6
+
+  schemas:
+
+    ProblemDetails:
+      type: object
+      description: |
+        RFC 7807 Problem Details — dạng lỗi duy nhất của toàn dự án. Sinh bởi
+        `SocialApp.SharedKernel.Errors.GlobalExceptionHandler`; `traceId` và `type` gắn thống nhất
+        trong `AddSharedKernel`.
+      properties:
+        type:
+          type: string
+          format: uri
+          description: Mặc định `https://httpstatuses.io/{status}`. Nhóm này không có `type` riêng nào — FE không phải phân nhánh.
+        title:
+          type: string
+          description: Nhãn ngắn, ổn định theo loại lỗi. **Không** chứa dữ liệu người dùng.
+        status:
+          type: integer
+          format: int32
+        detail:
+          type: string
+          nullable: true
+          description: Thông điệp cho người đọc. Vắng mặt ở lỗi 500.
+        instance:
+          type: string
+          description: Path của request gây lỗi.
+        traceId:
+          type: string
+          description: Bằng header `X-Correlation-ID` của chính request đó — dùng để tra log.
+        errors:
+          type: object
+          nullable: true
+          description: Chỉ có ở lỗi validation (400). Map `tên trường → danh sách thông điệp`.
+          additionalProperties:
+            type: array
+            items:
+              type: string
+      required: [title, status, traceId]
+
+    NotificationType:
+      type: string
+      description: |
+        Tám loại (Đ-6.17). `comment` bình luận bài của bạn · `reply` trả lời bình luận của bạn · `reaction` cảm xúc MỚI trên
+        bài/bình luận của bạn · `friend_request` lời mời kết bạn · `friend_accepted` lời mời của bạn được chấp nhận ·
+        `message` tin nhắn khi bạn offline · `moderation` nội dung của bạn bị ẩn · `tag` được nhắc tên trong bình luận.
+      enum: [comment, reply, reaction, friend_request, friend_accepted, message, moderation, tag]
+
+    NotificationTargetType:
+      type: string
+      description: Loại đích FE dẫn tới. `comment` luôn đi kèm `postId` để mở đúng bài.
+      enum: [post, comment, user, conversation]
+
+    ReasonCode:
+      type: string
+      description: |
+        Lý do ẩn — cùng tập với `ReasonCode` của `moderation-v1`. FE hiển thị nhãn tiếng Việt: `spam` Spam · `harassment`
+        Quấy rối · `nudity` Nội dung khỏa thân · `violence` Bạo lực · `other` Khác.
+      enum: [spam, harassment, nudity, violence, other]
+
+    UserCard:
+      type: object
+      description: Thẻ người dùng (tên hiển thị + ảnh đại diện) — hydrate từ hồ sơ lúc đọc, không lưu trong thông báo.
+      properties:
+        userId:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+        avatarUrl:
+          type: string
+          format: uri
+          nullable: true
+          description: Presigned GET 15 phút, `null` khi chưa có ảnh đại diện.
+      required: [userId, displayName, avatarUrl]
+
+    NotificationTarget:
+      type: object
+      properties:
+        type:
+          $ref: '#/components/schemas/NotificationTargetType'
+        id:
+          type: string
+          format: uuid
+          description: Id của đích — bài, bình luận, người dùng (người mời / người chấp nhận / chính bạn khi tài khoản bị ẩn), hội thoại.
+        postId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Bài chứa đích — có khi đích là `post` hoặc `comment`; `null` với `user`, `conversation`.
+      required: [type, id, postId]
+
+    NotificationResponse:
+      type: object
+      description: Một NHÓM thông báo đã gộp. Mọi trường luôn có mặt; trường không áp dụng là `null`.
+      properties:
+        notificationId:
+          type: string
+          format: uuid
+          description: Khóa khử trùng khi nối trang (và khi hub đẩy tới — C6).
+        type:
+          $ref: '#/components/schemas/NotificationType'
+        actor:
+          allOf:
+            - $ref: '#/components/schemas/UserCard'
+          nullable: true
+          description: Người gây ra sự kiện MỚI NHẤT. `null` với `moderation` và khi người đó không có hồ sơ.
+        actorCount:
+          type: integer
+          format: int32
+          minimum: 1
+          description: Số người KHÁC NHAU trong đợt hiện tại. Đọc nhóm rồi có người mới → đếm lại từ 1.
+        target:
+          $ref: '#/components/schemas/NotificationTarget'
+        reasonCode:
+          allOf:
+            - $ref: '#/components/schemas/ReasonCode'
+          nullable: true
+          description: Chỉ có với `moderation`.
+        isRead:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+          description: Lúc nhóm ra đời.
+        updatedAt:
+          type: string
+          format: date-time
+          description: Lúc sự kiện mới nhất dồn vào nhóm — khóa sắp danh sách. Đánh dấu đã đọc không đổi trường này.
+      required: [notificationId, type, actor, actorCount, target, reasonCode, isRead, createdAt, updatedAt]
+
+    NotificationPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/NotificationResponse'
+        nextCursor:
+          type: string
+          nullable: true
+          description: '`null` khi hết dữ liệu.'
+      required: [items, nextCursor]
+
+    UnreadCount:
+      type: object
+      properties:
+        total:
+          type: integer
+          format: int32
+          minimum: 0
+          description: Số NHÓM chưa đọc.
+      required: [total]
+
+    ReadAllRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        upTo:
+          type: string
+          format: date-time
+          description: Chỉ đánh dấu nhóm có `updatedAt ≤ upTo`.
+      required: [upTo]

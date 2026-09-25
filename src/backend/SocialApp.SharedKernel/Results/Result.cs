@@ -46,10 +46,16 @@ public readonly record struct Result<T>(bool IsSuccess, T? Value, Error? Error)
 /// <paramref name="Type"/> là tham số cuối, có mặc định (GĐ4 Q-E4, chốt 2026-09-23 — cùng nếp chỉ-thêm của Q-D4): <c>type</c>
 /// của Problem Details khi CÙNG một status mang hai nghĩa mà FE phải làm hai việc khác nhau (503 feed quá tải ≠ 503 hạ tầng).
 /// Để trống thì <c>https://httpstatuses.io/{status}</c> như mọi lỗi khác. Giá trị là URI ổn định, khai trong hợp đồng.
+///
+/// <paramref name="Extensions"/> là tham số cuối, có mặc định (GĐ6 D5, L-D11 — chỉ-thêm như Q-D4, Q-E4): trường thêm vào thân
+/// Problem Details khi FE cần DỮ LIỆU để xử lý lỗi, không chỉ một câu — 409 <c>confirmation-required</c> mang <c>added</c>,
+/// <c>removed</c>, <c>affectedUsers</c> để hộp thoại xác nhận hiện đúng con số. <see cref="Http.ResultHttpExtensions"/> chép nó vào
+/// <c>ProblemDetails.Extensions</c> — controller không tự dựng <c>ProblemDetails</c>. Không bao giờ chứa id, email hay nội dung.
 /// </summary>
 public readonly record struct Error(
     string Code, string Message, int Status, string? Title = null,
-    IReadOnlyDictionary<string, string[]>? Errors = null, string? Type = null)
+    IReadOnlyDictionary<string, string[]>? Errors = null, string? Type = null,
+    IReadOnlyDictionary<string, object?>? Extensions = null)
 {
     /// <summary>
     /// Một thông điệp duy nhất cho mọi 403 tầng 3 — không nêu id. Service trả CÙNG lỗi này cho "không tồn

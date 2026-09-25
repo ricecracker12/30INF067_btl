@@ -586,7 +586,7 @@ tính public có kiểu thuộc tập cho phép — `Guid`, `Guid?`, enum, `long
 | **B (GĐ5)**             | `IEventPublisher`, `MessageSent`                                                                                                     | —                                                                                                                                                                                                                                                      |
 | **D10**                 | `AddIntegrationEventHandler`, event `friend_*` thật, `DrainEventsAsync`                                                              | Test canh "mọi `IIntegrationEventHandler<>` trong assembly module đều đăng ký qua `AddIntegrationEventHandler`" (cạm bẫy C0.1) — viết cùng handler đầu tiên                                                                                          |
 | **B1**                  | `EventBusHarness.DrainEventsAsync`                                                                                                   | —                                                                                                                                                                                                                                                      |
-| **GĐ7 C2**              | Counter `socialapp_events_published_total`, `…_dropped_total` trên `Meter("SocialApp.Events")`                                        | Kiểm tên thật ở `/metrics` sau khi thêm `prometheus-net`; cảnh báo `dropped > 0`                                                                                                                                                                       |
+| **GĐ7 C2**              | Counter `socialapp_events_published_total`, `…_dropped_total` trên `Meter("SocialApp.Events")`                                        | Kiểm tên thật ở `/metrics` sau khi thêm `prometheus-net`; cảnh báo `dropped > 0` · *2026-09-24: `Meter` không lên `/metrics`, counter đã chuyển về `BusinessMetrics` — xem "Thực tế thi công"* |
 | **GĐ8 (k6)**            | Metric `dropped` để đọc dưới tải (R6-10)                                                                                             | **Một handler chậm chặn cả hàng đợi** (một consumer, tuần tự). Nếu k6 thấy `dropped > 0` mà handler chậm là nguyên nhân: thêm timeout từng handler (`CancellationTokenSource.CreateLinkedTokenSource` + `CancelAfter`) trước khi nghĩ tới tăng dung lượng |
 
 ---
@@ -685,3 +685,30 @@ thức của `SocialGraphEvents` giờ phát qua bus).
 trăm lần, kể cả `EVT-06` đi qua bus thật.
 
 **PR / CI run:** chưa mở.
+
+### Sửa 2026-09-24 — metric chuyển sang prometheus-net (L5 sai trên thực tế)
+
+L5 chọn `System.Diagnostics.Metrics` vì tin rằng "GĐ7 C2 chỉ việc kiểm tên xuất ra ở `/metrics`". GĐ7 C2 đã kiểm, và kết quả là
+**không xuất ra**: họ thử bốn cách không được, nên khai counter bằng prometheus-net ở `BusinessMetrics` (`huong-dan-khoi-c-quan-sat.md`
+Mục 2). Hai counter của bus không có trong danh sách của họ. Đo lại trước khối D: publish một event, drain xong, `/metrics` chỉ có
+`prometheus_net_eventcounteradapter_*`, không có dòng nào của event bus dưới bất kỳ tên nào.
+
+- Hai counter chuyển vào `BusinessMetrics` (`EventPublished(Type)`, `EventDropped(Type)`). `Initialize()` tạo sẵn chuỗi cho mọi
+  kiểu `IIntegrationEvent` của SharedKernel bằng phản chiếu, nên thêm record mới là tự có chuỗi.
+- Gỡ `EventBusMetrics.cs`, tham số `IMeterFactory` của bus và `services.AddMetrics()` trong `AddInProcessEventBus`.
+- Cạm bẫy "`EventBusMetrics` là lớp thường, không `static`" ở trên không còn áp dụng. Counter prometheus-net là của cả process, nên
+  `InProcessEventBusTests` đọc bản export của registry (đúng chữ `/metrics` in ra) và khẳng định trên **phần tăng** kể từ đầu ca.
+  Nhãn `ProbeEvent` chỉ lớp đó phát, và các ca trong một lớp chạy tuần tự.
+- Hai ca mới ở `MetricsEndpointTests`: `Chi_so_event_bus_co_mat_tu_luc_khoi_dong_cho_moi_kieu_event` (có canh gác "phản chiếu tìm
+  đúng 6 kiểu") và `Event_da_phat_duoc_dem_tren_metrics`. **Cả hai đỏ với bản cũ** trước khi sửa.
+
+**Test:** Unit 336 → 336, Integration 544 → 546 (+2 `MetricsEndpointTests`), Architecture 23 → 23 + 1 Skip cũ (gỡ ở D2). Còn đỏ
+nền R2 trên máy dev.
+
+**Thử cho đỏ — 3/3 đột biến bị bắt**, build 0 lỗi ở mọi lượt, file khôi phục nguyên byte:
+
+| Đột biến                                             | Ca đỏ thực tế                                                        |
+| ---------------------------------------------------- | -------------------------------------------------------------------- |
+| `Initialize()` không tạo chuỗi `published` cho event | `Chi_so_event_bus_co_mat_tu_luc_khoi_dong_cho_moi_kieu_event`       |
+| `Publish` không đếm                                  | `EVT-01`, `Event_da_phat_duoc_dem_tren_metrics`                      |
+| `OnDropped` không đếm                                | `EVT-03`                                                             |

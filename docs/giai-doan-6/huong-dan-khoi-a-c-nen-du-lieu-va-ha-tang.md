@@ -129,7 +129,7 @@ Chốt rồi nhưng `giai-doan-6.md` **chưa** sửa: mỗi chỗ sửa B.4/B.5,
 
 | #    | Kế hoạch viết                                                                                                 | Đề xuất                                                                                                                                                                                  | Vì sao                                                                                                                                                                                                                                                                                                                             |
 | ---- | ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| L-C1 | C1: "`tx == null` → mở kết nối riêng từ `NpgsqlDataSource`; lấy IP qua `IHttpContextAccessor`"                | `tx == null` → kết nối của **`ModerationDbContext`** (scoped, cùng chuỗi `postgres`, cùng pool); `AddHttpContextAccessor()` trong `AddModerationModule`                                   | Repo **không** đăng ký `NpgsqlDataSource` nào (`grep -r NpgsqlDataSource src/` rỗng) và chưa có `IHttpContextAccessor`. Dựng data source thứ hai là **pool thứ hai** — đúng thứ PERF-03 GĐ4 đã gỡ ("một biến cho bốn module + health check → một pool")                                                                                 |
+| L-C1 | C1: "`tx == null` → mở kết nối riêng từ `NpgsqlDataSource`; lấy IP qua `IHttpContextAccessor`"                | `tx == null` → kết nối của **`ModerationDbContext`** (scoped, cùng chuỗi `postgres`, cùng pool); `AddHttpContextAccessor()` trong `AddModerationModule`. *Sửa 2026-09-25 (việc treo của D7c):* `tx == null` → `new NpgsqlConnection` với CHÍNH chuỗi kết nối của context — kết nối RIÊNG từ CÙNG pool; kết nối scoped có thể đang giữ transaction của người gọi | Repo **không** đăng ký `NpgsqlDataSource` nào (`grep -r NpgsqlDataSource src/` rỗng) và chưa có `IHttpContextAccessor`. Dựng data source thứ hai là **pool thứ hai** — đúng thứ PERF-03 GĐ4 đã gỡ ("một biến cho bốn module + health check → một pool")                                                                                 |
 | L-C2 | "Xong khi" của C1/C2/C3/C5 nêu `TX-01`, `AUD-01`, `TX-02`, `HID-*`, `PERM-01`, `SRCH-05`                      | Khối C viết **bản hạ tầng** của các ca đó (gọi thẳng hợp đồng, không qua endpoint); khối D mở rộng thành bản đầy đủ qua API. Bảng phân chia ở Mục 16                                    | Bản đầy đủ của cả sáu ca cần endpoint chưa tồn tại (`PATCH /reports` — D7, `PUT /admin/roles/…` — D5, `GET /search` — D12). "Xong khi" của C phải đạt được **trong** khối C, không phải "xanh sau này"                                                                                                                                 |
 | L-C3 | Mục 6.2: `IsAllowedAsync` là hàm SharedKernel duy nhất gói Admin short-circuit — **không đầu việc nào nhận nó** | Làm ở **C3** (cùng file cache); `PermissionHandler` gọi nó                                                                                                                              | Chỉ B.1 nhắc tên. Không có chủ thì D7 (tầng 2 kép cho `hide`) viết `if (role == "ADMIN")` ngay trong service — đúng dòng GĐ1 Mục 3.2 cấm                                                                                                                                                                                          |
 | L-C4 | C3: `PermissionsChangedPublisher` (sau `COMMIT`) — D5 gọi `Invalidate` tại chỗ **rồi** publish                 | Một `IPermissionChangeNotifier.NotifyAsync(roleCode)` làm cả hai việc; D5 chỉ gọi một dòng                                                                                               | Hai lời gọi thì một ngày có người gọi một: quên `Invalidate` → chính instance xử lý request vẫn cũ 60 giây (`PERM-01` bắt); quên publish → **instance khác** cũ 60 giây, và không test một-instance nào bắt được                                                                                                                  |
@@ -1177,6 +1177,13 @@ mô tả, L-A2). Impact trước khi sửa: `IdentitySeeder` LOW (15), `Permissi
 Làm đúng Mục 8; L-C1 (kết nối của `ModerationDbContext` cho `tx == null`, `AddHttpContextAccessor` trong module) và L-C2 (bản hạ
 tầng của `TX-01`, `AUD-01`) áp như chốt. `giai-doan-6.md` B.5 C1 và `AGENTS.md` Mục 5 (dòng "hai hợp đồng ghi") sửa cùng commit.
 
+**Sửa sau — 2026-09-25 (tìm ra khi thi công D7c khối D, sửa ở commit `fix(gd6-c)` riêng):** L-C1 đổi một nửa. Kết nối của
+`ModerationDbContext` là kết nối SCOPED: nếu cùng scope đang mở transaction trên context đó, câu `INSERT` của nhánh `tx == null` rơi luôn
+vào transaction ấy (Npgsql không bắt gán `cmd.Transaction`) và mất theo rollback — trái lời hứa "ghi trên kết nối riêng" của
+`IAuditTrail`. Lộ ra vì đột biến "audit quyết định ghi `tx: null`" của D7c không làm ca nào đỏ. Nay `tx == null` mở `new NpgsqlConnection`
+với chính chuỗi kết nối của context: Npgsql gom pool theo chuỗi, nên vẫn là CÙNG pool — phần "không pool thứ hai" của L-C1 giữ nguyên.
+Ca mới `AuditTrailTests.Khong_tx_song_sot_khi_transaction_cua_scope_rollback` đỏ với bản cũ, xanh với bản mới.
+
 **Lệch so với chính tài liệu này:**
 - Tham số SQL khai **kiểu tường minh** (`NpgsqlDbType.Uuid`, `Jsonb`, `Inet`, `TimestampTz`) — `metadata` là chuỗi JSON, không
   khai `Jsonb` thì Npgsql gửi `text` và Postgres từ chối gán vào cột `jsonb`.
@@ -1439,6 +1446,58 @@ Một ca đỏ lượt đầu vì lỗi **test** (so tuple chứa danh sách →
 | Thêm interface nhận `DbTransaction` ở Content                    | `WriteContracts_are_only_the_two_named`                                       |
 | Composite chọn im lặng khi hai provider cùng loại                | `Hai_provider_cung_loai_thi_nem_luc_dung`                                     |
 
+### C2b — provider bình luận — 2026-09-25
+
+Phần "bình luận sau khi A merge" của C2 (Mục 12), làm ở bước 9 của GĐ6 sau khi GĐ3 đã có trên nhánh. `CommentModerationTargets` ở
+`Content/Infrastructure/Moderation/` + một dòng đăng ký trong `AddContentModule`. Không dòng nào của Moderation đổi: `Supports(Comment)`
+tự đúng, `POST /reports` nhận bình luận, `PATCH /reports` ẩn được (bảng quyết định D7c đã cho `hide` bình luận), khôi phục đã nhận
+`targetType: comment` từ D7c — đúng như L-D13 dự tính. Thông báo `moderation` cho bình luận chạy luôn (D10 dùng `snapshot.PostId`).
+
+**Ba điểm tài liệu chưa nói — người thi công chốt 2026-09-25:**
+- **Bộ đếm như xóa:** ẩn trừ `posts.comment_count`, khôi phục cộng lại. `reply_count` của bình luận cha **không** đổi — đề xuất ban đầu
+  là trừ cả nó, nhưng `CommentStore.SoftDeleteAsync` cũng không trừ (nhánh giữ chỗ, Đ-3.5), nên ẩn đi đúng luật của xóa.
+- **Không cột `hidden_reason` cho bình luận, không migration:** bình luận bị ẩn đi nhánh "đã xóa" phía người đọc (Đ-6.14, đã có sẵn trong
+  `CommentResponseMapper`); lý do nằm ở thông báo `moderation` của tác giả và nhật ký kiểm toán.
+- **Ảnh chụp dùng từ vựng của hợp đồng:** `visible` của bình luận đọc là `published` — không mở lại `moderation-v1` chỉ vì hai bảng đặt
+  tên khác nhau. `moderation-v1.yaml` chỉ sửa mô tả (`ReportTargetType`, khối comment L-D13), không đổi operation hay schema; `pnpm
+  gen:api` → chỉ mô tả trong `lib/api/moderation/schema.d.ts` đổi.
+
+**Luật ghi** (cùng khuôn provider bài): trên CHÍNH `tx.Connection` + `tx` của Moderation; **khóa bài trước, bình luận sau** (Đ-3.8 — cùng thứ
+tự với `CommentStore`, không thì deadlock với một request xóa/trả lời đan vào); `UPDATE … WHERE status = 'visible' RETURNING` — chỉ đổi
+đúng một dòng mới đổi bộ đếm. Hàm phụ trong lớp lồng giữ transaction ở trường (khuôn `NotificationStore.GroupTransaction`,
+`WriteContractTests`). **Luật thấy-được:** bình luận `visible`, bài `published`, và BR-02 của bài qua `PostVisibility.CanView` — bình luận
+trong bài đã chuyển riêng tư không báo được (lỗ LEAK-01 của GĐ3).
+
+**Test sửa theo:** `An_nguoi_dung_hoac_loai_chua_co_provider_thi_nem_NotSupported` đổi thành
+`An_nguoi_dung_thi_nem_NotSupported_binh_luan_la_thi_NotFound` (bình luận giờ có provider). Hai ca "id bình luận lạ → 404" của D6, D7c
+vẫn xanh — chỉ sửa chú thích (lý do 404 giờ là "không tồn tại", không còn "chưa hỗ trợ").
+
+**Thêm ca:** `ModerationTargetsTests` +4 (`CMT_store_01` ẩn/khôi phục + bộ đếm + trạng thái lặp + bình luận đã xóa; `_02` rollback;
+`_03` ảnh chụp mọi trạng thái; `_04` thấy-được theo BR-02 của bài); `CommentModerationTests` +4 qua API (`CMT_REP_01` báo cáo theo
+luật thấy-được, của chính mình 400, bài đã riêng tư 404 cùng thân với id lạ; `CMT_MOD_01` ẩn → giữ chỗ trong cây, bộ đếm, chi tiết cho
+Moderator, thông báo `moderation` trỏ bình luận, rồi trả lời 400 / thả cảm xúc 404 / tác giả xóa 403; `CMT_MOD_02` khôi phục + 409 lần
+hai; `CMT_MOD_C1` Moderator ẩn ‖ tác giả xóa, mười cặp song song → trừ đúng một lần, không 500).
+
+**Test:** Unit 572 → 572, Integration 901 → 909 (+4 `ModerationTargetsTests`, +4 `CommentModerationTests`; một ca đổi tên), Architecture
+27 → 27. `CMT_MOD_C1` chạy 20 lượt liền: 20/20. Vitest 626 → 626 (chỉ mô tả trong `schema.d.ts` đổi). Còn đỏ nền R2 trên máy dev. FE:
+`pnpm lint`, `typecheck`, `test`, `build` xanh.
+
+**Thử cho đỏ — 8/8 đột biến bị bắt**, build hợp lệ ở mọi lượt (`0 Error(s)`), file khôi phục nguyên byte (`md5`/`cmp`):
+
+| Đột biến | Ca đỏ thực tế |
+|---|---|
+| M1 — bỏ đăng ký provider bình luận | 9 ca (mọi ca bình luận ở hai lớp) |
+| M2 — ẩn không trừ `comment_count` | `CMT_store_01`; `CMT_MOD_01`, `_02`, `_C1` |
+| M3 — trừ cả khi không đổi dòng | `CMT_store_01` (lần ẩn thứ hai); `CMT_MOD_C1` |
+| M4 — bỏ khóa bài (chỉ khóa bình luận) | `CMT_MOD_C1` — 3/3 lượt có 500 (deadlock với đường xóa) |
+| M5 — thấy-được bỏ BR-02 | `CMT_store_04`; `CMT_REP_01` |
+| M6 — ảnh chụp không đổi `visible` → `published` | `CMT_store_03`; `CMT_MOD_01` |
+| M7 — khôi phục không cộng lại | `CMT_store_01`; `CMT_MOD_02` |
+| M8 — thấy-được bỏ kiểm bình luận `visible` | `CMT_store_04` |
+
+**detect-changes:** low, 0 luồng (12 file, 20 symbol; staged). Impact trước khi sửa: `AddContentModule` UNKNOWN — text search: 7 lời gọi, chữ ký không đổi, chỉ
+thêm một đăng ký scoped mà container trần không resolve.
+
 ### C6 — 2026-09-24: chờ GĐ5, chưa làm
 
 Kiểm điều kiện bắt đầu (Mục 13) sau `git fetch`:
@@ -1456,10 +1515,67 @@ lời gọi `NotificationPusher` sau `COMMIT` của upsert. Tới cổng đóng 
 
 **Để ý khi rebase trước PR:** 25 commit GĐ7 trên `develop` có `feat(gd7-c): C2 — bốn chỉ số nghiệp vụ khai báo một chỗ ở
 SharedKernel`. Event bus của C0 đã có `Meter("SocialApp.Events")` riêng — lúc rebase kiểm hai bên không khai trùng tên chỉ số, và
-chỉ số `socialapp_events_*` có được `/metrics` của GĐ7 xuất ra không.
+chỉ số `socialapp_events_*` có được `/metrics` của GĐ7 xuất ra không. *Đã kiểm 2026-09-24:* không trùng tên, nhưng **không** được
+xuất ra. Counter đã chuyển về `BusinessMetrics` (chi tiết ở "Thực tế thi công" của `huong-dan-khoi-c0-duong-ray.md`).
+
+### C6 — 2026-09-25
+
+Điều kiện bắt đầu của Mục 13 đủ cả bốn trên nhánh (GĐ5 đã merge): `SharedKernel/Realtime/` (scheme `RealtimeTicket`,
+`RevocationHubFilter`, `SubClaimUserIdProvider`, presence), `POST /realtime/tickets`, `MapHub<ChatHub>`, khuôn `HubAuthZTests` +
+`ChatHubContractTests`. Không sửa dòng nào của `SharedKernel/Realtime/` — vé đã đọc `?access_token=` cho mọi `/hubs/*`, và
+`RevocationHubFilter` đã viết sẵn cho `/hubs/notifications`.
+
+Làm đúng Mục 13: `NotificationHub` (`Notification/Presentation/`, `[Authorize(AuthenticationSchemes = RealtimeTicket)]`, không phương thức
+nào) · `NotificationHubPusher` (`IHubContext`, `Clients.User(recipient)`) · `MapHub<NotificationHub>("/hubs/notifications")` cạnh hub chat ·
+`notification-hub-v1.md` + `.examples.json` + `NotificationHubContractTests` + `Content Include`. `giai-doan-6.md` sửa B.5 C6.
+
+**Lệch so với chính tài liệu này:**
+- **Đẩy bằng bộ trang trí, không sửa D9:** Mục 13 bước 2 ghi "D9 gọi pusher sau `COMMIT`". Store D9 là Infrastructure, không dựng được
+  `NotificationResponse` (cần `IUserDirectory` + ký avatar). Thay vào đó `PushingNotificationStore` (Application) bọc `INotificationStore`:
+  store trả về (đã `COMMIT`) → nếu không `Skipped` thì đọc lại nhóm + số chưa đọc qua `NotificationService.UpsertedEventAsync` → đẩy qua
+  `INotificationPusher` (Application định nghĩa, Presentation hiện thực — khuôn `IChatNotifier` của GĐ5). Sáu handler không đổi dòng nào,
+  và không đường ghi nào quên đẩy được.
+- **Chỉ bọc khi host có SignalR:** đăng ký `INotificationStore` là factory — có `IHubContext<NotificationHub>` (host gọi
+  `AddSharedKernelRealtime`) thì bọc, không có (container trần của `NotificationStoreTests`, test schema) thì trả store gốc. Không phải mở
+  hàm DI thứ hai, không phải sửa test cũ.
+- **Payload là MỘT object** `{ notification, unreadTotal }` như Mục 8.4 (Đ-6.18 ghi hai tham số) — hub chat cũng đẩy một object mỗi sự
+  kiện; một object thì thêm trường sau này là chỉ-thêm.
+- **Đẩy hỏng không ném:** mọi lỗi của phần đẩy (đọc lại, hub, backplane) → log Warning (chỉ loại lỗi, không id), trả kết quả upsert như cũ
+  — thông báo đã lưu, lượt hỏi lại 30 giây thấy nó. Lỗi của chính upsert vẫn ném cho bus ghi log.
+- **Presence:** tab chỉ nối hub thông báo cũng là "online" (filter presence toàn cục của GĐ5) — đúng nghĩa "đang mở app" mà
+  `MessageSentHandler` dùng. Ghi trong hợp đồng hub.
+- **Thêm ca ngoài Mục 13:** `NHUB_00` (đối chứng bắt tay xanh — không có nó mọi ca 401 xanh cả khi hub không được map), `NHUB_03` (JWT trên
+  query 401), `NHUB_02` dùng vé đã dùng cho HUB CHAT (vé một lần xuyên hub); `NHUB_09` thêm lượt thứ hai cho A (số chưa đọc 2) và chứng
+  minh "B không nhận của A" bằng thứ tự trên một kết nối, không bằng chờ thời gian; unit `PushingNotificationStoreTests` (đẩy sau upsert,
+  `Skipped` không đẩy, đẩy hỏng không ném, upsert hỏng thì ném và không đẩy).
+
+**Lỗi tìm ra khi rà, đã sửa (test của GĐ5):** `ConversationEndpointTests.LIST_02_so_cau_SQL_khong_doi_theo_so_hoi_thoai` đỏ ở lượt chạy
+đủ đầu tiên sau C6. Dựng cảnh của lớp đó gửi lời mời, chấp nhận, tin nhắn → handler thông báo (D10, bước 9) chạy NỀN trên cùng
+database; C6 làm mỗi lượt handler dài thêm (đọc lại nhóm + số chưa đọc để đẩy) nên câu SQL của nó rơi vào khung `SqlCommandCounter`.
+Đo: bỏ bước chờ → cả lớp đỏ 5/5; thêm `await factory.DrainEventsAsync()` trước khi đếm (luật của harness C0) → 5/5 xanh. Rà mọi lớp dùng
+`SqlCommandCounter`: chỉ lớp này dựng cảnh có phát event.
+
+**Test:** Unit 572 → 576 (+4 `PushingNotificationStoreTests`), Integration 909 → 916 (+5 `NotificationHubTests`, +2
+`NotificationHubContractTests`), Architecture 27 → 27. `NotificationHubTests` chạy 10 lượt liền: 10/10. Vitest không chạy (không chạm
+FE — client hub là việc của lane E, trong `lib/realtime/`). Còn đỏ nền R2 trên máy dev.
+
+**Thử cho đỏ — 7/7 đột biến bị bắt**, build hợp lệ ở mọi lượt (`0 Error(s)`), file khôi phục nguyên byte (`md5`):
+
+| Đột biến | Ca đỏ thực tế |
+|---|---|
+| M1 — bỏ `MapHub<NotificationHub>` | `NHUB_00`; `NHUB_09` |
+| M2 — không bọc bộ đẩy | `NHUB_09` |
+| M3 — `Clients.All` thay `Clients.User` | `NHUB_09` |
+| M4 — hub `[AllowAnonymous]` | `NHUB_01`, `_02`, `_03`, `_09` |
+| M5 — hub có một phương thức public | `NotificationHubContractTests.Hub_khong_phuong_thuc_nao_…` |
+| M6 — đẩy cả khi `Skipped` | `Tu_bao_minh_khong_day` (unit) |
+| M7 — không bắt lỗi của phần đẩy | `Day_hong_van_tra_ket_qua_upsert_khong_nem` (unit) |
+
+**detect-changes:** high, 8 luồng (16 file, 18 symbol — so với cây C2b; file mới đã `git add -N`). Cả tám là luồng `Read`, `ReadAll`, `ToResponse` của D11 — hàm bị gán theo dòng vì `FindGroupAsync` và `UpsertedEventAsync` chèn ngay cạnh; `git diff` hai file đó chỉ có dòng THÊM (28 dòng, 0 dòng sửa/xóa), `MarkReadAsync`, `MarkAllReadAsync`, `ToResponse` không đổi. Impact trước khi sửa: `AddNotificationModule` UNKNOWN — như D9–D11 (4 lời gọi, chữ ký không đổi; đăng ký
+`INotificationStore` đổi sang factory — container trần vẫn nhận store gốc, `NotificationStoreTests` không đổi).
 
 ### Các đầu việc còn lại
 
-*Chưa thi công:* C5, C2, C6. Điền khi làm, theo khuôn trên: chỗ nào phải đổi hướng so với Mục 0.4 và vì sao; lệch so với chính tài
-liệu này; số test trước → sau; bảng đột biến thực tế; `detect-changes` của từng commit. Kết quả kiểm extension trên staging ghi vào
-A4 sau F1.
+*Cập nhật 2026-09-24:* A1–A5, C1–C5 đã thi công (các mục trên). Chỉ còn **C6** (chờ GĐ5). *Cập nhật 2026-09-25:* C6 và C2b (provider bình luận) đã thi công — hai khối không còn đầu việc nào. Làm C6 thì điền theo khuôn trên: chỗ nào
+phải đổi hướng so với Mục 0.4 và vì sao; lệch so với chính tài liệu này; số test trước → sau; bảng đột biến thực tế;
+`detect-changes` của từng commit. Kết quả kiểm extension trên staging ghi vào A4 sau F1.

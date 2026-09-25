@@ -17,8 +17,13 @@ namespace SocialApp.Modules.Moderation.Infrastructure.Audit;
 /// dòng audit SỐNG SÓT khi thao tác rollback — đúng lỗi R6-06, và chạy "tốt" mọi lúc trừ lúc có lỗi. Test
 /// <c>AuditTrailTests.TX_01_*</c> đỏ nếu ai đổi sang một trong các đường đó.
 ///
-/// <b>Không <c>tx</c></b> → kết nối của <see cref="ModerationDbContext"/> (scoped, cùng chuỗi kết nối — cùng pool với mọi module,
-/// PERF-03 GĐ4). Không dựng <c>NpgsqlDataSource</c> riêng: đó là pool thứ hai (lệch B.5 C1, chốt 2026-09-23 — L-C1).
+/// <b>Không <c>tx</c></b> → kết nối RIÊNG, <c>new NpgsqlConnection</c> với CHÍNH chuỗi kết nối của <see cref="ModerationDbContext"/>: Npgsql
+/// gom pool theo chuỗi kết nối, nên đây là một kết nối nữa từ CÙNG pool (PERF-03 GĐ4), không phải pool thứ hai — không dựng
+/// <c>NpgsqlDataSource</c> riêng (L-C1, chốt 2026-09-23). Kết nối riêng là cả ý nghĩa của nhánh này: <c>access.denied</c> ghi lúc
+/// không có thao tác nào để chung số phận, nên nó phải sống sót dù scope đang mở transaction nào rồi rollback.
+/// <i>Sửa 2026-09-25 (việc treo của D7c):</i> bản đầu dùng kết nối scoped của context — đang có transaction mở trên context đó thì
+/// Postgres cho câu INSERT vào luôn transaction ấy (Npgsql không bắt gán <c>cmd.Transaction</c>), trái lời hứa của
+/// <see cref="IAuditTrail"/>. Test <c>AuditTrailTests.Khong_tx_song_sot_khi_transaction_cua_scope_rollback</c> canh.
 ///
 /// Không bao giờ log <see cref="AuditEntry"/>: <c>record</c> tự in mọi thuộc tính, kể cả ghi chú của Moderator (B.10 tự rà #5).
 /// </summary>
@@ -45,17 +50,13 @@ internal sealed class SqlAuditTrail(ModerationDbContext db, IHttpContextAccessor
             return;
         }
 
-        await db.Database.OpenConnectionAsync(ct);
-        try
-        {
-            await using var cmd = new NpgsqlCommand(InsertSql, (NpgsqlConnection)db.Database.GetDbConnection());
-            AddParameters(cmd, entry);
-            await cmd.ExecuteNonQueryAsync(ct);
-        }
-        finally
-        {
-            await db.Database.CloseConnectionAsync();
-        }
+        // Kết nối riêng từ cùng pool — xem phần đầu lớp. KHÔNG dùng db.Database.GetDbConnection(): đó là kết nối scoped, có thể đang
+        // giữ transaction của người gọi.
+        await using var own = new NpgsqlConnection(db.Database.GetConnectionString());
+        await own.OpenAsync(ct);
+        await using var ownCmd = new NpgsqlCommand(InsertSql, own);
+        AddParameters(ownCmd, entry);
+        await ownCmd.ExecuteNonQueryAsync(ct);
     }
 
     private void AddParameters(NpgsqlCommand cmd, AuditEntry entry)

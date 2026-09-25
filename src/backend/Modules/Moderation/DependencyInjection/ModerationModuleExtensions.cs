@@ -2,8 +2,13 @@ using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using SocialApp.Modules.Moderation.Application;
+using SocialApp.Modules.Moderation.Application.Audit;
+using SocialApp.Modules.Moderation.Application.Reports;
+using SocialApp.Modules.Moderation.Application.Targets;
 using SocialApp.Modules.Moderation.Infrastructure;
 using SocialApp.Modules.Moderation.Infrastructure.Audit;
+using SocialApp.Modules.Moderation.Infrastructure.Persistence;
 using SocialApp.SharedKernel.Audit;
 
 namespace SocialApp.Modules.Moderation.DependencyInjection;
@@ -36,8 +41,26 @@ public static class ModerationModuleExtensions
         services.AddHttpContextAccessor();
         services.AddScoped<IAuditTrail, SqlAuditTrail>();
 
+        // D6 (Đ-6.12): POST /reports. IModerationTargets do AddSharedKernel (composite) + module chủ (provider) đăng ký — container
+        // trần của test schema không resolve service này nên không cần chúng.
+        services.AddScoped<IReportStore, ReportStore>();
+        services.AddScoped<ReportSubmissionService>();
+
+        // D7b (Đ-6.13): GET /reports, GET /reports/{id}. IUserDirectory, IObjectStorage do host + module chủ đăng ký — cùng lý do trên.
+        services.AddScoped<IReportQueries, ReportQueries>();
+        services.AddScoped<ReportReadService>();
+
+        // D7c (Đ-6.13): PATCH /reports/{id}, POST /moderation/targets/…/restore. IPermissionCache, IEventPublisher do SharedKernel đăng ký.
+        services.AddScoped<IModerationDecisionStore, ModerationDecisionStore>();
+        services.AddScoped<DecideReportService>();
+        services.AddScoped<RestoreTargetService>();
+
+        // D8 (Đ-6.15): GET /admin/audit-logs — người đọc duy nhất của bảng append-only.
+        services.AddScoped<IAuditLogQueries, AuditLogQueries>();
+        services.AddScoped<AuditLogReadService>();
+
         // CHỈ đăng ký validator của module. KHÔNG gọi AddFluentValidationAutoValidation ở đây: cấu hình MVC toàn cục, host
-        // đã gọi một lần. Chưa có validator nào tới D6 — dòng này không tốn gì khi assembly rỗng.
+        // đã gọi một lần.
         services.AddValidatorsFromAssembly(typeof(ModerationModuleExtensions).Assembly, ServiceLifetime.Singleton);
 
         return services;

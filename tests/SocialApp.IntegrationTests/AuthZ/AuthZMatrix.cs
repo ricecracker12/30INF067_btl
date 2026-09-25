@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Npgsql;
 using SocialApp.IntegrationTests.Harness;
 
 namespace SocialApp.IntegrationTests.AuthZ;
@@ -224,6 +225,75 @@ public static class AuthZMatrix
         new("TC-A01-ticket", "Xin vé realtime không kèm JWT", "GĐ5",
             Caller.Anonymous, HttpMethod.Post, "/api/v1/realtime/tickets", HttpStatusCode.Unauthorized),
 
+        // --- GĐ6 (B2, đi cùng commit D làm dòng xanh — L-D7). Mục 6.3. Kỳ vọng viết tay theo Mục 6.1 + admin-v1.yaml. ---
+        //
+        // Endpoint [PrivilegedEndpoint] fail-closed khi Redis chết → matrix chạy với Redis thật từ D2 (L-D17). Thiếu Redis thì
+        // cả dòng "bị chặn" lẫn dòng đối chứng ra 503 — đỏ đúng chỗ, không xanh giả.
+
+        new("TC-A05", "User thường gọi /admin/* — danh sách tài khoản", "GĐ6",
+            Caller.User, HttpMethod.Get, "/api/v1/admin/users", HttpStatusCode.Forbidden),
+
+        // Đối chứng bắt buộc: TC-A05 xanh cả khi handler "chặn mọi người", hay khi policy any-of đòi đủ cả ba mã.
+        new("TC-A05b", "Đối chứng: Admin đọc danh sách tài khoản", "GĐ6",
+            Caller.Admin, HttpMethod.Get, "/api/v1/admin/users", HttpStatusCode.OK),
+
+        // D3: MODERATOR có report.resolve, post.hide — không có user.lock. Id đích không cần tồn tại: tầng 2 chặn trước mọi I/O.
+        new("TC-A05-mod-lock", "Moderator khóa tài khoản", "GĐ6",
+            Caller.Moderator, HttpMethod.Post, "/api/v1/admin/users/{id}/lock", HttpStatusCode.Forbidden,
+            ArrangePath: _ => Task.FromResult($"/api/v1/admin/users/{Guid.NewGuid()}/lock"),
+            Body: new { reason = "Thử khóa khi không có user.lock." }),
+
+        // D4: MODERATOR không có role.assign. Dòng thêm ngoài bảng Mục 6.3 — cùng lý do TC-A05-mod-lock, cho action thứ ba.
+        new("TC-A05-mod-role", "Moderator đổi vai trò tài khoản", "GĐ6",
+            Caller.Moderator, HttpMethod.Put, "/api/v1/admin/users/{id}/role", HttpStatusCode.Forbidden,
+            ArrangePath: _ => Task.FromResult($"/api/v1/admin/users/{Guid.NewGuid()}/role"),
+            Body: new { roleCode = "USER" }),
+
+        // D5: USER không có role.manage. {USER} = role_id 1 (Mục 5.1 GĐ1) — viết tay, không đọc hằng.
+        new("TC-A05-roles", "User sửa quyền một vai trò", "GĐ6",
+            Caller.User, HttpMethod.Put, "/api/v1/admin/roles/1/permissions", HttpStatusCode.Forbidden,
+            Body: new { permissions = new[] { "post.create" }, confirm = true }),
+
+        // D6 (Đ-6.12): IDOR theo chiều ĐỌC — "thấy được mới báo được". 404, KHÔNG 403 (quy ước 3b, như READ-01): 403 tự nó tố
+        // cáo bài riêng tư có tồn tại. POST /reports không đặc quyền (B.10 #8) nên không phụ thuộc Redis của matrix.
+        RepIdor(),
+
+        // D7b (Mục 8.1): hàng đợi là cửa vào đường DUY NHẤT Moderator đọc nội dung không công khai. USER không có report.resolve.
+        // Audit của lần từ chối này (AUD-03) ở ReportQueueTests — matrix chỉ so status.
+        new("TC-A06-queue", "User thường đọc hàng đợi kiểm duyệt", "GĐ6",
+            Caller.User, HttpMethod.Get, "/api/v1/reports", HttpStatusCode.Forbidden),
+
+        // D7c (Đ-6.13, US-019 AC-03): tầng 2 report.resolve chặn TRƯỚC mọi I/O — id báo cáo không cần tồn tại.
+        new("TC-A06", "User thường xử lý báo cáo", "GĐ6",
+            Caller.User, HttpMethod.Patch, "/api/v1/reports/{id}", HttpStatusCode.Forbidden,
+            ArrangePath: _ => Task.FromResult($"/api/v1/reports/{Guid.NewGuid()}"),
+            Body: new { decision = "dismiss" }),
+
+        // Đối chứng bắt buộc: TC-A06 xanh cả khi handler "chặn mọi người". Báo cáo MỞ thật (bài công khai của B, người báo C qua
+        // POST /reports) — 200 chứng minh Moderator đi hết đường, không dừng ở 404/409.
+        new("TC-A06b", "Đối chứng: Moderator bỏ qua báo cáo", "GĐ6",
+            Caller.Moderator, HttpMethod.Patch, "/api/v1/reports/{id}", HttpStatusCode.OK,
+            ArrangePath: async a => $"/api/v1/reports/{await BaoCaoMoAsync(a)}",
+            Body: new { decision = "dismiss" }),
+
+        // D8 (Đ-6.15): audit.read chỉ ADMIN có — MODERATOR (có report.resolve, post.hide) vẫn 403. Lịch sử của Moderator là history
+        // của GET /reports/{id} (D7b), không phải nhật ký toàn hệ thống.
+        new("TC-A05-mod-audit", "Moderator đọc nhật ký kiểm toán", "GĐ6",
+            Caller.Moderator, HttpMethod.Get, "/api/v1/admin/audit-logs", HttpStatusCode.Forbidden),
+
+        // D11 (Mục 6.3): tầng 3 của đánh dấu đã đọc — 403, KHÔNG 404 (quy ước 3b): "không tồn tại" cũng 403 cùng thân lỗi, ca đó ở
+        // NotificationEndpointTests. Không mã quyền nào, không đặc quyền — không phụ thuộc Redis của matrix.
+        new("NOTIF-IDOR", "A đánh dấu đã đọc thông báo của B", "GĐ6",
+            Caller.User, HttpMethod.Post, "/api/v1/notifications/{id của B}/read", HttpStatusCode.Forbidden,
+            ArrangePath: async a => $"/api/v1/notifications/{await ThongBaoCuaNguoiKhacAsync(a)}/read"),
+
+        new("TC-A01-notifications", "Danh sách thông báo không kèm JWT", "GĐ6",
+            Caller.Anonymous, HttpMethod.Get, "/api/v1/notifications", HttpStatusCode.Unauthorized),
+
+        // D12 (Đ-6.19): tìm người cần đăng nhập — danh bạ tên người dùng không mở cho khách.
+        new("TC-A01-search", "Tìm người không kèm JWT", "GĐ6",
+            Caller.Anonymous, HttpMethod.Get, "/api/v1/search?q=nguyen", HttpStatusCode.Unauthorized),
+
         // --- GĐ3 (B2). giai-doan-3.md Mục 6.3. Kỳ vọng viết tay theo Mục 6.1 + hợp đồng content-v1, không lấy từ output. ---
         //
         // Bình luận và cảm xúc THỪA KẾ BR-02 của bài (Đ-3.3): không xem được bài → 404 ở MỌI đường, kể cả ghi — cùng quy ước
@@ -367,6 +437,75 @@ public static class AuthZMatrix
         using var sent = await client.SendAsync(send);
         await NemNeuKhongPhaiAsync(sent, HttpStatusCode.Created, $"POST /conversations/{id:D}/messages");
         return id;
+    }
+
+    /// <summary>
+    /// Dòng <c>REP-IDOR</c>: id bài của B nằm trong BODY, mà body của <see cref="AuthZCase"/> dựng trước khi <c>ArrangePath</c> chạy.
+    /// Body là một đối tượng mà <c>ArrangePath</c> điền id vào; <c>JsonContent.Create</c> serialize lúc gửi, SAU arrange — không
+    /// phải sửa <see cref="AuthZCase"/> hay <see cref="AuthZMatrixTests"/>.
+    /// </summary>
+    private static AuthZCase RepIdor()
+    {
+        var body = new BaoCaoBody();
+        return new("REP-IDOR", "A báo cáo bài private của B", "GĐ6",
+            Caller.User, HttpMethod.Post, "/api/v1/reports", HttpStatusCode.NotFound,
+            ArrangePath: async a =>
+            {
+                body.TargetId = await TaoBaiCuaNguoiKhacAsync(a, PrivacyRiengTu);
+                return "/api/v1/reports";
+            },
+            Body: body);
+    }
+
+    /// <summary>
+    /// Dòng <c>TC-A06b</c>: một báo cáo MỞ trên bài công khai của B, người báo là một người lạ (không phải người gọi). Trả
+    /// <c>reportId</c>. Qua <c>POST /reports</c> thật — không SQL tay.
+    /// </summary>
+    private static async Task<Guid> BaoCaoMoAsync(AuthZArrange a)
+    {
+        var bai = await TaoBaiCuaNguoiKhacAsync(a, PrivacyCongKhai);
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/reports")
+        {
+            Content = JsonContent.Create(new { targetType = "post", targetId = bai, reasonCode = "spam" }),
+        };
+        request.Headers.Authorization = Bearer(Guid.NewGuid());
+        using var response = await a.Client.SendAsync(request);
+        await NemNeuKhongPhaiAsync(response, HttpStatusCode.Created, $"POST /reports cho bài {bai:D}");
+
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return document.RootElement.GetProperty("reportId").GetGuid();
+    }
+
+    /// <summary>
+    /// Dòng <c>NOTIF-IDOR</c>: một thông báo CHƯA ĐỌC có thật của B (người lạ, không phải người gọi). Chèn bằng SQL: thông báo sinh từ
+    /// event chạy BẤT ĐỒNG BỘ sau request, và <see cref="AuthZArrange"/> không có bus để chờ (<c>DrainEventsAsync</c>) — thêm vào là sửa
+    /// khung matrix, Mục 6.3 cấm. Đường event → thông báo đã có <c>NotificationHandlerTests</c> đi từ API thật. Trả id thông báo.
+    /// </summary>
+    private static async Task<Guid> ThongBaoCuaNguoiKhacAsync(AuthZArrange a)
+    {
+        var id = Guid.NewGuid();
+        var nguoiNhan = Guid.NewGuid();
+        var nguoiMoi = Guid.NewGuid();
+        await using var conn = new NpgsqlConnection(a.PostgresConnectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand(
+            "insert into notification.notifications (id, recipient_id, type, group_key, target_type, target_id, last_actor_id) " +
+            "values ($1, $2, 'friend_request', 'friend_request:' || $3::text, 'user', $3, $3)", conn);
+        cmd.Parameters.AddWithValue(id);
+        cmd.Parameters.AddWithValue(nguoiNhan);
+        cmd.Parameters.AddWithValue(nguoiMoi);
+        await cmd.ExecuteNonQueryAsync();
+        return id;
+    }
+
+    /// <summary>Body của <c>POST /reports</c>, chuỗi hợp đồng viết tay. Xem <see cref="RepIdor"/>.</summary>
+    private sealed class BaoCaoBody
+    {
+        public string TargetType { get; } = "post";
+
+        public Guid TargetId { get; set; }
+
+        public string ReasonCode { get; } = "spam";
     }
 
     /// <summary>

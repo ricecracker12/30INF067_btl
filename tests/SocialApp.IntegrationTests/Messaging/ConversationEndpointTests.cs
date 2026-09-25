@@ -245,6 +245,10 @@ public sealed class ConversationEndpointTests(PostgresFixture postgres, ModulesA
         await SeedConversationsAsync(client, few, 1);
         await SeedConversationsAsync(client, many, 20);
 
+        // Dựng cảnh phát event (lời mời, chấp nhận, tin nhắn) → handler thông báo của GĐ6 chạy NỀN trên cùng database. Chờ bus rỗng
+        // trước khi đếm, không thì câu SQL của handler rơi vào khung đếm (sửa 2026-09-25, lộ ra khi C6 thêm bước đọc lại để đẩy hub).
+        await factory.DrainEventsAsync();
+
         using var counter = new SqlCommandCounter(factory.ConnectionString);
         await client.ListOkAsync(few);   // làm nóng: cache quyền, pool, model EF
 

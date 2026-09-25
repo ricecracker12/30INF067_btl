@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using SocialApp.Modules.Identity.Application;
 using SocialApp.Modules.Identity.Application.Me;
+using SocialApp.Modules.Identity.Application.Roles;
 using SocialApp.Modules.Identity.Domain;
 
 namespace SocialApp.Modules.Identity.Infrastructure.Persistence;
@@ -23,7 +24,7 @@ internal sealed class IdentityUserStore(IdentityDbContext db) : IIdentityUserSto
         (from u in db.Users
          join r in db.Roles on u.RoleId equals r.RoleId
          where u.Email == email
-         select new LoginCandidate(u.UserId, u.PasswordHash, r.Code, u.EmailVerifiedAt, u.LockedUntil))
+         select new LoginCandidate(u.UserId, u.PasswordHash, r.Code, u.EmailVerifiedAt, u.LockedUntil, u.Status))
         .SingleOrDefaultAsync(ct);
 
     public Task RegisterFailedLoginAsync(Guid userId, DateTimeOffset now, CancellationToken ct)
@@ -52,12 +53,32 @@ internal sealed class IdentityUserStore(IdentityDbContext db) : IIdentityUserSto
 
     // role VÀ roleDisplayName đọc từ DB, không từ claim trong token: từ GĐ6 hai giá trị có thể lệch tới 15 phút sau khi
     // Admin đổi vai trò, và /me phải nói sự thật hiện tại.
-    public Task<MeResponse?> FindMeAsync(Guid userId, CancellationToken ct) =>
-        (from u in db.Users
-         join r in db.Roles on u.RoleId equals r.RoleId
-         where u.UserId == userId
-         select new MeResponse(u.UserId, u.Email, r.Code, r.DisplayName, u.EmailVerifiedAt, u.Status, u.CreatedAt))
-        .SingleOrDefaultAsync(ct);
+    //
+    // permissions (GĐ6, Đ-6.11) cũng từ DB, CÙNG nguồn với role — không từ IPermissionCache: cache là của tầng 2 và có TTL, /me
+    // phải khớp đúng role nó vừa trả. Hai câu (user+role, rồi mã quyền của role đó) thay vì một projection lồng: câu thứ hai
+    // không chạy khi user không tồn tại, và thứ tự theo permission_id — cùng thứ tự với PermissionCodes.All mà ADMIN nhận.
+    public async Task<MeResponse?> FindMeAsync(Guid userId, CancellationToken ct)
+    {
+        var me = await (
+            from u in db.Users
+            join r in db.Roles on u.RoleId equals r.RoleId
+            where u.UserId == userId
+            select new { u.UserId, u.Email, r.RoleId, r.Code, r.DisplayName, u.EmailVerifiedAt, u.Status, u.CreatedAt })
+            .SingleOrDefaultAsync(ct);
+        if (me is null)
+            return null;
+
+        var granted = await (
+            from rp in db.RolePermissions
+            join p in db.Permissions on rp.PermissionId equals p.PermissionId
+            where rp.RoleId == me.RoleId
+            orderby p.PermissionId
+            select p.Code)
+            .ToListAsync(ct);
+
+        return new MeResponse(me.UserId, me.Email, me.Code, me.DisplayName, me.EmailVerifiedAt, me.Status, me.CreatedAt,
+            EffectivePermissions.For(me.Code, granted));
+    }
 
     public async Task<bool> AddWithVerificationAsync(
         User user, EmailVerificationToken token, Func<Task> beforeCommit, CancellationToken ct)

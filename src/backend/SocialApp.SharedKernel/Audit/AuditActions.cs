@@ -26,7 +26,8 @@ public static class AuditActions
     /// <summary>Khôi phục đối tượng đã ẩn.</summary>
     public const string ContentRestore = "content.restore";
 
-    // --- Tài khoản (target_type: user) — metadata: fromRole, toRole, revocation ---
+    // --- Tài khoản (target_type: user) — metadata: user.lock → reason; role.assign → fromRole, toRole. KHÔNG `revocation`:
+    //     audit ghi trong transaction, thu hồi chạy sau COMMIT nên lúc ghi chưa biết kết quả (L-D9, sửa 2026-09-24 khi thi công D3).
 
     public const string UserLock = "user.lock";
 
@@ -45,6 +46,8 @@ public static class AuditActions
     public const string RoleDelete = "role.delete";
 
     // --- Truy cập (target_type: endpoint) — metadata: method, routeTemplate (không query string, không id trên đường) ---
+    //     Tầng 2 kép trong service (L-D12, L-D18 — GĐ6 D4+) ghi CÙNG mã này nhưng target là đối tượng của thao tác (vd `user`
+    //     + id tài khoản đích) và metadata `permission` = quyền còn thiếu: service không biết route, còn đối tượng thì biết.
 
     /// <summary>Tầng 2 từ chối một endpoint mang <c>[PrivilegedEndpoint]</c> (US-019 AC-03). Tối đa một dòng/phút/(người, route).</summary>
     public const string AccessDenied = "access.denied";

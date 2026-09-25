@@ -17,7 +17,6 @@ public static class EventBusServiceCollectionExtensions
     /// </summary>
     public static IServiceCollection AddInProcessEventBus(this IServiceCollection services)
     {
-        services.AddMetrics();   // IMeterFactory — TryAdd bên trong, gọi lại không sao
         // Cùng nếp TryAdd với AddSharedKernelRedis: một đồng hồ, một throttle cho cả process.
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<FailOpenLogThrottle>();

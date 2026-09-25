@@ -1,8 +1,9 @@
 using System.Collections.Concurrent;
-using System.Diagnostics.Metrics;
+using System.Globalization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Prometheus;
 using SocialApp.SharedKernel.Events;
 
 namespace SocialApp.UnitTests.SharedKernel;
@@ -14,10 +15,15 @@ namespace SocialApp.UnitTests.SharedKernel;
 ///
 /// Dùng record RIÊNG của test, không dùng sáu record thật — test của bus không đỏ khi A, B xin đổi một chữ ký. Không ca nào chờ
 /// bằng <c>Task.Delay</c>: chờ <c>DrainAsync</c> hoặc chờ một <see cref="TaskCompletionSource"/> báo trạng thái.
+///
+/// Metric đọc từ bản export của registry prometheus-net — đúng chữ <c>/metrics</c> in ra. Counter là của cả process nên khẳng định
+/// trên phần TĂNG kể từ đầu ca; nhãn <c>ProbeEvent</c> chỉ lớp này phát, và các ca trong một lớp xUnit chạy tuần tự.
 /// </summary>
 public sealed class InProcessEventBusTests
 {
     private static readonly TimeSpan Wait = TimeSpan.FromSeconds(5);
+    private const string Published = "socialapp_events_published_total";
+    private const string Dropped = "socialapp_events_dropped_total";
 
     private sealed record ProbeEvent(Guid Id) : IIntegrationEvent;
 
@@ -29,8 +35,8 @@ public sealed class InProcessEventBusTests
         bus.Publisher.Publish(new ProbeEvent(Guid.NewGuid()));
         await bus.Bus.DrainAsync(Wait);
 
-        Assert.Equal(1, bus.Metrics.Total(EventBusMetrics.PublishedName));
-        Assert.Equal(0, bus.Metrics.Total(EventBusMetrics.DroppedName));
+        Assert.Equal(1, await bus.Metrics.DeltaAsync(Published));
+        Assert.Equal(0, await bus.Metrics.DeltaAsync(Dropped));
         Assert.Empty(bus.Logs.AtLeast(LogLevel.Warning));
     }
 
@@ -78,7 +84,7 @@ public sealed class InProcessEventBusTests
         foreach (var e in events.Skip(1))
             bus.Publisher.Publish(e);   // e2, e3 vào hàng (dung lượng 2); e4, e5 rơi — không chặn
 
-        Assert.Equal(2, bus.Metrics.Total(EventBusMetrics.DroppedName));
+        Assert.Equal(2, await bus.Metrics.DeltaAsync(Dropped));
         Assert.Single(bus.Logs.AtLeast(LogLevel.Warning));   // ngưỡng: hai lần rơi, MỘT dòng
 
         bus.Probe.Gate.SetResult();
@@ -179,14 +185,14 @@ public sealed class InProcessEventBusTests
     /// <summary>Container trần + bus đã <c>StartAsync</c>; log và metric bắt riêng cho từng ca.</summary>
     private sealed class BusHarness : IAsyncDisposable
     {
-        private BusHarness(ServiceProvider services)
+        private BusHarness(ServiceProvider services, MetricsRecorder metrics)
         {
             Services = services;
             Bus = services.GetRequiredService<InProcessEventBus>();
             Publisher = services.GetRequiredService<IEventPublisher>();
             Probe = services.GetRequiredService<Probe>();
             Logs = services.GetRequiredService<RecordingLoggerProvider>();
-            Metrics = new MetricsRecorder(services.GetRequiredService<IMeterFactory>());
+            Metrics = metrics;
         }
 
         public ServiceProvider Services { get; }
@@ -206,7 +212,7 @@ public sealed class InProcessEventBusTests
                 .AddInProcessEventBus();
             configure(services);
 
-            var harness = new BusHarness(services.BuildServiceProvider());
+            var harness = new BusHarness(services.BuildServiceProvider(), await MetricsRecorder.StartAsync());
             await harness.Bus.StartAsync(CancellationToken.None);
             return harness;
         }
@@ -215,32 +221,35 @@ public sealed class InProcessEventBusTests
         {
             Probe.Gate.TrySetResult();   // ca EVT-03 đỏ giữa chừng thì handler không treo StopAsync
             await Bus.StopAsync(CancellationToken.None);
-            Metrics.Dispose();
             await Services.DisposeAsync();
         }
     }
 
-    /// <summary>Chỉ nghe Meter của CHÍNH container ca này (<c>Meter.Scope</c> = <see cref="IMeterFactory"/> của nó).</summary>
-    private sealed class MetricsRecorder : IDisposable
+    /// <summary>Giá trị hai counter cho nhãn <c>ProbeEvent</c> lúc bắt đầu ca; <see cref="DeltaAsync"/> trả phần tăng thêm.</summary>
+    private sealed class MetricsRecorder
     {
-        private readonly MeterListener _listener = new();
-        private readonly ConcurrentDictionary<string, long> _totals = new();
+        private readonly Dictionary<string, double> _start;
 
-        public MetricsRecorder(IMeterFactory factory)
-        {
-            _listener.InstrumentPublished = (instrument, listener) =>
+        private MetricsRecorder(Dictionary<string, double> start) => _start = start;
+
+        public static async Task<MetricsRecorder> StartAsync() =>
+            new(new Dictionary<string, double>
             {
-                if (ReferenceEquals(instrument.Meter.Scope, factory) && instrument.Meter.Name == EventBusMetrics.MeterName)
-                    listener.EnableMeasurementEvents(instrument);
-            };
-            _listener.SetMeasurementEventCallback<long>((instrument, value, _, _) =>
-                _totals.AddOrUpdate(instrument.Name, value, (_, old) => old + value));
-            _listener.Start();
+                [Published] = await ReadAsync(Published),
+                [Dropped] = await ReadAsync(Dropped),
+            });
+
+        public async Task<double> DeltaAsync(string counter) => await ReadAsync(counter) - _start[counter];
+
+        private static async Task<double> ReadAsync(string counter)
+        {
+            using var stream = new MemoryStream();
+            await Metrics.DefaultRegistry.CollectAndExportAsTextAsync(stream);
+            var prefix = $"{counter}{{event=\"{nameof(ProbeEvent)}\"}} ";
+            var line = System.Text.Encoding.UTF8.GetString(stream.ToArray()).Split('\n')
+                .FirstOrDefault(l => l.StartsWith(prefix, StringComparison.Ordinal));
+            return line is null ? 0 : double.Parse(line[prefix.Length..], CultureInfo.InvariantCulture);
         }
-
-        public long Total(string instrument) => _totals.GetValueOrDefault(instrument);
-
-        public void Dispose() => _listener.Dispose();
     }
 
     private sealed record LogEntry(LogLevel Level, string Message, IReadOnlyList<KeyValuePair<string, object?>> Properties);

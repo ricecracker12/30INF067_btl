@@ -81,6 +81,8 @@ public sealed class PostsController(PostService posts, PostReadService reads) : 
     ///
     /// <b>Không có 404</b> trong danh sách mã: bài không tồn tại, của người khác, hay đã xóa mềm đều là <b>403</b> với
     /// cùng một body (quy ước 3b). Đây là dòng <c>TC-A03</c> của AuthZ matrix.
+    ///
+    /// <b>409 <c>post-hidden</c></b> (GĐ6 D7a, Đ-6.14): tác giả sửa bài bị kiểm duyệt ẩn. Chỉ tác giả tới được nhánh này.
     /// </summary>
     [HttpPatch("posts/{postId}")]
     [RequirePermission(ContentPermissions.PostUpdate)]
@@ -88,6 +90,7 @@ public sealed class PostsController(PostService posts, PostReadService reads) : 
     [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest, "application/problem+json")]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized, "application/problem+json")]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden, "application/problem+json")]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict, "application/problem+json")]
     public async Task<ActionResult<PostResponse>> Update(Guid postId, UpdatePostRequest request, CancellationToken ct)
     {
         var result = await posts.UpdateAsync(postId, User.GetUserId(), request, ct);

@@ -243,17 +243,152 @@ public sealed class ModerationTargetsTests(PostgresFixture postgres) : IAsyncLif
         Assert.Equal(["avatars/x.jpg"], snapshots[user].MediaKeys);
     }
 
-    /// <summary>Người dùng không ẩn được; bình luận chưa có provider — ném, không lặng lẽ trả NotFound (D7 chặn trước bằng bảng hợp lệ).</summary>
+    /// <summary>
+    /// Người dùng không ẩn được — ném, không lặng lẽ trả NotFound (D7 chặn trước bằng bảng hợp lệ). <i>Sửa 2026-09-25 (bước 9 GĐ6):</i> bản
+    /// đầu khẳng định cả bình luận ném vì chưa có provider; từ khi có <c>CommentModerationTargets</c>, id bình luận lạ là NotFound.
+    /// </summary>
     [Fact]
-    public async Task An_nguoi_dung_hoac_loai_chua_co_provider_thi_nem_NotSupported()
+    public async Task An_nguoi_dung_thi_nem_NotSupported_binh_luan_la_thi_NotFound()
     {
         await Assert.ThrowsAsync<NotSupportedException>(() => InModerationTransactionAsync(
             (t, tx) => t.HideAsync(tx, new ModerationTarget(ModerationTargetType.User, Stranger), ReasonCodes.Spam)));
-        await Assert.ThrowsAsync<NotSupportedException>(() => InModerationTransactionAsync(
-            (t, tx) => t.HideAsync(tx, new ModerationTarget(ModerationTargetType.Comment, Guid.NewGuid()), ReasonCodes.Spam)));
+        Assert.Equal(HideOutcome.NotFound, await InModerationTransactionAsync(
+            (t, tx) => t.HideAsync(tx, Comment(Guid.NewGuid()), ReasonCodes.Spam)));
 
         await using var scope = _services.CreateAsyncScope();
-        Assert.False(await scope.ServiceProvider.GetRequiredService<IModerationTargets>()
-            .CanViewAsync(Stranger, new ModerationTarget(ModerationTargetType.Comment, Guid.NewGuid())));
+        var targets = scope.ServiceProvider.GetRequiredService<IModerationTargets>();
+        Assert.True(targets.Supports(ModerationTargetType.Comment));
+        Assert.False(await targets.CanViewAsync(Stranger, Comment(Guid.NewGuid())));
+    }
+
+    // ---------------------------------------------------------------- bình luận (bước 9 GĐ6, CommentModerationTargets)
+
+    private static ModerationTarget Comment(Guid id) => new(ModerationTargetType.Comment, id);
+
+    /// <summary>
+    /// Một bình luận của <paramref name="author"/> (mặc định <see cref="Author"/>) trên <paramref name="post"/> bằng SQL, cộng
+    /// <c>comment_count</c> của bài khi bình luận hiện ra — đúng bất biến mà <c>CommentStore.AddAsync</c> giữ. Có <paramref name="parent"/>
+    /// thì cũng cộng <c>reply_count</c> của cha.
+    /// </summary>
+    private async Task<Guid> InsertCommentAsync(Guid post, string status = "visible", Guid? parent = null, Guid? author = null)
+    {
+        var id = Uuid7.New();
+        var parentSql = parent is null ? "null" : $"'{parent}'";
+        var depth = parent is null ? 1 : 2;
+        var deletedAt = status == "deleted" ? "now()" : "null";
+        var visible = status == "visible" ? 1 : 0;
+        await ExecuteAsync(
+            "insert into content.comments (comment_id, post_id, parent_id, author_id, depth, body, status, deleted_at) " +
+            $"values ('{id}', '{post}', {parentSql}, '{author ?? Author}', {depth}, 'Bình luận {id}', '{status}', {deletedAt}); " +
+            $"update content.posts set comment_count = comment_count + {visible} where post_id = '{post}';");
+        if (parent is not null)
+            await ExecuteAsync($"update content.comments set reply_count = reply_count + 1 where comment_id = '{parent}'");
+        return id;
+    }
+
+    private async Task<string> StatusOfAsync(Guid comment) =>
+        (await ScalarAsync($"select status from content.comments where comment_id = '{comment}'"))!;
+
+    private async Task<int> CommentCountAsync(Guid post) =>
+        int.Parse((await ScalarAsync($"select comment_count from content.posts where post_id = '{post}'"))!);
+
+    private async Task<int> ReplyCountAsync(Guid comment) =>
+        int.Parse((await ScalarAsync($"select reply_count from content.comments where comment_id = '{comment}'"))!);
+
+    /// <summary>
+    /// Ẩn bình luận <c>visible</c> → Hidden, <c>comment_count</c> trừ 1, <c>reply_count</c> của cha GIỮ NGUYÊN (như xóa — nhánh giữ chỗ);
+    /// lần hai → AlreadyHidden, không trừ nữa. Khôi phục → Restored, cộng lại; lần hai → NotHidden. Bình luận đã xóa → NotFound cả hai chiều.
+    /// </summary>
+    [Fact]
+    public async Task CMT_store_01_an_khoi_phuc_binh_luan_bo_dem_nhu_xoa()
+    {
+        var post = await InsertPostAsync();
+        var cha = await InsertCommentAsync(post);
+        var con = await InsertCommentAsync(post, parent: cha, author: Friend);
+        var daXoa = await InsertCommentAsync(post, status: "deleted");
+        Assert.Equal((2, 1), (await CommentCountAsync(post), await ReplyCountAsync(cha)));
+
+        Assert.Equal(HideOutcome.Hidden, await InModerationTransactionAsync((t, tx) => t.HideAsync(tx, Comment(con), ReasonCodes.Spam)));
+        Assert.Equal(("hidden", 1, 1), (await StatusOfAsync(con), await CommentCountAsync(post), await ReplyCountAsync(cha)));
+        Assert.Equal(HideOutcome.AlreadyHidden,
+            await InModerationTransactionAsync((t, tx) => t.HideAsync(tx, Comment(con), ReasonCodes.Spam)));
+        Assert.Equal(1, await CommentCountAsync(post));
+
+        Assert.Equal(RestoreOutcome.Restored, await InModerationTransactionAsync((t, tx) => t.RestoreAsync(tx, Comment(con))));
+        Assert.Equal(("visible", 2, 1), (await StatusOfAsync(con), await CommentCountAsync(post), await ReplyCountAsync(cha)));
+        Assert.Equal(RestoreOutcome.NotHidden, await InModerationTransactionAsync((t, tx) => t.RestoreAsync(tx, Comment(con))));
+
+        Assert.Equal(HideOutcome.NotFound,
+            await InModerationTransactionAsync((t, tx) => t.HideAsync(tx, Comment(daXoa), ReasonCodes.Spam)));
+        Assert.Equal(RestoreOutcome.NotFound, await InModerationTransactionAsync((t, tx) => t.RestoreAsync(tx, Comment(daXoa))));
+        Assert.Equal(("deleted", 2), (await StatusOfAsync(daXoa), await CommentCountAsync(post)));
+    }
+
+    /// <summary>Ẩn bình luận TRÊN transaction của Moderation rồi rollback → bình luận vẫn <c>visible</c>, bộ đếm không đổi (R6-06).</summary>
+    [Fact]
+    public async Task CMT_store_02_rollback_thi_binh_luan_va_bo_dem_nguyen_ven()
+    {
+        var post = await InsertPostAsync();
+        var comment = await InsertCommentAsync(post);
+
+        await using (var scope = _services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ModerationDbContext>();
+            await using var tx = await db.Database.BeginTransactionAsync();
+            Assert.Equal(HideOutcome.Hidden, await scope.ServiceProvider.GetRequiredService<IModerationTargets>()
+                .HideAsync(tx.GetDbTransaction(), Comment(comment), ReasonCodes.Spam));
+            await tx.RollbackAsync();
+        }
+
+        Assert.Equal(("visible", 1), (await StatusOfAsync(comment), await CommentCountAsync(post)));
+    }
+
+    /// <summary>
+    /// Ảnh chụp bình luận: MỌI trạng thái (Moderator thấy cả bình luận đã xóa/ẩn); <c>visible</c> đọc là <c>published</c> theo từ vựng của
+    /// <c>moderation-v1</c>; kèm <c>postId</c> của bài chứa nó, không ảnh, không mốc sửa.
+    /// </summary>
+    [Fact]
+    public async Task CMT_store_03_anh_chup_binh_luan_moi_trang_thai()
+    {
+        var post = await InsertPostAsync("private");
+        var hien = await InsertCommentAsync(post);
+        var an = await InsertCommentAsync(post, status: "hidden");
+        var xoa = await InsertCommentAsync(post, status: "deleted");
+
+        await using var scope = _services.CreateAsyncScope();
+        var snapshots = await scope.ServiceProvider.GetRequiredService<IModerationTargets>()
+            .GetSnapshotsAsync([Comment(hien), Comment(an), Comment(xoa), Comment(Guid.NewGuid())]);
+
+        Assert.Equal(3, snapshots.Count);
+        Assert.Equal(["published", "hidden", "deleted"], new[] { hien, an, xoa }.Select(id => snapshots[Comment(id)].Status));
+        var s = snapshots[Comment(hien)];
+        Assert.Equal((Author, (Guid?)post, $"Bình luận {hien}", 0, (DateTimeOffset?)null),
+            (s.AuthorId, s.PostId, s.Body, s.MediaKeys.Count, s.EditedAt));
+    }
+
+    /// <summary>
+    /// Thấy được mới báo được (Đ-6.12) — bình luận thừa kế BR-02 của bài (Đ-3.3): bài công khai → ai cũng thấy; bài bạn bè → bạn thấy, người
+    /// lạ không; bài riêng tư → chỉ tác giả bài. Bình luận bị ẩn, hoặc nằm trong bài bị ẩn → không ai thấy.
+    /// </summary>
+    [Fact]
+    public async Task CMT_store_04_thay_duoc_theo_BR02_cua_bai()
+    {
+        var congKhai = await InsertCommentAsync(await InsertPostAsync("public"));
+        var banBe = await InsertCommentAsync(await InsertPostAsync("friends"));
+        var rieng = await InsertCommentAsync(await InsertPostAsync("private"));
+        var biAn = await InsertCommentAsync(await InsertPostAsync("public"), status: "hidden");
+        var trongBaiAn = await InsertCommentAsync(await InsertPostAsync("public", status: "hidden"));
+
+        await using var scope = _services.CreateAsyncScope();
+        var targets = scope.ServiceProvider.GetRequiredService<IModerationTargets>();
+        async Task<bool> Thay(Guid actor, Guid id) => await targets.CanViewAsync(actor, Comment(id));
+
+        Assert.True(await Thay(Stranger, congKhai));
+        Assert.True(await Thay(Friend, banBe));
+        Assert.False(await Thay(Stranger, banBe));
+        Assert.True(await Thay(Author, rieng));
+        Assert.False(await Thay(Friend, rieng));
+        Assert.False(await Thay(Author, biAn));
+        Assert.False(await Thay(Author, trongBaiAn));
     }
 }

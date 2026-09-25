@@ -27,6 +27,12 @@ public static class SharedKernelExtensions
     /// <summary>Tên policy rate limit chặt cho nhóm endpoint xác thực (10 req/phút).</summary>
     public const string AuthRateLimitPolicy = "auth";
 
+    /// <summary>
+    /// Policy của <c>POST /reports</c> (GĐ6 Đ-6.12): 10 báo cáo/phút/NGƯỜI — chặn một người xả rác hàng đợi kiểm duyệt. Chồng lên
+    /// hạn mức chung 100/phút, không thay nó.
+    /// </summary>
+    public const string ReportCreateRateLimitPolicy = "report-create";
+
     public static IServiceCollection AddSharedKernel(this IServiceCollection services)
     {
         // RFC 7807: mọi ProblemDetails đều có traceId (= correlation id), instance và type theo hợp đồng.
@@ -96,6 +102,19 @@ public static class SharedKernelExtensions
                     _ => new FixedWindowRateLimiterOptions
                     {
                         PermitLimit = RealtimeTicketDefaults.RateLimitPerMinute,
+                        Window = TimeSpan.FromMinutes(1),
+                        QueueLimit = 0,
+                    }));
+
+            // GĐ6 D6 (Đ-6.12): theo NGƯỜI, không theo IP như `auth` — mười người sau NAT trường học không chung một hạn mức.
+            // Endpoint đòi đăng nhập và tầng 1 + 2 chạy trước limiter (UseSharedKernelRateLimiter), nên khóa luôn là `user:{sub}`;
+            // nhánh IP của RateLimitPartitionKey chỉ là lưới. Báo trùng (200) vẫn tính một lượt.
+            options.AddPolicy(ReportCreateRateLimitPolicy, ctx =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    RateLimitPartitionKey(ctx),
+                    _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = 10,
                         Window = TimeSpan.FromMinutes(1),
                         QueueLimit = 0,
                     }));

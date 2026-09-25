@@ -1,7 +1,9 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using Microsoft.Extensions.DependencyInjection;
 using SocialApp.IntegrationTests.Harness;
+using SocialApp.SharedKernel.Redis;
 
 namespace SocialApp.IntegrationTests.AuthZ;
 
@@ -11,8 +13,8 @@ namespace SocialApp.IntegrationTests.AuthZ;
 /// </summary>
 [Trait("Category", "AuthZ")]
 [Collection(PostgresCollection.Name)]
-public sealed class AuthZMatrixTests(PostgresFixture postgres, AuthZApiFactory factory)
-    : IClassFixture<AuthZApiFactory>, IAsyncLifetime
+public sealed class AuthZMatrixTests(PostgresFixture postgres, RedisFixture redis, AuthZApiFactory factory)
+    : IClassFixture<RedisFixture>, IClassFixture<AuthZApiFactory>, IAsyncLifetime
 {
     private string _db = null!;
 
@@ -22,6 +24,11 @@ public sealed class AuthZMatrixTests(PostgresFixture postgres, AuthZApiFactory f
         // đủ ba module: TC-A03 gọi /api/v1/posts, thiếu bảng content.posts thì dòng đỏ 500 thay vì 403.
         _db = await postgres.SeededContentDatabaseAsync("authz");
         factory.UseDatabase(_db);   // phải trước CreateClient đầu tiên — host dựng lúc đó
+
+        // GĐ6 D2 (L-D17): Redis thật — endpoint [PrivilegedEndpoint] fail-closed, Redis cổng 1 thì mọi dòng TC-A05*/TC-A06* ra 503.
+        // Kết nối của APP mở ở nền lúc host dựng; chờ xong rồi mới chạy dòng, không thì dòng đầu 503 ngẫu nhiên.
+        factory.UseRedis(redis.ConnectionString);
+        Assert.True((await factory.Services.GetRequiredService<RedisConnection>().GetAsync()).IsConnected);
     }
 
     public Task DisposeAsync() => Task.CompletedTask;

@@ -20,7 +20,9 @@ using SocialApp.Modules.Identity.Presentation;
 using SocialApp.Modules.Messaging.DependencyInjection;
 using SocialApp.Modules.Messaging.Presentation;
 using SocialApp.Modules.Moderation.DependencyInjection;
+using SocialApp.Modules.Moderation.Presentation;
 using SocialApp.Modules.Notification.DependencyInjection;
+using SocialApp.Modules.Notification.Presentation;
 using SocialApp.Modules.Profile.DependencyInjection;
 using SocialApp.Modules.Profile.Presentation;
 using SocialApp.Modules.SocialGraph.DependencyInjection;
@@ -64,6 +66,8 @@ builder.Services
     .AddApplicationPart(typeof(ContentApiGroup).Assembly)
     .AddApplicationPart(typeof(SocialGraphApiGroup).Assembly)
     .AddApplicationPart(typeof(MessagingApiGroup).Assembly)
+    .AddApplicationPart(typeof(ModerationApiGroup).Assembly)
+    .AddApplicationPart(typeof(NotificationApiGroup).Assembly)
     .AddJsonOptions(o =>
     {
         // CamelCase là BẮT BUỘC, không phải trang trí (Q-D4 → Q-D2, chốt 2026-09-19): hợp đồng ghi
@@ -94,10 +98,16 @@ var apiGroups = new[]
 {
     (Name: PingController.ApiGroup, Title: "Platform"),
     (Name: IdentityApiGroup.Name, Title: IdentityApiGroup.Title),
+    // GĐ6 D2 (Đ-6.1): nhóm thứ hai của Identity — cùng assembly nên không thêm AddApplicationPart.
+    (Name: AdminApiGroup.Name, Title: AdminApiGroup.Title),
     (Name: ProfileApiGroup.Name, Title: ProfileApiGroup.Title),
     (Name: ContentApiGroup.Name, Title: ContentApiGroup.Title),
     (Name: SocialGraphApiGroup.Name, Title: SocialGraphApiGroup.Title),
     (Name: MessagingApiGroup.Name, Title: MessagingApiGroup.Title),
+    // GĐ6 D6 (Đ-6.1): nhóm của Moderation — ra đời cùng POST /reports (L-D1).
+    (Name: ModerationApiGroup.Name, Title: ModerationApiGroup.Title),
+    // GĐ6 D11 (Đ-6.1): nhóm của Notification — ra đời cùng bốn endpoint thông báo (L-D1).
+    (Name: NotificationApiGroup.Name, Title: NotificationApiGroup.Title),
 };
 
 builder.Services.AddEndpointsApiExplorer();
@@ -500,12 +510,15 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check 
 // thiếu thì fallback policy trả 401 và target DOWN. KHÔNG ra Internet (Đ-7.7): apache không ProxyPass /metrics nên đường
 // công khai rơi về Next → 404; Kuma có monitor lộn ngược canh chuyện này (hướng dẫn khối C, C6).
 app.MapMetrics().AllowAnonymous();
-BusinessMetrics.Initialize();   // chín chuỗi đếm + histogram đẩy tin có mặt từ lúc khởi động với giá trị 0, không đợi sự kiện đầu tiên (C2)
+BusinessMetrics.Initialize();   // chuỗi nghiệp vụ (GĐ7 C2, GĐ5, GĐ6) + histogram đẩy tin + event bus có mặt từ lúc khởi động với giá trị 0, không đợi sự kiện đầu tiên
 
 app.MapControllers();
 
 // Hub nhắn tin (GĐ5). Sau UseAuthentication/UseAuthorization — hub khai [Authorize(AuthenticationSchemes = RealtimeTicket)].
 app.MapHub<ChatHub>(ChatHub.Path);
+
+// Hub thông báo (GĐ6 C6, Đ-6.18) — cùng vé, cùng filter toàn cục của hub chat; chỉ server → client. apache đã chuyển cả /hubs/.
+app.MapHub<NotificationHub>(NotificationHub.Path);
 
 app.Run();
 

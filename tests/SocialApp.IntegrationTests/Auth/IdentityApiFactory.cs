@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Npgsql;
 using SocialApp.IntegrationTests.Harness;
 using SocialApp.Modules.Identity.Application.Email;
 using SocialApp.Modules.Identity.DependencyInjection;
@@ -60,5 +61,22 @@ public sealed class IdentityApiFactory : WebApplicationFactory<Program>
             services.AddSingleton<CapturingEmailSender>();
             services.AddSingleton<IEmailSender>(sp => sp.GetRequiredService<CapturingEmailSender>());
         });
+    }
+
+    /// <summary>
+    /// Trả kết nối của database riêng về Postgres khi lớp test xong (<c>ClearPool</c>) — cùng khuôn các lớp test schema của GĐ6
+    /// khối A. Pool Npgsql giữ kết nối rỗi tới 5 phút sau khi host đã dừng; mỗi lớp dùng factory này một database, một pool, nên
+    /// thêm một lớp là thêm một pool rỗi. Lớp thứ mười (GĐ6 D1 <c>AccountDisabledTests</c>) đẩy cả bộ qua max_connections 100
+    /// của container: "53300 too many clients already" ở lớp chạy SAU, trông như lỗi của lớp đó. Dọn ở factory thì lớp Auth nào
+    /// thêm sau cũng không vấp lại.
+    /// </summary>
+    public override async ValueTask DisposeAsync()
+    {
+        await base.DisposeAsync();
+        if (_database is { IsCompletedSuccessfully: true } database)
+        {
+            await using var conn = new NpgsqlConnection(database.Result);
+            NpgsqlConnection.ClearPool(conn);
+        }
     }
 }

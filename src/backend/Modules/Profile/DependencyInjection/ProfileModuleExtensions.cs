@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using SocialApp.Modules.Profile.Application.Profiles;
+using SocialApp.Modules.Profile.Application.Search;
 using SocialApp.Modules.Profile.Infrastructure;
 using SocialApp.Modules.Profile.Infrastructure.Moderation;
 using SocialApp.Modules.Profile.Infrastructure.Persistence;
@@ -66,6 +67,11 @@ public static class ProfileModuleExtensions
         // resolve ProfileService nên thiếu IObjectStorage ở đó không sao.
         services.AddScoped<IProfileStore, ProfileStore>();
         services.AddScoped<ProfileService>();
+
+        // GĐ6 D12 (Đ-6.19): GET /search. IAccountStatusReader do Identity đăng ký, IObjectStorage do host — cùng lý do trên, chỗ trần
+        // không resolve SearchService.
+        services.AddScoped<IProfileSearch, ProfileSearch>();
+        services.AddScoped<SearchService>();
 
         return services;
     }

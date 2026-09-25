@@ -11,8 +11,8 @@ using SocialApp.SharedKernel.Moderation;
 namespace SocialApp.Modules.Content.Infrastructure.Moderation;
 
 /// <summary>
-/// Provider BÀI của hợp đồng ghi <see cref="IModerationTargets"/> (Đ-6.3, Đ-6.12, Đ-6.14 — C2 GĐ6). Bình luận thêm một provider
-/// riêng sau khi GĐ3 merge.
+/// Provider BÀI của hợp đồng ghi <see cref="IModerationTargets"/> (Đ-6.3, Đ-6.12, Đ-6.14 — C2 GĐ6). Bình luận có provider riêng,
+/// <see cref="CommentModerationTargets"/> (bước 9 GĐ6, sau khi GĐ3 merge).
 ///
 /// <b>Ghi</b> (ẩn/khôi phục): <see cref="NpgsqlCommand"/> tham số hóa trên CHÍNH <c>tx.Connection</c> + <c>tx</c> của Moderation — không
 /// đụng <see cref="ContentDbContext"/> (đó là kết nối thứ hai, đúng lỗi R6-06: bài ẩn rồi mà báo cáo rollback). Một câu
