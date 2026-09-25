@@ -429,7 +429,7 @@ describe("PostComposer — POST /posts", () => {
     await user.click(nutDang())
     await waitFor(() =>
       expect(
-        screen.getByText("Bạn cần hoàn tất hồ sơ trước khi đăng bài.")
+        screen.getByText("Tài khoản của bạn chưa được phép đăng bài.")
       ).toBeInTheDocument()
     )
     unmount()

@@ -114,8 +114,10 @@ describe("errorMessage — bảy ngữ cảnh GĐ2 (Q-E4)", () => {
     expect(errorMessage("upload", e)).toBe(
       "Tài khoản của bạn chưa được phép đăng bài."
     )
+    // Sửa 2026-09-25: 403 không `type` của `post-create` = thiếu `post.create`, CÙNG nghĩa `upload` → cùng câu. "Chưa có hồ sơ"
+    // mang `type` riêng (content-v1 1.3.0-gd6) — ca ở `messages.gd6.test.ts`.
     expect(errorMessage("post-create", e)).toBe(
-      "Bạn cần hoàn tất hồ sơ trước khi đăng bài."
+      "Tài khoản của bạn chưa được phép đăng bài."
     )
     expect(errorMessage("post-write", e)).toBe(
       "Không tìm thấy bài viết, hoặc bạn không có quyền với bài này."
@@ -127,7 +129,7 @@ describe("errorMessage — bảy ngữ cảnh GĐ2 (Q-E4)", () => {
         errorMessage("post-create", e),
         errorMessage("post-write", e),
       ]).size
-    ).toBe(4)
+    ).toBe(3)
   })
 
   it("403 của post-write KHÔNG tiết lộ bài có tồn tại hay không", () => {

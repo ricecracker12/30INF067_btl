@@ -173,6 +173,11 @@ Chốt: **đăng nhập lần đầu mà chưa có dòng `profiles` → FE đưa
 Kèm theo một bất biến rẻ và rất có ích:
 
 > **Không có hồ sơ thì không đăng được bài.** `POST /posts` trả 403 khi người gọi chưa có dòng `profiles`.
+>
+> *Sửa 2026-09-25 (GĐ6, nợ lộ ở E2E-05):* 403 này mang `type` riêng `urn:socialapp:problem:profile-required`
+> (`content-v1` `1.3.0-gd6`, chỉ-thêm) — trước đó trùng phản hồi với 403 thiếu quyền `post.create`, và FE nói "hãy hoàn tất hồ sơ"
+> với người vừa bị Admin gỡ quyền đăng bài. Không lộ gì: người gọi luôn biết mình có hồ sơ hay chưa, và nhánh này chạy trước kiểm
+> tiền tố `mediaKey` (Đ-2.7), nên 403 "khóa của người khác" vẫn trùng phản hồi với 403 thiếu quyền.
 
 Nhờ nó, mọi `posts.author_id` chắc chắn tra được ra `UserCard` — không cần nhánh "tác giả không tên" ở mọi chỗ render,
 và GĐ4 không phải xử lý bài thiếu tác giả trong feed.

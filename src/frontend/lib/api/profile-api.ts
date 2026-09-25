@@ -32,4 +32,15 @@ export const profileApi = {
   /** 204, idempotent — chỉ gỡ liên kết, object trên R2 dọn trễ (Đ-2.10). */
   removeAvatar: () =>
     request<void>(`${BFF_ROUTES.api}/users/me/avatar`, { method: "DELETE" }),
+
+  /**
+   * Tìm người theo tên, không dấu, tiền tố từng từ (GĐ6 Đ-6.19) — top ≤ 20, KHÔNG cursor. `q` sau `trim` 2–50 ký tự, ngoài
+   * khoảng → 400 `errors.q`; màn không gọi khi dưới 2 ký tự (cùng ngưỡng server, Đ-E5). `type` luôn `user` — giữ chỗ.
+   */
+  search: (q: string, limit: number, signal?: AbortSignal) => {
+    const params = new URLSearchParams({ q, type: "user", limit: String(limit) })
+    return request<T.SearchPage>(`${BFF_ROUTES.api}/search?${params}`, {
+      signal,
+    })
+  },
 }

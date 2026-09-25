@@ -282,3 +282,177 @@ export const commentPage = {
   items: [comment, deletedComment],
   nextCursor: null,
 } satisfies T.CommentPage
+
+// --- GĐ6: moderation-v1, admin-v1, notification-v1, profile-v1 `/search` ---
+// Giá trị chép từ `example` của ba hợp đồng mới; `satisfies` bắt lệch hình dạng lúc compile. Handler GĐ6 KHÔNG nằm trong
+// `handlers.ts`: mỗi màn tự `server.use(...)` đúng nhánh nó cần (nếp màn chat GĐ5) — handler mặc định cho endpoint đặc quyền là
+// mời test "quên" kiểm 403.
+
+export const reportId = "0192f3ca-6e41-7a02-b3d5-8c7e9f1a2b30"
+export const reportedPostId = "0192f3c9-2b7d-7e10-8c4a-1f3e5d7b9a20"
+
+export const reportReceipt = {
+  reportId,
+  status: "open",
+  createdAt: "2026-09-24T08:15:42.123456Z",
+} satisfies T.ReportReceipt
+
+export const reportQueueItem = {
+  reportId,
+  target: { type: "post", id: reportedPostId },
+  reportCount: 3,
+  reasons: { spam: 2, harassment: 1 },
+  firstReportedAt: "2026-09-24T08:15:42.123456Z",
+} satisfies T.ReportQueueItem
+
+export const reportDetail = {
+  reportId,
+  target: {
+    type: "post",
+    id: reportedPostId,
+    status: "published",
+    author: { userId, displayName: "Bình Minh", avatarUrl: null },
+    body: "Mua ngay khóa học làm giàu, inbox để nhận ưu đãi!",
+    media: [],
+    postId: reportedPostId,
+    createdAt: "2026-09-24T07:00:00.000000Z",
+    editedAt: null,
+  },
+  openReports: [
+    {
+      reportId,
+      reasonCode: "spam",
+      detail: null,
+      createdAt: "2026-09-24T08:15:42.123456Z",
+    },
+  ],
+  history: [],
+} satisfies T.ReportDetail
+
+export const auditLogItem = {
+  id: 1024,
+  actorId: userId,
+  actor: { userId, displayName: "Kiểm duyệt viên", avatarUrl: null },
+  action: "report.hide",
+  targetType: "post",
+  targetId: reportedPostId,
+  metadata: { reportIds: [reportId], reasonCode: "spam", note: null },
+  ip: "203.0.113.7",
+  createdAt: "2026-09-25T08:15:42.123456Z",
+} satisfies T.AuditLogItem
+
+export const adminUser = {
+  userId,
+  email: "an.nguyen@example.com",
+  displayName: "Nguyễn Văn An",
+  roleCode: "USER",
+  roleDisplayName: "Người dùng",
+  status: "active",
+  emailVerified: true,
+  lockedUntil: null,
+  createdAt: "2026-09-08T03:10:22Z",
+} satisfies T.AdminUser
+
+/** 18 mã theo `PermissionCodes.All` — `role.manage` cuối, không trao được qua API (L-D19). */
+export const permissionCodes = [
+  "post.read.public",
+  "post.read.friends",
+  "post.create",
+  "post.update",
+  "post.delete",
+  "comment.create",
+  "reaction.set",
+  "friend.request",
+  "friend.respond",
+  "message.send",
+  "report.create",
+  "report.resolve",
+  "post.hide",
+  "user.lock",
+  "user.unlock",
+  "role.assign",
+  "audit.read",
+  "role.manage",
+] as const
+
+export const permissionInfos = permissionCodes.map(
+  (code) =>
+    ({
+      code,
+      description: `Mô tả ${code}`,
+      assignable: code !== "role.manage",
+    }) satisfies T.PermissionInfo
+)
+
+export const roleSummaries = [
+  {
+    roleId: 1,
+    code: "USER",
+    displayName: "Người dùng",
+    isSystem: true,
+    editable: true,
+    userCount: 8421,
+    permissions: me.permissions,
+  },
+  {
+    roleId: 2,
+    code: "MODERATOR",
+    displayName: "Kiểm duyệt viên",
+    isSystem: true,
+    editable: true,
+    userCount: 4,
+    permissions: [...me.permissions, "report.resolve", "post.hide"],
+  },
+  {
+    roleId: 3,
+    code: "ADMIN",
+    displayName: "Quản trị viên",
+    isSystem: true,
+    editable: false,
+    userCount: 2,
+    permissions: [...permissionCodes],
+  },
+  {
+    roleId: 4,
+    code: "REVIEWER",
+    displayName: "Người rà soát",
+    isSystem: false,
+    editable: true,
+    userCount: 0,
+    permissions: ["report.resolve"],
+  },
+] satisfies T.RoleSummary[]
+
+export const notificationComment = {
+  notificationId: "0192f3d0-4a1b-7c2d-8e3f-9a0b1c2d3e4f",
+  type: "comment",
+  actor: { userId, displayName: "Nguyễn Văn An", avatarUrl: null },
+  actorCount: 4,
+  target: { type: "post", id: reportedPostId, postId: reportedPostId },
+  reasonCode: null,
+  isRead: false,
+  createdAt: "2026-09-25T07:02:11.482913Z",
+  updatedAt: "2026-09-25T08:15:42.123456Z",
+} satisfies T.NotificationResponse
+
+export const notificationModeration = {
+  notificationId: "0192f3cf-11aa-7b22-9c33-4d44e55f6a77",
+  type: "moderation",
+  actor: null,
+  actorCount: 1,
+  target: {
+    type: "post",
+    id: "0192f3c2-5e6f-7a80-9b1c-2d3e4f5a6b7c",
+    postId: "0192f3c2-5e6f-7a80-9b1c-2d3e4f5a6b7c",
+  },
+  reasonCode: "spam",
+  isRead: true,
+  createdAt: "2026-09-24T21:40:03.000001Z",
+  updatedAt: "2026-09-24T21:40:03.000001Z",
+} satisfies T.NotificationResponse
+
+export const searchResult = {
+  userId: userIdKhac,
+  displayName: "Nguyễn Văn An",
+  avatarUrl: null,
+} satisfies T.SearchResult

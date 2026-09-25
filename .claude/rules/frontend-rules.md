@@ -56,7 +56,7 @@ Bốn tầng, phụ thuộc **một chiều**: `app/` → `features/` → `compo
 | `components/ui/` | Kit shadcn | Sinh bởi CLI, không viết tay |
 | `components/form/`, `components/shell/` | UI dùng lại nhiều màn | **Không** biết nghiệp vụ |
 | `hooks/` | Hook React dùng lại nhiều màn (phân trang theo cursor…) — tầng ngang `components/` | **Không** biết nghiệp vụ; ESLint cấm import `@/features/*`, `@/app/*` (thêm 2026-09-23, GĐ4 Q-E8) |
-| `lib/api/`, `lib/auth/`, `lib/validation/` | Hạ tầng, logic không phải React | Test được bằng Vitest, không cần render |
+| `lib/api/`, `lib/auth/`, `lib/validation/`, `lib/moderation/` | Hạ tầng, logic không phải React. `lib/moderation/` (thêm 2026-09-25, GĐ6): nhãn lý do báo cáo mà bốn feature cùng hiện — `features/` không import chéo nhau | Test được bằng Vitest, không cần render |
 | `lib/bff/` | Server của BFF (Đ-E14): phiên, Redis, gọi API | `import "server-only"`; test môi trường `node` |
 
 Đặt file mới thì hỏi hai câu, theo thứ tự: *có biết nghiệp vụ không?* (không → `components/`, hoặc
@@ -177,8 +177,12 @@ dùng nó — `app/(app)/(with-profile)/_interactions/` ráp `features/post` + `
   mount một lần, Next dev mount → unmount → mount lại; lớp lỗi chỉ sống ở lần mount thứ hai nên không ca
   thường nào chạm tới. Ca đó khẳng định **trạng thái cuối đạt được**, **không đếm số request** — dưới
   StrictMode số request tăng gấp đôi một cách hợp lệ, trộn hai thứ vào một ca là tự làm ca test giòn.
-  Chín ca hiện có (liệt kê theo luật này): `post-composer`, `me-profile`, `post-detail`, `user-posts`, `public-profile`, `feed-list`
-  (GĐ4 E4, L5), `relationship-buttons` (GĐ4 E2, L5), `friends-screen` (GĐ4 E3, L5), `comment-thread` (GĐ3 E2 — `AbortController` trang bình luận gốc). Tài nguyên phải là thứ **thật sự tạo lúc mount**: ở `feed-list` đó là `AbortController` của trang
+  Mười chín màn hiện có (liệt kê theo luật này): `post-composer`, `me-profile`, `post-detail`, `user-posts`, `public-profile`, `feed-list`
+  (GĐ4 E4, L5), `relationship-buttons` (GĐ4 E2, L5), `friends-screen` (GĐ4 E3, L5), `comment-thread` (GĐ3 E2 — `AbortController` trang bình luận gốc),
+  và mười màn của GĐ6 (thêm 2026-09-25, khối E): `notification-bell` (timer hỏi lại — ca này khẳng định **một** timer sống, Mục 10.5
+  GĐ6), `search-box` (`AbortController` + debounce), `notification-list`, `moderation-queue`, `report-detail`, `admin-users`,
+  `admin-user-detail`, `roles-screen`, `role-editor`, `audit-log` (đều `AbortController` của lượt nạp đầu; hai cặp danh sách + chi tiết
+  cùng tệp test chung một ca `<StrictMode>` render cả hai màn). Tài nguyên phải là thứ **thật sự tạo lúc mount**: ở `feed-list` đó là `AbortController` của trang
   đầu, không phải observer — observer chỉ tạo sau khi trang đầu về, có ca thường riêng canh việc tạo lại nó.
 - **`waitFor` chờ một handler có `delay` thì ghi `timeout` viết tay.** Mặc định 1s đủ khi chạy riêng file
   và KHÔNG đủ khi chạy cả bộ — ca `Xem thêm` của `user-posts` đỏ ~1/3 lượt vì vậy (đo 2026-09-21). Nới

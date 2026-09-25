@@ -55,8 +55,8 @@ public sealed class PostService(
     /// KHÔNG test tự động nào bắt được; ranh giới hai hàm là lưới duy nhất.</item>
     /// </list>
     ///
-    /// Hai đường 403 (chưa có hồ sơ, key của người khác) dùng CHUNG <see cref="Result{T}.Forbidden"/>: status code không
-    /// lộ gì thì thông điệp cũng không được lộ — hợp đồng ghi rõ "cùng một phản hồi, không nêu lý do nào".
+    /// Hai đường 403: chưa có hồ sơ → <see cref="ContentErrors.ProfileRequired"/> (<c>type</c> riêng, sửa 2026-09-25 — không lộ gì,
+    /// lý do ở chính lỗi đó); key của người khác → <see cref="Result{T}.Forbidden"/>, cùng phản hồi với 403 thiếu quyền của tầng 2.
     /// </summary>
     public async Task<Result<PostResponse>> CreateAsync(Guid actorId, CreatePostRequest request, CancellationToken ct)
     {
@@ -66,7 +66,7 @@ public sealed class PostService(
         // cho `author` của response: không phải hỏi lần thứ hai.
         var cards = await directory.GetManyAsync([actorId], ct);
         if (!cards.TryGetValue(actorId, out var author))
-            return Result<PostResponse>.Forbidden();
+            return ContentErrors.ProfileRequired;
 
         var media = request.MediaKeys ?? [];
 

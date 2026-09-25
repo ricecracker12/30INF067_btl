@@ -40,12 +40,15 @@
 #       `urn:socialapp:problem:account-disabled`. 403 chưa xác minh giữ nguyên hình dạng cũ.
 #     - `RoleCode` nới từ enum ba giá trị thành chuỗi có pattern: từ GĐ6 vai trò là dữ liệu, `/me.role`
 #       có thể là vai trò tự tạo (Đ-6.9, Đ-6.11; lệch L-D16 của hướng dẫn khối D).
+#   Sửa 2026-09-25 (nợ phát hiện ở GĐ6 khối E, chỉ-thêm): schema `AccountDisabledProblem` cho 403 `account-disabled`
+#     của `POST /auth/login` — trước đó `type` chỉ nằm trong mô tả, FE không ràng được chuỗi vào kiểu sinh. Status,
+#     `type`, thân lỗi không đổi; `info.version` 1.1.0-gd6 → 1.2.0-gd6.
 # ---------------------------------------------------------------------------------------------
 openapi: 3.0.3
 
 info:
   title: SocialApp — Identity & Access API
-  version: 1.1.0-gd6
+  version: 1.2.0-gd6
   description: |
     Nhóm endpoint xác thực của GĐ1: đăng ký, xác minh email, đăng nhập, refresh rotation,
     đăng xuất, và `GET /me`.
@@ -288,7 +291,9 @@ paths:
           content:
             application/problem+json:
               schema:
-                $ref: '#/components/schemas/ProblemDetails'
+                oneOf:
+                  - $ref: '#/components/schemas/AccountDisabledProblem'
+                  - $ref: '#/components/schemas/ProblemDetails'
               examples:
                 emailNotVerified:
                   summary: Chưa xác minh email
@@ -607,6 +612,17 @@ components:
             traceId: b6d8f0a2c4e6b8d0f2a4c6e8b0d2f4a6
 
   schemas:
+
+    AccountDisabledProblem:
+      description: 403 của `POST /auth/login` khi tài khoản bị quản trị viên khóa (GĐ6, Đ-6.5). Cùng hình dạng `ProblemDetails`, `type` cố định. *Thêm 2026-09-25.*
+      allOf:
+        - $ref: '#/components/schemas/ProblemDetails'
+        - type: object
+          properties:
+            type:
+              type: string
+              enum: ['urn:socialapp:problem:account-disabled']
+          required: [type]
 
     ProblemDetails:
       type: object

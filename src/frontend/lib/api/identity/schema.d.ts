@@ -194,6 +194,11 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description 403 của `POST /auth/login` khi tài khoản bị quản trị viên khóa (GĐ6, Đ-6.5). Cùng hình dạng `ProblemDetails`, `type` cố định. *Thêm 2026-09-25.* */
+        AccountDisabledProblem: components["schemas"]["ProblemDetails"] & {
+            /** @enum {string} */
+            type: "urn:socialapp:problem:account-disabled";
+        };
         /**
          * @description RFC 7807 Problem Details — dạng lỗi duy nhất của toàn dự án. Sinh bởi
          *     `SocialApp.SharedKernel.Errors.GlobalExceptionHandler`; `traceId` và `type` gắn thống nhất
@@ -644,7 +649,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/problem+json": components["schemas"]["AccountDisabledProblem"] | components["schemas"]["ProblemDetails"];
                 };
             };
             /**

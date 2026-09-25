@@ -180,6 +180,8 @@ public sealed class CreatePostTests(PostgresFixture postgres, ModulesApiFactory 
             var (status, title, _) = await ModulesTestClient.ReadProblemAsync(truoc);
             Assert.Equal((int)HttpStatusCode.Forbidden, status);
             Assert.Equal(ProblemTitles.Forbidden, title);
+            // Sửa 2026-09-25: 403 chưa có hồ sơ mang `type` riêng — FE tách nó khỏi 403 thiếu `post.create` (content-v1 1.3.0-gd6).
+            Assert.Equal(ContentErrors.ProfileRequiredType, await ProblemTypeAsync(truoc));
         }
 
         await OnboardAsync(client, actor);
@@ -215,6 +217,16 @@ public sealed class CreatePostTests(PostgresFixture postgres, ModulesApiFactory 
         Assert.Equal(ProblemTitles.Forbidden, title);
         Assert.Equal(headsBefore, factory.Storage.HeadCalls);
         Assert.DoesNotContain("posts/", responseBody, StringComparison.Ordinal);
+        // Key của người khác KHÔNG có `type` riêng — cùng phản hồi với 403 thiếu quyền (Đ-2.7): `profile-required` chỉ tách nhánh
+        // chưa có hồ sơ, không mở máy dò key.
+        Assert.Equal("https://httpstatuses.io/403", await ProblemTypeAsync(response));
+    }
+
+    /// <summary><c>type</c> của Problem Details (thân đã đệm — đọc lại được sau <c>ReadProblemAsync</c>).</summary>
+    private static async Task<string?> ProblemTypeAsync(HttpResponseMessage response)
+    {
+        using var doc = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return doc.RootElement.GetProperty("type").GetString();
     }
 
     /// <summary>

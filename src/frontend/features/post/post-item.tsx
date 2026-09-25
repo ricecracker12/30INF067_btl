@@ -2,8 +2,12 @@
 
 import { useState, type ReactNode } from "react"
 
+import { EyeOffIcon } from "lucide-react"
+
 import { FormAlert } from "@/components/form/form-alert"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import type { PostResponse } from "@/lib/api/types"
+import { reasonLabel } from "@/lib/moderation/reasons"
 
 import { PostActions } from "./post-actions"
 import { PostCard } from "./post-card"
@@ -53,6 +57,16 @@ export function PostItem({ post, standalone, onChanged, footer }: Props) {
   return (
     <div className="flex flex-col gap-2">
       <FormAlert message={error} />
+      {/* GĐ6 Đ-6.14 (BR-07): `moderation` CHỈ có khi người xem là tác giả — người khác nhận 404 từ server, không tới được đây. */}
+      {post.moderation && (
+        <Alert variant="warning" data-testid="post-hidden-banner">
+          <EyeOffIcon aria-hidden />
+          <AlertDescription>
+            Bài viết này đã bị ẩn vì vi phạm tiêu chuẩn cộng đồng (lý do:{" "}
+            {reasonLabel(post.moderation.reasonCode)}). Chỉ bạn nhìn thấy.
+          </AlertDescription>
+        </Alert>
+      )}
       <PostCard
         post={post}
         standalone={standalone}
@@ -68,6 +82,7 @@ export function PostItem({ post, standalone, onChanged, footer }: Props) {
               }}
               onDeleted={() => onChanged(null)}
               onError={setError}
+              canEditBody={!post.moderation}
             />
           ) : undefined
         }
